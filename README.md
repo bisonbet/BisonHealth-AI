@@ -1,182 +1,224 @@
-# 🚀 **OpenHealth**
+# 🏥 BisonHealth AI
+
+**AI-Powered Personal Health Data Management for iOS**
 
 <div align="center">
 
-**AI Health Assistant | Powered by Your Data**
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Platform-Web-blue?style=for-the-badge" alt="Platform">
-  <img src="https://img.shields.io/badge/Language-TypeScript-blue?style=for-the-badge" alt="Language">
-  <img src="https://img.shields.io/badge/Framework-Next.js-black?style=for-the-badge" alt="Framework">
-</p>
+![iOS](https://img.shields.io/badge/iOS-17.0+-blue?style=for-the-badge&logo=apple)
+![Swift](https://img.shields.io/badge/Swift-5.9+-orange?style=for-the-badge&logo=swift)
+![SwiftUI](https://img.shields.io/badge/SwiftUI-blue?style=for-the-badge&logo=swift)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 </div>
 
 ---
-
-<p align="center">
-  <img src="/intro/openhealth.avif" alt="OpenHealth Demo">
-</p>
 
 ## 🌟 Overview
 
-> OpenHealth helps you **take charge of your health data**. By leveraging AI and your personal health information,
-> OpenHealth provides a private assistant that helps you better understand and manage your health. You can run it completely locally for maximum privacy.
+BisonHealth AI is a privacy-first iOS application that empowers users to take complete control of their health data. By leveraging AI and personal health information, BisonHealth AI provides a private assistant that helps users better understand and manage their health - all while keeping sensitive data securely stored locally on their device.
 
-## ✨ Project Features
+### ✨ Key Features
 
-<details open>
-<summary><b>Core Features</b></summary>
+- 📱 **Native iOS App** - Built with SwiftUI for iOS 17+
+- 🔒 **Privacy-First Design** - All health data stored locally with optional iCloud backup
+- 🤖 **AI-Powered Insights** - Integration with Ollama for intelligent health conversations
+- 📄 **Smart Document Processing** - Automatic extraction of health data from documents using Docling
+- 🩺 **Comprehensive Health Data** - Support for personal info, blood tests, imaging reports, and more
+- 📊 **Data Export** - Export your data in JSON or PDF formats
+- 🌙 **Accessibility** - Full support for Dark Mode, VoiceOver, and Dynamic Type
+- ☁️ **Optional iCloud Backup** - Secure, encrypted backup with granular control
 
-- 📊 **Centralized Health Data Input:** Easily consolidate all your health data in one place.
-- 🛠️ **Smart Parsing:** Automatically parses your health data and generates structured data files.
-- 🤝 **Contextual Conversations:** Use the structured data as context for personalized interactions with powerful AI.
+## 🏗️ Architecture
 
-</details>
+BisonHealth AI follows a modular, privacy-focused architecture:
 
-## 📥 Supporting Data Sources & Language Models
-
-<table>
-  <tr>
-    <th>Data Sources You Can Add</th>
-    <th>Supported Language Models</th>
-  </tr>
-  <tr>
-    <td>
-      • Blood Test Results<br>
-      • Health Checkup Data<br>
-      • Personal Physical Information<br>
-      • Family History<br>
-      • Symptoms
-    </td>
-    <td>
-      • Any model supported by Ollama
-    </td>
-  </tr>
-</table>
-
-## 🤔 Why We Build OpenHealth
-
-> - 💡 **Your health is your responsibility.**
-> - ✅ True health management combines **your data** + **intelligence**, turning insights into actionable plans.
-> - 🧠 AI acts as an unbiased tool to guide and support you in managing your long-term health effectively.
-
-## 🗺️ Project Diagram
-
-```mermaid
-graph LR
-    subgraph Health Data Sources
-        A1[Clinical Records<br>Blood Tests/Diagnoses/<br>Prescriptions/Imaging]
-        A2[Health Platforms<br>Apple Health/Google Fit]
-        A3[Wearable Devices<br>Oura/Whoop/Garmin]
-        A4[Personal Records<br>Diet/Symptoms/<br>Family History]
-    end
-
-    subgraph Data Processing
-        B1[Data Parser & Standardization]
-        B2[Unified Health Data Format]
-    end
-
-    subgraph AI Integration
-        C1[LLM Processing<br>Local Models via Ollama]
-        C2[Interaction Methods<br>RAG/Cache/Agents]
-    end
-
-    A1 & A2 & A3 & A4 --> B1
-    B1 --> B2
-    B2 --> C1
-    C1 --> C2
-
-    style A1 fill:#e6b3cc,stroke:#cc6699,stroke-width:2px,color:#000
-    style A2 fill:#b3d9ff,stroke:#3399ff,stroke-width:2px,color:#000
-    style A3 fill:#c2d6d6,stroke:#669999,stroke-width:2px,color:#000
-    style A4 fill:#d9c3e6,stroke:#9966cc,stroke-width:2px,color:#000
-    
-    style B1 fill:#c6ecd9,stroke:#66b399,stroke-width:2px,color:#000
-    style B2 fill:#c6ecd9,stroke:#66b399,stroke-width:2px,color:#000
-    
-    style C1 fill:#ffe6cc,stroke:#ff9933,stroke-width:2px,color:#000
-    style C2 fill:#ffe6cc,stroke:#ff9933,stroke-width:2px,color:#000
-
-    classDef default color:#000
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    BisonHealth AI                           │
+├─────────────────────────────────────────────────────────────┤
+│  SwiftUI Views & ViewModels (MVVM Pattern)                 │
+├─────────────────────────────────────────────────────────────┤
+│  Business Logic Layer                                       │
+│  ├── Health Data Manager                                    │
+│  ├── Document Processor                                     │
+│  ├── AI Chat Manager                                        │
+│  └── Export Manager                                         │
+├─────────────────────────────────────────────────────────────┤
+│  Data Access Layer                                          │
+│  ├── SQLite Database Manager (Encrypted)                   │
+│  ├── File System Manager                                    │
+│  └── iCloud Backup Manager                                  │
+├─────────────────────────────────────────────────────────────┤
+│  External Service Layer                                     │
+│  ├── Ollama Client (AI Chat)                               │
+│  ├── Docling Client (Document Processing)                  │
+│  └── Extensible AI Provider Interface                       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-> **Note:** The data parsing functionality is currently implemented in a separate Python server and is planned to be migrated to TypeScript in the future.
+## 🚀 Getting Started
 
-## Getting Started
+### Prerequisites
 
-## ⚙️ How to Run OpenHealth
+- Xcode 15.0 or later
+- iOS 17.0+ deployment target
+- Swift 5.9+
+- Access to Ollama server for AI functionality
+- Access to Docling server for document processing
 
-<details open>
-<summary><b>Installation Instructions</b></summary>
+### Installation
 
-1. **Clone the Repository:**
+1. **Clone the repository:**
    ```bash
-   git clone https://github.com/bisonbet/open-health.git
-   cd open-health
+   git clone git@github.com:bisonbet/BisonHealth-AI.git
+   cd BisonHealth-AI
    ```
 
-2. **Setup and Run:**
-
-  For a full, self contained application:
+2. **Open in Xcode:**
    ```bash
-   # Copy environment file
-   cp .env.example .env
-
-   # Start the application using Docker/Podman Compose with Ollama and Docling with default .env
-   docker/podman compose -f docker-compose.yaml --env-file .env --profile ollama,docling up -d
-
-   # Start the application using Docker/Podman Compose with Ollama and Docling with local NVIDIA GPU support with default .env
-   docker/podman compose -f docker-compose.yaml -f docker-compose.gpu.yml --env-file .env --profile ollama,docling up -d
+   open BisonHealthAI.xcodeproj
    ```
 
-  To use an external docling and/or ollama instance:
-   ```bash
-   # Copy environment file
-   cp .env.example .env
+3. **Install Dependencies:**
+   - Dependencies are managed via Swift Package Manager
+   - Xcode will automatically resolve packages on first build
 
-   # Edit environment file - change OLLAMA_URL and/or DOCLING_URL
-   nano .env
+4. **Configure External Services:**
+   - Set up your Ollama server for AI chat functionality
+   - Set up your Docling server for document processing
+   - Configure server endpoints in the app settings
 
-   # Start the application using Docker/Podman Compose with an external Ollama and Docling
-   docker/podman compose -f docker-compose.yaml --env-file .env up -d
+### Building and Running
 
-   # Start the application using Docker/Podman Compose with a local Ollama and external Docling
-   docker/podman compose -f docker-compose.yaml --env-file .env --profile ollama up -d
+1. Select your target device or simulator
+2. Build and run the project (⌘+R)
+3. Configure server connections in Settings
+4. Start importing your health data!
 
-   # Start the application using Docker/Podman Compose with an external Ollama and local Docling
-   docker/podman compose -f docker-compose.yaml --env-file .env --profile docling up -d
-   ```
+## 📋 Supported Health Data Types
 
-   For making a unique encryption key:
-   ```bash
-   # Generate ENCRYPTION_KEY for .env file:
-   # Run the command below and add the output to ENCRYPTION_KEY in .env
-   echo $(head -c 32 /dev/urandom | base64)
+### Currently Implemented
+- **Personal Information** - Demographics, medical history, medications, allergies
+- **Blood Test Results** - Comprehensive lab results with reference ranges
 
-   # Rebuild and start the application
-   docker/podman compose --env-file .env up -d --build
-   ```
-   to rebuild the image. Run this also if you make any modifications to the .env file.
+### Planned Features
+- **Imaging Reports** - X-rays, MRIs, CT scans, ultrasounds
+- **Health Checkups** - Regular health assessments and vital signs
+- **Wearable Data Integration** - Apple Health, fitness trackers
+- **Medication Tracking** - Prescription management and reminders
 
-3. **Access OpenHealth:**
-   Open your browser and navigate to `https://localhost` to begin using OpenHealth.
+## 🔧 Configuration
 
-> **Note:** The system consists of two main components: document parsing and LLM. 
-For document parsing, we use docling, an open source project lead by IBM.
-For LLM chat and vision, we use Ollama and the model(s) of your choice.
+### Server Setup
 
-> **Note:** On first run, if you are using the local ollama container, it will download two models - gemma3:4b for vision parsing and deepseek-r1:8b for interactive discussion. This will take a bit of time!  You are welcome to use bigger and/or different models limited only by your own hardware specs.
+BisonHealth AI requires two external services:
 
-</details>
+1. **Ollama Server** - For AI chat functionality
+   - Install and run Ollama on your local network or remote server
+   - Configure hostname and port in app settings
+   - Supports any Ollama-compatible models
+
+2. **Docling Server** - For document processing
+   - Set up Docling server for document parsing
+   - Configure hostname and port in app settings
+   - Processes PDFs, images, and other document formats
+
+### Privacy Settings
+
+- **Local Storage** - All health data encrypted and stored locally
+- **iCloud Backup** - Optional, user-controlled backup to iCloud
+- **Data Export** - Export your data anytime in JSON or PDF format
+- **No Cloud Dependencies** - Core functionality works completely offline
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+BisonHealthAI/
+├── BisonHealthAI/
+│   ├── Models/              # Data models and protocols
+│   ├── Views/               # SwiftUI views and components
+│   ├── ViewModels/          # MVVM view models
+│   ├── Services/            # Business logic and external services
+│   ├── Database/            # SQLite database management
+│   ├── Utils/               # Utility functions and extensions
+│   └── Resources/           # Assets, localizations, etc.
+├── BisonHealthAITests/      # Unit tests
+├── BisonHealthAIUITests/    # UI tests
+└── Docs/                    # Documentation and specs
+    └── specs/               # Detailed specification documents
+```
+
+### Key Technologies
+
+- **SwiftUI** - Modern iOS UI framework
+- **SQLite.swift** - Type-safe SQLite wrapper
+- **CryptoKit** - Encryption for sensitive data
+- **VisionKit** - Document scanning capabilities
+- **Combine** - Reactive programming framework
+
+### Testing
+
+```bash
+# Run unit tests
+xcodebuild test -scheme BisonHealthAI -destination 'platform=iOS Simulator,name=iPhone 15'
+
+# Run UI tests
+xcodebuild test -scheme BisonHealthAIUITests -destination 'platform=iOS Simulator,name=iPhone 15'
+```
+
+## 📖 Documentation
+
+Detailed documentation is available in the `/Docs/specs/` directory:
+
+- **[Requirements](Docs/specs/ios-health-app/requirements.md)** - Detailed user stories and acceptance criteria
+- **[Design](Docs/specs/ios-health-app/design.md)** - Architecture and technical design
+- **[Tasks](Docs/specs/ios-health-app/tasks.md)** - Implementation roadmap and task breakdown
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our contributing guidelines for details on:
+
+- Code style and conventions
+- Testing requirements
+- Pull request process
+- Issue reporting
+
+## 🔒 Privacy & Security
+
+BisonHealth AI is built with privacy as the foundation:
+
+- **Local-First** - All sensitive data stays on your device
+- **Encryption** - Health data encrypted using CryptoKit
+- **No Tracking** - No analytics, tracking, or data collection
+- **Open Source** - Transparent, auditable codebase
+- **User Control** - You decide what data to backup or export
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+- **Issues** - Report bugs or request features via GitHub Issues
+- **Discussions** - Join community discussions in GitHub Discussions
+- **Documentation** - Check the `/Docs/` directory for detailed guides
+
+## 🗺️ Roadmap
+
+- [ ] **Phase 1** - Core health data management and AI chat
+- [ ] **Phase 2** - Advanced document processing and imaging reports
+- [ ] **Phase 3** - Wearable device integration and Apple Health sync
+- [ ] **Phase 4** - Advanced AI features and health insights
+- [ ] **Phase 5** - Multi-language support and accessibility enhancements
 
 ---
 
-## 🌐 Community and Support
-
 <div align="center">
 
-### 💫 Share Your Story & Get Updated & Give Feedback
+**Built with ❤️ for health data privacy and user empowerment**
+
+[Report Bug](https://github.com/bisonbet/BisonHealth-AI/issues) • [Request Feature](https://github.com/bisonbet/BisonHealth-AI/issues) • [Documentation](Docs/)
 
 </div>
-

@@ -1,55 +1,148 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Xcode
+#
+# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+## User settings
+xcuserdata/
 
-# testing
-/coverage
+## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
+*.xcscmblueprint
+*.xccheckout
 
-# next.js
-/.next/
-/out/
+## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
+build/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
 
-# production
-/build
+## Obj-C/Swift specific
+*.hmap
 
-# misc
+## App packaging
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager
+#
+# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
+# Packages/
+# Package.pins
+# Package.resolved
+# *.xcodeproj
+#
+# Xcode automatically generates this directory with a .xcworkspacedata file and xcuserdata
+# hence it is not needed unless you have added a package configuration file to your project
+# .swiftpm
+
+.build/
+
+# CocoaPods
+#
+# We recommend against adding the Pods directory to your .gitignore. However
+# you should judge for yourself, the pros and cons are mentioned at:
+# https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
+#
+# Pods/
+#
+# Add this line if you want to avoid checking in source code from the Xcode workspace
+# *.xcworkspace
+
+# Carthage
+#
+# Add this line if you want to avoid checking in source code from Carthage dependencies.
+# Carthage/Checkouts
+
+Carthage/Build/
+
+# Accio dependency management
+Dependencies/
+.accio/
+
+# fastlane
+#
+# It is recommended to not store the screenshots in the git repo.
+# Instead, use fastlane to re-generate the screenshots whenever they are needed.
+# For more information about the recommended setup visit:
+# https://docs.fastlane.tools/best-practices/source-control/
+
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+#
+# After new code Injection tools there's a generated folder /iOSInjectionProject
+# https://github.com/johnno1962/injectionforxcode
+
+iOSInjectionProject/
+
+# macOS
 .DS_Store
-*.pem
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+# IDEs
+.vscode/
+.idea/
 
-# env files (can opt-in for committing if needed)
-.env*
-!.env.example
+# Temporary files
+*.tmp
+*.temp
+*~
 
-# vercel
-.vercel
+# Health App Specific
+# Local database files (these should not be committed)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Local health documents (privacy)
+Documents/HealthApp/
+LocalDocuments/
 
-# public/uploads
-public/uploads/*
+# Configuration files with sensitive data
+Config/Production.plist
+Config/Secrets.plist
 
-# nginx/certs
-nginx/certs/*
-!nginx/certs/.gitkeep
+# Logs
+*.log
+Logs/
 
-# nginx/conf.d
-nginx/conf.d/*
-!nginx/conf.d/site.example
+# Test coverage
+*.gcov
+*.gcda
+*.gcno
+coverage/
 
-.trigger
+# Backup files
+*.backup
+*.bak
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Certificates and provisioning profiles
+*.p12
+*.mobileprovision
+*.cer
+*.certSigningRequest
+
+# App Store Connect API Key
+AuthKey_*.p8
+
+# Simulator specific
+**/iOS Simulator/
+node_modules
