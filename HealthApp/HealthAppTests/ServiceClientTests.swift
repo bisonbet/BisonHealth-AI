@@ -108,7 +108,7 @@ final class ServiceClientTests: XCTestCase {
     
     // MARK: - Docling Client Tests
     func testDoclingClientInitialization() {
-        let client = DoclingClient(hostname: "localhost", port: 8080)
+        let client = DoclingClient(hostname: "localhost", port: 5001)
         
         XCTAssertFalse(client.isConnected)
         XCTAssertEqual(client.connectionStatus.displayName, "Disconnected")
@@ -367,7 +367,7 @@ final class ServiceClientTests: XCTestCase {
     }
     
     func testDocumentTypeMimeTypeMapping() {
-        let client = DoclingClient(hostname: "localhost", port: 8080)
+        let client = DoclingClient(hostname: "localhost", port: 5001)
         
         // Test private method through reflection or make it internal for testing
         // For now, we'll test the DocumentType enum directly

@@ -6,6 +6,11 @@ struct MessageInputView: View {
     let onSend: () -> Void
     
     @FocusState private var isTextFieldFocused: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -20,14 +25,24 @@ struct MessageInputView: View {
                     .cornerRadius(20)
                     .focused($isTextFieldFocused)
                     .disabled(!isEnabled)
-                    .lineLimit(1...5)
+                    .lineLimit(1...8)
+                    .onSubmit {
+                        if isIPad {
+                            // On iPad, Enter sends message
+                            if canSend {
+                                onSend()
+                            }
+                        }
+                    }
                 
                 Button(action: {
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         onSend()
-                        // Remove immediate focus setting to prevent keyboard constraint conflicts
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            isTextFieldFocused = true
+                        if isIPad {
+                            // Keep focus on iPad for continuous typing
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                isTextFieldFocused = true
+                            }
                         }
                     }
                 }) {
@@ -36,6 +51,7 @@ struct MessageInputView: View {
                         .foregroundColor(canSend ? .blue : .secondary)
                 }
                 .disabled(!canSend)
+                .keyboardShortcut(.return, modifiers: isIPad ? [.command] : [])
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

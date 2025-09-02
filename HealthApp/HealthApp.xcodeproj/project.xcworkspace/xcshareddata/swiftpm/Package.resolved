@@ -1,6 +1,15 @@
 {
-  "originHash" : "42598adf0e546dd7490b40b2fd0f5298dee9c098f71dcdbfcb5cc4c07573f374",
+  "originHash" : "f9a35eb630aa4fe7e9c63d3ff8d67c41d15af38524f643ea039a6c27e46bec75",
   "pins" : [
+    {
+      "identity" : "ollama-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bisonbet/ollama-swift.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0293b226a431b9fc51c96998321ea57a9a99bf7e"
+      }
+    },
     {
       "identity" : "sqlite.swift",
       "kind" : "remoteSourceControl",

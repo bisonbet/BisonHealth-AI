@@ -99,6 +99,34 @@ struct DocumentRowView: View {
                 onTap()
             }
         }
+        .contextMenu {
+            Button("View Details", systemImage: "info.circle") {
+                onTap()
+            }
+            
+            Button("Share", systemImage: "square.and.arrow.up") {
+                // Share functionality would be handled by parent
+            }
+            
+            Divider()
+            
+            if document.processingStatus == .pending || document.processingStatus == .failed {
+                Button("Process Now", systemImage: "gear") {
+                    Task {
+                        await DocumentProcessor.shared.addToQueue(document, priority: .urgent)
+                    }
+                }
+            }
+            
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                Task {
+                    await DocumentManager.shared.deleteDocument(document)
+                }
+            }
+        }
+        .accessibilityLabel("Document: \(document.fileName)")
+        .accessibilityValue("Status: \(document.processingStatus.displayName), Size: \(document.formattedFileSize)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

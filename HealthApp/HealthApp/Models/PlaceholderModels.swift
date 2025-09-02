@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Imaging Report (Placeholder)
 struct ImagingReport: HealthDataProtocol {
     let id: UUID
-    let type: HealthDataType = .imagingReport
+    var type: HealthDataType { .imagingReport }
     
     // Placeholder properties for future implementation
     var studyDate: Date?
@@ -49,7 +49,7 @@ struct ImagingReport: HealthDataProtocol {
 // MARK: - Health Checkup (Placeholder)
 struct HealthCheckup: HealthDataProtocol {
     let id: UUID
-    let type: HealthDataType = .healthCheckup
+    var type: HealthDataType { .healthCheckup }
     
     // Placeholder properties for future implementation
     var checkupDate: Date?

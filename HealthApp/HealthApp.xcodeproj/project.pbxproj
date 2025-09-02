@@ -7,6 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */; };
+		1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */ = {isa = PBXBuildFile; productRef = 1427C64A2E667B2500EBEFB0 /* Ollama */; };
+		1427C6532E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */; };
+		1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */; };
+		1427C6552E66847000EBEFB0 /* DocumentFilterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */; };
+		1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */; };
+		1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6512E66847000EBEFB0 /* DocumentGridView.swift */; };
+		1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */; };
+		1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */; };
+		1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */; };
+		2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */; };
+		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
+		71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */; };
+		7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */; };
+		7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */; };
+		9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */; };
+		9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */; };
 		A1000001294A0000000000001 /* HealthAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002294A0000000000001 /* HealthAppApp.swift */; };
 		A1000003294A0000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004294A0000000000001 /* ContentView.swift */; };
 		A1000005294A0000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000006294A0000000000001 /* Assets.xcassets */; };
@@ -33,32 +50,23 @@
 		A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000067294A0000000000001 /* AIProviderInterface.swift */; };
 		A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000069294A0000000000001 /* ServiceClientTests.swift */; };
 		A1000070294A0000000000001 /* HealthDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000071294A0000000000001 /* HealthDataManager.swift */; };
-		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
-		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
-		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
 		A1000072294A0000000000001 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000073294A0000000000001 /* Keychain.swift */; };
 		A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000075294A0000000000001 /* HealthDataManagerTests.swift */; };
-		7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */; };
-		LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */; };
-		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
-		9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */; };
-		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
-		9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */; };
-		1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */; };
-		7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */; };
-		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
-		NOGIZO9RJZY59O1P2JP03MX6 /* HealthDataContextSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */; };
-		NYKH99Y51U8QC2SPCELX794F /* MessageInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */; };
-		IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */; };
-		E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */; };
-		NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */; };
-		06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */; };
-		DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */; };
+		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
+		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
+		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
 		AP42ZSRFIED99JHF9ESMG04E /* StorageUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */; };
-		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
+		DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */; };
+		E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */; };
 		HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */; };
-		71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */; };
-		2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */; };
+		IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */; };
+		LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */; };
+		NOGIZO9RJZY59O1P2JP03MX6 /* HealthDataContextSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */; };
+		NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */; };
+		NYKH99Y51U8QC2SPCELX794F /* MessageInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */; };
+		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
+		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
+		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +80,19 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmptyStateView.swift; sourceTree = "<group>"; };
+		0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoSection.swift; sourceTree = "<group>"; };
+		1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchProcessingView.swift; sourceTree = "<group>"; };
+		1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailView.swift; sourceTree = "<group>"; };
+		1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSidebarView.swift; sourceTree = "<group>"; };
+		1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentDetailView.swift; sourceTree = "<group>"; };
+		1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentFilterView.swift; sourceTree = "<group>"; };
+		1427C6512E66847000EBEFB0 /* DocumentGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentGridView.swift; sourceTree = "<group>"; };
+		1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentKeyboardShortcuts.swift; sourceTree = "<group>"; };
+		4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryView.swift; sourceTree = "<group>"; };
+		4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorView.swift; sourceTree = "<group>"; };
+		5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestsSection.swift; sourceTree = "<group>"; };
+		68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsOfServiceView.swift; sourceTree = "<group>"; };
 		A1000001294A0000000000000 /* HealthApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HealthApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000002294A0000000000001 /* HealthAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthAppApp.swift; sourceTree = "<group>"; };
 		A1000004294A0000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -99,32 +120,26 @@
 		A1000067294A0000000000001 /* AIProviderInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderInterface.swift; sourceTree = "<group>"; };
 		A1000069294A0000000000001 /* ServiceClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceClientTests.swift; sourceTree = "<group>"; };
 		A1000071294A0000000000001 /* HealthDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManager.swift; sourceTree = "<group>"; };
-		ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
-		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
-		AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
 		A1000073294A0000000000001 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		A1000075294A0000000000001 /* HealthDataManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManagerTests.swift; sourceTree = "<group>"; };
-		4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryView.swift; sourceTree = "<group>"; };
-		5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestsSection.swift; sourceTree = "<group>"; };
-		0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmptyStateView.swift; sourceTree = "<group>"; };
-		H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
-		I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
-		NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataExportView.swift; sourceTree = "<group>"; };
-		TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentCameraView.swift; sourceTree = "<group>"; };
-		Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentListView.swift; sourceTree = "<group>"; };
-		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
-		C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataContextSelector.swift; sourceTree = "<group>"; };
+		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
+		AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
+		ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
+		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageInputView.swift; sourceTree = "<group>"; };
 		B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
-		4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorView.swift; sourceTree = "<group>"; };
-		0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoSection.swift; sourceTree = "<group>"; };
-		JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderSection.swift; sourceTree = "<group>"; };
-		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
-		MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageUsageView.swift; sourceTree = "<group>"; };
-		68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsOfServiceView.swift; sourceTree = "<group>"; };
-		TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManagerTests.swift; sourceTree = "<group>"; };
+		C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataContextSelector.swift; sourceTree = "<group>"; };
+		H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
 		HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIntegrationTests.swift; sourceTree = "<group>"; };
+		I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
+		JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderSection.swift; sourceTree = "<group>"; };
+		MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageUsageView.swift; sourceTree = "<group>"; };
+		NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataExportView.swift; sourceTree = "<group>"; };
+		TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentCameraView.swift; sourceTree = "<group>"; };
+		TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManagerTests.swift; sourceTree = "<group>"; };
+		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
 		X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessingIntegrationTests.swift; sourceTree = "<group>"; };
+		Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentListView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,6 +147,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */,
 				A1000009294A0000000000001 /* SQLite in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -206,6 +222,13 @@
 		A1000012294A0000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */,
+				1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */,
+				1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */,
+				1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */,
+				1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */,
+				1427C6512E66847000EBEFB0 /* DocumentGridView.swift */,
+				1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */,
 				4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */,
 				5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */,
 				0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */,
@@ -311,6 +334,7 @@
 			name = HealthApp;
 			packageProductDependencies = (
 				A1000010294A0000000000001 /* SQLite */,
+				1427C64A2E667B2500EBEFB0 /* Ollama */,
 			);
 			productName = HealthApp;
 			productReference = A1000001294A0000000000000 /* HealthApp.app */;
@@ -360,6 +384,7 @@
 			mainGroup = A1000000294A0000000000002;
 			packageReferences = (
 				A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */,
+				1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
 			projectDirPath = "";
@@ -407,6 +432,13 @@
 				A1000044294A0000000000001 /* DatabaseManager+HealthData.swift in Sources */,
 				A1000046294A0000000000001 /* DatabaseManager+Documents.swift in Sources */,
 				A1000048294A0000000000001 /* DatabaseManager+Chat.swift in Sources */,
+				1427C6532E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift in Sources */,
+				1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */,
+				1427C6552E66847000EBEFB0 /* DocumentFilterView.swift in Sources */,
+				1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */,
+				1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */,
+				1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */,
+				1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
@@ -595,7 +627,7 @@
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Bison Health";
+				INFOPLIST_KEY_CFBundleDisplayName = "BisonHealth AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
@@ -633,7 +665,7 @@
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Bison Health";
+				INFOPLIST_KEY_CFBundleDisplayName = "BisonHealth AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
@@ -735,6 +767,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/bisonbet/ollama-swift.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 		A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
@@ -746,6 +786,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1427C64A2E667B2500EBEFB0 /* Ollama */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */;
+			productName = Ollama;
+		};
 		A1000010294A0000000000001 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */;

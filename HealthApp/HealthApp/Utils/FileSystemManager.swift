@@ -280,34 +280,20 @@ class FileSystemManager: ObservableObject {
     // MARK: - Cleanup Operations
     func cleanupOrphanedFiles(keepingDocuments: Set<String>, keepingThumbnails: Set<String>) async throws {
         // Clean up orphaned document files
-        let documentEnumerator = FileManager.default.enumerator(
-            at: documentsDirectory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        
-        if let documentEnumerator = documentEnumerator {
-            for case let fileURL as URL in documentEnumerator {
-                let fileName = fileURL.lastPathComponent
-                if !keepingDocuments.contains(fileName) {
-                    try FileManager.default.removeItem(at: fileURL)
-                }
+        let documentContents = try FileManager.default.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
+        for fileURL in documentContents {
+            let fileName = fileURL.lastPathComponent
+            if !keepingDocuments.contains(fileName) {
+                try FileManager.default.removeItem(at: fileURL)
             }
         }
         
         // Clean up orphaned thumbnail files
-        let thumbnailEnumerator = FileManager.default.enumerator(
-            at: thumbnailsDirectory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        
-        if let thumbnailEnumerator = thumbnailEnumerator {
-            for case let fileURL as URL in thumbnailEnumerator {
-                let fileName = fileURL.lastPathComponent
-                if !keepingThumbnails.contains(fileName) {
-                    try FileManager.default.removeItem(at: fileURL)
-                }
+        let thumbnailContents = try FileManager.default.contentsOfDirectory(at: thumbnailsDirectory, includingPropertiesForKeys: nil)
+        for fileURL in thumbnailContents {
+            let fileName = fileURL.lastPathComponent
+            if !keepingThumbnails.contains(fileName) {
+                try FileManager.default.removeItem(at: fileURL)
             }
         }
     }

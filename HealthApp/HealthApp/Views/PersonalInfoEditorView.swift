@@ -40,6 +40,12 @@ struct PersonalInfoEditorView: View {
     @State private var weightTextInput = ""
     @State private var showWeightTextInput = false
     
+    // Validation states
+    @State private var nameValidationError: String?
+    @State private var heightValidationError: String?
+    @State private var weightValidationError: String?
+    @State private var dateOfBirthValidationError: String?
+    
     init(personalInfo: PersonalHealthInfo?, onSave: @escaping (PersonalHealthInfo) -> Void) {
         self.personalInfo = personalInfo
         self.onSave = onSave
@@ -65,27 +71,54 @@ struct PersonalInfoEditorView: View {
         NavigationStack {
             Form {
                 Section("Basic Information") {
-                    TextField("Full Name", text: Binding(
-                        get: { editedInfo.name ?? "" },
-                        set: { editedInfo.name = $0.isEmpty ? nil : $0 }
-                    ))
-                    .focused($focusedField, equals: .name)
-                    .onTapGesture {
-                        // Dismiss keyboard from other fields before focusing
-                        focusedField = nil
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            focusedField = .name
+                    VStack(alignment: .leading) {
+                        TextField("Full Name", text: Binding(
+                            get: { editedInfo.name ?? "" },
+                            set: { newValue in
+                                editedInfo.name = newValue.isEmpty ? nil : newValue
+                                validateName(newValue)
+                            }
+                        ))
+                        .focused($focusedField, equals: .name)
+                        .onTapGesture {
+                            // Dismiss keyboard from other fields before focusing
+                            focusedField = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                focusedField = .name
+                            }
+                        }
+                        .accessibilityIdentifier("personalInfo.nameField")
+                        
+                        if let error = nameValidationError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .accessibilityIdentifier("personalInfo.nameError")
                         }
                     }
                     
-                    DatePicker(
-                        "Date of Birth",
-                        selection: Binding(
-                            get: { editedInfo.dateOfBirth ?? Date() },
-                            set: { editedInfo.dateOfBirth = $0 }
-                        ),
-                        displayedComponents: .date
-                    )
+                    VStack(alignment: .leading) {
+                        DatePicker(
+                            "Date of Birth",
+                            selection: Binding(
+                                get: { editedInfo.dateOfBirth ?? Date() },
+                                set: { newValue in
+                                    editedInfo.dateOfBirth = newValue
+                                    validateDateOfBirth(newValue)
+                                }
+                            ),
+                            in: Date.distantPast...Date(),
+                            displayedComponents: .date
+                        )
+                        .accessibilityIdentifier("personalInfo.dateOfBirthPicker")
+                        
+                        if let error = dateOfBirthValidationError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .accessibilityIdentifier("personalInfo.dateOfBirthError")
+                        }
+                    }
                     
                     Picker("Sex", selection: Binding(
                         get: { editedInfo.gender ?? .preferNotToSay },
@@ -227,6 +260,13 @@ struct PersonalInfoEditorView: View {
                         Text(currentHeightDisplay)
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        
+                        if let error = heightValidationError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .accessibilityIdentifier("personalInfo.heightError")
+                        }
                     }
                     
                     // Weight input
@@ -314,6 +354,13 @@ struct PersonalInfoEditorView: View {
                         Text(currentWeightDisplay)
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        
+                        if let error = weightValidationError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .accessibilityIdentifier("personalInfo.weightError")
+                        }
                     }
                 }
                 
@@ -353,6 +400,8 @@ struct PersonalInfoEditorView: View {
                         onSave(editedInfo)
                         dismiss()
                     }
+                    .disabled(!isFormValid)
+                    .accessibilityIdentifier("personalInfo.saveButton")
                 }
             }
         }
@@ -367,11 +416,13 @@ struct PersonalInfoEditorView: View {
         }
         // Always store in centimeters internally
         editedInfo.height = Measurement(value: heightCentimeters, unit: UnitLength.centimeters)
+        validateHeight()
     }
     
     private func updateWeight() {
         // Always store in kilograms internally
         editedInfo.weight = Measurement(value: weightKilograms, unit: UnitMass.kilograms)
+        validateWeight()
     }
     
     private var currentHeightDisplay: String {
@@ -408,6 +459,91 @@ struct PersonalInfoEditorView: View {
             weightKilograms = kgValue
             weightPounds = kgValue * 2.20462
         }
+    }
+    
+    // MARK: - Validation Functions
+    
+    private func validateName(_ name: String) {
+        nameValidationError = nil
+        
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if trimmedName.isEmpty {
+            return // Optional field, no error for empty
+        }
+        
+        if trimmedName.count < 2 {
+            nameValidationError = "Name must be at least 2 characters"
+        } else if trimmedName.count > 100 {
+            nameValidationError = "Name must be less than 100 characters"
+        } else if !trimmedName.allSatisfy({ $0.isLetter || $0.isWhitespace || $0 == "." || $0 == "-" || $0 == "'" }) {
+            nameValidationError = "Name can only contain letters, spaces, periods, hyphens, and apostrophes"
+        }
+    }
+    
+    private func validateDateOfBirth(_ date: Date) {
+        dateOfBirthValidationError = nil
+        
+        let calendar = Calendar.current
+        let now = Date()
+        
+        // Check if date is in the future
+        if date > now {
+            dateOfBirthValidationError = "Date of birth cannot be in the future"
+            return
+        }
+        
+        // Check if age is reasonable (0-150 years)
+        let ageComponents = calendar.dateComponents([.year], from: date, to: now)
+        if let age = ageComponents.year {
+            if age > 150 {
+                dateOfBirthValidationError = "Please enter a valid date of birth"
+            }
+        }
+    }
+    
+    private func validateHeight() {
+        heightValidationError = nil
+        
+        if useImperialUnits {
+            let totalInches = Double(heightFeet * 12 + heightInches)
+            if totalInches < 36 { // 3 feet
+                heightValidationError = "Height must be at least 3 feet"
+            } else if totalInches > 107 { // 8'11"
+                heightValidationError = "Height must be less than 9 feet"
+            }
+        } else {
+            if heightCentimeters < 100 {
+                heightValidationError = "Height must be at least 100 cm"
+            } else if heightCentimeters > 220 {
+                heightValidationError = "Height must be less than 220 cm"
+            }
+        }
+    }
+    
+    private func validateWeight() {
+        weightValidationError = nil
+        
+        if useImperialUnits {
+            if weightPounds < 80 {
+                weightValidationError = "Weight must be at least 80 lbs"
+            } else if weightPounds > 400 {
+                weightValidationError = "Weight must be less than 400 lbs"
+            }
+        } else {
+            if weightKilograms < 35 {
+                weightValidationError = "Weight must be at least 35 kg"
+            } else if weightKilograms > 180 {
+                weightValidationError = "Weight must be less than 180 kg"
+            }
+        }
+    }
+    
+    private var isFormValid: Bool {
+        return nameValidationError == nil &&
+               heightValidationError == nil &&
+               weightValidationError == nil &&
+               dateOfBirthValidationError == nil
     }
 }
 

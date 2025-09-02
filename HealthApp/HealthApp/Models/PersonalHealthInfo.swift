@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Personal Health Information
 struct PersonalHealthInfo: HealthDataProtocol {
     let id: UUID
-    let type: HealthDataType = .personalInfo
+    var type: HealthDataType { .personalInfo }
     
     // Basic Information
     var name: String?

@@ -149,21 +149,6 @@ enum ProcessingStatus: String, CaseIterable, Codable {
             return "list.bullet"
         }
     }
-    
-    var color: String {
-        switch self {
-        case .pending:
-            return "orange"
-        case .processing:
-            return "blue"
-        case .completed:
-            return "green"
-        case .failed:
-            return "red"
-        case .queued:
-            return "gray"
-        }
-    }
 }
 
 // MARK: - Type-Erased Health Data

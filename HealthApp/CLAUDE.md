@@ -1,8 +1,8 @@
-# CLAUDE.md - HealthApp iOS Project Guide
+# CLAUDE.md - BisonHealth AI iOS Project Guide
 
 ## Project Overview
 
-**HealthApp** is a privacy-first iOS application for personal health data management with AI-powered assistance. The app prioritizes local data storage with encryption and provides AI chat functionality using personal health data as context.
+**BisonHealth AI** is a privacy-first iOS application for personal health data management with AI-powered assistance. The app prioritizes local data storage with encryption and provides AI chat functionality using personal health data as context.
 
 This iOS app is based on a legacy Next.js web application (see [Legacy Reference](#legacy-reference) below) and implements similar functionality with a native iOS interface optimized for both iPhone and iPad.
 
@@ -171,7 +171,7 @@ HealthAppTests/
 - **Status**: Connection testing implemented
 
 ### Docling Document Processing
-- **Default**: localhost:8080
+- **Default**: localhost:5001
 - **Purpose**: Extract text/data from documents
 - **Formats**: PDF, images, text files
 - **Integration**: Via DocumentProcessor
@@ -271,7 +271,7 @@ If project becomes corrupted:
 
 ## Legacy Reference
 
-The iOS HealthApp is based on a legacy Next.js web application located in `/legacy/web-app/`. This web application serves as a reference for:
+The iOS BisonHealth AI app is based on a legacy Next.js web application located in `/legacy/web-app/`. This web application serves as a reference for:
 
 ### Web Application Structure (`/legacy/web-app/`)
 - **Framework**: Next.js 14+ with TypeScript

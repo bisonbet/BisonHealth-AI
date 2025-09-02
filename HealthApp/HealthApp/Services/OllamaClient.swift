@@ -1,4 +1,5 @@
 import Foundation
+import Ollama
 
 // MARK: - Ollama Client
 @MainActor
@@ -10,23 +11,19 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     @Published var isConnected = false
     @Published var connectionStatus: ConnectionStatus = .disconnected
     @Published var lastError: Error?
+    @Published var isStreaming = false
+    @Published var streamingContent = ""
     
-    private let baseURL: URL
-    private let session: URLSession
+    private let client: Client
     private let timeout: TimeInterval = 30.0
-    
-    // TODO: Add authentication properties when needed
-    // private var apiKey: String?
-    // private var authToken: String?
     
     // MARK: - Initialization
     init(hostname: String, port: Int) {
-        self.baseURL = URL(string: "http://\(hostname):\(port)")!
-        
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = timeout * 2
-        self.session = URLSession(configuration: config)
+        let hostURL = URL(string: "http://\(hostname):\(port)")!
+        self.client = Client(
+            host: hostURL,
+            userAgent: "BisonHealthAI/1.0"
+        )
     }
     
     // MARK: - Connection Management
@@ -34,91 +31,118 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         connectionStatus = .connecting
         
         do {
-            let healthURL = baseURL.appendingPathComponent("api/tags")
-            var request = URLRequest(url: healthURL)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // Test connection by fetching available models
+            let models = try await client.listModels()
             
-            // TODO: Add authentication headers when needed
-            // if let apiKey = apiKey {
-            //     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            // }
-            
-            let (_, response) = try await session.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw OllamaError.invalidResponse
-            }
-            
-            let success = (200...299).contains(httpResponse.statusCode)
-            
-            if success {
-                connectionStatus = .connected
-                isConnected = true
-            } else {
-                connectionStatus = .disconnected
-                isConnected = false
-                throw OllamaError.connectionFailed(httpResponse.statusCode)
-            }
-            
-            return success
+            connectionStatus = .connected
+            isConnected = true
+            return true
             
         } catch {
             connectionStatus = .disconnected
             isConnected = false
             lastError = error
-            throw error
+            throw OllamaError.connectionFailed(error)
         }
     }
     
     // MARK: - Chat Operations
-    func sendChatMessage(_ message: String, context: String = "", model: String = "llama2") async throws -> OllamaChatResponse {
+    func sendChatMessage(_ message: String, context: String = "", model: String = "llama3.2") async throws -> OllamaChatResponse {
         guard isConnected else {
             throw OllamaError.notConnected
         }
         
-        let chatURL = baseURL.appendingPathComponent("api/chat")
-        var request = URLRequest(url: chatURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add authentication headers when needed
-        // if let apiKey = apiKey {
-        //     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        // }
-        
-        // Build system prompt with health context
-        let systemPrompt = buildSystemPrompt(with: context)
-        
-        let chatRequest = OllamaChatRequest(
-            model: model,
-            messages: [
-                OllamaMessage(role: "system", content: systemPrompt),
-                OllamaMessage(role: "user", content: message)
-            ],
-            stream: false
-        )
-        
-        let requestData = try JSONEncoder().encode(chatRequest)
-        request.httpBody = requestData
-        
         do {
-            let (data, response) = try await session.data(for: request)
+            let messages = buildMessages(userMessage: message, context: context)
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw OllamaError.invalidResponse
-            }
+            let startTime = Date()
+            let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
+            let response = try await client.chat(
+                model: modelID,
+                messages: messages,
+                keepAlive: .minutes(10)
+            )
+            let processingTime = Date().timeIntervalSince(startTime)
             
-            guard (200...299).contains(httpResponse.statusCode) else {
-                throw OllamaError.requestFailed(httpResponse.statusCode)
-            }
-            
-            let chatResponse = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
-            return chatResponse
+            return OllamaChatResponse(
+                content: response.message.content,
+                model: model,
+                processingTime: processingTime,
+                totalTokens: response.promptEvalCount
+            )
             
         } catch {
             lastError = error
-            throw error
+            throw OllamaError.requestFailed(error)
+        }
+    }
+    
+    // MARK: - Streaming Chat Operations
+    func sendStreamingChatMessage(
+        _ message: String,
+        context: String = "",
+        model: String = "llama3.2",
+        onUpdate: @escaping (String) -> Void,
+        onComplete: @escaping (OllamaChatResponse) -> Void
+    ) async throws {
+        guard isConnected else {
+            throw OllamaError.notConnected
+        }
+        
+        do {
+            isStreaming = true
+            streamingContent = ""
+            
+            let messages = buildMessages(userMessage: message, context: context)
+            let startTime = Date()
+            
+            let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
+            let stream = try client.chatStream(
+                model: modelID,
+                messages: messages,
+                keepAlive: .minutes(10)
+            )
+            
+            var accumulatedContent = ""
+            var totalTokens: Int?
+            
+            for try await response in stream {
+                let content = response.message.content
+                if !content.isEmpty {
+                    accumulatedContent += content
+                    streamingContent = accumulatedContent
+                    
+                    await MainActor.run {
+                        onUpdate(accumulatedContent)
+                    }
+                }
+                
+                // Capture token count from final response
+                if response.done {
+                    totalTokens = response.promptEvalCount
+                }
+            }
+            
+            let processingTime = Date().timeIntervalSince(startTime)
+            
+            let finalResponse = OllamaChatResponse(
+                content: accumulatedContent,
+                model: model,
+                processingTime: processingTime,
+                totalTokens: totalTokens
+            )
+            
+            await MainActor.run {
+                isStreaming = false
+                onComplete(finalResponse)
+            }
+            
+        } catch {
+            await MainActor.run {
+                isStreaming = false
+                lastError = error
+            }
+            throw OllamaError.streamingFailed(error)
         }
     }
     
@@ -128,62 +152,42 @@ class OllamaClient: ObservableObject, AIProviderInterface {
             throw OllamaError.notConnected
         }
         
-        let modelsURL = baseURL.appendingPathComponent("api/tags")
-        var request = URLRequest(url: modelsURL)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add authentication headers when needed
-        
         do {
-            let (data, response) = try await session.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw OllamaError.invalidResponse
+            let modelsResponse = try await client.listModels()
+            return modelsResponse.models.map { model in
+                OllamaModel(
+                    name: model.name,
+                    modifiedAt: model.modifiedAt,
+                    size: model.size,
+                    digest: model.digest
+                )
             }
-            
-            guard (200...299).contains(httpResponse.statusCode) else {
-                throw OllamaError.requestFailed(httpResponse.statusCode)
-            }
-            
-            let modelsResponse = try JSONDecoder().decode(OllamaModelsResponse.self, from: data)
-            return modelsResponse.models
-            
         } catch {
             lastError = error
-            throw error
+            throw OllamaError.requestFailed(error)
         }
     }
     
-    func pullModel(_ modelName: String) async throws -> Bool {
-        let pullURL = baseURL.appendingPathComponent("api/pull")
-        var request = URLRequest(url: pullURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let pullRequest = OllamaPullRequest(name: modelName)
-        let requestData = try JSONEncoder().encode(pullRequest)
-        request.httpBody = requestData
-        
+    func pullModel(_ modelName: String, onProgress: @escaping (Double) -> Void = { _ in }) async throws -> Bool {
         do {
-            let (_, response) = try await session.data(for: request)
+            let modelID = Model.ID(rawValue: modelName) ?? Model.ID(rawValue: "llama3.2")!
+            let success = try await client.pullModel(modelID)
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw OllamaError.invalidResponse
+            await MainActor.run {
+                onProgress(1.0)
             }
             
-            return (200...299).contains(httpResponse.statusCode)
+            return success
             
         } catch {
             lastError = error
-            throw error
+            throw OllamaError.pullFailed(error)
         }
     }
     
     // MARK: - Configuration
     func updateConfiguration(hostname: String, port: Int) {
-        // Update base URL
-        // Note: In a real implementation, you'd want to recreate the client
+        // Note: Client configuration is immutable, would need to recreate client
         // For now, this is a placeholder for future configuration updates
     }
     
@@ -197,27 +201,38 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         return AICapabilities(
             supportedModels: models.map { $0.name },
             maxTokens: 4096, // Default for most Ollama models
-            supportsStreaming: false, // Not implemented yet
-            supportsImages: false, // Not implemented yet
-            supportsDocuments: false, // Not implemented yet
-            supportedLanguages: ["en"] // Default
+            supportsStreaming: true,
+            supportsImages: true, // Many models support images
+            supportsDocuments: false, // Document processing is separate
+            supportedLanguages: ["en"] // Default, many models support multiple languages
         )
     }
     
     func updateConfiguration(_ config: AIProviderConfig) async throws {
-        // TODO: Implement configuration updates
-        // This would recreate the client with new settings
-        throw OllamaError.authenticationNotImplemented
+        // Would need to recreate client with new configuration
+        throw OllamaError.configurationUpdateNotSupported
     }
     
-    // TODO: Placeholder for future authentication implementation
     func authenticate(credentials: AuthCredentials) async throws {
-        // Placeholder for future authentication implementation
-        // This would handle API key validation, token refresh, etc.
-        throw OllamaError.authenticationNotImplemented
+        // Ollama typically doesn't require authentication
+        // This is a placeholder for future implementation if needed
+        throw OllamaError.authenticationNotSupported
     }
     
     // MARK: - Private Methods
+    private func buildMessages(userMessage: String, context: String) -> [Chat.Message] {
+        var messages: [Chat.Message] = []
+        
+        // Add system message with context
+        let systemPrompt = buildSystemPrompt(with: context)
+        messages.append(.system(systemPrompt))
+        
+        // Add user message
+        messages.append(.user(userMessage))
+        
+        return messages
+    }
+    
     private func buildSystemPrompt(with context: String) -> String {
         var prompt = """
         You are a helpful AI health assistant. You have access to the user's personal health information and should provide informative, accurate responses about their health data.
@@ -241,77 +256,46 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     }
 }
 
-// MARK: - Data Models
-struct OllamaChatRequest: Codable {
-    let model: String
-    let messages: [OllamaMessage]
-    let stream: Bool
-    let options: OllamaOptions?
-    
-    init(model: String, messages: [OllamaMessage], stream: Bool = false, options: OllamaOptions? = nil) {
-        self.model = model
-        self.messages = messages
-        self.stream = stream
-        self.options = options
-    }
-}
-
-struct OllamaMessage: Codable {
-    let role: String
+// MARK: - Response Model
+struct OllamaChatResponse: Codable, AIResponse {
     let content: String
-}
-
-struct OllamaOptions: Codable {
-    let temperature: Double?
-    let topP: Double?
-    let topK: Int?
-    let maxTokens: Int?
-    
-    enum CodingKeys: String, CodingKey {
-        case temperature
-        case topP = "top_p"
-        case topK = "top_k"
-        case maxTokens = "num_predict"
-    }
-}
-
-struct OllamaChatResponse: Codable {
     let model: String
-    let message: OllamaMessage
-    let done: Bool
-    let totalDuration: Int64?
-    let loadDuration: Int64?
-    let promptEvalCount: Int?
-    let promptEvalDuration: Int64?
-    let evalCount: Int?
-    let evalDuration: Int64?
+    let processingTime: TimeInterval
+    let totalTokens: Int?
     
-    enum CodingKeys: String, CodingKey {
-        case model, message, done
-        case totalDuration = "total_duration"
-        case loadDuration = "load_duration"
-        case promptEvalCount = "prompt_eval_count"
-        case promptEvalDuration = "prompt_eval_duration"
-        case evalCount = "eval_count"
-        case evalDuration = "eval_duration"
+    init(
+        content: String,
+        model: String,
+        processingTime: TimeInterval = 0,
+        totalTokens: Int? = nil
+    ) {
+        self.content = content
+        self.model = model
+        self.processingTime = processingTime
+        self.totalTokens = totalTokens
     }
     
+    // MARK: - AIResponse Conformance
     var responseTime: TimeInterval {
-        guard let totalDuration = totalDuration else { return 0 }
-        return TimeInterval(totalDuration) / 1_000_000_000 // Convert nanoseconds to seconds
+        return processingTime
     }
     
     var tokenCount: Int? {
-        let promptTokens = promptEvalCount ?? 0
-        let evalTokens = evalCount ?? 0
-        return promptTokens + evalTokens
+        return totalTokens
+    }
+    
+    var metadata: [String: Any]? {
+        var meta: [String: Any] = [:]
+        meta["model"] = model
+        if let tokens = totalTokens {
+            meta["total_tokens"] = tokens
+        }
+        meta["processing_time"] = processingTime
+        return meta
     }
 }
 
-struct OllamaModelsResponse: Codable {
-    let models: [OllamaModel]
-}
-
+// MARK: - Model Struct
 struct OllamaModel: Codable, Identifiable {
     let name: String
     let modifiedAt: String
@@ -320,23 +304,12 @@ struct OllamaModel: Codable, Identifiable {
     
     var id: String { name }
     
-    enum CodingKeys: String, CodingKey {
-        case name
-        case modifiedAt = "modified_at"
-        case size
-        case digest
-    }
-    
     var formattedSize: String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: size)
     }
-}
-
-struct OllamaPullRequest: Codable {
-    let name: String
 }
 
 // MARK: - Connection Status
@@ -378,39 +351,40 @@ struct AuthCredentials {
     let apiKey: String?
     let username: String?
     let password: String?
-    
-    // TODO: Add more authentication fields as needed
 }
 
 // MARK: - Errors
 enum OllamaError: LocalizedError {
     case notConnected
-    case connectionFailed(Int)
-    case requestFailed(Int)
-    case invalidResponse
+    case connectionFailed(Error)
+    case requestFailed(Error)
+    case streamingFailed(Error)
+    case pullFailed(Error)
     case invalidModel
-    case authenticationNotImplemented
+    case authenticationNotSupported
+    case configurationUpdateNotSupported
     case networkError(Error)
-    case decodingError(Error)
     
     var errorDescription: String? {
         switch self {
         case .notConnected:
             return "Not connected to Ollama server"
-        case .connectionFailed(let code):
-            return "Connection failed with status code: \(code)"
-        case .requestFailed(let code):
-            return "Request failed with status code: \(code)"
-        case .invalidResponse:
-            return "Invalid response from server"
+        case .connectionFailed(let error):
+            return "Connection failed: \(error.localizedDescription)"
+        case .requestFailed(let error):
+            return "Request failed: \(error.localizedDescription)"
+        case .streamingFailed(let error):
+            return "Streaming failed: \(error.localizedDescription)"
+        case .pullFailed(let error):
+            return "Model pull failed: \(error.localizedDescription)"
         case .invalidModel:
             return "Invalid or unavailable model"
-        case .authenticationNotImplemented:
-            return "Authentication not yet implemented"
+        case .authenticationNotSupported:
+            return "Authentication not supported by Ollama"
+        case .configurationUpdateNotSupported:
+            return "Configuration updates require app restart"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
-        case .decodingError(let error):
-            return "Failed to decode response: \(error.localizedDescription)"
         }
     }
     
@@ -420,16 +394,18 @@ enum OllamaError: LocalizedError {
             return "Check your server configuration and test the connection"
         case .connectionFailed, .requestFailed:
             return "Verify the server is running and accessible"
-        case .invalidResponse:
-            return "Check if the server is running the correct version of Ollama"
+        case .streamingFailed:
+            return "Check server connection and try again"
+        case .pullFailed:
+            return "Check internet connection and server storage"
         case .invalidModel:
             return "Try pulling the model first or use a different model"
-        case .authenticationNotImplemented:
-            return "Authentication will be available in a future update"
+        case .authenticationNotSupported:
+            return "Ollama typically doesn't require authentication"
+        case .configurationUpdateNotSupported:
+            return "Restart the app to apply configuration changes"
         case .networkError:
             return "Check your network connection and server availability"
-        case .decodingError:
-            return "This may be a server compatibility issue"
         }
     }
 }

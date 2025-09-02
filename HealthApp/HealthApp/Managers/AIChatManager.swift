@@ -130,7 +130,7 @@ class AIChatManager: ObservableObject {
     }
     
     // MARK: - Message Management
-    func sendMessage(_ content: String) async throws {
+    func sendMessage(_ content: String, useStreaming: Bool = true) async throws {
         guard let conversation = currentConversation else {
             throw AIChatError.noActiveConversation
         }
@@ -165,26 +165,12 @@ class AIChatManager: ObservableObject {
             // Build health data context
             let healthContext = buildHealthDataContext()
             
-            // Send to AI service
-            let startTime = Date()
-            let response = try await ollamaClient.sendChatMessage(content, context: healthContext)
-            let processingTime = Date().timeIntervalSince(startTime)
-            
-            // Create assistant message
-            let assistantMessage = ChatMessage(
-                content: response.message.content,
-                role: .assistant,
-                tokens: response.tokenCount,
-                processingTime: processingTime
-            )
-            
-            // Save assistant message
-            try await databaseManager.addMessage(to: conversation.id, message: assistantMessage)
-            
-            // Update local conversation
-            if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
-                conversations[index].addMessage(assistantMessage)
-                currentConversation = conversations[index]
+            if useStreaming {
+                // Use streaming for real-time response
+                try await sendStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+            } else {
+                // Use non-streaming for complete response
+                try await sendNonStreamingMessage(content, context: healthContext, conversationId: conversation.id)
             }
             
         } catch {
@@ -206,6 +192,94 @@ class AIChatManager: ObservableObject {
         }
         
         isLoading = false
+    }
+    
+    private func sendStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
+        // Create a placeholder message for streaming content
+        let streamingMessageId = UUID()
+        var streamingMessage = ChatMessage(
+            id: streamingMessageId,
+            content: "",
+            role: .assistant
+        )
+        
+        // Add placeholder message to conversation
+        if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+            conversations[index].addMessage(streamingMessage)
+            currentConversation = conversations[index]
+        }
+        
+        try await ollamaClient.sendStreamingChatMessage(
+            content,
+            context: context,
+            onUpdate: { [weak self] partialContent in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    
+                    // Update the streaming message content
+                    streamingMessage.content = partialContent
+                    
+                    // Update in conversation
+                    if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                       let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                        self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
+                        self.currentConversation = self.conversations[conversationIndex]
+                    }
+                }
+            },
+            onComplete: { [weak self] finalResponse in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    
+                    // Create final message with complete content and metadata
+                    let finalMessage = ChatMessage(
+                        id: streamingMessageId,
+                        content: finalResponse.content,
+                        role: .assistant,
+                        tokens: finalResponse.tokenCount,
+                        processingTime: finalResponse.responseTime
+                    )
+                    
+                    // Save final message to database
+                    do {
+                        try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
+                        
+                        // Update local conversation with final message
+                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                            self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+                            self.currentConversation = self.conversations[conversationIndex]
+                        }
+                    } catch {
+                        self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                    }
+                }
+            }
+        )
+    }
+    
+    private func sendNonStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
+        // Send to AI service
+        let startTime = Date()
+        let response = try await ollamaClient.sendChatMessage(content, context: context)
+        let processingTime = Date().timeIntervalSince(startTime)
+        
+        // Create assistant message
+        let assistantMessage = ChatMessage(
+            content: response.content,
+            role: .assistant,
+            tokens: response.tokenCount,
+            processingTime: processingTime
+        )
+        
+        // Save assistant message
+        try await databaseManager.addMessage(to: conversationId, message: assistantMessage)
+        
+        // Update local conversation
+        if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+            conversations[index].addMessage(assistantMessage)
+            currentConversation = conversations[index]
+        }
     }
     
     // MARK: - Health Data Context Management

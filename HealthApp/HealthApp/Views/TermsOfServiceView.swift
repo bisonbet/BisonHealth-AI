@@ -19,12 +19,12 @@ struct TermsOfServiceView: View {
                         
                         TermsSectionView(
                             title: "Acceptance of Terms",
-                            content: "By using this Bison Health app, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the app."
+                            content: "By using this BisonHealth AI app, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the app."
                         )
                         
                         TermsSectionView(
                             title: "Description of Service",
-                            content: "Bison Health is a personal health data management application that provides AI-powered assistance for understanding your health information. The app stores data locally on your device with optional encrypted cloud backup."
+                            content: "BisonHealth AI is a personal health data management application that provides AI-powered assistance for understanding your health information. The app stores data locally on your device with optional encrypted cloud backup."
                         )
                         
                         TermsSectionView(

@@ -20,7 +20,7 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         // Set up test dependencies
         databaseManager = try DatabaseManager(inMemory: true)
         fileSystemManager = try FileSystemManager()
-        doclingClient = DoclingClient(hostname: "localhost", port: 8080)
+        doclingClient = DoclingClient(hostname: "localhost", port: 5001)
         healthDataManager = HealthDataManager(
             databaseManager: databaseManager,
             fileSystemManager: fileSystemManager

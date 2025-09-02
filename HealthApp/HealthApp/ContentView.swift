@@ -135,10 +135,24 @@ struct DocumentsView: View {
         databaseManager: DatabaseManager.shared,
         fileSystemManager: FileSystemManager.shared
     )
+    @StateObject private var documentProcessor = DocumentProcessor.shared
+    
     @State private var showingDocumentPicker = false
     @State private var showingCamera = false
     @State private var showingPhotosPicker = false
+    @State private var showingFilterView = false
+    @State private var showingBatchProcessing = false
+    @State private var showingDocumentDetail = false
+    @State private var selectedDocument: HealthDocument?
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var viewMode: DocumentViewMode = .list
+    
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.editMode) private var editMode
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
     
     var body: some View {
         NavigationStack {
@@ -150,41 +164,82 @@ struct DocumentsView: View {
                         onImportPhotos: { showingPhotosPicker = true }
                     )
                 } else {
-                    DocumentListView(
-                        documents: documentManager.filteredDocuments,
-                        selectedDocuments: $documentManager.selectedDocuments,
-                        onDocumentTap: { document in
-                            // Navigate to document detail view
+                    VStack(spacing: 0) {
+                        // Search and filter bar
+                        if !documentManager.documents.isEmpty {
+                            searchAndFilterBar
                         }
-                    )
+                        
+                        // Processing progress bar
+                        if documentProcessor.isProcessing {
+                            processingProgressBar
+                        }
+                        
+                        // Document content
+                        documentContent
+                    }
                 }
             }
             .navigationTitle("Documents")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     if !documentManager.documents.isEmpty {
-                        EditButton()
+                        HStack {
+                            EditButton()
+                            
+                            if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
+                                Button("Batch") {
+                                    showingBatchProcessing = true
+                                }
+                                .font(.caption)
+                            }
+                        }
                     }
                 }
                 
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    if !documentManager.selectedDocuments.isEmpty {
-                        Button("Process") {
-                            Task {
-                                await documentManager.processSelectedDocuments()
+                    if !documentManager.documents.isEmpty {
+                        // View mode toggle (iPad only)
+                        if isIPad {
+                            Picker("View Mode", selection: $viewMode) {
+                                Image(systemName: "list.bullet").tag(DocumentViewMode.list)
+                                Image(systemName: "square.grid.2x2").tag(DocumentViewMode.grid)
                             }
+                            .pickerStyle(.segmented)
+                            .frame(width: 100)
                         }
+                        
+                        Button("Filter") {
+                            showingFilterView = true
+                        }
+                        .font(.caption)
                     }
                     
                     Menu {
-                        Button("Scan Document") {
+                        Button("Scan Document", systemImage: "camera.viewfinder") {
                             showingCamera = true
                         }
-                        Button("Import File") {
+                        Button("Import File", systemImage: "folder") {
                             showingDocumentPicker = true
                         }
-                        Button("Import Photos") {
+                        Button("Import Photos", systemImage: "photo.on.rectangle") {
                             showingPhotosPicker = true
+                        }
+                        
+                        if !documentManager.documents.isEmpty {
+                            Divider()
+                            
+                            Button("Process All Pending", systemImage: "gearshape.2") {
+                                Task {
+                                    await documentManager.processAllPendingDocuments()
+                                }
+                            }
+                            
+                            Button("Retry Failed", systemImage: "arrow.clockwise") {
+                                Task {
+                                    await documentManager.retryFailedDocuments()
+                                }
+                            }
                         }
                     } label: {
                         Image(systemName: "plus")
@@ -222,7 +277,7 @@ struct DocumentsView: View {
             maxSelectionCount: 10,
             matching: .images
         )
-        .onChange(of: selectedPhotos) { photos in
+        .onChange(of: selectedPhotos) { _, photos in
             if !photos.isEmpty {
                 Task {
                     // Convert PhotosPickerItem to PHPickerResult equivalent
@@ -231,6 +286,174 @@ struct DocumentsView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingFilterView) {
+            DocumentFilterView(documentManager: documentManager)
+        }
+        .sheet(isPresented: $showingBatchProcessing) {
+            BatchProcessingView(
+                documentManager: documentManager,
+                documentProcessor: documentProcessor
+            )
+        }
+        .sheet(item: $selectedDocument) { document in
+            DocumentDetailView(
+                document: document,
+                documentManager: documentManager,
+                documentProcessor: documentProcessor
+            )
+        }
+
+    }
+    
+    // MARK: - Search and Filter Bar
+    
+    private var searchAndFilterBar: some View {
+        VStack(spacing: 8) {
+            HStack {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    
+                    TextField("Search documents...", text: $documentManager.searchText)
+                        .textFieldStyle(PlainTextFieldStyle())
+                    
+                    if !documentManager.searchText.isEmpty {
+                        Button("Clear") {
+                            documentManager.searchText = ""
+                        }
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+                
+                Button("Filter") {
+                    showingFilterView = true
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(hasActiveFilters ? Color.blue : Color(.systemGray6))
+                .foregroundColor(hasActiveFilters ? .white : .blue)
+                .cornerRadius(8)
+            }
+            
+            // Active filters display
+            if hasActiveFilters {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if let status = documentManager.filterStatus {
+                            FilterChip(title: status.displayName) {
+                                documentManager.filterStatus = nil
+                            }
+                        }
+                        
+                        if let type = documentManager.filterType {
+                            FilterChip(title: type.rawValue.capitalized) {
+                                documentManager.filterType = nil
+                            }
+                        }
+                        
+                        if documentManager.sortOrder != .dateDescending {
+                            FilterChip(title: documentManager.sortOrder.displayName) {
+                                documentManager.sortOrder = .dateDescending
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
+    
+    // MARK: - Processing Progress Bar
+    
+    private var processingProgressBar: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text("Processing documents...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Text("\(Int(documentProcessor.processingProgress * 100))%")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            ProgressView(value: documentProcessor.processingProgress)
+                .progressViewStyle(LinearProgressViewStyle())
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
+    
+    // MARK: - Document Content
+    
+    @ViewBuilder
+    private var documentContent: some View {
+        switch viewMode {
+        case .list:
+            DocumentListView(
+                documents: documentManager.filteredDocuments,
+                selectedDocuments: $documentManager.selectedDocuments,
+                onDocumentTap: { document in
+                    selectedDocument = document
+                }
+            )
+        case .grid:
+            DocumentGridView(
+                documents: documentManager.filteredDocuments,
+                selectedDocuments: $documentManager.selectedDocuments,
+                onDocumentTap: { document in
+                    selectedDocument = document
+                }
+            )
+        }
+    }
+    
+    // MARK: - Helper Properties
+    
+    private var hasActiveFilters: Bool {
+        documentManager.filterStatus != nil ||
+        documentManager.filterType != nil ||
+        documentManager.sortOrder != .dateDescending ||
+        !documentManager.searchText.isEmpty
+    }
+}
+
+// MARK: - Supporting Types and Views
+
+enum DocumentViewMode {
+    case list
+    case grid
+}
+
+struct FilterChip: View {
+    let title: String
+    let onRemove: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.caption)
+            
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.blue)
+        .foregroundColor(.white)
+        .cornerRadius(12)
     }
 }
 
@@ -244,71 +467,26 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var showingContextSelector = false
     @State private var showingConversationList = false
+    @State private var searchText = ""
+    @State private var selectedConversationId: UUID?
+    
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
+    
+    private var shouldUseSplitView: Bool {
+        isIPad && verticalSizeClass == .regular
+    }
     
     var body: some View {
-        NavigationStack {
-            VStack {
-                if let conversation = chatManager.currentConversation {
-                    // Connection status indicator
-                    if !chatManager.isConnected {
-                        ConnectionStatusBanner(
-                            isOffline: chatManager.isOffline,
-                            onRetry: {
-                                Task {
-                                    await chatManager.checkConnection()
-                                }
-                            }
-                        )
-                    }
-                    
-                    // Messages list
-                    MessageListView(
-                        messages: conversation.messages,
-                        isLoading: chatManager.isLoading
-                    )
-                    
-                    // Message input
-                    MessageInputView(
-                        text: $messageText,
-                        isEnabled: chatManager.isConnected && !chatManager.isOffline,
-                        onSend: {
-                            Task {
-                                try await chatManager.sendMessage(messageText)
-                                messageText = ""
-                            }
-                        }
-                    )
-                } else {
-                    ChatEmptyStateView(
-                        onStartNewChat: {
-                            Task {
-                                _ = try await chatManager.startNewConversation()
-                            }
-                        }
-                    )
-                }
-            }
-            .navigationTitle("Bison Health")
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarLeading) {
-                    Button("Conversations") {
-                        showingConversationList = true
-                    }
-                    
-                    if chatManager.currentConversation != nil {
-                        Button("Context") {
-                            showingContextSelector = true
-                        }
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("New Chat") {
-                        Task {
-                            _ = try await chatManager.startNewConversation()
-                        }
-                    }
-                }
+        Group {
+            if shouldUseSplitView {
+                iPadSplitView
+            } else {
+                iPhoneView
             }
         }
         .sheet(isPresented: $showingContextSelector) {
@@ -319,18 +497,97 @@ struct ChatView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingConversationList) {
-            ConversationListView(
-                conversations: chatManager.conversations,
-                onSelectConversation: { conversation in
-                    chatManager.selectConversation(conversation)
-                    showingConversationList = false
-                }
-            )
-        }
         .task {
             await chatManager.loadConversations()
             await chatManager.checkConnection()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.keyboardWillShowNotification)) { _ in
+            // Handle keyboard appearance for iPad
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.keyboardWillHideNotification)) { _ in
+            // Handle keyboard dismissal for iPad
+        }
+    }
+    
+    // MARK: - iPad Split View
+    private var iPadSplitView: some View {
+        NavigationSplitView {
+            // Sidebar with conversations
+            ConversationSidebarView(
+                conversations: chatManager.conversations,
+                selectedConversationId: $selectedConversationId,
+                searchText: $searchText,
+                onSelectConversation: { conversation in
+                    chatManager.selectConversation(conversation)
+                    selectedConversationId = conversation.id
+                },
+                onNewConversation: {
+                    Task {
+                        let conversation = try await chatManager.startNewConversation()
+                        selectedConversationId = conversation.id
+                    }
+                },
+                onDeleteConversation: { conversation in
+                    Task {
+                        try await chatManager.deleteConversation(conversation)
+                        if selectedConversationId == conversation.id {
+                            selectedConversationId = nil
+                        }
+                    }
+                }
+            )
+            .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 400)
+        } detail: {
+            // Main chat interface
+            ChatDetailView(
+                chatManager: chatManager,
+                messageText: $messageText,
+                showingContextSelector: $showingContextSelector,
+                isIPad: isIPad
+            )
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+    
+    // MARK: - iPhone View
+    private var iPhoneView: some View {
+        NavigationStack {
+            ChatDetailView(
+                chatManager: chatManager,
+                messageText: $messageText,
+                showingContextSelector: $showingContextSelector,
+                isIPad: isIPad
+            )
+                .toolbar {
+                    ToolbarItemGroup(placement: .navigationBarLeading) {
+                        Button("Conversations") {
+                            showingConversationList = true
+                        }
+                        
+                        if chatManager.currentConversation != nil {
+                            Button("Context") {
+                                showingContextSelector = true
+                            }
+                        }
+                    }
+                    
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("New Chat") {
+                            Task {
+                                _ = try await chatManager.startNewConversation()
+                            }
+                        }
+                    }
+                }
+                .sheet(isPresented: $showingConversationList) {
+                    ConversationListView(
+                        conversations: chatManager.conversations,
+                        onSelectConversation: { conversation in
+                            chatManager.selectConversation(conversation)
+                            showingConversationList = false
+                        }
+                    )
+                }
         }
     }
 }
@@ -340,7 +597,7 @@ struct SettingsView: View {
     @State private var ollamaHostname = "localhost"
     @State private var ollamaPort = "11434"
     @State private var doclingHostname = "localhost"
-    @State private var doclingPort = "8080"
+    @State private var doclingPort = "5001"
     @State private var iCloudBackupEnabled = false
     @State private var backupHealthData = true
     @State private var backupChatHistory = true
@@ -387,7 +644,7 @@ struct SettingsView: View {
                         
                         HStack {
                             Text("Port:")
-                            TextField("8080", text: $doclingPort)
+                            TextField("5001", text: $doclingPort)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .keyboardType(.numberPad)
                         }
@@ -472,7 +729,7 @@ struct SettingsView: View {
     private func testDoclingConnection() {
         Task {
             do {
-                let client = DoclingClient(hostname: doclingHostname, port: Int(doclingPort) ?? 8080)
+                let client = DoclingClient(hostname: doclingHostname, port: Int(doclingPort) ?? 5001)
                 let isConnected = try await client.testConnection()
                 connectionTestResult = isConnected ? "Successfully connected to Docling server" : "Failed to connect to Docling server"
             } catch {

@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Blood Test Result
 struct BloodTestResult: HealthDataProtocol {
     let id: UUID
-    let type: HealthDataType = .bloodTest
+    var type: HealthDataType { .bloodTest }
     
     // Test Information
     var testDate: Date

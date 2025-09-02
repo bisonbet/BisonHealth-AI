@@ -1,4 +1,4 @@
-# Bison Health AI iOS App
+# BisonHealth AI iOS App
 
 A privacy-first iOS application for personal health data management with AI-powered assistance.
 
@@ -6,7 +6,7 @@ A privacy-first iOS application for personal health data management with AI-powe
 
 - **Local Data Storage**: All health data is stored locally on your device with encryption
 - **Document Scanning**: Import health documents using camera or file system
-- **AI Assistant**: Chat with Bison Health AI using your personal health data as context
+- **AI Assistant**: Chat with BisonHealth AI using your personal health data as context
 - **Data Export**: Export your health data in JSON or PDF formats
 - **iCloud Backup**: Optional encrypted backup to iCloud
 - **Privacy First**: No cloud dependencies for core functionality

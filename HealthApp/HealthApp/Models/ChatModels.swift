@@ -75,7 +75,7 @@ enum MessageRole: String, CaseIterable, Codable {
         case .user:
             return "You"
         case .assistant:
-            return "Bison Health"
+            return "BisonHealth AI"
         case .system:
             return "System"
         }

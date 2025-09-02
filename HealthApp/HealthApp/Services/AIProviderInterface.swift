@@ -57,21 +57,7 @@ struct AIProviderConfig {
     }
 }
 
-// MARK: - Ollama AI Response Implementation
-extension OllamaChatResponse: AIResponse {
-    var content: String {
-        return message.content
-    }
-    
-    var metadata: [String: Any]? {
-        return [
-            "model": model,
-            "done": done,
-            "total_duration": totalDuration ?? 0,
-            "eval_count": evalCount ?? 0
-        ]
-    }
-}
+
 
 // MARK: - Future AI Provider Implementations
 // This interface allows for easy addition of other AI providers like:

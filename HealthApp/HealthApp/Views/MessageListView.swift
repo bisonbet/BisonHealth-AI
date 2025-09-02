@@ -21,17 +21,25 @@ struct MessageListView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .onChange(of: messages.count) { _ in
+            .onChange(of: messages.count) { _, _ in
                 withAnimation(.easeInOut(duration: 0.3)) {
                     if let lastMessage = messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
                 }
             }
-            .onChange(of: isLoading) { loading in
-                if loading {
+            .onChange(of: isLoading) { _, newValue in
+                if newValue {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         proxy.scrollTo("typing", anchor: .bottom)
+                    }
+                }
+            }
+            // Watch for content changes in streaming messages
+            .onChange(of: messages.map { $0.content }) { _, _ in
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    if let lastMessage = messages.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
                 }
             }
@@ -42,10 +50,17 @@ struct MessageListView: View {
 struct MessageBubbleView: View {
     let message: ChatMessage
     
+    @State private var showingCopyConfirmation = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
+    
     var body: some View {
         HStack {
             if message.isFromUser {
-                Spacer(minLength: 50)
+                Spacer(minLength: isIPad ? 100 : 50)
                 
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(message.content)
@@ -54,6 +69,7 @@ struct MessageBubbleView: View {
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(18)
+                        .textSelection(.enabled)
                     
                     Text(message.formattedTimestamp)
                         .font(.caption2)
@@ -71,12 +87,20 @@ struct MessageBubbleView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Text(message.content)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(message.isError ? Color.red.opacity(0.1) : Color(.systemGray6))
-                        .foregroundColor(message.isError ? .red : .primary)
-                        .cornerRadius(18)
+                    HStack {
+                        Text(message.content)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(message.isError ? Color.red.opacity(0.1) : Color(.systemGray6))
+                            .foregroundColor(message.isError ? .red : .primary)
+                            .cornerRadius(18)
+                            .textSelection(.enabled)
+                        
+                        // Show streaming indicator for messages being typed
+                        if message.role == .assistant && message.content.isEmpty {
+                            StreamingIndicatorView()
+                        }
+                    }
                     
                     HStack(spacing: 8) {
                         Text(message.formattedTimestamp)
@@ -97,8 +121,26 @@ struct MessageBubbleView: View {
                     }
                 }
                 
-                Spacer(minLength: 50)
+                Spacer(minLength: isIPad ? 100 : 50)
             }
+        }
+        .contextMenu {
+            Button("Copy Message", systemImage: "doc.on.doc") {
+                UIPasteboard.general.string = message.content
+                showingCopyConfirmation = true
+            }
+            
+            if !message.isFromUser && isIPad {
+                Button("Copy Response", systemImage: "doc.on.doc.fill") {
+                    UIPasteboard.general.string = message.content
+                    showingCopyConfirmation = true
+                }
+            }
+        }
+        .alert("Copied", isPresented: $showingCopyConfirmation) {
+            Button("OK") { }
+        } message: {
+            Text("Message copied to clipboard")
         }
     }
 }
@@ -114,7 +156,7 @@ struct TypingIndicatorView: View {
                         .foregroundColor(.green)
                         .font(.caption)
                     
-                    Text("Bison Health")
+                    Text("BisonHealth AI")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -141,6 +183,34 @@ struct TypingIndicatorView: View {
             
             Spacer(minLength: 50)
         }
+        .onAppear {
+            animationPhase = 0
+            Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
+                animationPhase = (animationPhase + 1) % 3
+            }
+        }
+    }
+}
+
+struct StreamingIndicatorView: View {
+    @State private var animationPhase = 0
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(animationPhase == index ? 1.2 : 0.8)
+                    .animation(
+                        Animation.easeInOut(duration: 0.6)
+                            .repeatForever()
+                            .delay(Double(index) * 0.2),
+                        value: animationPhase
+                    )
+            }
+        }
+        .padding(.horizontal, 8)
         .onAppear {
             animationPhase = 0
             Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in

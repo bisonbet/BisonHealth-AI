@@ -41,6 +41,19 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "stethoscope"
         }
     }
+    
+    var shortName: String {
+        switch self {
+        case .personalInfo:
+            return "Personal"
+        case .bloodTest:
+            return "Blood"
+        case .imagingReport:
+            return "Imaging"
+        case .healthCheckup:
+            return "Checkup"
+        }
+    }
 }
 
 // MARK: - Supporting Enums

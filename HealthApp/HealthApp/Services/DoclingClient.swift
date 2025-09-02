@@ -5,10 +5,10 @@ import Foundation
 class DoclingClient: ObservableObject {
     
     // MARK: - Shared Instance
-    static let shared = DoclingClient(hostname: "localhost", port: 8080)
+    static let shared = DoclingClient(hostname: "localhost", port: 5001)
     
     @Published var isConnected = false
-    @Published var connectionStatus: ConnectionStatus = .disconnected
+    @Published var connectionStatus: DoclingConnectionStatus = .disconnected
     @Published var lastError: Error?
     @Published var processingJobs: [String: ProcessingJob] = [:]
     
@@ -35,7 +35,7 @@ class DoclingClient: ObservableObject {
         connectionStatus = .connecting
         
         do {
-            let healthURL = baseURL.appendingPathComponent("health")
+            let healthURL = baseURL.appendingPathComponent("v1/health")
             var request = URLRequest(url: healthURL)
             request.httpMethod = "GET"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -78,23 +78,30 @@ class DoclingClient: ObservableObject {
             throw DoclingError.notConnected
         }
         
-        let processURL = baseURL.appendingPathComponent("api/v1/process")
+        let processURL = baseURL.appendingPathComponent("v1/convert/source")
         var request = URLRequest(url: processURL)
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         // TODO: Add authentication headers when needed
         
-        // Create multipart form data
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        // Create v1 API request body
+        let base64Document = document.base64EncodedString()
+        let filename = "document.\(type.rawValue)"
         
-        let httpBody = createMultipartBody(
-            document: document,
-            type: type,
-            options: options,
-            boundary: boundary
+        let requestBody = DoclingV1ConvertRequest(
+            sources: [
+                DoclingV1Source(
+                    kind: "file",
+                    base64String: base64Document,
+                    filename: filename
+                )
+            ],
+            options: options.toV1Options(),
+            target: DoclingV1Target(kind: "json")
         )
-        request.httpBody = httpBody
+        
+        request.httpBody = try JSONEncoder().encode(requestBody)
         
         do {
             let startTime = Date()
@@ -131,21 +138,28 @@ class DoclingClient: ObservableObject {
             throw DoclingError.notConnected
         }
         
-        let submitURL = baseURL.appendingPathComponent("api/v1/submit")
+        let submitURL = baseURL.appendingPathComponent("v1/convert/source")
         var request = URLRequest(url: submitURL)
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Create multipart form data
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        // Create v1 API request body for async processing
+        let base64Document = document.base64EncodedString()
+        let filename = "document.\(type.rawValue)"
         
-        let httpBody = createMultipartBody(
-            document: document,
-            type: type,
-            options: options,
-            boundary: boundary
+        let requestBody = DoclingV1ConvertRequest(
+            sources: [
+                DoclingV1Source(
+                    kind: "file",
+                    base64String: base64Document,
+                    filename: filename
+                )
+            ],
+            options: options.toV1Options(),
+            target: DoclingV1Target(kind: "json")
         )
-        request.httpBody = httpBody
+        
+        request.httpBody = try JSONEncoder().encode(requestBody)
         
         do {
             let (data, response) = try await session.data(for: request)
@@ -176,12 +190,12 @@ class DoclingClient: ObservableObject {
         }
     }
     
-    func getProcessingStatus(_ jobId: String) async throws -> ProcessingStatus {
+    func getProcessingStatus(_ jobId: String) async throws -> DoclingProcessingStatus {
         guard isConnected else {
             throw DoclingError.notConnected
         }
         
-        let statusURL = baseURL.appendingPathComponent("api/v1/status/\(jobId)")
+        let statusURL = baseURL.appendingPathComponent("v1/status/\(jobId)")
         var request = URLRequest(url: statusURL)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -223,7 +237,7 @@ class DoclingClient: ObservableObject {
             throw DoclingError.notConnected
         }
         
-        let resultURL = baseURL.appendingPathComponent("api/v1/result/\(jobId)")
+        let resultURL = baseURL.appendingPathComponent("v1/result/\(jobId)")
         var request = URLRequest(url: resultURL)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -271,7 +285,7 @@ class DoclingClient: ObservableObject {
             throw DoclingError.notConnected
         }
         
-        let formatsURL = baseURL.appendingPathComponent("api/v1/formats")
+        let formatsURL = baseURL.appendingPathComponent("v1/formats")
         var request = URLRequest(url: formatsURL)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -309,30 +323,6 @@ class DoclingClient: ObservableObject {
     }
     
     // MARK: - Private Methods
-    private func createMultipartBody(document: Data, type: DocumentType, options: ProcessingOptions, boundary: String) -> Data {
-        var body = Data()
-        
-        // Add document file
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"document.\(type.rawValue)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(getMimeType(for: type))\r\n\r\n".data(using: .utf8)!)
-        body.append(document)
-        body.append("\r\n".data(using: .utf8)!)
-        
-        // Add processing options
-        if let optionsData = try? JSONEncoder().encode(options) {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"options\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: application/json\r\n\r\n".data(using: .utf8)!)
-            body.append(optionsData)
-            body.append("\r\n".data(using: .utf8)!)
-        }
-        
-        // Close boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        
-        return body
-    }
     
     private func getMimeType(for documentType: DocumentType) -> String {
         switch documentType {
@@ -350,6 +340,50 @@ class DoclingClient: ObservableObject {
             return "image/heic"
         case .other:
             return "application/octet-stream"
+        }
+    }
+}
+
+// MARK: - Enums
+enum DoclingConnectionStatus {
+    case disconnected
+    case connecting
+    case connected
+    case error(String)
+    
+    var displayName: String {
+        switch self {
+        case .disconnected:
+            return "Disconnected"
+        case .connecting:
+            return "Connecting"
+        case .connected:
+            return "Connected"
+        case .error(let message):
+            return "Error: \(message)"
+        }
+    }
+}
+
+enum DoclingProcessingStatus: String, Codable {
+    case pending = "pending"
+    case processing = "processing"
+    case completed = "completed"
+    case failed = "failed"
+    case cancelled = "cancelled"
+    
+    var displayName: String {
+        switch self {
+        case .pending:
+            return "Pending"
+        case .processing:
+            return "Processing"
+        case .completed:
+            return "Completed"
+        case .failed:
+            return "Failed"
+        case .cancelled:
+            return "Cancelled"
         }
     }
 }
@@ -374,6 +408,13 @@ struct ProcessingOptions: Codable {
         self.extractImages = extractImages
         self.ocrEnabled = ocrEnabled
         self.language = language
+    }
+    
+    func toV1Options() -> DoclingV1Options {
+        return DoclingV1Options(
+            ocr: ocrEnabled,
+            language: language
+        )
     }
 }
 
@@ -427,16 +468,62 @@ struct HealthDataItem {
 
 struct ProcessingJob {
     let id: String
-    var status: ProcessingStatus
+    var status: DoclingProcessingStatus
     let submittedAt: Date
     var updatedAt: Date?
     var completedAt: Date?
     var progress: Double?
     
-    init(id: String, status: ProcessingStatus, submittedAt: Date) {
+    init(id: String, status: DoclingProcessingStatus, submittedAt: Date) {
         self.id = id
         self.status = status
         self.submittedAt = submittedAt
+    }
+}
+
+// MARK: - V1 API Models
+struct DoclingV1ConvertRequest: Codable {
+    let sources: [DoclingV1Source]
+    let options: DoclingV1Options
+    let target: DoclingV1Target
+}
+
+struct DoclingV1Source: Codable {
+    let kind: String
+    let base64String: String?
+    let filename: String?
+    let url: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case base64String = "base64_string"
+        case filename
+        case url
+    }
+    
+    init(kind: String, base64String: String? = nil, filename: String? = nil, url: String? = nil) {
+        self.kind = kind
+        self.base64String = base64String
+        self.filename = filename
+        self.url = url
+    }
+}
+
+struct DoclingV1Options: Codable {
+    let ocr: Bool?
+    let language: String?
+    
+    init(ocr: Bool? = nil, language: String? = nil) {
+        self.ocr = ocr
+        self.language = language
+    }
+}
+
+struct DoclingV1Target: Codable {
+    let kind: String
+    
+    init(kind: String) {
+        self.kind = kind
     }
 }
 
@@ -467,7 +554,7 @@ struct DoclingSubmitResponse: Codable {
 
 struct DoclingStatusResponse: Codable {
     let jobId: String
-    let status: ProcessingStatus
+    let status: DoclingProcessingStatus
     let progress: Double?
     let estimatedTimeRemaining: Int?
     

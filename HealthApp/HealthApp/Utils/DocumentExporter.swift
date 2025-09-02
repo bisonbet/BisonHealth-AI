@@ -292,6 +292,7 @@ class DocumentExporter: ObservableObject {
         page.setBounds(pageRect, for: .mediaBox)
         // Note: In a real implementation, you'd need to properly set the page content
         // This is a simplified version for demonstration
+        _ = image // Acknowledge the image was created for rendering
         
         return page
     }
