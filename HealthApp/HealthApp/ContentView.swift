@@ -121,9 +121,6 @@ struct HealthDataView: View {
                 )
             }
         }
-        .task {
-            await healthDataManager.loadHealthData()
-        }
     }
 }
 
@@ -316,6 +313,9 @@ struct DocumentsView: View {
                     
                     TextField("Search documents...", text: $documentManager.searchText)
                         .textFieldStyle(PlainTextFieldStyle())
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
                     
                     if !documentManager.searchText.isEmpty {
                         Button("Clear") {
@@ -499,7 +499,7 @@ struct ChatView: View {
         }
         .task {
             await chatManager.loadConversations()
-            await chatManager.checkConnection()
+            // Skip automatic connection test on startup to avoid console noise
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.keyboardWillShowNotification)) { _ in
             // Handle keyboard appearance for iPad
@@ -592,157 +592,6 @@ struct ChatView: View {
     }
 }
 
-// MARK: - Settings View
-struct SettingsView: View {
-    @State private var ollamaHostname = "localhost"
-    @State private var ollamaPort = "11434"
-    @State private var doclingHostname = "localhost"
-    @State private var doclingPort = "5001"
-    @State private var iCloudBackupEnabled = false
-    @State private var backupHealthData = true
-    @State private var backupChatHistory = true
-    @State private var backupDocuments = false
-    @State private var showingConnectionTest = false
-    @State private var connectionTestResult: String?
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("AI Services") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Ollama Server")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text("Hostname:")
-                            TextField("localhost", text: $ollamaHostname)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                        }
-                        
-                        HStack {
-                            Text("Port:")
-                            TextField("11434", text: $ollamaPort)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .keyboardType(.numberPad)
-                        }
-                        
-                        Button("Test Connection") {
-                            testOllamaConnection()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Docling Server")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text("Hostname:")
-                            TextField("localhost", text: $doclingHostname)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                        }
-                        
-                        HStack {
-                            Text("Port:")
-                            TextField("5001", text: $doclingPort)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .keyboardType(.numberPad)
-                        }
-                        
-                        Button("Test Connection") {
-                            testDoclingConnection()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-                
-                Section("iCloud Backup") {
-                    Toggle("Enable iCloud Backup", isOn: $iCloudBackupEnabled)
-                    
-                    if iCloudBackupEnabled {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Backup Options")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            
-                            Toggle("Health Data", isOn: $backupHealthData)
-                            Toggle("Chat History", isOn: $backupChatHistory)
-                            Toggle("Documents", isOn: $backupDocuments)
-                        }
-                    }
-                }
-                
-                Section("Data Management") {
-                    NavigationLink("Export Health Data") {
-                        DataExportView()
-                    }
-                    
-                    NavigationLink("Storage Usage") {
-                        StorageUsageView()
-                    }
-                    
-                    Button("Clear Cache") {
-                        clearCache()
-                    }
-                    .foregroundColor(.orange)
-                }
-                
-                Section("About") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text("1.0.0")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    NavigationLink("Privacy Policy") {
-                        PrivacyPolicyView()
-                    }
-                    
-                    NavigationLink("Terms of Service") {
-                        TermsOfServiceView()
-                    }
-                }
-            }
-            .navigationTitle("Settings")
-        }
-        .alert("Connection Test", isPresented: $showingConnectionTest) {
-            Button("OK") { }
-        } message: {
-            Text(connectionTestResult ?? "")
-        }
-    }
-    
-    private func testOllamaConnection() {
-        Task {
-            do {
-                let client = OllamaClient(hostname: ollamaHostname, port: Int(ollamaPort) ?? 11434)
-                let isConnected = try await client.testConnection()
-                connectionTestResult = isConnected ? "Successfully connected to Ollama server" : "Failed to connect to Ollama server"
-            } catch {
-                connectionTestResult = "Connection failed: \(error.localizedDescription)"
-            }
-            showingConnectionTest = true
-        }
-    }
-    
-    private func testDoclingConnection() {
-        Task {
-            do {
-                let client = DoclingClient(hostname: doclingHostname, port: Int(doclingPort) ?? 5001)
-                let isConnected = try await client.testConnection()
-                connectionTestResult = isConnected ? "Successfully connected to Docling server" : "Failed to connect to Docling server"
-            } catch {
-                connectionTestResult = "Connection failed: \(error.localizedDescription)"
-            }
-            showingConnectionTest = true
-        }
-    }
-    
-    private func clearCache() {
-        // Implement cache clearing logic
-    }
-}
 
 #Preview {
     ContentView()

@@ -67,6 +67,8 @@
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
 		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
+		55083952F69E6067ECDDADD5 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F48E6CF308D42C7D377B84 /* SettingsManager.swift */; };
+		D715EC3156258AF86CC36B19 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DBD421D8370DAE5B6FC9FB1 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -140,6 +142,8 @@
 		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
 		X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessingIntegrationTests.swift; sourceTree = "<group>"; };
 		Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentListView.swift; sourceTree = "<group>"; };
+		50F48E6CF308D42C7D377B84 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
+		7DBD421D8370DAE5B6FC9FB1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -246,6 +250,7 @@
 				JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */,
 				AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */,
 				MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */,
+				7DBD421D8370DAE5B6FC9FB1 /* SettingsView.swift */,
 				68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */,
 			);
 			path = Views;
@@ -312,6 +317,7 @@
 				A1000071294A0000000000001 /* HealthDataManager.swift */,
 				ADE33702D7631403A9F76CF91 /* AIChatManager.swift */,
 				AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */,
+				50F48E6CF308D42C7D377B84 /* SettingsManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -467,6 +473,8 @@
 				06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */,
 				DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */,
 				AP42ZSRFIED99JHF9ESMG04E /* StorageUsageView.swift in Sources */,
+				55083952F69E6067ECDDADD5 /* SettingsManager.swift in Sources */,
+				D715EC3156258AF86CC36B19 /* SettingsView.swift in Sources */,
 				UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -619,7 +627,7 @@
 		A1000010294A0000000000006 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Doctor-Dark";
+                ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-BisonHealthAI-Pro";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -657,7 +665,7 @@
 		A1000010294A0000000000007 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Doctor-Dark";
+                ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-BisonHealthAI-Pro";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

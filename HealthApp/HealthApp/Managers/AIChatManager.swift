@@ -21,6 +21,7 @@ class AIChatManager: ObservableObject {
     private let healthDataManager: HealthDataManager
     private let databaseManager: DatabaseManager
     private let networkMonitor: NetworkMonitor
+    private let settingsManager = SettingsManager.shared
     
     // MARK: - Context Management
     private var currentContext: ChatContext = ChatContext()
@@ -42,7 +43,8 @@ class AIChatManager: ObservableObject {
         
         Task {
             await loadConversations()
-            await checkConnection()
+            // Don't automatically test connection on startup to avoid noisy failures
+            // User can test manually via Settings if needed
         }
     }
     
@@ -52,7 +54,11 @@ class AIChatManager: ObservableObject {
             Task { @MainActor in
                 self?.isOffline = !isConnected
                 if isConnected {
-                    await self?.checkConnection()
+                    // Only check connection if user has explicitly interacted with chat
+                    // This prevents noisy connection attempts when network comes back
+                    if self?.conversations.isEmpty == false {
+                        await self?.checkConnection()
+                    }
                 } else {
                     self?.isConnected = false
                 }
@@ -212,6 +218,7 @@ class AIChatManager: ObservableObject {
         try await ollamaClient.sendStreamingChatMessage(
             content,
             context: context,
+            model: settingsManager.modelPreferences.chatModel,
             onUpdate: { [weak self] partialContent in
                 Task { @MainActor in
                     guard let self = self else { return }
@@ -261,7 +268,11 @@ class AIChatManager: ObservableObject {
     private func sendNonStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
         // Send to AI service
         let startTime = Date()
-        let response = try await ollamaClient.sendChatMessage(content, context: context)
+        let response = try await ollamaClient.sendChatMessage(
+            content,
+            context: context,
+            model: settingsManager.modelPreferences.chatModel
+        )
         let processingTime = Date().timeIntervalSince(startTime)
         
         // Create assistant message

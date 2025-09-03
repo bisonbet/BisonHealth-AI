@@ -170,11 +170,66 @@ HealthAppTests/
 - **Features**: Chat completion, model management
 - **Status**: Connection testing implemented
 
-### Docling Document Processing
+### Docling Document Processing Server
 - **Default**: localhost:5001
-- **Purpose**: Extract text/data from documents
-- **Formats**: PDF, images, text files
-- **Integration**: Via DocumentProcessor
+- **Purpose**: Extract text/data from documents using AI-powered OCR
+- **Formats**: PDF, DOCX, images (JPEG, PNG, etc.)
+- **Integration**: Via DocumentProcessor and DoclingClient
+
+#### Docling API v1 Reference
+**Base URL**: `http://hostname:port`
+
+**Key Endpoints**:
+- `POST /v1/convert/file` - Synchronous document conversion (upload files)
+- `POST /v1/convert/source` - Synchronous document conversion (from URLs)  
+- `POST /v1/convert/file/async` - Asynchronous file conversion
+- `POST /v1/convert/source/async` - Asynchronous source conversion
+- `GET /v1/status/poll/{task_id}` - Check async task progress
+- `/v1/status/ws/{task_id}` - WebSocket for async task updates
+
+**Authentication**:
+- Optional `X-Api-Key` header when authentication is enabled
+- Configured via `DOCLING_SERVE_API_KEY` environment variable
+
+**Health Check**:
+- **No dedicated health endpoint exists**
+- Use HEAD or GET request to `/v1/convert/file` to test service availability
+- Service returns 405 (Method Not Allowed) for HEAD requests when running
+- Service returns 200 for GET requests with proper parameters
+
+**API Migration Notes**:
+- API changed from `/v1alpha/` to `/v1/` endpoints
+- Unified `sources` array replaces separate `file_sources`/`http_sources`
+- New `target` specification replaces `options.return_as_file`
+- Legacy v0.x API no longer supported in v1.x versions
+
+**Common Parameters**:
+- `from_formats`: Input document types (pdf, docx, image)
+- `to_formats`: Output formats (md, json, etc.)
+- `do_ocr`: Enable/disable OCR processing
+- `ocr_engine`: OCR engine selection (easyocr, etc.)
+- `sources`: Array of input sources with `kind` field
+
+**Example v1 Sources Format**:
+```json
+{
+  "sources": [
+    {
+      "kind": "file",
+      "base64_string": "abc123...",
+      "filename": "document.pdf"
+    },
+    {
+      "kind": "http", 
+      "url": "https://example.com/document.pdf"
+    }
+  ]
+}
+```
+
+**Reference Documentation**:
+- [Docling Serve Usage](https://github.com/docling-project/docling-serve/blob/main/docs/usage.md)
+- [v1 Migration Guide](https://github.com/docling-project/docling-serve/blob/main/docs/v1_migration.md)
 
 ## Privacy & Security
 

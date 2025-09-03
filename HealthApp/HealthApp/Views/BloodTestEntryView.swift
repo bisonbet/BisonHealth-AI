@@ -36,9 +36,13 @@ struct BloodTestEntryView: View {
                     }
                     
                     TextField("Laboratory Name", text: $laboratoryName)
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.words)
                         .accessibilityIdentifier("bloodTest.laboratoryField")
                     
                     TextField("Ordering Physician", text: $orderingPhysician)
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.words)
                         .accessibilityIdentifier("bloodTest.physicianField")
                 }
                 
@@ -192,6 +196,8 @@ struct BloodTestItemEditor: View {
                     }
                 ))
                 .font(.headline)
+                .autocorrectionDisabled(true)
+                .textInputAutocapitalization(.words)
                 .accessibilityIdentifier("bloodTestItem.nameField")
                 
                 if let error = nameValidationError {
@@ -225,6 +231,8 @@ struct BloodTestItemEditor: View {
                     set: { item.unit = $0.isEmpty ? nil : $0 }
                 ))
                 .frame(maxWidth: 80)
+                .autocorrectionDisabled(true)
+                .textInputAutocapitalization(.never)
                 .accessibilityIdentifier("bloodTestItem.unitField")
             }
             
@@ -233,6 +241,8 @@ struct BloodTestItemEditor: View {
                 set: { item.referenceRange = $0.isEmpty ? nil : $0 }
             ))
             .font(.caption)
+            .autocorrectionDisabled(true)
+            .textInputAutocapitalization(.never)
             .accessibilityIdentifier("bloodTestItem.referenceRangeField")
             
             Toggle("Abnormal Result", isOn: $item.isAbnormal)

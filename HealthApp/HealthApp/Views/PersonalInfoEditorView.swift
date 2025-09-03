@@ -45,6 +45,10 @@ struct PersonalInfoEditorView: View {
     @State private var heightValidationError: String?
     @State private var weightValidationError: String?
     @State private var dateOfBirthValidationError: String?
+
+    // Debounce work items to avoid high-frequency updates during wheel scrolling
+    @State private var heightUpdateWorkItem: DispatchWorkItem?
+    @State private var weightUpdateWorkItem: DispatchWorkItem?
     
     init(personalInfo: PersonalHealthInfo?, onSave: @escaping (PersonalHealthInfo) -> Void) {
         self.personalInfo = personalInfo
@@ -181,6 +185,8 @@ struct PersonalInfoEditorView: View {
                         if showHeightTextInput {
                             TextField(useImperialUnits ? "Height (e.g., 5.75 for 5'9\")" : "Height (cm)", text: $heightTextInput)
                                 .keyboardType(.decimalPad)
+                                .autocorrectionDisabled(true)
+                                .textInputAutocapitalization(.never)
                                 .focused($focusedField, equals: .heightText)
                                 .onTapGesture {
                                     // Smooth transition to height text input
@@ -235,8 +241,8 @@ struct PersonalInfoEditorView: View {
                                     .pickerStyle(.wheel)
                                     .frame(maxWidth: .infinity)
                                 }
-                                .onChange(of: heightFeet) { _, _ in updateHeight() }
-                                .onChange(of: heightInches) { _, _ in updateHeight() }
+                                .onChange(of: heightFeet) { _, _ in debounceHeightUpdate() }
+                                .onChange(of: heightInches) { _, _ in debounceHeightUpdate() }
                             } else {
                                 Picker("Height", selection: Binding(
                                     get: { Int(heightCentimeters.rounded()) },
@@ -246,7 +252,7 @@ struct PersonalInfoEditorView: View {
                                         let totalInches = heightCentimeters / 2.54
                                         heightFeet = Int(totalInches / 12)
                                         heightInches = Int(totalInches.truncatingRemainder(dividingBy: 12))
-                                        updateHeight()
+                                        debounceHeightUpdate()
                                     }
                                 )) {
                                     ForEach(100...220, id: \.self) { cm in
@@ -288,6 +294,8 @@ struct PersonalInfoEditorView: View {
                         if showWeightTextInput {
                             TextField(useImperialUnits ? "Weight (lbs)" : "Weight (kg)", text: $weightTextInput)
                                 .keyboardType(.decimalPad)
+                                .autocorrectionDisabled(true)
+                                .textInputAutocapitalization(.never)
                                 .focused($focusedField, equals: .weightText)
                                 .onTapGesture {
                                     // Smooth transition to weight text input
@@ -326,7 +334,7 @@ struct PersonalInfoEditorView: View {
                                     set: { value in
                                         weightPounds = Double(value)
                                         weightKilograms = weightPounds / 2.20462
-                                        updateWeight()
+                                        debounceWeightUpdate()
                                     }
                                 )) {
                                     ForEach(80...400, id: \.self) { lbs in
@@ -340,7 +348,7 @@ struct PersonalInfoEditorView: View {
                                     set: { value in
                                         weightKilograms = Double(value)
                                         weightPounds = weightKilograms * 2.20462
-                                        updateWeight()
+                                        debounceWeightUpdate()
                                     }
                                 )) {
                                     ForEach(35...180, id: \.self) { kg in
@@ -423,6 +431,20 @@ struct PersonalInfoEditorView: View {
         // Always store in kilograms internally
         editedInfo.weight = Measurement(value: weightKilograms, unit: UnitMass.kilograms)
         validateWeight()
+    }
+
+    private func debounceHeightUpdate() {
+        heightUpdateWorkItem?.cancel()
+        let work = DispatchWorkItem { updateHeight() }
+        heightUpdateWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+    
+    private func debounceWeightUpdate() {
+        weightUpdateWorkItem?.cancel()
+        let work = DispatchWorkItem { updateWeight() }
+        weightUpdateWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
     
     private var currentHeightDisplay: String {

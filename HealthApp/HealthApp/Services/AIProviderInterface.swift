@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 protocol AIProviderInterface: ObservableObject {
     var isConnected: Bool { get }
-    var connectionStatus: ConnectionStatus { get }
+    var connectionStatus: OllamaConnectionStatus { get }
     var lastError: Error? { get }
     
     func testConnection() async throws -> Bool
@@ -69,7 +69,7 @@ struct AIProviderConfig {
 // MARK: - Example Future Provider (Placeholder)
 class OpenAIProvider: AIProviderInterface {
     @Published var isConnected = false
-    @Published var connectionStatus: ConnectionStatus = .disconnected
+    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
     @Published var lastError: Error?
     
     private let apiKey: String
@@ -102,7 +102,7 @@ class OpenAIProvider: AIProviderInterface {
 
 class AnthropicProvider: AIProviderInterface {
     @Published var isConnected = false
-    @Published var connectionStatus: ConnectionStatus = .disconnected
+    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
     @Published var lastError: Error?
     
     private let apiKey: String

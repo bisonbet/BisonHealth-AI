@@ -14,6 +14,9 @@ struct DocumentFilterView: View {
                         
                         TextField("Search documents...", text: $documentManager.searchText)
                             .textFieldStyle(PlainTextFieldStyle())
+                            .autocorrectionDisabled(true)
+                            .textInputAutocapitalization(.never)
+                            .submitLabel(.done)
                         
                         if !documentManager.searchText.isEmpty {
                             Button("Clear") {

@@ -12,22 +12,36 @@ class DoclingClient: ObservableObject {
     @Published var lastError: Error?
     @Published var processingJobs: [String: ProcessingJob] = [:]
     
-    private let baseURL: URL
+    let baseURL: URL
     private let session: URLSession
     private let timeout: TimeInterval = 60.0 // Longer timeout for document processing
     
-    // TODO: Add authentication properties when needed
-    // private var apiKey: String?
-    // private var authToken: String?
+    // Authentication properties
+    private var apiKey: String?
     
     // MARK: - Initialization
     init(hostname: String, port: Int) {
-        self.baseURL = URL(string: "http://\(hostname):\(port)")!
+        guard let url = URL(string: "http://\(hostname):\(port)") else {
+            // Fallback to localhost if URL creation fails
+            self.baseURL = URL(string: "http://localhost:\(port)")!
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = timeout
+            config.timeoutIntervalForResource = timeout * 3
+            self.session = URLSession(configuration: config)
+            return
+        }
         
+        self.baseURL = url
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout * 3
         self.session = URLSession(configuration: config)
+    }
+    
+    // MARK: - Configuration
+    
+    func setAPIKey(_ key: String?) {
+        apiKey = key
     }
     
     // MARK: - Connection Management
@@ -35,15 +49,18 @@ class DoclingClient: ObservableObject {
         connectionStatus = .connecting
         
         do {
-            let healthURL = baseURL.appendingPathComponent("v1/health")
-            var request = URLRequest(url: healthURL)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // Docling v1 API doesn't have a dedicated health endpoint
+            // Use HEAD request to /v1/convert/file to test service availability
+            let convertURL = baseURL.appendingPathComponent("v1/convert/file")
+            var request = URLRequest(url: convertURL)
+            request.httpMethod = "HEAD"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.timeoutInterval = 10.0 // Short timeout for health checks
             
-            // TODO: Add authentication headers when needed
-            // if let apiKey = apiKey {
-            //     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            // }
+            // Add authentication header if API key is configured
+            if let apiKey = apiKey, !apiKey.isEmpty {
+                request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+            }
             
             let (_, response) = try await session.data(for: request)
             
@@ -51,7 +68,11 @@ class DoclingClient: ObservableObject {
                 throw DoclingError.invalidResponse
             }
             
-            let success = (200...299).contains(httpResponse.statusCode)
+            // For HEAD request to /v1/convert/file:
+            // - 405 (Method Not Allowed) means service is running but doesn't support HEAD
+            // - 200 (OK) means service accepts HEAD requests
+            // Both indicate the service is accessible and running
+            let success = httpResponse.statusCode == 200 || httpResponse.statusCode == 405
             
             if success {
                 connectionStatus = .connected

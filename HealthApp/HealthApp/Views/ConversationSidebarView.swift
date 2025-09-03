@@ -46,6 +46,9 @@ struct ConversationSidebarView: View {
                     TextField("Search conversations...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.body)
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
                     
                     if !searchText.isEmpty {
                         Button("Clear") {

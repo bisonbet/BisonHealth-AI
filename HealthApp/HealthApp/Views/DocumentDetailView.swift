@@ -472,6 +472,9 @@ struct TagEditorSheet: View {
                 Section("Add New Tag") {
                     HStack {
                         TextField("Enter tag name", text: $newTag)
+                            .autocorrectionDisabled(true)
+                            .textInputAutocapitalization(.never)
+                            .submitLabel(.done)
                         
                         Button("Add") {
                             let trimmedTag = newTag.trimmingCharacters(in: .whitespacesAndNewlines)

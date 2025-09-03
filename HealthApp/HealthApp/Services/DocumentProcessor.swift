@@ -8,7 +8,6 @@ class DocumentProcessor: ObservableObject {
     
     // MARK: - Shared Instance
     static let shared = DocumentProcessor(
-        doclingClient: DoclingClient.shared,
         databaseManager: DatabaseManager.shared,
         fileSystemManager: FileSystemManager.shared,
         healthDataManager: HealthDataManager.shared
@@ -22,7 +21,12 @@ class DocumentProcessor: ObservableObject {
     @Published var processingErrors: [ProcessingError] = []
     
     // MARK: - Dependencies
-    private let doclingClient: DoclingClient
+    private let settingsManager = SettingsManager.shared
+    
+    // Get the current DoclingClient from SettingsManager (always uses latest config)
+    private var doclingClient: DoclingClient {
+        return settingsManager.getDoclingClient()
+    }
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
     private let healthDataManager: HealthDataManager
@@ -38,12 +42,10 @@ class DocumentProcessor: ObservableObject {
     
     // MARK: - Initialization
     init(
-        doclingClient: DoclingClient,
         databaseManager: DatabaseManager,
         fileSystemManager: FileSystemManager,
         healthDataManager: HealthDataManager
     ) {
-        self.doclingClient = doclingClient
         self.databaseManager = databaseManager
         self.fileSystemManager = fileSystemManager
         self.healthDataManager = healthDataManager

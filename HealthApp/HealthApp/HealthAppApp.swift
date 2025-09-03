@@ -18,13 +18,22 @@ struct HealthAppApp: App {
 class AppState: ObservableObject {
     @Published var colorScheme: ColorScheme? = nil
     
+    private let settingsManager = SettingsManager.shared
+    
     init() {
         // Initialize app state
         setupColorScheme()
+        observeSettingsChanges()
     }
     
     private func setupColorScheme() {
-        // Auto-detect system color scheme
-        colorScheme = nil // nil means follow system setting
+        // Get initial theme from settings
+        colorScheme = settingsManager.appPreferences.theme.colorScheme
+    }
+    
+    private func observeSettingsChanges() {
+        // Observe settings changes to update app state
+        // This would typically use Combine in a more complex app
+        colorScheme = settingsManager.appPreferences.theme.colorScheme
     }
 }

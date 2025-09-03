@@ -81,129 +81,84 @@ class DatabaseManager: ObservableObject {
         
         self.databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
         
-        // Initialize database connection
-        try initializeDatabase()
-    }
-    
-    // MARK: - Database Initialization
-    private func initializeDatabase() throws {
+        // Initialize database connection and schema (actor init is nonisolated in Swift 6; inline to avoid isolation issues)
         db = try Connection(databaseURL.path)
         
         // Enable foreign key constraints
         try db?.execute("PRAGMA foreign_keys = ON")
         
         // Create tables
-        try createTables()
-        
-        // Run migrations if needed
-        try runMigrations()
-    }
-    
-    private func createTables() throws {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        // Create health_data table
-        try db.run(healthDataTable.create(ifNotExists: true) { t in
-            t.column(healthDataId, primaryKey: true)
-            t.column(healthDataType)
-            t.column(healthDataEncryptedData)
-            t.column(healthDataCreatedAt)
-            t.column(healthDataUpdatedAt)
-            t.column(healthDataMetadata)
-        })
-        
-        // Create documents table
-        try db.run(documentsTable.create(ifNotExists: true) { t in
-            t.column(documentId, primaryKey: true)
-            t.column(documentFileName)
-            t.column(documentFileType)
-            t.column(documentFilePath)
-            t.column(documentThumbnailPath)
-            t.column(documentProcessingStatus)
-            t.column(documentImportedAt)
-            t.column(documentProcessedAt)
-            t.column(documentFileSize)
-            t.column(documentTags)
-            t.column(documentNotes)
-            t.column(documentExtractedData)
-        })
-        
-        // Create chat_conversations table
-        try db.run(chatConversationsTable.create(ifNotExists: true) { t in
-            t.column(conversationId, primaryKey: true)
-            t.column(conversationTitle)
-            t.column(conversationCreatedAt)
-            t.column(conversationUpdatedAt)
-            t.column(conversationIncludedDataTypes)
-            t.column(conversationIsArchived, defaultValue: false)
-            t.column(conversationTags)
-        })
-        
-        // Create chat_messages table
-        try db.run(chatMessagesTable.create(ifNotExists: true) { t in
-            t.column(messageId, primaryKey: true)
-            t.column(messageConversationId)
-            t.column(messageContent)
-            t.column(messageRole)
-            t.column(messageTimestamp)
-            t.column(messageMetadata)
-            t.column(messageIsError, defaultValue: false)
-            t.column(messageTokens)
-            t.column(messageProcessingTime)
-            t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
-        })
-        
-        // Create indexes
-        try createIndexes()
-    }
-    
-    private func createIndexes() throws {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        // Health data indexes
-        try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_type ON health_data(type)")
-        try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_created ON health_data(created_at)")
-        
-        // Documents indexes
-        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
-        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
-        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
-        
-        // Chat indexes
-        try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
-        try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
-        try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
-    }
-    
-    // MARK: - Migration System
-    private func runMigrations() throws {
-        let currentVersion = getCurrentDatabaseVersion()
-        let targetVersion = 1 // Current schema version
-        
-        if currentVersion < targetVersion {
-            try performMigrations(from: currentVersion, to: targetVersion)
-            try setDatabaseVersion(targetVersion)
+        if let db = db {
+            // Create health_data table
+            try db.run(healthDataTable.create(ifNotExists: true) { t in
+                t.column(healthDataId, primaryKey: true)
+                t.column(healthDataType)
+                t.column(healthDataEncryptedData)
+                t.column(healthDataCreatedAt)
+                t.column(healthDataUpdatedAt)
+                t.column(healthDataMetadata)
+            })
+            
+            // Create documents table
+            try db.run(documentsTable.create(ifNotExists: true) { t in
+                t.column(documentId, primaryKey: true)
+                t.column(documentFileName)
+                t.column(documentFileType)
+                t.column(documentFilePath)
+                t.column(documentThumbnailPath)
+                t.column(documentProcessingStatus)
+                t.column(documentImportedAt)
+                t.column(documentProcessedAt)
+                t.column(documentFileSize)
+                t.column(documentTags)
+                t.column(documentNotes)
+                t.column(documentExtractedData)
+            })
+            
+            // Create chat_conversations table
+            try db.run(chatConversationsTable.create(ifNotExists: true) { t in
+                t.column(conversationId, primaryKey: true)
+                t.column(conversationTitle)
+                t.column(conversationCreatedAt)
+                t.column(conversationUpdatedAt)
+                t.column(conversationIncludedDataTypes)
+                t.column(conversationIsArchived, defaultValue: false)
+                t.column(conversationTags)
+            })
+            
+            // Create chat_messages table
+            try db.run(chatMessagesTable.create(ifNotExists: true) { t in
+                t.column(messageId, primaryKey: true)
+                t.column(messageConversationId)
+                t.column(messageContent)
+                t.column(messageRole)
+                t.column(messageTimestamp)
+                t.column(messageMetadata)
+                t.column(messageIsError, defaultValue: false)
+                t.column(messageTokens)
+                t.column(messageProcessingTime)
+                t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
+            })
+            
+            // Create indexes
+            try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_type ON health_data(type)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_created ON health_data(created_at)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
+            
+            // Run simple migration check (user_version pragma)
+            let version64 = try db.scalar("PRAGMA user_version") as? Int64
+            let currentVersion = Int(version64 ?? 0)
+            let targetVersion = 1
+            if currentVersion < targetVersion {
+                // Perform migrations here as needed (none currently)
+                try db.execute("PRAGMA user_version = \(targetVersion)")
+            }
         }
-    }
-    
-    private func getCurrentDatabaseVersion() -> Int {
-        do {
-            guard let db = db else { return 0 }
-            let version = try db.scalar("PRAGMA user_version") as? Int64
-            return Int(version ?? 0)
-        } catch {
-            return 0
-        }
-    }
-    
-    private func setDatabaseVersion(_ version: Int) throws {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-        try db.execute("PRAGMA user_version = \(version)")
-    }
-    
-    private func performMigrations(from: Int, to: Int) throws {
-        // Future migrations will be implemented here
-        // For now, we're at version 1 (initial schema)
     }
     
     // MARK: - Encryption Key Management

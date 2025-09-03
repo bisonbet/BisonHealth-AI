@@ -357,6 +357,100 @@ class FileSystemManager: ObservableObject {
         }
     }
     
+    // MARK: - Cache Management
+    func clearCache() async throws {
+        let fileManager = FileManager.default
+        
+        // Clear thumbnail cache
+        let thumbnailContents = try fileManager.contentsOfDirectory(at: thumbnailsDirectory, 
+                                                                     includingPropertiesForKeys: nil)
+        for thumbnailURL in thumbnailContents {
+            try fileManager.removeItem(at: thumbnailURL)
+        }
+        
+        // Clear temporary exports older than 24 hours
+        let exportContents = try fileManager.contentsOfDirectory(at: exportsDirectory, 
+                                                                 includingPropertiesForKeys: [.creationDateKey])
+        let dayAgo = Date().addingTimeInterval(-24 * 60 * 60)
+        
+        for exportURL in exportContents {
+            let resourceValues = try exportURL.resourceValues(forKeys: [.creationDateKey])
+            if let creationDate = resourceValues.creationDate, creationDate < dayAgo {
+                try fileManager.removeItem(at: exportURL)
+            }
+        }
+        
+        // Clear any log files older than 7 days
+        let logContents = try fileManager.contentsOfDirectory(at: logsDirectory, 
+                                                              includingPropertiesForKeys: [.creationDateKey])
+        let weekAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+        
+        for logURL in logContents {
+            let resourceValues = try logURL.resourceValues(forKeys: [.creationDateKey])
+            if let creationDate = resourceValues.creationDate, creationDate < weekAgo {
+                try fileManager.removeItem(at: logURL)
+            }
+        }
+    }
+    
+    // MARK: - Storage Usage
+    func getStorageUsage() async throws -> FileSystemStorageUsage {
+        let fileManager = FileManager.default
+        var totalSize: Int64 = 0
+        var documentSize: Int64 = 0
+        var thumbnailSize: Int64 = 0
+        var exportSize: Int64 = 0
+        var logSize: Int64 = 0
+        
+        // Calculate documents size
+        let documentContents = try fileManager.contentsOfDirectory(at: documentsDirectory, 
+                                                                   includingPropertiesForKeys: [.fileSizeKey])
+        for documentURL in documentContents {
+            let resourceValues = try documentURL.resourceValues(forKeys: [.fileSizeKey])
+            let size = Int64(resourceValues.fileSize ?? 0)
+            documentSize += size
+            totalSize += size
+        }
+        
+        // Calculate thumbnails size
+        let thumbnailContents = try fileManager.contentsOfDirectory(at: thumbnailsDirectory, 
+                                                                    includingPropertiesForKeys: [.fileSizeKey])
+        for thumbnailURL in thumbnailContents {
+            let resourceValues = try thumbnailURL.resourceValues(forKeys: [.fileSizeKey])
+            let size = Int64(resourceValues.fileSize ?? 0)
+            thumbnailSize += size
+            totalSize += size
+        }
+        
+        // Calculate exports size
+        let exportContents = try fileManager.contentsOfDirectory(at: exportsDirectory, 
+                                                                 includingPropertiesForKeys: [.fileSizeKey])
+        for exportURL in exportContents {
+            let resourceValues = try exportURL.resourceValues(forKeys: [.fileSizeKey])
+            let size = Int64(resourceValues.fileSize ?? 0)
+            exportSize += size
+            totalSize += size
+        }
+        
+        // Calculate logs size
+        let logContents = try fileManager.contentsOfDirectory(at: logsDirectory, 
+                                                              includingPropertiesForKeys: [.fileSizeKey])
+        for logURL in logContents {
+            let resourceValues = try logURL.resourceValues(forKeys: [.fileSizeKey])
+            let size = Int64(resourceValues.fileSize ?? 0)
+            logSize += size
+            totalSize += size
+        }
+        
+        return FileSystemStorageUsage(
+            totalSize: totalSize,
+            documentsSize: documentSize,
+            thumbnailsSize: thumbnailSize,
+            exportsSize: exportSize,
+            logsSize: logSize
+        )
+    }
+    
     // MARK: - Encryption/Decryption
     private func encryptData(_ data: Data) throws -> Data {
         let sealedBox = try AES.GCM.seal(data, using: encryptionKey)
@@ -433,5 +527,34 @@ enum FileSystemError: LocalizedError {
         case .fileOperationFailed:
             return "File operation failed"
         }
+    }
+}
+
+// MARK: - Storage Usage Model
+struct FileSystemStorageUsage {
+    let totalSize: Int64
+    let documentsSize: Int64
+    let thumbnailsSize: Int64
+    let exportsSize: Int64
+    let logsSize: Int64
+    
+    var formattedTotalSize: String {
+        ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
+    }
+    
+    var formattedDocumentsSize: String {
+        ByteCountFormatter.string(fromByteCount: documentsSize, countStyle: .file)
+    }
+    
+    var formattedThumbnailsSize: String {
+        ByteCountFormatter.string(fromByteCount: thumbnailsSize, countStyle: .file)
+    }
+    
+    var formattedExportsSize: String {
+        ByteCountFormatter.string(fromByteCount: exportsSize, countStyle: .file)
+    }
+    
+    var formattedLogsSize: String {
+        ByteCountFormatter.string(fromByteCount: logsSize, countStyle: .file)
     }
 }

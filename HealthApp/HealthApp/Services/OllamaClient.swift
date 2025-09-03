@@ -9,7 +9,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     static let shared = OllamaClient(hostname: "localhost", port: 11434)
     
     @Published var isConnected = false
-    @Published var connectionStatus: ConnectionStatus = .disconnected
+    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
     @Published var lastError: Error?
     @Published var isStreaming = false
     @Published var streamingContent = ""
@@ -19,7 +19,16 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     
     // MARK: - Initialization
     init(hostname: String, port: Int) {
-        let hostURL = URL(string: "http://\(hostname):\(port)")!
+        guard let hostURL = URL(string: "http://\(hostname):\(port)") else {
+            // Fallback to localhost if URL creation fails
+            let fallbackURL = URL(string: "http://localhost:\(port)")!
+            self.client = Client(
+                host: fallbackURL,
+                userAgent: "BisonHealthAI/1.0"
+            )
+            return
+        }
+        
         self.client = Client(
             host: hostURL,
             userAgent: "BisonHealthAI/1.0"
@@ -296,7 +305,7 @@ struct OllamaChatResponse: Codable, AIResponse {
 }
 
 // MARK: - Model Struct
-struct OllamaModel: Codable, Identifiable {
+struct OllamaModel: Codable, Identifiable, Equatable {
     let name: String
     let modifiedAt: String
     let size: Int64
@@ -310,10 +319,60 @@ struct OllamaModel: Codable, Identifiable {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: size)
     }
+    
+    // Vision capability detection based on model name patterns
+    var supportsVision: Bool {
+        let visionModels = [
+            "llava", "bakllava", "moondream", "minicpm-v", "llava-llama3", 
+            "llava-phi3", "llama3.2-vision", "llama4", "qwen2.5vl", "qwen-vl",
+            "granite3.2-vision", "mistral-small3.1", "mistral-small3.2",
+            "gemma3", "cogvlm", "yi-vl", "internvl", "deepseek-vl", 
+            "cambrian", "molmo"
+        ]
+        
+        let modelNameLower = name.lowercased()
+        return visionModels.contains { visionModel in
+            modelNameLower.contains(visionModel)
+        }
+    }
+    
+    // Display name for UI (removes version tags for cleaner display)
+    var displayName: String {
+        // Remove common version suffixes for cleaner display
+        let cleanName = name.replacingOccurrences(of: ":latest", with: "")
+                           .replacingOccurrences(of: ":13b", with: " (13B)")
+                           .replacingOccurrences(of: ":7b", with: " (7B)")
+                           .replacingOccurrences(of: ":3b", with: " (3B)")
+                           .replacingOccurrences(of: ":1b", with: " (1B)")
+        
+        // Add vision indicator for clarity
+        return supportsVision ? "\(cleanName) 👁️" : cleanName
+    }
+    
+    // Model type for categorization
+    var modelType: OllamaModelType {
+        if supportsVision {
+            return .vision
+        } else {
+            return .chat
+        }
+    }
+}
+
+enum OllamaModelType {
+    case chat
+    case vision
+    
+    var displayName: String {
+        switch self {
+        case .chat: return "Text Chat"
+        case .vision: return "Vision + Chat"
+        }
+    }
 }
 
 // MARK: - Connection Status
-enum ConnectionStatus {
+enum OllamaConnectionStatus {
     case disconnected
     case connecting
     case connected
