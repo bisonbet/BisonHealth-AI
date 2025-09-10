@@ -1,0 +1,237 @@
+---
+globs: *.swift
+description: Swift coding standards and conventions for BisonHealth AI
+---
+
+# Swift Coding Standards
+
+## Naming Conventions
+
+### Types and Protocols
+- **Classes**: `PascalCase` (e.g., `HealthDataManager`, `DatabaseManager`)
+- **Structs**: `PascalCase` (e.g., `PersonalHealthInfo`, `BloodTestResult`)
+- **Enums**: `PascalCase` (e.g., `HealthDataType`, `Gender`)
+- **Protocols**: `PascalCase` ending with descriptive suffix (e.g., `HealthDataProtocol`, `AIProviderInterface`)
+
+### Properties and Methods
+- **Variables**: `camelCase` (e.g., `personalInfo`, `isConnected`)
+- **Constants**: `camelCase` (e.g., `maxConcurrentProcessing`)
+- **Methods**: `camelCase` with descriptive verbs (e.g., `savePersonalInfo`, `processDocument`)
+- **Computed Properties**: `camelCase` (e.g., `displayName`, `colorScheme`)
+
+### Files
+- **File Names**: Match primary type name (e.g., `HealthDataManager.swift`, `PersonalHealthInfo.swift`)
+- **Extensions**: `PrimaryType+ExtensionName.swift` (e.g., `DatabaseManager+Chat.swift`)
+
+## Code Organization
+
+### File Structure
+```swift
+import Foundation
+import SwiftUI
+// Other imports
+
+// MARK: - Type Definition
+class ExampleManager: ObservableObject {
+    
+    // MARK: - Properties
+    @Published var publicProperty: String = ""
+    private let privateProperty: Int = 0
+    
+    // MARK: - Initialization
+    init() {
+        // Setup code
+    }
+    
+    // MARK: - Public Methods
+    func publicMethod() {
+        // Implementation
+    }
+    
+    // MARK: - Private Methods
+    private func privateMethod() {
+        // Implementation
+    }
+}
+```
+
+### MARK Comments
+Use `// MARK:` comments to organize code sections:
+- `// MARK: - Properties`
+- `// MARK: - Initialization`
+- `// MARK: - Public Methods`
+- `// MARK: - Private Methods`
+- `// MARK: - Computed Properties`
+
+## SwiftUI Patterns
+
+### View Structure
+```swift
+struct ExampleView: View {
+    // MARK: - Properties
+    @StateObject private var manager = ExampleManager()
+    @State private var showingSheet = false
+    
+    // MARK: - Body
+    var body: some View {
+        NavigationStack {
+            // View content
+        }
+    }
+    
+    // MARK: - Private Views
+    private var customView: some View {
+        // Custom view implementation
+    }
+}
+```
+
+### State Management
+- Use `@StateObject` for manager instances
+- Use `@ObservedObject` for passed dependencies
+- Use `@State` for local view state
+- Use `@Binding` for two-way data binding
+- Use `@FocusState` for text field focus management
+
+### View Modifiers
+- Group related modifiers together
+- Use `.accessibilityIdentifier()` for UI testing
+- Apply consistent spacing and padding
+
+## Error Handling
+
+### Error Types
+```swift
+enum HealthDataError: LocalizedError {
+    case validationFailed(String)
+    case databaseError(Error)
+    case networkError(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .validationFailed(let message):
+            return "Validation failed: \(message)"
+        case .databaseError(let error):
+            return "Database error: \(error.localizedDescription)"
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
+        }
+    }
+}
+```
+
+### Async/Await Usage
+```swift
+func processData() async throws {
+    do {
+        let result = try await service.processData()
+        // Handle success
+    } catch {
+        // Handle error
+        throw HealthDataError.processingFailed(error)
+    }
+}
+```
+
+## Data Models
+
+### Protocol Conformance
+```swift
+struct PersonalHealthInfo: HealthDataProtocol, Codable {
+    let id: UUID
+    let type: HealthDataType = .personalInfo
+    let createdAt: Date
+    var updatedAt: Date
+    var metadata: [String: String]?
+    
+    // Model-specific properties
+    let name: String
+    let dateOfBirth: Date
+    let gender: Gender
+}
+```
+
+### Computed Properties
+```swift
+var displayName: String {
+    switch self {
+    case .personalInfo: return "Personal Information"
+    case .bloodTest: return "Blood Test Results"
+    }
+}
+```
+
+## Manager Classes
+
+### ObservableObject Pattern
+```swift
+@MainActor
+class ExampleManager: ObservableObject {
+    @Published var data: [ExampleItem] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    
+    private let service: ExampleService
+    
+    init(service: ExampleService) {
+        self.service = service
+    }
+}
+```
+
+### Dependency Injection
+- Pass dependencies through initializers
+- Use protocols for service abstraction
+- Avoid singleton pattern except for shared resources
+
+## Testing Patterns
+
+### Test Structure
+```swift
+@MainActor
+final class ExampleManagerTests: XCTestCase {
+    var manager: ExampleManager!
+    var mockService: MockExampleService!
+    
+    override func setUp() async throws {
+        try await super.setUp()
+        mockService = MockExampleService()
+        manager = ExampleManager(service: mockService)
+    }
+    
+    override func tearDown() async throws {
+        manager = nil
+        mockService = nil
+        try await super.tearDown()
+    }
+    
+    func testExampleFunctionality() async throws {
+        // Given
+        // When
+        // Then
+    }
+}
+```
+
+## Documentation
+
+### Code Comments
+- Use `///` for public API documentation
+- Use `//` for implementation comments
+- Document complex business logic
+- Include examples for public methods
+
+### Type Documentation
+```swift
+/// Manages health data operations including CRUD operations
+/// and data validation for the BisonHealth AI app.
+@MainActor
+class HealthDataManager: ObservableObject {
+    /// Saves personal health information to the database
+    /// - Parameter info: The personal health information to save
+    /// - Throws: HealthDataError if validation or saving fails
+    func savePersonalInfo(_ info: PersonalHealthInfo) async throws {
+        // Implementation
+    }
+}
+```

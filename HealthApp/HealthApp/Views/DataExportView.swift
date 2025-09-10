@@ -7,8 +7,16 @@ struct DataExportView: View {
     @State private var includeChatHistory = false
     @State private var includeDocuments = false
     @State private var isExporting = false
+    @State private var exportProgress: Double = 0.0
     @State private var exportedFileURL: URL?
     @State private var showingShareSheet = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    
+    @StateObject private var documentExporter = DocumentExporter(
+        fileSystemManager: FileSystemManager.shared,
+        databaseManager: DatabaseManager.shared
+    )
     
     var body: some View {
         Form {
@@ -46,6 +54,11 @@ struct DataExportView: View {
                     }
                 }
                 .disabled(isExporting || !hasDataToExport)
+                
+                if isExporting && exportProgress > 0 {
+                    ProgressView("Exporting...", value: exportProgress, total: 1.0)
+                        .progressViewStyle(LinearProgressViewStyle())
+                }
             }
             
             if !hasDataToExport {
@@ -63,6 +76,14 @@ struct DataExportView: View {
                 ShareSheet(items: [url])
             }
         }
+        .alert("Export Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+        .onReceive(documentExporter.$exportProgress) { progress in
+            exportProgress = progress
+        }
     }
     
     private var hasDataToExport: Bool {
@@ -71,60 +92,43 @@ struct DataExportView: View {
     
     private func exportData() {
         isExporting = true
+        exportProgress = 0.0
         
         Task {
             do {
-                // Simulate export process
-                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                // Build set of health data types to include
+                var includeTypes = Set<HealthDataType>()
+                if includePersonalInfo {
+                    includeTypes.insert(.personalInfo)
+                }
+                if includeBloodTests {
+                    includeTypes.insert(.bloodTest)
+                }
+                // Chat history and documents are handled separately by the exporter
                 
-                // Create mock export file
-                let fileName = "HealthData_Export_\(Date().formatted(date: .numeric, time: .omitted)).\(selectedFormat.fileExtension)"
-                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let fileURL = documentsPath.appendingPathComponent(fileName)
-                
-                let exportContent = generateExportContent()
-                try exportContent.write(to: fileURL, atomically: true, encoding: .utf8)
+                let exportURL: URL
+                switch selectedFormat {
+                case .json:
+                    exportURL = try await documentExporter.exportHealthDataAsJSON(includeTypes: includeTypes)
+                case .pdf:
+                    exportURL = try await documentExporter.exportHealthReportAsPDF(includeTypes: includeTypes)
+                }
                 
                 await MainActor.run {
-                    exportedFileURL = fileURL
+                    exportedFileURL = exportURL
                     isExporting = false
                     showingShareSheet = true
                 }
             } catch {
                 await MainActor.run {
                     isExporting = false
-                    print("Export failed: \(error)")
+                    errorMessage = error.localizedDescription
+                    showingError = true
                 }
             }
         }
     }
     
-    private func generateExportContent() -> String {
-        switch selectedFormat {
-        case .json:
-            return """
-            {
-              "exportDate": "\(Date().ISO8601Format())",
-              "format": "json",
-              "version": "1.0",
-              "data": {
-                "personalInfo": \(includePersonalInfo ? "{ \"placeholder\": true }" : "null"),
-                "bloodTests": \(includeBloodTests ? "[]" : "null"),
-                "chatHistory": \(includeChatHistory ? "[]" : "null"),
-                "documents": \(includeDocuments ? "[]" : "null")
-              }
-            }
-            """
-        case .pdf:
-            return """
-            Health Data Export Report
-            Generated: \(Date().formatted())
-            
-            This is a placeholder PDF export.
-            In a real implementation, this would contain formatted health data.
-            """
-        }
-    }
 }
 
 enum ExportFormat: String, CaseIterable {

@@ -9,6 +9,10 @@ struct SettingsView: View {
     @State private var resetType: ResetType?
     @State private var showingValidationError = false
     @State private var validationError = ""
+    @State private var showingConnectionError = false
+    @State private var connectionError = ""
+    @State private var showingSuccessMessage = false
+    @State private var successMessage = ""
     
     @Environment(\.dismiss) private var dismiss
     
@@ -87,6 +91,16 @@ struct SettingsView: View {
             } message: {
                 Text(validationError)
             }
+            .alert("Connection Error", isPresented: $showingConnectionError) {
+                Button("OK") { }
+            } message: {
+                Text(connectionError)
+            }
+            .alert("Success", isPresented: $showingSuccessMessage) {
+                Button("OK") { }
+            } message: {
+                Text(successMessage)
+            }
             .onReceive(
                 settingsManager.$ollamaConfig
                     .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
@@ -130,7 +144,7 @@ struct SettingsView: View {
                     status: settingsManager.ollamaStatus,
                     testAction: {
                         Task {
-                            await settingsManager.testOllamaConnection()
+                            await testOllamaConnection()
                         }
                     }
                 )
@@ -144,10 +158,24 @@ struct SettingsView: View {
                     status: settingsManager.doclingStatus,
                     testAction: {
                         Task {
-                            await settingsManager.testDoclingConnection()
+                            await testDoclingConnection()
                         }
                     }
                 )
+                
+                // Test All Connections button
+                HStack {
+                    Spacer()
+                    Button("Test All Connections") {
+                        Task {
+                            await testAllConnections()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(settingsManager.ollamaStatus == .testing || settingsManager.doclingStatus == .testing)
+                    Spacer()
+                }
+                .padding(.top, 8)
             }
             .padding(.vertical, 8)
         }
@@ -390,9 +418,25 @@ struct SettingsView: View {
                 
                 Spacer()
                 
-                Label(status.displayText, systemImage: status.systemImage)
-                    .font(.caption)
-                    .foregroundColor(status.color)
+                // Enhanced status display with animation
+                HStack(spacing: 4) {
+                    if status == .testing {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: status.systemImage)
+                            .foregroundColor(status.color)
+                    }
+                    
+                    Text(status.displayText)
+                        .font(.caption)
+                        .foregroundColor(status.color)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(status.color.opacity(0.1))
+                .cornerRadius(8)
+                .animation(.easeInOut(duration: 0.3), value: status)
             }
             
             // Fields using Form-style layout
@@ -410,6 +454,17 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
+                    
+                    // Inline validation feedback for hostname
+                    if !config.hostname.wrappedValue.isEmpty {
+                        let serverConfig = ServerConfiguration(hostname: config.hostname.wrappedValue, port: config.port.wrappedValue)
+                        if let validationError = settingsManager.validateServerConfiguration(serverConfig) {
+                            Text(validationError)
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                                .padding(.top, 2)
+                        }
+                    }
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
@@ -423,24 +478,40 @@ struct SettingsView: View {
                         .onSubmit {
                             validateConfiguration()
                         }
+                    
+                    // Inline validation feedback for port
+                    if config.port.wrappedValue < 1 || config.port.wrappedValue > 65535 {
+                        Text("Port must be between 1 and 65535")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                            .padding(.top, 2)
+                    }
                 }
             }
             
-            // Test button
+            // Test button with enhanced visual feedback
             Button(action: testAction) {
                 HStack {
                     if status == .testing {
                         ProgressView()
                             .scaleEffect(0.8)
                     } else {
-                        Image(systemName: "network")
+                        Image(systemName: status == .connected ? "checkmark.network" : "network")
+                            .foregroundColor(status == .connected ? .green : .primary)
                     }
                     
-                    Text("Test Connection")
+                    Text(status == .testing ? "Testing..." : "Test Connection")
                 }
             }
             .buttonStyle(.bordered)
             .disabled(status == .testing)
+            .background(
+                status == .connected ? 
+                Color.green.opacity(0.1) : 
+                (isFailedStatus(status) ? Color.red.opacity(0.1) : Color.clear)
+            )
+            .cornerRadius(6)
+            .animation(.easeInOut(duration: 0.2), value: status)
         }
         .padding(16)
         .background(Color(.systemGray6))
@@ -449,6 +520,13 @@ struct SettingsView: View {
     
     
     // MARK: - Helper Functions
+    
+    private func isFailedStatus(_ status: ConnectionStatus) -> Bool {
+        if case .failed = status {
+            return true
+        }
+        return false
+    }
     
     private func validateAndSave() {
         // Save settings without validation errors during typing
@@ -463,21 +541,13 @@ struct SettingsView: View {
     }
     
     private func validateConfiguration() {
-        // Only validate when user finishes editing, not while typing
+        // Validation is now handled inline in the UI, so this function
+        // can be simplified or used for other validation logic
+        // The real-time validation happens in the UI components themselves
         
-        // Validate Ollama configuration
-        if let error = settingsManager.validateServerConfiguration(settingsManager.ollamaConfig) {
-            validationError = "Ollama: \(error)"
-            showingValidationError = true
-            return
-        }
-        
-        // Validate Docling configuration  
-        if let error = settingsManager.validateServerConfiguration(settingsManager.doclingConfig) {
-            validationError = "Docling: \(error)"
-            showingValidationError = true
-            return
-        }
+        // Reset connection status when configuration changes since it may no longer be valid
+        settingsManager.ollamaStatus = .unknown
+        settingsManager.doclingStatus = .unknown
     }
     
     private func performReset() {
@@ -486,17 +556,74 @@ struct SettingsView: View {
         switch resetType {
         case .servers:
             settingsManager.resetServerSettings()
+            successMessage = "Server settings have been reset to defaults"
         case .backup:
             settingsManager.resetBackupSettings()
+            successMessage = "Backup settings have been reset to defaults"
         case .preferences:
             settingsManager.resetAppPreferences()
+            successMessage = "App preferences have been reset to defaults"
         case .all:
             settingsManager.resetAllSettings()
+            successMessage = "All settings have been reset to defaults"
         }
         
         // Update app state if preferences were reset
         if resetType == .preferences || resetType == .all {
             appState.colorScheme = settingsManager.appPreferences.theme.colorScheme
+        }
+        
+        // Show success message
+        showingSuccessMessage = true
+    }
+    
+    // MARK: - Connection Testing with Enhanced Feedback
+    
+    private func testOllamaConnection() async {
+        await settingsManager.testOllamaConnection()
+        
+        // Provide user feedback based on connection result
+        await MainActor.run {
+            switch settingsManager.ollamaStatus {
+            case .connected:
+                successMessage = "Successfully connected to Ollama server"
+                showingSuccessMessage = true
+            case .failed(let error):
+                connectionError = "Failed to connect to Ollama server: \(error)"
+                showingConnectionError = true
+            default:
+                break
+            }
+        }
+    }
+    
+    private func testDoclingConnection() async {
+        await settingsManager.testDoclingConnection()
+        
+        // Provide user feedback based on connection result
+        await MainActor.run {
+            switch settingsManager.doclingStatus {
+            case .connected:
+                successMessage = "Successfully connected to Docling server"
+                showingSuccessMessage = true
+            case .failed(let error):
+                connectionError = "Failed to connect to Docling server: \(error)"
+                showingConnectionError = true
+            default:
+                break
+            }
+        }
+    }
+    
+    private func testAllConnections() async {
+        // Test both connections concurrently
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await self.testOllamaConnection()
+            }
+            group.addTask {
+                await self.testDoclingConnection()
+            }
         }
     }
     
@@ -510,7 +637,8 @@ struct SettingsView: View {
                 
                 // Show success message
                 await MainActor.run {
-                    // Could show a toast or alert here
+                    successMessage = "Cache cleared successfully"
+                    showingSuccessMessage = true
                 }
             } catch {
                 await MainActor.run {

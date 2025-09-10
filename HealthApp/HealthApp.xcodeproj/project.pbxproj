@@ -35,6 +35,7 @@
 		A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000027294A0000000000001 /* PlaceholderModels.swift */; };
 		A1000028294A0000000000001 /* HealthDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000029294A0000000000001 /* HealthDocument.swift */; };
 		A1000030294A0000000000001 /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000031294A0000000000001 /* ChatModels.swift */; };
+		A1000031294A0000000000002 /* DocumentProcessingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000032294A0000000000002 /* DocumentProcessingModels.swift */; };
 		A1000032294A0000000000001 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000033294A0000000000001 /* ModelTests.swift */; };
 		A1000042294A0000000000001 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000043294A0000000000001 /* DatabaseManager.swift */; };
 		A1000044294A0000000000001 /* DatabaseManager+HealthData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000045294A0000000000001 /* DatabaseManager+HealthData.swift */; };
@@ -106,6 +107,7 @@
 		A1000027294A0000000000001 /* PlaceholderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderModels.swift; sourceTree = "<group>"; };
 		A1000029294A0000000000001 /* HealthDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDocument.swift; sourceTree = "<group>"; };
 		A1000031294A0000000000001 /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
+		A1000032294A0000000000002 /* DocumentProcessingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessingModels.swift; sourceTree = "<group>"; };
 		A1000033294A0000000000001 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		A1000034294A0000000000001 /* HealthAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HealthAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000043294A0000000000001 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				A1000027294A0000000000001 /* PlaceholderModels.swift */,
 				A1000029294A0000000000001 /* HealthDocument.swift */,
 				A1000031294A0000000000001 /* ChatModels.swift */,
+				A1000032294A0000000000002 /* DocumentProcessingModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -434,6 +437,7 @@
 				A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */,
 				A1000028294A0000000000001 /* HealthDocument.swift in Sources */,
 				A1000030294A0000000000001 /* ChatModels.swift in Sources */,
+				A1000031294A0000000000002 /* DocumentProcessingModels.swift in Sources */,
 				A1000042294A0000000000001 /* DatabaseManager.swift in Sources */,
 				A1000044294A0000000000001 /* DatabaseManager+HealthData.swift in Sources */,
 				A1000046294A0000000000001 /* DatabaseManager+Documents.swift in Sources */,

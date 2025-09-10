@@ -331,5 +331,114 @@ final class SettingsManagerTests: XCTestCase {
         XCTAssertNotNil(newOllamaClient)
         XCTAssertNotNil(newDoclingClient)
     }
+    
+    // MARK: - Model Management Tests
+    
+    func testDefaultModelPreferences() {
+        XCTAssertEqual(settingsManager.modelPreferences.chatModel, "llama3.2")
+        XCTAssertEqual(settingsManager.modelPreferences.visionModel, "llava")
+        XCTAssertNotNil(settingsManager.modelPreferences.lastUpdated)
+    }
+    
+    func testModelSelectionInitialState() {
+        XCTAssertEqual(settingsManager.modelSelection.availableModels, [])
+        XCTAssertFalse(settingsManager.modelSelection.isLoading)
+        XCTAssertNil(settingsManager.modelSelection.lastFetchTime)
+        XCTAssertNil(settingsManager.modelSelection.error)
+    }
+    
+    func testResetModelPreferences() {
+        // Modify model preferences
+        settingsManager.modelPreferences.chatModel = "custom-model"
+        settingsManager.modelPreferences.visionModel = "custom-vision-model"
+        
+        // Reset model preferences
+        settingsManager.resetModelPreferences()
+        
+        // Verify reset to defaults
+        XCTAssertEqual(settingsManager.modelPreferences.chatModel, "llama3.2")
+        XCTAssertEqual(settingsManager.modelPreferences.visionModel, "llava")
+    }
+    
+    // MARK: - Validation Edge Cases Tests
+    
+    func testValidateIPv4Hostname() {
+        let validIPConfig = ServerConfiguration(hostname: "192.168.1.100", port: 8080)
+        XCTAssertNil(settingsManager.validateServerConfiguration(validIPConfig))
+        
+        let invalidIPConfig = ServerConfiguration(hostname: "300.168.1.100", port: 8080)
+        XCTAssertNotNil(settingsManager.validateServerConfiguration(invalidIPConfig))
+    }
+    
+    func testValidateHostnameWithDots() {
+        let validHostnameConfig = ServerConfiguration(hostname: "server.example.com", port: 8080)
+        XCTAssertNil(settingsManager.validateServerConfiguration(validHostnameConfig))
+        
+        let validLocalhostConfig = ServerConfiguration(hostname: "localhost", port: 8080)
+        XCTAssertNil(settingsManager.validateServerConfiguration(validLocalhostConfig))
+    }
+    
+    func testValidatePortBoundaries() {
+        let validPort1 = ServerConfiguration(hostname: "localhost", port: 1)
+        XCTAssertNil(settingsManager.validateServerConfiguration(validPort1))
+        
+        let validPort65535 = ServerConfiguration(hostname: "localhost", port: 65535)
+        XCTAssertNil(settingsManager.validateServerConfiguration(validPort65535))
+        
+        let invalidPort0 = ServerConfiguration(hostname: "localhost", port: 0)
+        XCTAssertNotNil(settingsManager.validateServerConfiguration(invalidPort0))
+        
+        let invalidPort65536 = ServerConfiguration(hostname: "localhost", port: 65536)
+        XCTAssertNotNil(settingsManager.validateServerConfiguration(invalidPort65536))
+    }
+    
+    // MARK: - Settings Codable Tests
+    
+    func testServerConfigurationCodable() throws {
+        let originalConfig = ServerConfiguration(hostname: "test.example.com", port: 9090)
+        
+        let encoded = try JSONEncoder().encode(originalConfig)
+        let decoded = try JSONDecoder().decode(ServerConfiguration.self, from: encoded)
+        
+        XCTAssertEqual(originalConfig, decoded)
+    }
+    
+    func testBackupSettingsCodable() throws {
+        var originalSettings = BackupSettings()
+        originalSettings.iCloudEnabled = true
+        originalSettings.backupHealthData = false
+        originalSettings.backupFrequency = .weekly
+        
+        let encoded = try JSONEncoder().encode(originalSettings)
+        let decoded = try JSONDecoder().decode(BackupSettings.self, from: encoded)
+        
+        XCTAssertEqual(originalSettings, decoded)
+    }
+    
+    func testAppPreferencesCodable() throws {
+        var originalPreferences = AppPreferences()
+        originalPreferences.theme = .dark
+        originalPreferences.hapticFeedback = false
+        originalPreferences.analyticsEnabled = true
+        
+        let encoded = try JSONEncoder().encode(originalPreferences)
+        let decoded = try JSONDecoder().decode(AppPreferences.self, from: encoded)
+        
+        XCTAssertEqual(originalPreferences, decoded)
+    }
+    
+    func testModelPreferencesCodable() throws {
+        var originalPreferences = ModelPreferences()
+        originalPreferences.chatModel = "test-chat-model"
+        originalPreferences.visionModel = "test-vision-model"
+        originalPreferences.lastUpdated = Date()
+        
+        let encoded = try JSONEncoder().encode(originalPreferences)
+        let decoded = try JSONDecoder().decode(ModelPreferences.self, from: encoded)
+        
+        XCTAssertEqual(originalPreferences.chatModel, decoded.chatModel)
+        XCTAssertEqual(originalPreferences.visionModel, decoded.visionModel)
+        // Note: Date comparison might need some tolerance due to encoding precision
+    }
 }
 

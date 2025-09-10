@@ -1,0 +1,307 @@
+---
+globs: *.swift
+description: Data management and security patterns for BisonHealth AI
+---
+
+# Data Management & Security Patterns
+
+## Privacy-First Architecture
+
+### Core Principles
+1. **Local Storage**: All health data stored locally on device
+2. **Encryption**: Data encrypted at rest using CryptoKit
+3. **No Cloud Dependencies**: Core functionality works offline
+4. **Optional iCloud Backup**: Encrypted backup when enabled
+5. **Data Sovereignty**: User controls their data
+
+### Data Flow
+```
+User Input → Validation → Encryption → Local Database → Optional iCloud Backup
+```
+
+## Database Management
+
+### SQLite with Encryption
+- **Database**: [DatabaseManager.swift](mdc:HealthApp/HealthApp/Database/DatabaseManager.swift)
+- **Encryption**: AES-256-GCM using CryptoKit
+- **Key Management**: Stored in Keychain
+- **Schema**: Versioned with migrations
+
+### Database Structure
+```swift
+// Health Data Table
+internal let healthDataTable = Table("health_data")
+internal let healthDataId = Expression<String>("id")
+internal let healthDataType = Expression<String>("type")
+internal let healthDataEncryptedData = Expression<Data>("encrypted_data")
+internal let healthDataCreatedAt = Expression<Int64>("created_at")
+internal let healthDataUpdatedAt = Expression<Int64>("updated_at")
+internal let healthDataMetadata = Expression<String?>("metadata")
+```
+
+### Data Encryption Pattern
+```swift
+private func encryptData<T: Codable>(_ data: T) throws -> Data {
+    let jsonData = try JSONEncoder().encode(data)
+    let sealedBox = try AES.GCM.seal(jsonData, using: encryptionKey)
+    return sealedBox.combined!
+}
+
+private func decryptData<T: Codable>(_ encryptedData: Data, as type: T.Type) throws -> T {
+    let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+    let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
+    return try JSONDecoder().decode(type, from: decryptedData)
+}
+```
+
+## Health Data Models
+
+### Protocol-Based Design
+```swift
+protocol HealthDataProtocol: Identifiable, Codable {
+    var id: UUID { get }
+    var type: HealthDataType { get }
+    var createdAt: Date { get }
+    var updatedAt: Date { get set }
+    var metadata: [String: String]? { get set }
+}
+```
+
+### Model Implementation
+```swift
+struct PersonalHealthInfo: HealthDataProtocol {
+    let id: UUID
+    let type: HealthDataType = .personalInfo
+    let createdAt: Date
+    var updatedAt: Date
+    var metadata: [String: String]?
+    
+    // Model-specific properties
+    let name: String
+    let dateOfBirth: Date
+    let gender: Gender
+    let bloodType: BloodType?
+    let height: Measurement<UnitLength>?
+    let weight: Measurement<UnitMass>?
+}
+```
+
+## File System Management
+
+### File Organization
+- **Documents**: `Documents/HealthApp/`
+- **Images**: `Documents/HealthApp/Images/`
+- **Exports**: `Documents/HealthApp/Exports/`
+- **Backups**: `Documents/HealthApp/Backups/`
+
+### File System Manager
+```swift
+class FileSystemManager {
+    private let documentsURL: URL
+    private let imagesURL: URL
+    private let exportsURL: URL
+    
+    func saveDocument(_ data: Data, fileName: String) throws -> URL {
+        let fileURL = documentsURL.appendingPathComponent(fileName)
+        try data.write(to: fileURL)
+        return fileURL
+    }
+}
+```
+
+## Data Validation
+
+### Input Validation
+```swift
+struct ValidationHelper {
+    static func validatePersonalInfo(_ info: PersonalHealthInfo) throws {
+        guard !info.name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw HealthDataError.validationFailed("Name cannot be empty")
+        }
+        
+        guard info.dateOfBirth < Date() else {
+            throw HealthDataError.validationFailed("Date of birth must be in the past")
+        }
+    }
+}
+```
+
+### Data Sanitization
+```swift
+func sanitizeInput(_ input: String) -> String {
+    return input.trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "\0", with: "")
+}
+```
+
+## Keychain Integration
+
+### Secure Key Storage
+```swift
+class Keychain {
+    static func store(key: String, data: Data) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data
+        ]
+        
+        SecItemDelete(query as CFDictionary)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw KeychainError.storeFailed
+        }
+    }
+}
+```
+
+## Data Export/Import
+
+### Export Formats
+- **JSON**: Human-readable data export
+- **PDF**: Formatted reports
+- **Encrypted**: Secure backup format
+
+### Export Implementation
+```swift
+class DocumentExporter {
+    func exportHealthData(to format: ExportFormat) async throws -> URL {
+        switch format {
+        case .json:
+            return try await exportToJSON()
+        case .pdf:
+            return try await exportToPDF()
+        case .encrypted:
+            return try await exportEncrypted()
+        }
+    }
+}
+```
+
+## iCloud Backup (Optional)
+
+### Backup Configuration
+```swift
+struct BackupSettings: Equatable {
+    var iCloudEnabled: Bool = false
+    var backupHealthData: Bool = true
+    var backupChatHistory: Bool = true
+    var backupDocuments: Bool = false
+    var autoBackup: Bool = true
+    var backupFrequency: BackupFrequency = .daily
+}
+```
+
+### Backup Implementation
+```swift
+class BackupManager {
+    func createBackup() async throws {
+        guard settings.iCloudEnabled else { return }
+        
+        let backupData = try await prepareBackupData()
+        let encryptedBackup = try encryptBackup(backupData)
+        try await uploadToiCloud(encryptedBackup)
+    }
+}
+```
+
+## Data Retention
+
+### Retention Policies
+- **Health Data**: Retained indefinitely (user control)
+- **Chat History**: Configurable retention (30 days to 1 year)
+- **Documents**: Retained indefinitely (user control)
+- **Logs**: 7 days maximum
+
+### Cleanup Implementation
+```swift
+func cleanupExpiredData() async throws {
+    let cutoffDate = Date().addingTimeInterval(-retentionPeriod)
+    try await databaseManager.deleteDataOlderThan(cutoffDate)
+}
+```
+
+## Error Handling
+
+### Data-Specific Errors
+```swift
+enum HealthDataError: LocalizedError {
+    case validationFailed(String)
+    case encryptionFailed(Error)
+    case decryptionFailed(Error)
+    case databaseError(Error)
+    case fileSystemError(Error)
+    case keychainError(Error)
+    case backupFailed(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .validationFailed(let message):
+            return "Validation failed: \(message)"
+        case .encryptionFailed(let error):
+            return "Encryption failed: \(error.localizedDescription)"
+        // ... other cases
+        }
+    }
+}
+```
+
+## Data Migration
+
+### Schema Versioning
+```swift
+enum DatabaseVersion: Int, CaseIterable {
+    case v1 = 1
+    case v2 = 2
+    case v3 = 3
+    
+    static var current: DatabaseVersion { .v3 }
+}
+
+func migrateDatabase() throws {
+    let currentVersion = try getCurrentVersion()
+    let targetVersion = DatabaseVersion.current
+    
+    for version in (currentVersion.rawValue + 1)...targetVersion.rawValue {
+        try performMigration(to: DatabaseVersion(rawValue: version)!)
+    }
+}
+```
+
+## Security Best Practices
+
+### Data Protection
+1. **Encryption**: All sensitive data encrypted at rest
+2. **Key Management**: Keys stored in Keychain
+3. **Access Control**: Biometric authentication for sensitive operations
+4. **Data Minimization**: Only collect necessary data
+5. **Secure Deletion**: Overwrite data when deleting
+
+### Privacy Compliance
+1. **Local Processing**: AI processing done locally when possible
+2. **Data Anonymization**: Remove PII when sharing with external services
+3. **User Consent**: Clear consent for data usage
+4. **Data Portability**: Easy export of user data
+5. **Right to Deletion**: Complete data removal capability
+
+## Testing Data Management
+
+### Test Database
+```swift
+func createTestDatabase() throws -> DatabaseManager {
+    return try DatabaseManager(inMemory: true)
+}
+```
+
+### Mock Data
+```swift
+class MockFileSystemManager: FileSystemManagerProtocol {
+    var savedFiles: [URL: Data] = [:]
+    
+    func saveDocument(_ data: Data, fileName: String) throws -> URL {
+        let url = URL(fileURLWithPath: "/test/\(fileName)")
+        savedFiles[url] = data
+        return url
+    }
+}
+```

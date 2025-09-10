@@ -156,9 +156,18 @@ struct DocumentsView: View {
             Group {
                 if documentManager.documents.isEmpty {
                     DocumentsEmptyStateView(
-                        onScanDocument: { showingCamera = true },
-                        onImportFile: { showingDocumentPicker = true },
-                        onImportPhotos: { showingPhotosPicker = true }
+                        onScanDocument: { 
+                            print("📷 ContentView: Showing camera for document scanning")
+                            showingCamera = true 
+                        },
+                        onImportFile: { 
+                            print("📁 ContentView: Triggering document picker - LaunchServices errors will appear now")
+                            showingDocumentPicker = true 
+                        },
+                        onImportPhotos: { 
+                            print("🖼️ ContentView: Showing photos picker")
+                            showingPhotosPicker = true 
+                        }
                     )
                 } else {
                     VStack(spacing: 0) {
@@ -217,6 +226,7 @@ struct DocumentsView: View {
                             showingCamera = true
                         }
                         Button("Import File", systemImage: "folder") {
+                            print("📁 ContentView: Import File button tapped - triggering document picker")
                             showingDocumentPicker = true
                         }
                         Button("Import Photos", systemImage: "photo.on.rectangle") {
@@ -259,13 +269,33 @@ struct DocumentsView: View {
             allowedContentTypes: [.pdf, .plainText, .image],
             allowsMultipleSelection: true
         ) { result in
+            print("📁 ContentView: File importer result received")
+            
             switch result {
             case .success(let urls):
-                Task {
-                    await documentManager.importDocuments(from: urls)
+                print("✅ ContentView: File importer successful, \(urls.count) URLs received")
+                for (index, url) in urls.enumerated() {
+                    print("📄 ContentView: URL \(index + 1): \(url)")
                 }
+                
+                Task {
+                    print("🚀 ContentView: Starting document import process...")
+                    await documentManager.importDocuments(from: urls)
+                    print("✅ ContentView: Document import process completed")
+                }
+                
             case .failure(let error):
-                print("File import failed: \(error)")
+                print("❌ ContentView: File import failed with error: \(error)")
+                print("❌ ContentView: Error type: \(type(of: error))")
+                print("❌ ContentView: Error description: \(error.localizedDescription)")
+                
+                // Check for LaunchServices errors
+                if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") ||
+                   error.localizedDescription.contains("database") ||
+                   error.localizedDescription.contains("LaunchServices") ||
+                   error.localizedDescription.contains("permission") {
+                    print("❌ ContentView: LaunchServices database permission error detected in file importer!")
+                }
             }
         }
         .photosPicker(

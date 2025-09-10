@@ -41,7 +41,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         
         do {
             // Test connection by fetching available models
-            let models = try await client.listModels()
+            _ = try await client.listModels()
             
             connectionStatus = .connected
             isConnected = true

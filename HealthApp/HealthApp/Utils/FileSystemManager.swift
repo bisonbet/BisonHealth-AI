@@ -72,7 +72,14 @@ class FileSystemManager: ObservableObject {
     func storeDocument(data: Data, fileName: String, fileType: DocumentType) throws -> URL {
         let sanitizedFileName = sanitizeFileName(fileName)
         let fileExtension = getFileExtension(for: fileType)
-        let finalFileName = "\(UUID().uuidString)_\(sanitizedFileName).\(fileExtension)"
+        
+        // Check if fileName already has the correct extension, if so don't add it again
+        let finalFileName: String
+        if sanitizedFileName.lowercased().hasSuffix(".\(fileExtension)") {
+            finalFileName = "\(UUID().uuidString)_\(sanitizedFileName)"
+        } else {
+            finalFileName = "\(UUID().uuidString)_\(sanitizedFileName).\(fileExtension)"
+        }
         let destinationURL = documentsDirectory.appendingPathComponent(finalFileName)
         
         // Encrypt the document data

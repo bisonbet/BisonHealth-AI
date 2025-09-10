@@ -1,0 +1,388 @@
+---
+globs: *.swift
+description: AI integration and service patterns for BisonHealth AI
+---
+
+# AI Integration & Service Patterns
+
+## AI Service Architecture
+
+### Service Abstraction
+- **Interface**: [AIProviderInterface.swift](mdc:HealthApp/HealthApp/Services/AIProviderInterface.swift)
+- **Implementation**: [OllamaClient.swift](mdc:HealthApp/HealthApp/Services/OllamaClient.swift)
+- **Document Processing**: [DoclingClient.swift](mdc:HealthApp/HealthApp/Services/DoclingClient.swift)
+
+### AI Provider Interface
+```swift
+@MainActor
+protocol AIProviderInterface: ObservableObject {
+    var isConnected: Bool { get }
+    var connectionStatus: OllamaConnectionStatus { get }
+    var lastError: Error? { get }
+    
+    func testConnection() async throws -> Bool
+    func sendMessage(_ message: String, context: String) async throws -> AIResponse
+    func getCapabilities() async throws -> AICapabilities
+    func updateConfiguration(_ config: AIProviderConfig) async throws
+}
+```
+
+## Ollama Integration
+
+### Client Implementation
+```swift
+@MainActor
+class OllamaClient: AIProviderInterface {
+    @Published var isConnected = false
+    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var lastError: Error?
+    
+    private let hostname: String
+    private let port: Int
+    private let session: URLSession
+    
+    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+        let request = createChatRequest(message: message, context: context)
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw AIError.requestFailed
+        }
+        
+        return try parseResponse(data)
+    }
+}
+```
+
+### Chat Request Structure
+```swift
+struct ChatRequest: Codable {
+    let model: String
+    let messages: [ChatMessage]
+    let stream: Bool
+    let options: ChatOptions?
+}
+
+struct ChatMessage: Codable {
+    let role: String
+    let content: String
+}
+
+struct ChatOptions: Codable {
+    let temperature: Double?
+    let topP: Double?
+    let maxTokens: Int?
+}
+```
+
+## Document Processing
+
+### Docling Integration
+```swift
+class DoclingClient {
+    private let hostname: String
+    private let port: Int
+    private let session: URLSession
+    
+    func processDocument(_ document: HealthDocument) async throws -> ProcessedDocument {
+        let request = createProcessRequest(document: document)
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw DocumentProcessingError.requestFailed
+        }
+        
+        return try parseProcessedDocument(data)
+    }
+}
+```
+
+### Document Processing Flow
+1. **Upload**: Document sent to Docling server
+2. **Processing**: Server extracts text and structure
+3. **Analysis**: AI analyzes content for health data
+4. **Extraction**: Structured data extracted
+5. **Storage**: Results stored locally
+
+## AI Chat Management
+
+### Chat Manager
+```swift
+@MainActor
+class AIChatManager: ObservableObject {
+    @Published var conversations: [ChatConversation] = []
+    @Published var currentConversation: ChatConversation?
+    @Published var isConnected = false
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    
+    private let ollamaClient: OllamaClient
+    private let healthDataManager: HealthDataManager
+    private let databaseManager: DatabaseManager
+    
+    func sendMessage(_ content: String) async throws {
+        guard let conversation = currentConversation else {
+            throw ChatError.noActiveConversation
+        }
+        
+        let context = await buildHealthContext()
+        let response = try await ollamaClient.sendMessage(content, context: context)
+        
+        let message = ChatMessage(
+            id: UUID(),
+            role: .user,
+            content: content,
+            timestamp: Date()
+        )
+        
+        let aiMessage = ChatMessage(
+            id: UUID(),
+            role: .assistant,
+            content: response.content,
+            timestamp: Date()
+        )
+        
+        try await databaseManager.saveChatMessage(message, conversationId: conversation.id)
+        try await databaseManager.saveChatMessage(aiMessage, conversationId: conversation.id)
+    }
+}
+```
+
+### Health Context Building
+```swift
+private func buildHealthContext() async -> String {
+    var context = "Health Data Context:\n"
+    
+    if let personalInfo = healthDataManager.personalInfo {
+        context += "Personal Information:\n"
+        context += "- Name: \(personalInfo.name)\n"
+        context += "- Age: \(personalInfo.age)\n"
+        context += "- Gender: \(personalInfo.gender.displayName)\n"
+    }
+    
+    if !healthDataManager.bloodTests.isEmpty {
+        context += "\nBlood Test Results:\n"
+        for test in healthDataManager.bloodTests.prefix(5) {
+            context += "- \(test.testDate.formatted()): \(test.results.count) results\n"
+        }
+    }
+    
+    return context
+}
+```
+
+## Model Configuration
+
+### Model Selection
+```swift
+struct ModelPreferences: Equatable {
+    var chatModel: String = "llama3.2"
+    var visionModel: String = "llava"
+    var lastUpdated: Date = Date()
+}
+
+class ModelManager {
+    func getAvailableModels() async throws -> [String] {
+        let request = createModelsRequest()
+        let (data, _) = try await session.data(for: request)
+        let response = try JSONDecoder().decode(ModelsResponse.self, from: data)
+        return response.models.map { $0.name }
+    }
+}
+```
+
+### Model Capabilities
+```swift
+struct AICapabilities {
+    let supportedModels: [String]
+    let maxTokens: Int
+    let supportsStreaming: Bool
+    let supportsImages: Bool
+    let supportsDocuments: Bool
+    let supportedLanguages: [String]
+}
+```
+
+## Error Handling
+
+### AI-Specific Errors
+```swift
+enum AIError: LocalizedError {
+    case connectionFailed
+    case requestFailed
+    case invalidResponse
+    case modelNotFound
+    case rateLimitExceeded
+    case contextTooLong
+    case processingTimeout
+    
+    var errorDescription: String? {
+        switch self {
+        case .connectionFailed:
+            return "Failed to connect to AI service"
+        case .requestFailed:
+            return "AI request failed"
+        case .invalidResponse:
+            return "Invalid response from AI service"
+        case .modelNotFound:
+            return "Requested model not found"
+        case .rateLimitExceeded:
+            return "Rate limit exceeded"
+        case .contextTooLong:
+            return "Context exceeds maximum length"
+        case .processingTimeout:
+            return "AI processing timed out"
+        }
+    }
+}
+```
+
+## Streaming Responses
+
+### Stream Handling
+```swift
+func sendMessageStreaming(_ message: String) async throws -> AsyncThrowingStream<String, Error> {
+    return AsyncThrowingStream { continuation in
+        Task {
+            do {
+                let request = createStreamingRequest(message: message)
+                let (data, response) = try await session.data(for: request)
+                
+                // Process streaming response
+                for try await chunk in processStream(data) {
+                    continuation.yield(chunk)
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+    }
+}
+```
+
+## Health Data Integration
+
+### Context Selection
+```swift
+class HealthDataContextSelector: ObservableObject {
+    @Published var selectedTypes: Set<HealthDataType> = []
+    
+    func buildContext(for types: Set<HealthDataType>) async -> String {
+        var context = ""
+        
+        if types.contains(.personalInfo) {
+            context += await buildPersonalInfoContext()
+        }
+        
+        if types.contains(.bloodTest) {
+            context += await buildBloodTestContext()
+        }
+        
+        return context
+    }
+}
+```
+
+### Data Privacy
+```swift
+func sanitizeHealthData(_ data: String) -> String {
+    // Remove or anonymize sensitive information
+    var sanitized = data
+    
+    // Remove potential PII
+    sanitized = sanitized.replacingOccurrences(of: #"\b\d{3}-\d{2}-\d{4}\b"#, with: "[SSN]", options: .regularExpression)
+    sanitized = sanitized.replacingOccurrences(of: #"\b\d{3}-\d{3}-\d{4}\b"#, with: "[PHONE]", options: .regularExpression)
+    
+    return sanitized
+}
+```
+
+## Performance Optimization
+
+### Caching
+```swift
+class AICache {
+    private var responseCache: [String: AIResponse] = [:]
+    private let maxCacheSize = 100
+    
+    func getCachedResponse(for key: String) -> AIResponse? {
+        return responseCache[key]
+    }
+    
+    func cacheResponse(_ response: AIResponse, for key: String) {
+        if responseCache.count >= maxCacheSize {
+            responseCache.removeFirst()
+        }
+        responseCache[key] = response
+    }
+}
+```
+
+### Request Batching
+```swift
+class RequestBatcher {
+    private var pendingRequests: [ChatRequest] = []
+    private let batchSize = 5
+    private let batchDelay: TimeInterval = 0.5
+    
+    func addRequest(_ request: ChatRequest) async throws -> AIResponse {
+        pendingRequests.append(request)
+        
+        if pendingRequests.count >= batchSize {
+            return try await processBatch()
+        }
+        
+        // Wait for batch delay or more requests
+        try await Task.sleep(nanoseconds: UInt64(batchDelay * 1_000_000_000))
+        return try await processBatch()
+    }
+}
+```
+
+## Testing AI Integration
+
+### Mock AI Client
+```swift
+class MockOllamaClient: AIProviderInterface {
+    var shouldSucceedConnection = true
+    var mockResponse = "Mock AI response"
+    var shouldThrowError = false
+    
+    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+        if shouldThrowError {
+            throw AIError.requestFailed
+        }
+        
+        return AIResponse(
+            content: mockResponse,
+            responseTime: 0.1,
+            tokenCount: 10,
+            metadata: nil
+        )
+    }
+}
+```
+
+### Integration Tests
+```swift
+@MainActor
+final class AIIntegrationTests: XCTestCase {
+    func testChatFlow() async throws {
+        // Given
+        let chatManager = AIChatManager(
+            ollamaClient: MockOllamaClient(),
+            healthDataManager: MockHealthDataManager(),
+            databaseManager: MockDatabaseManager()
+        )
+        
+        // When
+        try await chatManager.sendMessage("Hello")
+        
+        // Then
+        XCTAssertFalse(chatManager.conversations.isEmpty)
+    }
+}
+```
