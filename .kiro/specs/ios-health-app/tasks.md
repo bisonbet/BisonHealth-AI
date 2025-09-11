@@ -115,7 +115,7 @@
   - Write UI tests for chat functionality on both iPhone and iPad orientations
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 13. Implement settings and configuration management
+- [x] 13. Implement settings and configuration management
   - Create server configuration interface for Ollama and Docling
   - Build connection testing with status feedback and error messages
   - Implement iCloud backup settings with granular control
