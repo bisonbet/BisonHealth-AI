@@ -1,0 +1,80 @@
+---
+alwaysApply: true
+description: Project structure and architecture guidelines for BisonHealth AI iOS app
+---
+
+# Project Structure & Architecture
+
+## Overview
+BisonHealth AI is a privacy-first iOS health data management app with AI-powered assistance. The app follows MVVM architecture with SwiftUI and prioritizes local data storage with encryption.
+
+## Project Structure
+
+### Main App Directory
+- **Entry Point**: [HealthAppApp.swift](mdc:HealthApp/HealthApp/HealthAppApp.swift) - App entry point with AppState management
+- **Main View**: [ContentView.swift](mdc:HealthApp/HealthApp/ContentView.swift) - TabView with main navigation
+
+### Core Directories
+
+#### Models (`Models/`)
+- [HealthDataProtocol.swift](mdc:HealthApp/HealthApp/Models/HealthDataProtocol.swift) - Base protocol for all health data types
+- [PersonalHealthInfo.swift](mdc:HealthApp/HealthApp/Models/PersonalHealthInfo.swift) - Personal information model
+- [BloodTestResult.swift](mdc:HealthApp/HealthApp/Models/BloodTestResult.swift) - Blood test results model
+- [HealthDocument.swift](mdc:HealthApp/HealthApp/Models/HealthDocument.swift) - Document model
+- [ChatModels.swift](mdc:HealthApp/HealthApp/Models/ChatModels.swift) - Chat conversation models
+
+#### Views (`Views/`)
+- All SwiftUI views follow naming convention: `*View.swift`
+- Views are organized by feature (e.g., `DocumentDetailView.swift`, `PersonalInfoEditorView.swift`)
+- Use `@StateObject` for managers, `@ObservedObject` for passed dependencies
+
+#### Managers (`Managers/`) - ViewModels
+- [HealthDataManager.swift](mdc:HealthApp/HealthApp/Managers/HealthDataManager.swift) - Health data CRUD operations
+- [DocumentManager.swift](mdc:HealthApp/HealthApp/Managers/DocumentManager.swift) - Document management
+- [AIChatManager.swift](mdc:HealthApp/HealthApp/Managers/AIChatManager.swift) - AI chat functionality
+- [SettingsManager.swift](mdc:HealthApp/HealthApp/Managers/SettingsManager.swift) - App settings and configuration
+
+#### Services (`Services/`)
+- [AIProviderInterface.swift](mdc:HealthApp/HealthApp/Services/AIProviderInterface.swift) - AI service abstraction
+- [OllamaClient.swift](mdc:HealthApp/HealthApp/Services/OllamaClient.swift) - Ollama AI client
+- [DoclingClient.swift](mdc:HealthApp/HealthApp/Services/DoclingClient.swift) - Document processing client
+- [DocumentProcessor.swift](mdc:HealthApp/HealthApp/Services/DocumentProcessor.swift) - Document processing logic
+
+#### Database (`Database/`)
+- [DatabaseManager.swift](mdc:HealthApp/HealthApp/Database/DatabaseManager.swift) - SQLite database with encryption
+- [DatabaseManager+Chat.swift](mdc:HealthApp/HealthApp/Database/DatabaseManager+Chat.swift) - Chat-specific database operations
+- [DatabaseManager+Documents.swift](mdc:HealthApp/HealthApp/Database/DatabaseManager+Documents.swift) - Document-specific database operations
+- [DatabaseManager+HealthData.swift](mdc:HealthApp/HealthApp/Database/DatabaseManager+HealthData.swift) - Health data-specific database operations
+
+#### Utils (`Utils/`)
+- [FileSystemManager.swift](mdc:HealthApp/HealthApp/Utils/FileSystemManager.swift) - File system operations
+- [DocumentImporter.swift](mdc:HealthApp/HealthApp/Utils/DocumentImporter.swift) - Document import functionality
+- [DocumentExporter.swift](mdc:HealthApp/HealthApp/Utils/DocumentExporter.swift) - Document export functionality
+- [ValidationHelper.swift](mdc:HealthApp/HealthApp/Utils/ValidationHelper.swift) - Input validation utilities
+
+## Architecture Patterns
+
+### MVVM with SwiftUI
+- **Models**: Data structures conforming to `HealthDataProtocol`
+- **Views**: SwiftUI views with `@StateObject` for managers
+- **ViewModels**: Manager classes in `Managers/` directory
+- **Services**: External service clients in `Services/` directory
+
+### Key Principles
+1. **Privacy First**: All data encrypted and stored locally
+2. **Protocol-Oriented**: Use protocols for service abstraction
+3. **Dependency Injection**: Pass dependencies to managers
+4. **Async/Await**: Use for all async operations
+5. **Error Handling**: Comprehensive error types with recovery suggestions
+
+### Data Flow
+1. User interactions trigger View updates
+2. Views call Manager methods
+3. Managers coordinate with Services and Database
+4. Database encrypts and stores data locally
+5. Services handle external API calls (Ollama, Docling)
+
+## Legacy Reference
+- `legacy/` directory contains reference web app (Next.js/TypeScript)
+- Use for inspiration and data model reference only
+- Do not directly import JS/TypeScript code into Swift

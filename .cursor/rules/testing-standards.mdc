@@ -1,0 +1,350 @@
+---
+globs: *Tests.swift,*UITests.swift
+description: Testing patterns and standards for BisonHealth AI
+---
+
+# Testing Standards & Patterns
+
+## Test Organization
+
+### Test File Structure
+- **Unit Tests**: `HealthAppTests/` directory
+- **UI Tests**: `HealthAppUITests/` directory
+- **Test Files**: End with `Tests.swift` (e.g., `HealthDataManagerTests.swift`)
+- **UI Test Files**: End with `UITests.swift` (e.g., `ChatInterfaceUITests.swift`)
+
+### Test Class Structure
+```swift
+@MainActor
+final class ExampleManagerTests: XCTestCase {
+    // MARK: - Properties
+    var manager: ExampleManager!
+    var mockService: MockExampleService!
+    
+    // MARK: - Setup & Teardown
+    override func setUp() async throws {
+        try await super.setUp()
+        mockService = MockExampleService()
+        manager = ExampleManager(service: mockService)
+    }
+    
+    override func tearDown() async throws {
+        manager = nil
+        mockService = nil
+        try await super.tearDown()
+    }
+    
+    // MARK: - Test Methods
+    func testExampleFunctionality() async throws {
+        // Given
+        // When
+        // Then
+    }
+}
+```
+
+## Unit Testing Patterns
+
+### Test Method Naming
+- Use descriptive names: `testSavePersonalInfo()`, `testValidationFailure()`
+- Include expected outcome: `testSavePersonalInfoSuccess()`, `testSavePersonalInfoValidationFailure()`
+- Group related tests with comments
+
+### Given-When-Then Pattern
+```swift
+func testSavePersonalInfo() async throws {
+    // Given
+    let personalInfo = PersonalHealthInfo(
+        name: "John Doe",
+        dateOfBirth: Date(timeIntervalSince1970: 0),
+        gender: .male
+    )
+    
+    // When
+    try await manager.savePersonalInfo(personalInfo)
+    
+    // Then
+    XCTAssertEqual(manager.personalInfo?.name, "John Doe")
+    XCTAssertTrue(mockDatabase.saveHealthDataCalled)
+}
+```
+
+### Mock Objects
+```swift
+class MockDatabaseManager: DatabaseManagerProtocol {
+    var saveHealthDataCalled = false
+    var saveHealthDataResult: Result<Void, Error> = .success(())
+    
+    func saveHealthData(_ data: HealthDataProtocol) async throws {
+        saveHealthDataCalled = true
+        try saveHealthDataResult.get()
+    }
+}
+```
+
+### Async Testing
+```swift
+func testAsyncOperation() async throws {
+    // Given
+    let expectation = XCTestExpectation(description: "Async operation completes")
+    
+    // When
+    Task {
+        try await manager.performAsyncOperation()
+        expectation.fulfill()
+    }
+    
+    // Then
+    await fulfillment(of: [expectation], timeout: 5.0)
+}
+```
+
+## UI Testing Patterns
+
+### UI Test Structure
+```swift
+final class ExampleUITests: XCTestCase {
+    var app: XCUIApplication!
+    
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launch()
+    }
+    
+    override func tearDownWithError() throws {
+        app = nil
+    }
+    
+    func testExampleUI() throws {
+        // UI test implementation
+    }
+}
+```
+
+### Accessibility Identifiers
+```swift
+// In SwiftUI view
+TextField("Name", text: $name)
+    .accessibilityIdentifier("personalInfo.nameField")
+
+// In UI test
+let nameField = app.textFields["personalInfo.nameField"]
+XCTAssertTrue(nameField.exists)
+nameField.tap()
+nameField.typeText("John Doe")
+```
+
+### UI Test Patterns
+```swift
+func testPersonalInfoEntry() throws {
+    // Navigate to personal info
+    app.buttons["Personal Info"].tap()
+    
+    // Fill form
+    let nameField = app.textFields["personalInfo.nameField"]
+    nameField.tap()
+    nameField.typeText("John Doe")
+    
+    // Save
+    app.buttons["personalInfo.saveButton"].tap()
+    
+    // Verify
+    XCTAssertTrue(app.staticTexts["John Doe"].exists)
+}
+```
+
+## Integration Testing
+
+### Database Integration Tests
+```swift
+@MainActor
+final class DatabaseIntegrationTests: XCTestCase {
+    var databaseManager: DatabaseManager!
+    
+    override func setUp() async throws {
+        try await super.setUp()
+        databaseManager = try DatabaseManager(inMemory: true)
+    }
+    
+    override func tearDown() async throws {
+        try await databaseManager.clearAllData()
+        try await super.tearDown()
+    }
+    
+    func testDataPersistence() async throws {
+        // Test actual database operations
+    }
+}
+```
+
+### Service Integration Tests
+```swift
+@MainActor
+final class ServiceIntegrationTests: XCTestCase {
+    var ollamaClient: OllamaClient!
+    
+    override func setUp() async throws {
+        try await super.setUp()
+        ollamaClient = OllamaClient(hostname: "localhost", port: 11434)
+    }
+    
+    func testOllamaConnection() async throws {
+        // Test actual service connection
+    }
+}
+```
+
+## Test Data Management
+
+### Test Data Factories
+```swift
+struct TestDataFactory {
+    static func createPersonalInfo() -> PersonalHealthInfo {
+        return PersonalHealthInfo(
+            name: "Test User",
+            dateOfBirth: Date(timeIntervalSince1970: 0),
+            gender: .male
+        )
+    }
+    
+    static func createBloodTest() -> BloodTestResult {
+        return BloodTestResult(
+            testDate: Date(),
+            laboratoryName: "Test Lab",
+            orderingPhysician: "Dr. Test",
+            results: []
+        )
+    }
+}
+```
+
+### Mock Data
+```swift
+class MockHealthDataManager: HealthDataManagerProtocol {
+    var personalInfo: PersonalHealthInfo?
+    var bloodTests: [BloodTestResult] = []
+    
+    func savePersonalInfo(_ info: PersonalHealthInfo) async throws {
+        personalInfo = info
+    }
+    
+    func addBloodTest(_ bloodTest: BloodTestResult) async throws {
+        bloodTests.append(bloodTest)
+    }
+}
+```
+
+## Error Testing
+
+### Error Scenarios
+```swift
+func testValidationError() async throws {
+    // Given
+    let invalidInfo = PersonalHealthInfo(
+        name: "", // Invalid empty name
+        dateOfBirth: Date(),
+        gender: .male
+    )
+    
+    // When & Then
+    do {
+        try await manager.savePersonalInfo(invalidInfo)
+        XCTFail("Expected validation error")
+    } catch let error as HealthDataError {
+        XCTAssertEqual(error, .validationFailed("Name cannot be empty"))
+    }
+}
+```
+
+### Network Error Testing
+```swift
+func testNetworkError() async throws {
+    // Given
+    mockService.shouldFail = true
+    mockService.error = NetworkError.connectionFailed
+    
+    // When & Then
+    do {
+        try await manager.performNetworkOperation()
+        XCTFail("Expected network error")
+    } catch {
+        XCTAssertTrue(error is NetworkError)
+    }
+}
+```
+
+## Performance Testing
+
+### Performance Measurements
+```swift
+func testPerformance() throws {
+    measure {
+        // Code to measure
+        for _ in 0..<1000 {
+            manager.performOperation()
+        }
+    }
+}
+```
+
+### Memory Testing
+```swift
+func testMemoryLeaks() {
+    weak var weakManager: ExampleManager?
+    
+    autoreleasepool {
+        let manager = ExampleManager()
+        weakManager = manager
+        // Use manager
+    }
+    
+    XCTAssertNil(weakManager, "Manager should be deallocated")
+}
+```
+
+## Test Coverage
+
+### Coverage Goals
+- **Unit Tests**: 80%+ code coverage for business logic
+- **UI Tests**: Cover critical user flows
+- **Integration Tests**: Test key service integrations
+
+### Coverage Areas
+- All public methods in managers
+- All error handling paths
+- All validation logic
+- Critical user workflows
+- Data persistence operations
+
+## Test Utilities
+
+### Test Helpers
+```swift
+extension XCTestCase {
+    func waitForAsyncOperation(timeout: TimeInterval = 5.0) async {
+        try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+    }
+    
+    func createTestDatabase() throws -> DatabaseManager {
+        return try DatabaseManager(inMemory: true)
+    }
+}
+```
+
+### Test Assertions
+```swift
+func XCTAssertThrowsAsync<T>(
+    _ expression: @autoclosure () async throws -> T,
+    _ message: String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        _ = try await expression()
+        XCTFail("Expected error to be thrown. \(message)", file: file, line: line)
+    } catch {
+        // Expected error
+    }
+}
+```

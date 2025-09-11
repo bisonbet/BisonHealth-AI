@@ -1,0 +1,339 @@
+---
+globs: *.swift
+description: SwiftUI patterns and view conventions for BisonHealth AI
+---
+
+# SwiftUI Patterns & Conventions
+
+## View Structure & Organization
+
+### View Naming
+- All views end with `View` suffix (e.g., `DocumentDetailView`, `PersonalInfoEditorView`)
+- Use descriptive names that indicate purpose
+- Group related views in same file when appropriate
+
+### View Body Structure
+```swift
+struct ExampleView: View {
+    // MARK: - Properties
+    @StateObject private var manager = ExampleManager()
+    @State private var showingSheet = false
+    @Environment(\.dismiss) private var dismiss
+    
+    // MARK: - Body
+    var body: some View {
+        NavigationStack {
+            VStack {
+                // Main content
+            }
+            .navigationTitle("Title")
+            .toolbar {
+                // Toolbar items
+            }
+        }
+    }
+    
+    // MARK: - Private Views
+    private var customSection: some View {
+        // Custom view implementation
+    }
+}
+```
+
+## State Management Patterns
+
+### Property Wrappers
+- `@StateObject`: For manager instances created in the view
+- `@ObservedObject`: For managers passed as parameters
+- `@State`: For local view state (booleans, strings, etc.)
+- `@Binding`: For two-way data binding between views
+- `@FocusState`: For text field focus management
+- `@Environment`: For system values (dismiss, size classes)
+
+### State Organization
+```swift
+struct ExampleView: View {
+    // Manager instances
+    @StateObject private var manager = ExampleManager()
+    
+    // UI state
+    @State private var showingSheet = false
+    @State private var searchText = ""
+    @State private var selectedItems: Set<UUID> = []
+    
+    // Focus management
+    @FocusState private var focusedField: Field?
+    
+    enum Field: Hashable {
+        case name, email, phone
+    }
+}
+```
+
+## Navigation Patterns
+
+### NavigationStack Usage
+```swift
+NavigationStack {
+    List {
+        // Content
+    }
+    .navigationTitle("Title")
+    .navigationBarTitleDisplayMode(.large)
+    .toolbar {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button("Add") {
+                // Action
+            }
+        }
+    }
+}
+```
+
+### Sheet Presentations
+```swift
+.sheet(isPresented: $showingSheet) {
+    ExampleSheetView(
+        data: $data,
+        onSave: { newData in
+            // Handle save
+            showingSheet = false
+        }
+    )
+}
+```
+
+### NavigationSplitView for iPad
+```swift
+NavigationSplitView {
+    // Sidebar
+    SidebarView(selection: $selectedItem)
+} detail: {
+    // Detail view
+    DetailView(item: selectedItem)
+}
+.navigationSplitViewStyle(.balanced)
+```
+
+## Form Patterns
+
+### Form Structure
+```swift
+Form {
+    Section("Section Title") {
+        TextField("Label", text: $value)
+            .accessibilityIdentifier("form.fieldName")
+        
+        Picker("Label", selection: $selection) {
+            ForEach(options, id: \.self) { option in
+                Text(option.displayName).tag(option)
+            }
+        }
+    }
+}
+```
+
+### Validation Display
+```swift
+VStack(alignment: .leading) {
+    TextField("Label", text: $value)
+        .textFieldStyle(RoundedBorderTextFieldStyle())
+    
+    if let error = validationError {
+        Text(error)
+            .font(.caption)
+            .foregroundColor(.red)
+    }
+}
+```
+
+## List Patterns
+
+### List with Selection
+```swift
+List(selection: $selectedItems) {
+    ForEach(items) { item in
+        ItemRowView(item: item)
+            .tag(item.id)
+    }
+    .onDelete(perform: deleteItems)
+}
+.toolbar {
+    if !selectedItems.isEmpty {
+        Button("Delete") {
+            deleteSelectedItems()
+        }
+    }
+}
+```
+
+### Search and Filter
+```swift
+List {
+    ForEach(filteredItems) { item in
+        ItemRowView(item: item)
+    }
+}
+.searchable(text: $searchText)
+.refreshable {
+    await loadData()
+}
+```
+
+## Custom View Components
+
+### Reusable Components
+```swift
+struct CustomButton: View {
+    let title: String
+    let action: () -> Void
+    let style: ButtonStyle
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .padding()
+                .background(style.backgroundColor)
+                .foregroundColor(style.foregroundColor)
+                .cornerRadius(8)
+        }
+    }
+}
+```
+
+### View Modifiers
+```swift
+struct CardStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .shadow(radius: 2)
+    }
+}
+
+extension View {
+    func cardStyle() -> some View {
+        modifier(CardStyle())
+    }
+}
+```
+
+## Accessibility
+
+### Accessibility Identifiers
+```swift
+TextField("Name", text: $name)
+    .accessibilityIdentifier("personalInfo.nameField")
+
+Button("Save") {
+    saveAction()
+}
+.accessibilityIdentifier("personalInfo.saveButton")
+```
+
+### Accessibility Labels
+```swift
+Image(systemName: "heart.fill")
+    .accessibilityLabel("Health data")
+    .accessibilityHint("Tap to view health information")
+```
+
+## Animation Patterns
+
+### State-Based Animations
+```swift
+@State private var isExpanded = false
+
+VStack {
+    // Content
+}
+.animation(.easeInOut(duration: 0.3), value: isExpanded)
+```
+
+### Custom Animations
+```swift
+withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+    isVisible.toggle()
+}
+```
+
+## Error Handling in Views
+
+### Error Display
+```swift
+@State private var errorMessage: String?
+
+var body: some View {
+    VStack {
+        // Content
+        
+        if let error = errorMessage {
+            Text(error)
+                .foregroundColor(.red)
+                .padding()
+        }
+    }
+}
+```
+
+### Loading States
+```swift
+@State private var isLoading = false
+
+var body: some View {
+    Group {
+        if isLoading {
+            ProgressView("Loading...")
+        } else {
+            // Content
+        }
+    }
+}
+```
+
+## iPad-Specific Patterns
+
+### Size Class Adaptation
+```swift
+@Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+private var isIPad: Bool {
+    horizontalSizeClass == .regular
+}
+
+var body: some View {
+    if isIPad {
+        iPadLayout
+    } else {
+        iPhoneLayout
+    }
+}
+```
+
+### Split View Support
+```swift
+NavigationSplitView {
+    SidebarView()
+} detail: {
+    DetailView()
+}
+.navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 400)
+```
+
+## Performance Optimization
+
+### Lazy Loading
+```swift
+LazyVStack {
+    ForEach(items) { item in
+        ItemView(item: item)
+    }
+}
+```
+
+### View Updates
+- Use `@State` for local UI state only
+- Use `@Published` properties in managers for data changes
+- Avoid unnecessary view updates with proper state management

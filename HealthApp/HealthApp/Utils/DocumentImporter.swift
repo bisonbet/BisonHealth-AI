@@ -30,6 +30,8 @@ class DocumentImporter: NSObject, ObservableObject {
     
     // MARK: - Document Import from Files
     func importDocument(from url: URL) async throws -> HealthDocument {
+        print("📁 DocumentImporter: Starting import from URL: \(url)")
+        
         isImporting = true
         importProgress = 0.0
         
@@ -40,43 +42,99 @@ class DocumentImporter: NSObject, ObservableObject {
         
         do {
             // Start accessing security-scoped resource
+            print("🔐 DocumentImporter: Starting security-scoped resource access")
             let accessing = url.startAccessingSecurityScopedResource()
+            print("🔐 DocumentImporter: Security-scoped access result: \(accessing)")
+            
             defer {
                 if accessing {
+                    print("🔐 DocumentImporter: Stopping security-scoped resource access")
                     url.stopAccessingSecurityScopedResource()
                 }
             }
             
             importProgress = 0.2
             
-            // Get file information
-            let fileName = url.lastPathComponent
-            let fileExtension = url.pathExtension.lowercased()
+            // Get file information - THIS IS WHERE LAUNCHSERVICES ERRORS OCCUR
+            print("📋 DocumentImporter: Extracting file information from URL...")
+            
+            print("📋 DocumentImporter: Getting lastPathComponent...")
+            let fileName: String
+            do {
+                fileName = url.lastPathComponent
+                print("✅ DocumentImporter: Successfully got fileName: '\(fileName)'")
+            } catch {
+                print("❌ DocumentImporter: Failed to get lastPathComponent: \(error)")
+                throw DocumentImportError.accessDenied
+            }
+            
+            print("📋 DocumentImporter: Getting pathExtension...")
+            let fileExtension: String
+            do {
+                fileExtension = url.pathExtension.lowercased()
+                print("✅ DocumentImporter: Successfully got fileExtension: '\(fileExtension)'")
+            } catch {
+                print("❌ DocumentImporter: Failed to get pathExtension: \(error)")
+                throw DocumentImportError.accessDenied
+            }
+            
+            print("🔍 DocumentImporter: Determining file type from extension...")
             let fileType = DocumentType.from(fileExtension: fileExtension)
+            print("✅ DocumentImporter: File type determined: \(fileType.displayName)")
             
             // Validate file type
+            print("✅ DocumentImporter: Validating file type...")
             guard isValidDocumentType(fileType) else {
+                print("❌ DocumentImporter: Unsupported file type: \(fileType)")
                 throw DocumentImportError.unsupportedFileType
             }
+            print("✅ DocumentImporter: File type validation passed")
             
             importProgress = 0.4
             
-            // Get file size and validate
-            let fileSize = try getFileSize(url)
+            // Get file size and validate - ANOTHER POTENTIAL LAUNCHSERVICES TRIGGER
+            print("📏 DocumentImporter: Getting file size...")
+            let fileSize: Int64
+            do {
+                fileSize = try getFileSize(url)
+                print("✅ DocumentImporter: File size: \(fileSize) bytes")
+            } catch {
+                print("❌ DocumentImporter: Failed to get file size: \(error)")
+                // Check if this is a LaunchServices/permission error
+                if error.localizedDescription.contains("database") || 
+                   error.localizedDescription.contains("permission") ||
+                   error.localizedDescription.contains("LaunchServices") {
+                    print("❌ DocumentImporter: LaunchServices permission error during file size check")
+                    throw DocumentImportError.accessDenied
+                }
+                throw error
+            }
+            
+            print("✅ DocumentImporter: Validating file size...")
             try validateFileSize(fileSize)
+            print("✅ DocumentImporter: File size validation passed")
             
             importProgress = 0.6
             
             // Copy file to secure storage
-            let storedURL = try fileSystemManager.copyFile(
-                from: url,
-                fileName: fileName,
-                fileType: fileType
-            )
+            print("💾 DocumentImporter: Copying file to secure storage...")
+            let storedURL: URL
+            do {
+                storedURL = try fileSystemManager.copyFile(
+                    from: url,
+                    fileName: fileName,
+                    fileType: fileType
+                )
+                print("✅ DocumentImporter: File copied successfully to: \(storedURL)")
+            } catch {
+                print("❌ DocumentImporter: Failed to copy file: \(error)")
+                throw DocumentImportError.storageError
+            }
             
             importProgress = 0.8
             
             // Create document record
+            print("📝 DocumentImporter: Creating document record...")
             let document = HealthDocument(
                 fileName: fileName,
                 fileType: fileType,
@@ -307,8 +365,27 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     private func getFileSize(_ url: URL) throws -> Int64 {
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        return attributes[.size] as? Int64 ?? 0
+        print("📏 DocumentImporter.getFileSize: Getting file attributes for path: \(url.path)")
+        
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let fileSize = attributes[.size] as? Int64 ?? 0
+            print("✅ DocumentImporter.getFileSize: Successfully got file size: \(fileSize) bytes")
+            return fileSize
+        } catch {
+            print("❌ DocumentImporter.getFileSize: Failed to get file attributes: \(error)")
+            print("❌ DocumentImporter.getFileSize: Error type: \(type(of: error))")
+            print("❌ DocumentImporter.getFileSize: Error description: \(error.localizedDescription)")
+            
+            // Check for LaunchServices/permission errors
+            if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") ||
+               error.localizedDescription.contains("database") ||
+               error.localizedDescription.contains("permission") {
+                print("❌ DocumentImporter.getFileSize: LaunchServices database permission error detected!")
+            }
+            
+            throw error
+        }
     }
     
     // MARK: - PDF Creation from Scanned Pages
