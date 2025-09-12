@@ -5,7 +5,7 @@ import Foundation
 class DoclingClient: ObservableObject {
     
     // MARK: - Shared Instance
-    static let shared = DoclingClient(hostname: "localhost", port: 5001)
+    static let shared = DoclingClient(hostname: ServerConfigurationConstants.defaultDoclingHostname, port: ServerConfigurationConstants.defaultDoclingPort)
     
     @Published var isConnected = false
     @Published var connectionStatus: DoclingConnectionStatus = .disconnected
@@ -21,9 +21,9 @@ class DoclingClient: ObservableObject {
     
     // MARK: - Initialization
     init(hostname: String, port: Int) {
-        guard let url = URL(string: "http://\(hostname):\(port)") else {
-            // Fallback to localhost if URL creation fails
-            self.baseURL = URL(string: "http://localhost:\(port)")!
+        guard let url = ServerConfigurationConstants.buildDoclingURL(hostname: hostname, port: port) else {
+            // Fallback to default if URL creation fails
+            self.baseURL = ServerConfigurationConstants.fallbackDoclingURL
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = timeout
             config.timeoutIntervalForResource = timeout * 3
@@ -151,14 +151,14 @@ class DoclingClient: ObservableObject {
             let startTime = Date()
             print("🚀 DoclingClient: Sending request to server...")
             let (data, response) = try await session.data(for: request)
-            let processingTime = Date().timeIntervalSince(startTime)
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("❌ DoclingClient: Invalid response type")
                 throw DoclingError.invalidResponse
             }
             
-            print("📡 DoclingClient: Received response - Status: \(httpResponse.statusCode), Size: \(data.count) bytes")
+            let requestTime = Date().timeIntervalSince(startTime)
+            print("📡 DoclingClient: Received response - Status: \(httpResponse.statusCode), Size: \(data.count) bytes, Request time: \(String(format: "%.2f", requestTime))s")
             
             // Log response body for debugging (especially for errors)
             if let responseString = String(data: data, encoding: .utf8) {

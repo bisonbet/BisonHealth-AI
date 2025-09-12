@@ -13,10 +13,16 @@ The project is composed of two main parts:
 
 ### Key Technologies
 
-- **iOS App**: Swift, SwiftUI, SQLite.swift, CryptoKit, VisionKit
-- **AI/ML**: Ollama for local AI models
+- **iOS App**: 
+    - **UI:** Swift, SwiftUI
+    - **Database:** SQLite.swift
+    - **Security:** CryptoKit
+    - **Document Scanning:** VisionKit
+- **AI/ML**: 
+    - **iOS:** ollama-swift for local AI models
+    - **Legacy Web App:** @langchain/ollama
 - **Document Processing**: Docling for OCR and data extraction
-- **Legacy Web App**: Next.js, React, TypeScript, Prisma
+- **Legacy Web App**: Next.js, React, TypeScript, Prisma, Tailwind CSS, shadcn-ui, next-auth
 
 ## 🚀 Building and Running the iOS App
 
@@ -44,7 +50,7 @@ The main application is the iOS app. Here's how to get it running:
     ```
 
 3.  **Install Dependencies:**
-    Dependencies are managed via Swift Package Manager. Xcode will automatically resolve packages on first build.
+    Dependencies are managed via Swift Package Manager within Xcode. Xcode will automatically resolve packages on first build. The main dependencies are `SQLite.swift` and `ollama-swift`.
 
 4.  **Configure External Services:**
     - Set up your Ollama server for AI chat functionality.
@@ -69,11 +75,11 @@ xcodebuild test -scheme HealthAppUITests -destination 'platform=iOS Simulator,na
 
 ## 🛠️ Development Conventions
 
-- **Architecture**: The iOS app follows the Model-View-ViewModel (MVVM) pattern.
+- **Architecture**: The iOS app follows the Model-View-ViewModel (MVVM) pattern, with a clear separation of concerns into `Models`, `Views`, `ViewModels`, `Managers`, and `Services`.
 - **Code Style**: Adhere to the Swift API Design Guidelines.
 - **Testing**: Unit tests are located in `HealthApp/HealthAppTests` and UI tests are in `HealthApp/HealthAppUITests`. All new features should be accompanied by tests.
-- **Dependencies**: iOS dependencies are managed using the Swift Package Manager.
-- **Privacy**: All sensitive data is stored locally and encrypted. No personal data should be committed to the repository.
+- **Dependencies**: iOS dependencies are managed using the Swift Package Manager within the Xcode project.
+- **Privacy**: All sensitive data is stored locally and encrypted using CryptoKit. No personal data should be committed to the repository.
 
 ##  legacy/ Web Application
 

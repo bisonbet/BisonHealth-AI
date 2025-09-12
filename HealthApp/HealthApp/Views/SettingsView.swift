@@ -146,6 +146,10 @@ struct SettingsView: View {
                         Task {
                             await testOllamaConnection()
                         }
+                    },
+                    onConfigChange: { newConfig in
+                        settingsManager.ollamaConfig = newConfig
+                        settingsManager.saveSettings()
                     }
                 )
                 
@@ -160,6 +164,10 @@ struct SettingsView: View {
                         Task {
                             await testDoclingConnection()
                         }
+                    },
+                    onConfigChange: { newConfig in
+                        settingsManager.doclingConfig = newConfig
+                        settingsManager.saveSettings()
                     }
                 )
                 
@@ -224,13 +232,28 @@ struct SettingsView: View {
                         .font(.subheadline)
                         .foregroundColor(.primary)
                     
-                    Picker("Chat Model", selection: $settingsManager.modelPreferences.chatModel) {
-                        ForEach(chatModels, id: \.id) { model in
-                            Text(model.displayName)
-                                .tag(model.name)
+                    if chatModels.isEmpty && !settingsManager.modelSelection.isLoading {
+                        Text("No models available. Connect to Ollama server and refresh models.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .padding(.vertical, 8)
+                    } else {
+                        Picker("Chat Model", selection: $settingsManager.modelPreferences.chatModel) {
+                            ForEach(chatModels, id: \.id) { model in
+                                Text(model.displayName)
+                                    .tag(model.name)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .onAppear {
+                            // Validate selection when view appears
+                            validateChatModelSelection()
+                        }
+                        .onChange(of: chatModels) { _, newModels in
+                            // Ensure selected model is valid when models change
+                            validateChatModelSelection()
                         }
                     }
-                    .pickerStyle(.menu)
                     
                     Text("Used for health conversations. Vision models (👁️) can also handle images and documents in chat.")
                         .font(.caption2)
@@ -258,6 +281,14 @@ struct SettingsView: View {
                             }
                         }
                         .pickerStyle(.menu)
+                        .onAppear {
+                            // Validate selection when view appears
+                            validateVisionModelSelection()
+                        }
+                        .onChange(of: visionModels) { _, newModels in
+                            // Ensure selected model is valid when models change
+                            validateVisionModelSelection()
+                        }
                         
                         Text("Used for analyzing documents, images, and visual health data")
                             .font(.caption2)
@@ -408,7 +439,8 @@ struct SettingsView: View {
         icon: String,
         config: Binding<ServerConfiguration>,
         status: ConnectionStatus,
-        testAction: @escaping () -> Void
+        testAction: @escaping () -> Void,
+        onConfigChange: @escaping (ServerConfiguration) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
@@ -446,11 +478,17 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
-                    TextField("localhost", text: config.hostname, onEditingChanged: { isEditing in
+                    TextField(ServerConfigurationConstants.defaultOllamaHostname, text: config.hostname, onEditingChanged: { isEditing in
                         if !isEditing {
                             validateConfiguration()
                         }
                     })
+                    .onChange(of: config.hostname.wrappedValue) { _, newValue in
+                        // Update the configuration when hostname changes
+                        var updatedConfig = config.wrappedValue
+                        updatedConfig.hostname = newValue
+                        onConfigChange(updatedConfig)
+                    }
                     .textFieldStyle(.roundedBorder)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
@@ -477,6 +515,12 @@ struct SettingsView: View {
                         .keyboardType(.numberPad)
                         .onSubmit {
                             validateConfiguration()
+                        }
+                        .onChange(of: config.port.wrappedValue) { _, newValue in
+                            // Update the configuration when port changes
+                            var updatedConfig = config.wrappedValue
+                            updatedConfig.port = newValue
+                            onConfigChange(updatedConfig)
                         }
                     
                     // Inline validation feedback for port
@@ -645,6 +689,24 @@ struct SettingsView: View {
                     validationError = "Failed to clear cache: \(error.localizedDescription)"
                     showingValidationError = true
                 }
+            }
+        }
+    }
+    
+    // MARK: - Model Selection Validation
+    
+    private func validateChatModelSelection() {
+        if !chatModels.contains(where: { $0.name == settingsManager.modelPreferences.chatModel }) {
+            if let firstModel = chatModels.first {
+                settingsManager.modelPreferences.chatModel = firstModel.name
+            }
+        }
+    }
+    
+    private func validateVisionModelSelection() {
+        if !visionModels.contains(where: { $0.name == settingsManager.modelPreferences.visionModel }) {
+            if let firstModel = visionModels.first {
+                settingsManager.modelPreferences.visionModel = firstModel.name
             }
         }
     }

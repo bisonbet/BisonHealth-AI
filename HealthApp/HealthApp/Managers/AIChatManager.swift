@@ -17,7 +17,6 @@ class AIChatManager: ObservableObject {
     @Published var isOffline: Bool = false
     
     // MARK: - Dependencies
-    private let ollamaClient: OllamaClient
     private let healthDataManager: HealthDataManager
     private let databaseManager: DatabaseManager
     private let networkMonitor: NetworkMonitor
@@ -30,11 +29,9 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Initialization
     init(
-        ollamaClient: OllamaClient,
         healthDataManager: HealthDataManager,
         databaseManager: DatabaseManager
     ) {
-        self.ollamaClient = ollamaClient
         self.healthDataManager = healthDataManager
         self.databaseManager = databaseManager
         self.networkMonitor = NetworkMonitor()
@@ -68,6 +65,11 @@ class AIChatManager: ObservableObject {
     }
     
     // MARK: - Connection Management
+    
+    private func getOllamaClient() -> OllamaClient {
+        return settingsManager.getOllamaClient()
+    }
+    
     func checkConnection() async {
         guard !isOffline else {
             isConnected = false
@@ -75,6 +77,7 @@ class AIChatManager: ObservableObject {
         }
         
         do {
+            let ollamaClient = getOllamaClient()
             isConnected = try await ollamaClient.testConnection()
         } catch {
             isConnected = false
@@ -135,13 +138,28 @@ class AIChatManager: ObservableObject {
         }
     }
     
+    func clearConversationMessages(_ conversation: ChatConversation) async throws {
+        // Clear all messages from the conversation
+        try await databaseManager.clearConversationMessages(conversation.id)
+        
+        // Update the local conversation object
+        if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
+            conversations[index].messages.removeAll()
+        }
+        
+        // Update current conversation if it's the one being cleared
+        if currentConversation?.id == conversation.id {
+            currentConversation?.messages.removeAll()
+        }
+    }
+    
     // MARK: - Message Management
     func sendMessage(_ content: String, useStreaming: Bool = true) async throws {
         guard let conversation = currentConversation else {
             throw AIChatError.noActiveConversation
         }
         
-        guard isConnected && !isOffline else {
+        guard !isOffline else {
             throw AIChatError.notConnected
         }
         
@@ -215,6 +233,7 @@ class AIChatManager: ObservableObject {
             currentConversation = conversations[index]
         }
         
+        let ollamaClient = getOllamaClient()
         try await ollamaClient.sendStreamingChatMessage(
             content,
             context: context,
@@ -268,6 +287,7 @@ class AIChatManager: ObservableObject {
     private func sendNonStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
         // Send to AI service
         let startTime = Date()
+        let ollamaClient = getOllamaClient()
         let response = try await ollamaClient.sendChatMessage(
             content,
             context: context,
@@ -295,18 +315,27 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Health Data Context Management
     func selectHealthDataForContext(_ types: Set<HealthDataType>) {
+        print("🎯 Context Selection - Selected types: \(types)")
+        print("🎯 Context Selection - Previous types: \(selectedHealthDataTypes)")
+        
         selectedHealthDataTypes = types
         updateHealthDataContext()
+        
+        print("🎯 Context Selection - After update, selectedHealthDataTypes: \(selectedHealthDataTypes)")
         
         // Update current conversation's included data types
         if var conversation = currentConversation {
             conversation.includedHealthDataTypes = types
+            print("🎯 Context Selection - Updating conversation: \(conversation.title)")
             Task {
                 try await databaseManager.updateConversation(conversation)
                 if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
                     conversations[index] = conversation
                 }
+                print("🎯 Context Selection - Conversation updated in database")
             }
+        } else {
+            print("🎯 Context Selection - No current conversation to update")
         }
     }
     
@@ -329,6 +358,13 @@ class AIChatManager: ObservableObject {
         
         let contextString = currentContext.buildContextString()
         let estimatedTokens = currentContext.estimatedTokenCount
+        
+        print("🔍 Context Debug - Selected types: \(selectedHealthDataTypes)")
+        print("🔍 Context Debug - Personal info exists: \(currentContext.personalInfo != nil)")
+        print("🔍 Context Debug - Blood tests count: \(currentContext.bloodTests.count)")
+        print("🔍 Context Debug - Documents count: \(currentContext.documents.count)")
+        print("🔍 Context Debug - Context string length: \(contextString.count)")
+        print("🔍 Context Debug - Context preview: \(String(contextString.prefix(200)))...")
         
         // If context is too large, compress it
         if estimatedTokens > contextCompressionThreshold {

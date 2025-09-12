@@ -29,7 +29,7 @@ struct ServerConfiguration: Equatable {
     var hostname: String
     var port: Int
     
-    init(hostname: String = "localhost", port: Int) {
+    init(hostname: String = ServerConfigurationConstants.defaultOllamaHostname, port: Int) {
         self.hostname = hostname
         self.port = port
     }
@@ -129,8 +129,8 @@ class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
     
     // Server configurations
-    @Published var ollamaConfig = ServerConfiguration(hostname: "localhost", port: 11434)
-    @Published var doclingConfig = ServerConfiguration(hostname: "localhost", port: 5001)
+    @Published var ollamaConfig = ServerConfigurationConstants.defaultOllamaConfig
+    @Published var doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
     
     // Connection statuses
     @Published var ollamaStatus: ConnectionStatus = .unknown
@@ -285,18 +285,14 @@ class SettingsManager: ObservableObject {
     // MARK: - Service Client Management
     
     func getOllamaClient() -> OllamaClient {
-        // Always create new client when config changes since OllamaClient doesn't expose baseURL
-        if ollamaClient == nil {
-            ollamaClient = OllamaClient(hostname: ollamaConfig.hostname, port: ollamaConfig.port)
-        }
+        // Always create new client to ensure we use the current configuration
+        ollamaClient = OllamaClient(hostname: ollamaConfig.hostname, port: ollamaConfig.port)
         return ollamaClient!
     }
     
     func getDoclingClient() -> DoclingClient {
-        if doclingClient == nil ||
-           doclingClient?.baseURL != URL(string: "http://\(doclingConfig.hostname):\(doclingConfig.port)") {
-            doclingClient = DoclingClient(hostname: doclingConfig.hostname, port: doclingConfig.port)
-        }
+        // Always create new client to ensure we use the current configuration
+        doclingClient = DoclingClient(hostname: doclingConfig.hostname, port: doclingConfig.port)
         return doclingClient!
     }
     
@@ -409,8 +405,8 @@ class SettingsManager: ObservableObject {
     // MARK: - Settings Reset
     
     func resetServerSettings() {
-        ollamaConfig = ServerConfiguration(hostname: "localhost", port: 11434)
-        doclingConfig = ServerConfiguration(hostname: "localhost", port: 5001)
+        ollamaConfig = ServerConfigurationConstants.defaultOllamaConfig
+        doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
         ollamaStatus = .unknown
         doclingStatus = .unknown
         saveSettings()

@@ -6,7 +6,7 @@ import Ollama
 class OllamaClient: ObservableObject, AIProviderInterface {
     
     // MARK: - Shared Instance
-    static let shared = OllamaClient(hostname: "localhost", port: 11434)
+    static let shared = OllamaClient(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: ServerConfigurationConstants.defaultOllamaPort)
     
     @Published var isConnected = false
     @Published var connectionStatus: OllamaConnectionStatus = .disconnected
@@ -19,9 +19,9 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     
     // MARK: - Initialization
     init(hostname: String, port: Int) {
-        guard let hostURL = URL(string: "http://\(hostname):\(port)") else {
-            // Fallback to localhost if URL creation fails
-            let fallbackURL = URL(string: "http://localhost:\(port)")!
+        guard let hostURL = ServerConfigurationConstants.buildOllamaURL(hostname: hostname, port: port) else {
+            // Fallback to default if URL creation fails
+            let fallbackURL = ServerConfigurationConstants.fallbackOllamaURL
             self.client = Client(
                 host: fallbackURL,
                 userAgent: "BisonHealthAI/1.0"
@@ -57,10 +57,6 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     
     // MARK: - Chat Operations
     func sendChatMessage(_ message: String, context: String = "", model: String = "llama3.2") async throws -> OllamaChatResponse {
-        guard isConnected else {
-            throw OllamaError.notConnected
-        }
-        
         do {
             let messages = buildMessages(userMessage: message, context: context)
             
@@ -94,10 +90,6 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (OllamaChatResponse) -> Void
     ) async throws {
-        guard isConnected else {
-            throw OllamaError.notConnected
-        }
-        
         do {
             isStreaming = true
             streamingContent = ""
@@ -157,10 +149,6 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     
     // MARK: - Model Management
     func getAvailableModels() async throws -> [OllamaModel] {
-        guard isConnected else {
-            throw OllamaError.notConnected
-        }
-        
         do {
             let modelsResponse = try await client.listModels()
             return modelsResponse.models.map { model in

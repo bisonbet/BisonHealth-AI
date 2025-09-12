@@ -20,7 +20,33 @@ struct HealthDataContextSelector: View {
     
     var body: some View {
         NavigationStack {
-            if isIPad {
+            VStack(spacing: 0) {
+                // Top button bar
+                HStack {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.blue)
+                    
+                    Spacer()
+                    
+                    Text("Health Data Context")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                    
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundColor(.blue)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(.systemGray6))
+                
+                if isIPad {
                 // iPad optimized layout with larger cards
                 ScrollView {
                     LazyVGrid(columns: [
@@ -50,8 +76,6 @@ struct HealthDataContextSelector: View {
                             .padding(.top, 24)
                     }
                 }
-                .navigationTitle("Health Data Context")
-                .navigationBarTitleDisplayMode(.large)
             } else {
                 // iPhone layout with list
                 List {
@@ -83,27 +107,12 @@ struct HealthDataContextSelector: View {
                         }
                     }
                 }
-                .navigationTitle("Health Data Context")
-                .navigationBarTitleDisplayMode(.inline)
             }
+            } // VStack
         }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape)
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Save") {
-                    selectedTypes = localSelection
-                    onSave(localSelection)
-                    dismiss()
-                }
-                .fontWeight(.semibold)
-                .keyboardShortcut("s", modifiers: [.command])
-            }
+        .onChange(of: localSelection) { _, newValue in
+            selectedTypes = newValue
+            onSave(newValue)
         }
     }
 }

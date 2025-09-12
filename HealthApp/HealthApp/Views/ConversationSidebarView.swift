@@ -90,6 +90,12 @@ struct ConversationSidebarView: View {
                     )
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     .listRowSeparator(.hidden)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button("Delete", role: .destructive) {
+                            onDeleteConversation(conversation)
+                        }
+                        .tint(.red)
+                    }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)

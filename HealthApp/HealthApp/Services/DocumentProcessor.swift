@@ -897,7 +897,7 @@ enum DocumentProcessingError: LocalizedError {
     var recoverySuggestion: String? {
         switch self {
         case .doclingNotConnected:
-            return "Check if the Docling server is running on localhost:5001"
+            return "Check if the Docling server is running and accessible"
         case .fileReadError:
             return "Try re-importing the document"
         case .databasePermissionError:

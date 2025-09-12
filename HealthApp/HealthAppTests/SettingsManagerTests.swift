@@ -75,11 +75,11 @@ final class SettingsManagerTests: XCTestCase {
     }
     
     func testInvalidServerConfigurationInvalidPort() {
-        let invalidConfigLow = ServerConfiguration(hostname: "localhost", port: 0)
+        let invalidConfigLow = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 0)
         let errorLow = settingsManager.validateServerConfiguration(invalidConfigLow)
         XCTAssertEqual(errorLow, "Port must be between 1 and 65535")
         
-        let invalidConfigHigh = ServerConfiguration(hostname: "localhost", port: 70000)
+        let invalidConfigHigh = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 70000)
         let errorHigh = settingsManager.validateServerConfiguration(invalidConfigHigh)
         XCTAssertEqual(errorHigh, "Port must be between 1 and 65535")
     }
@@ -160,9 +160,9 @@ final class SettingsManagerTests: XCTestCase {
         settingsManager.resetServerSettings()
         
         // Verify reset to defaults
-        XCTAssertEqual(settingsManager.ollamaConfig.hostname, "localhost")
-        XCTAssertEqual(settingsManager.ollamaConfig.port, 11434)
-        XCTAssertEqual(settingsManager.doclingConfig.hostname, "localhost")
+        XCTAssertEqual(settingsManager.ollamaConfig.hostname, ServerConfigurationConstants.defaultOllamaHostname)
+        XCTAssertEqual(settingsManager.ollamaConfig.port, ServerConfigurationConstants.defaultOllamaPort)
+        XCTAssertEqual(settingsManager.doclingConfig.hostname, ServerConfigurationConstants.defaultDoclingHostname)
         XCTAssertEqual(settingsManager.doclingConfig.port, 5001)
         XCTAssertEqual(settingsManager.ollamaStatus, .unknown)
         XCTAssertEqual(settingsManager.doclingStatus, .unknown)
@@ -374,21 +374,21 @@ final class SettingsManagerTests: XCTestCase {
         let validHostnameConfig = ServerConfiguration(hostname: "server.example.com", port: 8080)
         XCTAssertNil(settingsManager.validateServerConfiguration(validHostnameConfig))
         
-        let validLocalhostConfig = ServerConfiguration(hostname: "localhost", port: 8080)
+        let validLocalhostConfig = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 8080)
         XCTAssertNil(settingsManager.validateServerConfiguration(validLocalhostConfig))
     }
     
     func testValidatePortBoundaries() {
-        let validPort1 = ServerConfiguration(hostname: "localhost", port: 1)
+        let validPort1 = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 1)
         XCTAssertNil(settingsManager.validateServerConfiguration(validPort1))
         
-        let validPort65535 = ServerConfiguration(hostname: "localhost", port: 65535)
+        let validPort65535 = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 65535)
         XCTAssertNil(settingsManager.validateServerConfiguration(validPort65535))
         
-        let invalidPort0 = ServerConfiguration(hostname: "localhost", port: 0)
+        let invalidPort0 = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 0)
         XCTAssertNotNil(settingsManager.validateServerConfiguration(invalidPort0))
         
-        let invalidPort65536 = ServerConfiguration(hostname: "localhost", port: 65536)
+        let invalidPort65536 = ServerConfiguration(hostname: ServerConfigurationConstants.defaultOllamaHostname, port: 65536)
         XCTAssertNotNil(settingsManager.validateServerConfiguration(invalidPort65536))
     }
     

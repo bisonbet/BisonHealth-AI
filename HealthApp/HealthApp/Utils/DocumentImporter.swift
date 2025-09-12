@@ -59,24 +59,12 @@ class DocumentImporter: NSObject, ObservableObject {
             print("📋 DocumentImporter: Extracting file information from URL...")
             
             print("📋 DocumentImporter: Getting lastPathComponent...")
-            let fileName: String
-            do {
-                fileName = url.lastPathComponent
-                print("✅ DocumentImporter: Successfully got fileName: '\(fileName)'")
-            } catch {
-                print("❌ DocumentImporter: Failed to get lastPathComponent: \(error)")
-                throw DocumentImportError.accessDenied
-            }
+            let fileName = url.lastPathComponent
+            print("✅ DocumentImporter: Successfully got fileName: '\(fileName)'")
             
             print("📋 DocumentImporter: Getting pathExtension...")
-            let fileExtension: String
-            do {
-                fileExtension = url.pathExtension.lowercased()
-                print("✅ DocumentImporter: Successfully got fileExtension: '\(fileExtension)'")
-            } catch {
-                print("❌ DocumentImporter: Failed to get pathExtension: \(error)")
-                throw DocumentImportError.accessDenied
-            }
+            let fileExtension = url.pathExtension.lowercased()
+            print("✅ DocumentImporter: Successfully got fileExtension: '\(fileExtension)'")
             
             print("🔍 DocumentImporter: Determining file type from extension...")
             let fileType = DocumentType.from(fileExtension: fileExtension)

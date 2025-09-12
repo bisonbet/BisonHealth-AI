@@ -490,7 +490,6 @@ struct FilterChip: View {
 // MARK: - Chat View
 struct ChatView: View {
     @StateObject private var chatManager = AIChatManager(
-        ollamaClient: OllamaClient.shared,
         healthDataManager: HealthDataManager.shared,
         databaseManager: DatabaseManager.shared
     )
@@ -526,6 +525,8 @@ struct ChatView: View {
                     chatManager.selectHealthDataForContext(types)
                 }
             )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .task {
             await chatManager.loadConversations()
@@ -615,6 +616,14 @@ struct ChatView: View {
                         onSelectConversation: { conversation in
                             chatManager.selectConversation(conversation)
                             showingConversationList = false
+                        },
+                        onDeleteConversation: { conversation in
+                            Task {
+                                try await chatManager.deleteConversation(conversation)
+                                if chatManager.currentConversation?.id == conversation.id {
+                                    chatManager.currentConversation = nil
+                                }
+                            }
                         }
                     )
                 }

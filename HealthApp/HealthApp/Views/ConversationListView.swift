@@ -3,9 +3,12 @@ import SwiftUI
 struct ConversationListView: View {
     let conversations: [ChatConversation]
     let onSelectConversation: (ChatConversation) -> Void
+    let onDeleteConversation: (ChatConversation) -> Void
     
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
+    @State private var conversationToDelete: ChatConversation?
+    @State private var showingDeleteAlert = false
     
     var filteredConversations: [ChatConversation] {
         if searchText.isEmpty {
@@ -37,6 +40,13 @@ struct ConversationListView: View {
                                 onSelectConversation(conversation)
                             }
                         )
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Delete", role: .destructive) {
+                                conversationToDelete = conversation
+                                showingDeleteAlert = true
+                            }
+                            .tint(.red)
+                        }
                     }
                 }
             }
@@ -48,6 +58,21 @@ struct ConversationListView: View {
                     Button("Done") {
                         dismiss()
                     }
+                }
+            }
+            .alert("Delete Conversation", isPresented: $showingDeleteAlert) {
+                Button("Cancel", role: .cancel) {
+                    conversationToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let conversation = conversationToDelete {
+                        onDeleteConversation(conversation)
+                    }
+                    conversationToDelete = nil
+                }
+            } message: {
+                if let conversation = conversationToDelete {
+                    Text("Are you sure you want to delete \"\(conversation.title)\"? This action cannot be undone.")
                 }
             }
         }
@@ -184,6 +209,7 @@ struct NoSearchResultsView: View {
                 includedHealthDataTypes: [.personalInfo]
             )
         ],
-        onSelectConversation: { _ in }
+        onSelectConversation: { _ in },
+        onDeleteConversation: { _ in }
     )
 }

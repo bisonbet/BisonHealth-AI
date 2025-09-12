@@ -8,6 +8,7 @@ struct ChatDetailView: View {
     
     @State private var showingConversationSettings = false
     @State private var showingExportOptions = false
+    @State private var showingClearConfirmation = false
     @FocusState private var isMessageInputFocused: Bool
     
     var body: some View {
@@ -18,11 +19,23 @@ struct ChatDetailView: View {
                 emptyStateView
             }
         }
+        .onTapGesture {
+            // Dismiss keyboard when tapping outside the input field
+            isMessageInputFocused = false
+        }
         .navigationTitle(chatManager.currentConversation?.title ?? "BisonHealth AI")
         .navigationBarTitleDisplayMode(isIPad ? .inline : .large)
         .toolbar {
             if chatManager.currentConversation != nil {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    // Done button to dismiss keyboard
+                    if isMessageInputFocused {
+                        Button("Done") {
+                            isMessageInputFocused = false
+                        }
+                        .font(.caption)
+                    }
+                    
                     if !isIPad {
                         Button("Context") {
                             showingContextSelector = true
@@ -31,23 +44,7 @@ struct ChatDetailView: View {
                     }
                     
                     Menu {
-                        Button("Edit Context", systemImage: "slider.horizontal.3") {
-                            showingContextSelector = true
-                        }
-                        
-                        Button("Conversation Settings", systemImage: "gear") {
-                            showingConversationSettings = true
-                        }
-                        
-                        Divider()
-                        
-                        Button("Export Conversation", systemImage: "square.and.arrow.up") {
-                            showingExportOptions = true
-                        }
-                        
-                        Button("Clear Messages", systemImage: "trash", role: .destructive) {
-                            clearConversation()
-                        }
+                        menuContent
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -66,6 +63,14 @@ struct ChatDetailView: View {
             ConversationExportView(
                 conversation: chatManager.currentConversation
             )
+        }
+        .confirmationDialog("Clear Messages", isPresented: $showingClearConfirmation) {
+            Button("Clear All Messages", role: .destructive) {
+                clearConversation()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will permanently delete all messages in this conversation. This action cannot be undone.")
         }
         .onAppear {
             if isIPad {
@@ -153,6 +158,9 @@ struct ChatDetailView: View {
                     messageText = ""
                     if isIPad {
                         isMessageInputFocused = true
+                    } else {
+                        // On iPhone, dismiss keyboard after sending to show tab bar
+                        isMessageInputFocused = false
                     }
                 }
             } catch {
@@ -163,10 +171,36 @@ struct ChatDetailView: View {
     }
     
     private func clearConversation() {
-        // Implementation for clearing conversation messages
+        guard let conversation = chatManager.currentConversation else { return }
+        
         Task {
-            // This would need to be implemented in the chat manager
-            print("Clear conversation not yet implemented")
+            do {
+                try await chatManager.clearConversationMessages(conversation)
+            } catch {
+                print("Failed to clear conversation messages: \(error)")
+                // You might want to show an alert to the user here
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var menuContent: some View {
+        Button("Edit Context", systemImage: "slider.horizontal.3") {
+            showingContextSelector = true
+        }
+        
+        Button("Conversation Settings", systemImage: "gear") {
+            showingConversationSettings = true
+        }
+        
+        Divider()
+        
+        Button("Export Conversation", systemImage: "square.and.arrow.up") {
+            showingExportOptions = true
+        }
+        
+        Button("Clear Messages", systemImage: "trash", role: .destructive) {
+            showingClearConfirmation = true
         }
     }
 }
@@ -397,6 +431,9 @@ struct EnhancedMessageInputView: View {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 isTextFieldFocused = true
                             }
+                        } else {
+                            // On iPhone, dismiss keyboard after sending to show tab bar
+                            isTextFieldFocused = false
                         }
                     }
                 }) {
@@ -423,8 +460,8 @@ struct ConversationSettingsView: View {
     let onSave: (ChatConversation) -> Void
     
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var settingsManager = SettingsManager.shared
     @State private var useStreaming = true
-    @State private var selectedModel = "llama3.2"
     @State private var conversationTitle = ""
     
     var body: some View {
@@ -440,13 +477,18 @@ struct ConversationSettingsView: View {
                 Section("AI Settings") {
                     Toggle("Streaming Responses", isOn: $useStreaming)
                     
-                    Picker("Model", selection: $selectedModel) {
-                        Text("Llama 3.2").tag("llama3.2")
-                        Text("Llama 3.1").tag("llama3.1")
-                        Text("Llama 2").tag("llama2")
-                        Text("Code Llama").tag("codellama")
+                    HStack {
+                        Text("Model")
+                        Spacer()
+                        Text(settingsManager.modelPreferences.chatModel)
+                            .foregroundColor(.secondary)
                     }
-                    .pickerStyle(.menu)
+                    
+                    NavigationLink("Change Model") {
+                        Text("To change the AI model, go to Settings > Models")
+                            .navigationTitle("Model Selection")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
                 }
                 
                 Section {
@@ -504,7 +546,6 @@ struct ConversationExportView: View {
 #Preview {
     ChatDetailView(
         chatManager: AIChatManager(
-            ollamaClient: OllamaClient.shared,
             healthDataManager: HealthDataManager.shared,
             databaseManager: DatabaseManager.shared
         ),

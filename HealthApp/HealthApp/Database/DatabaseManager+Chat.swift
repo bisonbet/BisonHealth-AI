@@ -147,6 +147,21 @@ extension DatabaseManager {
         }
     }
     
+    func clearConversationMessages(_ conversationId: UUID) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+        
+        // Delete all messages for this conversation
+        let query = chatMessagesTable.filter(messageConversationId == conversationId.uuidString)
+        try db.run(query.delete())
+        
+        // Update conversation's updatedAt timestamp
+        let updateQuery = chatConversationsTable
+            .filter(self.conversationId == conversationId.uuidString)
+            .update(conversationUpdatedAt <- Int64(Date().timeIntervalSince1970))
+        
+        try db.run(updateQuery)
+    }
+    
     // MARK: - Save Message
     func addMessage(to conversationId: UUID, message: ChatMessage) async throws {
         try await saveMessage(message, conversationId: conversationId)
