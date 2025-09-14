@@ -183,6 +183,9 @@ struct DocumentsView: View {
                         
                         // Document content
                         documentContent
+
+                        // Backup info footer
+                        backupInfoFooter
                     }
                 }
             }
@@ -448,13 +451,84 @@ struct DocumentsView: View {
         }
     }
     
+    // MARK: - Backup Info Footer
+
+    private var backupInfoFooter: some View {
+        VStack(spacing: 8) {
+            Divider()
+                .padding(.horizontal)
+
+            VStack(spacing: 4) {
+                HStack {
+                    Image(systemName: "icloud")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text(backupStatusText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+                }
+
+                if let totalSize = calculateTotalDocumentsSize(), totalSize > 0 {
+                    HStack {
+                        Text("Documents size:")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+
+                        Text(ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+
+                        if SettingsManager.shared.backupSettings.backupDocuments {
+                            Text("Included in backup")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                        } else {
+                            Text("Not backed up")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+    }
+
     // MARK: - Helper Properties
-    
+
     private var hasActiveFilters: Bool {
         documentManager.filterStatus != nil ||
         documentManager.filterType != nil ||
         documentManager.sortOrder != .dateDescending ||
         !documentManager.searchText.isEmpty
+    }
+
+    private var backupStatusText: String {
+        if !SettingsManager.shared.backupSettings.iCloudEnabled {
+            return "iCloud backup is disabled"
+        } else if SettingsManager.shared.backupSettings.backupDocuments {
+            return "Documents will be backed up to iCloud"
+        } else {
+            return "Documents backup is disabled"
+        }
+    }
+
+    private func calculateTotalDocumentsSize() -> Int64? {
+        guard !documentManager.documents.isEmpty else { return nil }
+
+        var totalSize: Int64 = 0
+        for document in documentManager.documents {
+            totalSize += document.fileSize
+        }
+
+        return totalSize > 0 ? totalSize : nil
     }
 }
 

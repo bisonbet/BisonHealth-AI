@@ -67,10 +67,10 @@ To run the test suites, use the following commands:
 
 ```bash
 # Run unit tests
-xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 15'
+xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16'
 
 # Run UI tests
-xcodebuild test -scheme HealthAppUITests -destination 'platform=iOS Simulator,name=iPhone 15'
+xcodebuild test -scheme HealthAppUITests -destination 'platform=iOS Simulator,name=iPhone 16'
 ```
 
 ## 🛠️ Development Conventions

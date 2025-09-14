@@ -313,24 +313,51 @@ struct SettingsView: View {
     }
     
     // MARK: - Backup Section
-    
+
     private var backupSection: some View {
         Section("iCloud Backup") {
-            Toggle("Enable iCloud Backup", isOn: $settingsManager.backupSettings.iCloudEnabled)
-                .onChange(of: settingsManager.backupSettings.iCloudEnabled) { _, enabled in
-                    if enabled {
-                        // Request iCloud permission if needed
-                        // This is a placeholder for actual iCloud integration
+            // Main backup toggle with status
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Enable iCloud Backup", isOn: $settingsManager.backupSettings.iCloudEnabled)
+                    .onChange(of: settingsManager.backupSettings.iCloudEnabled) { _, enabled in
+                        Task {
+                            if enabled {
+                                do {
+                                    try await settingsManager.enableiCloudBackup()
+                                } catch {
+                                    // Reset toggle if enabling failed
+                                    settingsManager.backupSettings.iCloudEnabled = false
+                                }
+                            } else {
+                                settingsManager.disableiCloudBackup()
+                            }
+                        }
                     }
+
+                // Show backup status when enabled
+                if settingsManager.backupSettings.iCloudEnabled {
+                    HStack {
+                        statusIndicator
+                        Text(backupStatusText)
+                            .font(.caption)
+                            .foregroundColor(statusColor)
+                        Spacer()
+                        if let manager = settingsManager.backupManager, manager.status.isActive {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        }
+                    }
+                    .padding(.leading, 4)
                 }
-            
+            }
+
             if settingsManager.backupSettings.iCloudEnabled {
                 Group {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Backup Content")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                        
+
                         VStack(spacing: 4) {
                             Toggle("Health Data", isOn: $settingsManager.backupSettings.backupHealthData)
                             Toggle("Chat History", isOn: $settingsManager.backupSettings.backupChatHistory)
@@ -339,24 +366,104 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.leading)
-                    
+
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Backup Frequency")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                        
+
                         Picker("Frequency", selection: $settingsManager.backupSettings.backupFrequency) {
                             ForEach(BackupFrequency.allCases, id: \.self) { frequency in
                                 Text(frequency.displayName).tag(frequency)
                             }
                         }
                         .pickerStyle(.segmented)
-                        
+
                         Toggle("Auto Backup", isOn: $settingsManager.backupSettings.autoBackup)
+                    }
+                    .padding(.leading)
+
+                    // Backup controls
+                    VStack(spacing: 12) {
+                        HStack {
+                            Button("Backup Now") {
+                                Task {
+                                    await settingsManager.performManualBackup()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(settingsManager.backupManager?.status.isActive ?? true)
+
+                            Spacer()
+
+                            NavigationLink("Manage Backups") {
+                                BackupManagementView()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        // Show backup size info if available
+                        if let backupSize = settingsManager.backupManager?.lastBackupSize, backupSize > 0 {
+                            HStack {
+                                Text("Last backup size:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: backupSize, countStyle: .file))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                     .padding(.leading)
                 }
             }
+        }
+    }
+
+    // MARK: - Backup Status Helpers
+
+    private var statusIndicator: some View {
+        Group {
+            switch settingsManager.backupManager?.status {
+            case .disabled:
+                Image(systemName: "icloud.slash")
+            case .idle:
+                Image(systemName: "icloud")
+            case .backingUp:
+                Image(systemName: "icloud.and.arrow.up")
+            case .restoring:
+                Image(systemName: "icloud.and.arrow.down")
+            case .completed:
+                Image(systemName: "checkmark.icloud")
+            case .failed:
+                Image(systemName: "exclamationmark.icloud")
+            case .none:
+                Image(systemName: "questionmark.circle")
+            }
+        }
+        .foregroundColor(statusColor)
+        .font(.caption)
+    }
+
+    private var backupStatusText: String {
+        settingsManager.backupManager?.status.displayText ?? "Unknown"
+    }
+
+    private var statusColor: Color {
+        switch settingsManager.backupManager?.status {
+        case .disabled:
+            return .secondary
+        case .idle:
+            return .blue
+        case .backingUp, .restoring:
+            return .blue
+        case .completed:
+            return .green
+        case .failed:
+            return .red
+        case .none:
+            return .secondary
         }
     }
     

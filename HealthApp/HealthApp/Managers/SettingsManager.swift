@@ -151,6 +151,9 @@ class SettingsManager: ObservableObject {
     // Service clients (lazy loaded)
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
+
+    // iCloud backup manager
+    @Published var backupManager: iCloudBackupManager?
     
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
@@ -165,6 +168,10 @@ class SettingsManager: ObservableObject {
     
     init() {
         loadSettings()
+        // Defer backup manager setup to avoid circular dependency
+        Task { @MainActor in
+            await setupBackupManager()
+        }
     }
     
     // MARK: - Settings Persistence
@@ -543,13 +550,59 @@ class SettingsManager: ObservableObject {
     
     func refreshModelsIfNeeded() async {
         let cacheTimeout: TimeInterval = 300 // 5 minutes
-        
+
         if let lastFetch = modelSelection.lastFetchTime,
            Date().timeIntervalSince(lastFetch) < cacheTimeout {
             return // Cache is still valid
         }
-        
+
         await fetchAvailableModels()
+    }
+
+    // MARK: - Backup Management
+
+    private func setupBackupManager() async {
+        backupManager = iCloudBackupManager.shared
+
+        // Configure the backup manager with this settings manager to avoid circular dependency
+        backupManager?.configure(with: self)
+
+        // Enable/disable backup based on settings
+        Task { @MainActor in
+            if backupSettings.iCloudEnabled {
+                try? await backupManager?.enableBackup()
+            } else {
+                backupManager?.disableBackup()
+            }
+        }
+    }
+
+    func enableiCloudBackup() async throws {
+        guard let backupManager = backupManager else { return }
+
+        try await backupManager.enableBackup()
+        backupSettings.iCloudEnabled = true
+        saveSettings()
+    }
+
+    func disableiCloudBackup() {
+        guard let backupManager = backupManager else { return }
+
+        backupManager.disableBackup()
+        backupSettings.iCloudEnabled = false
+        saveSettings()
+    }
+
+    func performManualBackup() async {
+        await backupManager?.performManualBackup()
+    }
+
+    func fetchAvailableBackups() async {
+        await backupManager?.fetchAvailableBackups()
+    }
+
+    func restoreFromBackup(_ metadata: BackupMetadata) async {
+        await backupManager?.restoreFromBackup(metadata)
     }
 }
 

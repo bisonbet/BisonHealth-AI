@@ -7,6 +7,7 @@ class Keychain {
     
     private let service = "com.healthapp.encryption"
     private let encryptionKeyAccount = "health_data_encryption_key"
+    private let backupEncryptionKeyAccount = "backup_encryption_key"
     
     // MARK: - Encryption Key Management
     func storeEncryptionKey(_ key: SymmetricKey) throws {
@@ -69,7 +70,72 @@ class Keychain {
             throw KeychainError.deleteFailed(status)
         }
     }
-    
+
+    // MARK: - Backup Encryption Key Management
+    func storeBackupEncryptionKey(_ key: SymmetricKey) throws {
+        let keyData = key.withUnsafeBytes { Data($0) }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: backupEncryptionKeyAccount,
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked, // Allow access across devices
+            kSecAttrSynchronizable as String: true // Sync with iCloud Keychain for multi-device
+        ]
+
+        // Delete any existing key first
+        SecItemDelete(query as CFDictionary)
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+
+        guard status == errSecSuccess else {
+            throw KeychainError.storeFailed(status)
+        }
+    }
+
+    func getBackupEncryptionKey() throws -> SymmetricKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: backupEncryptionKeyAccount,
+            kSecAttrSynchronizable as String: true, // Sync with iCloud Keychain for multi-device
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess else {
+            if status == errSecItemNotFound {
+                return nil
+            }
+            throw KeychainError.retrieveFailed(status)
+        }
+
+        guard let keyData = result as? Data else {
+            throw KeychainError.invalidData
+        }
+
+        return SymmetricKey(data: keyData)
+    }
+
+    func deleteBackupEncryptionKey() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: backupEncryptionKeyAccount,
+            kSecAttrSynchronizable as String: true
+        ]
+
+        let status = SecItemDelete(query as CFDictionary)
+
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.deleteFailed(status)
+        }
+    }
+
     // MARK: - Generic Keychain Operations
     func store(data: Data, for account: String) throws {
         let query: [String: Any] = [
