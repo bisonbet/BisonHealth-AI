@@ -242,46 +242,63 @@ extension ChatContext {
     func buildContextString() -> String {
         var contextParts: [String] = []
         
-        if let personalInfo = personalInfo {
-            var personalContext = "Personal Information:\n"
-            if let name = personalInfo.name {
-                personalContext += "- Name: \(name)\n"
-            }
-            if let dob = personalInfo.dateOfBirth {
-                let formatter = DateFormatter()
-                formatter.dateStyle = .medium
-                personalContext += "- Date of Birth: \(formatter.string(from: dob))\n"
-            }
-            if let gender = personalInfo.gender {
-                personalContext += "- Gender: \(gender.displayName)\n"
-            }
-            if let bloodType = personalInfo.bloodType {
-                personalContext += "- Blood Type: \(bloodType.displayName)\n"
-            }
-            if !personalInfo.allergies.isEmpty {
-                personalContext += "- Allergies: \(personalInfo.allergies.joined(separator: ", "))\n"
-            }
-            if !personalInfo.medications.isEmpty {
-                personalContext += "- Current Medications: \(personalInfo.medications.map { $0.name }.joined(separator: ", "))\n"
-            }
-            contextParts.append(personalContext)
+        // Add header indicating what context types were requested
+        if !selectedDataTypes.isEmpty {
+            let selectedTypesText = selectedDataTypes.map { $0.displayName }.joined(separator: ", ")
+            contextParts.append("=== Health Context for: \(selectedTypesText) ===\n")
         }
         
-        if !bloodTests.isEmpty {
-            var bloodTestContext = "Recent Blood Test Results:\n"
-            for test in bloodTests.prefix(3) { // Limit to most recent 3 tests
-                let formatter = DateFormatter()
-                formatter.dateStyle = .medium
-                bloodTestContext += "- Test Date: \(formatter.string(from: test.testDate))\n"
-                
-                let abnormalResults = test.abnormalResults
-                if !abnormalResults.isEmpty {
-                    bloodTestContext += "  Abnormal Results: \(abnormalResults.map { "\($0.name): \($0.value) \($0.unit ?? "")" }.joined(separator: ", "))\n"
+        // Personal Information
+        if selectedDataTypes.contains(.personalInfo) {
+            if let personalInfo = personalInfo {
+                var personalContext = "Personal Information:\n"
+                if let name = personalInfo.name {
+                    personalContext += "- Name: \(name)\n"
                 }
+                if let dob = personalInfo.dateOfBirth {
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .medium
+                    personalContext += "- Date of Birth: \(formatter.string(from: dob))\n"
+                }
+                if let gender = personalInfo.gender {
+                    personalContext += "- Gender: \(gender.displayName)\n"
+                }
+                if let bloodType = personalInfo.bloodType {
+                    personalContext += "- Blood Type: \(bloodType.displayName)\n"
+                }
+                if !personalInfo.allergies.isEmpty {
+                    personalContext += "- Allergies: \(personalInfo.allergies.joined(separator: ", "))\n"
+                }
+                if !personalInfo.medications.isEmpty {
+                    personalContext += "- Current Medications: \(personalInfo.medications.map { $0.name }.joined(separator: ", "))\n"
+                }
+                contextParts.append(personalContext)
+            } else {
+                contextParts.append("Personal Information: No data available yet\n")
             }
-            contextParts.append(bloodTestContext)
         }
         
+        // Blood Tests
+        if selectedDataTypes.contains(.bloodTest) {
+            if !bloodTests.isEmpty {
+                var bloodTestContext = "Recent Blood Test Results:\n"
+                for test in bloodTests.prefix(3) { // Limit to most recent 3 tests
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .medium
+                    bloodTestContext += "- Test Date: \(formatter.string(from: test.testDate))\n"
+                    
+                    let abnormalResults = test.abnormalResults
+                    if !abnormalResults.isEmpty {
+                        bloodTestContext += "  Abnormal Results: \(abnormalResults.map { "\($0.name): \($0.value) \($0.unit ?? "")" }.joined(separator: ", "))\n"
+                    }
+                }
+                contextParts.append(bloodTestContext)
+            } else {
+                contextParts.append("Blood Test Results: No data available yet\n")
+            }
+        }
+        
+        // Documents
         if !documents.isEmpty {
             let processedDocs = documents.filter { $0.isProcessed }
             if !processedDocs.isEmpty {
@@ -291,6 +308,11 @@ extension ChatContext {
                 }
                 contextParts.append(docContext)
             }
+        }
+        
+        // If no context parts were added but types were selected, provide feedback
+        if contextParts.isEmpty && !selectedDataTypes.isEmpty {
+            contextParts.append("Health context types were selected but no data is available yet. Please add health data to your profile.")
         }
         
         return contextParts.joined(separator: "\n")
