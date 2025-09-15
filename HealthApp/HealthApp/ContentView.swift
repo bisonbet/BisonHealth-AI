@@ -47,6 +47,7 @@ struct HealthDataView: View {
     )
     @State private var showingPersonalInfoEditor = false
     @State private var showingBloodTestEntry = false
+    @State private var editingBloodTest: BloodTestResult?
     
     var body: some View {
         NavigationStack {
@@ -58,7 +59,13 @@ struct HealthDataView: View {
                 
                 BloodTestsSection(
                     bloodTests: healthDataManager.bloodTests,
-                    onAddNew: { showingBloodTestEntry = true }
+                    onAddNew: { showingBloodTestEntry = true },
+                    onEdit: { editingBloodTest = $0 },
+                    onDelete: { bloodTest in
+                        Task {
+                            try await healthDataManager.deleteBloodTest(bloodTest)
+                        }
+                    }
                 )
                 
                 // Placeholder sections for future data types
@@ -119,6 +126,13 @@ struct HealthDataView: View {
                         }
                     }
                 )
+            }
+            .sheet(item: $editingBloodTest) { bloodTest in
+                BloodTestEntryView(bloodTest: bloodTest) { updated in
+                    Task {
+                        try await healthDataManager.updateBloodTest(updated)
+                    }
+                }
             }
         }
     }
