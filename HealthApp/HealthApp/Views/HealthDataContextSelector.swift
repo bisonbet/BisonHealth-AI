@@ -37,6 +37,7 @@ struct HealthDataContextSelector: View {
                     Spacer()
                     
                     Button("Done") {
+                        onSave(localSelection)
                         dismiss()
                     }
                     .fontWeight(.semibold)
@@ -111,8 +112,8 @@ struct HealthDataContextSelector: View {
             } // VStack
         }
         .onChange(of: localSelection) { _, newValue in
+            // Instantly update the binding to reflect selection, but don't save
             selectedTypes = newValue
-            onSave(newValue)
         }
     }
 }

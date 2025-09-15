@@ -16,10 +16,12 @@
 		1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6512E66847000EBEFB0 /* DocumentGridView.swift */; };
 		1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */; };
 		1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */; };
-		14FFBD332E7787E600FD9B75 /* BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* BloodTestMappingService.swift */; };
-		14FFBD372E7787FA00FD9B75 /* BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* BloodTestDataManager.swift */; };
-		14FFBD392E77882B00FD9B75 /* DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* DropdownComponents.swift */; };
-		14FFBD3B2E77894700FD9B75 /* TestTypePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD3A2E77894700FD9B75 /* TestTypePickerView.swift */; };
+		1434468F2E788ED300961754 /* Doctor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1434468E2E788ED300961754 /* Doctor.swift */; };
+		143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446902E788EE800961754 /* DoctorSelectorView.swift */; };
+		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
+		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
+		14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */; };
+		14FFBD3B2E77894700FD9B75 /* Views/TestTypePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */; };
 		1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */; };
 		2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */; };
 		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
@@ -100,10 +102,12 @@
 		1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentFilterView.swift; sourceTree = "<group>"; };
 		1427C6512E66847000EBEFB0 /* DocumentGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentGridView.swift; sourceTree = "<group>"; };
 		1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentKeyboardShortcuts.swift; sourceTree = "<group>"; };
-		14FFBD322E7787E600FD9B75 /* BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
-		14FFBD342E7787FA00FD9B75 /* BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
-		14FFBD382E77882B00FD9B75 /* DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
-		14FFBD3A2E77894700FD9B75 /* TestTypePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TestTypePickerView.swift; sourceTree = "<group>"; };
+		1434468E2E788ED300961754 /* Doctor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Doctor.swift; sourceTree = "<group>"; };
+		143446902E788EE800961754 /* DoctorSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoctorSelectorView.swift; sourceTree = "<group>"; };
+		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
+		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
+		14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
+		14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TestTypePickerView.swift; sourceTree = "<group>"; };
 		4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryView.swift; sourceTree = "<group>"; };
 		4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorView.swift; sourceTree = "<group>"; };
 		50F48E6CF308D42C7D377B84 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
@@ -206,10 +210,10 @@
 		A1000003294A0000000000002 /* HealthApp */ = {
 			isa = PBXGroup;
 			children = (
-				14FFBD3A2E77894700FD9B75 /* TestTypePickerView.swift */,
-				14FFBD382E77882B00FD9B75 /* DropdownComponents.swift */,
-				14FFBD342E7787FA00FD9B75 /* BloodTestDataManager.swift */,
-				14FFBD322E7787E600FD9B75 /* BloodTestMappingService.swift */,
+				14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */,
+				14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */,
+				14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */,
+				14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */,
 				A1000011294A0000000000001 /* Models */,
 				A1000012294A0000000000001 /* Views */,
 				A1000013294A0000000000001 /* ViewModels */,
@@ -237,6 +241,7 @@
 		A1000011294A0000000000001 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				1434468E2E788ED300961754 /* Doctor.swift */,
 				A1000021294A0000000000001 /* HealthDataProtocol.swift */,
 				A1000023294A0000000000001 /* PersonalHealthInfo.swift */,
 				A1000025294A0000000000001 /* BloodTestResult.swift */,
@@ -251,6 +256,7 @@
 		A1000012294A0000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				143446902E788EE800961754 /* DoctorSelectorView.swift */,
 				1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */,
 				1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */,
 				1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */,
@@ -471,12 +477,12 @@
 				1427C6532E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift in Sources */,
 				1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */,
 				1427C6552E66847000EBEFB0 /* DocumentFilterView.swift in Sources */,
-				14FFBD3B2E77894700FD9B75 /* TestTypePickerView.swift in Sources */,
+				14FFBD3B2E77894700FD9B75 /* Views/TestTypePickerView.swift in Sources */,
 				1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */,
 				1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */,
 				1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */,
 				1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */,
-				14FFBD392E77882B00FD9B75 /* DropdownComponents.swift in Sources */,
+				14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
@@ -485,6 +491,7 @@
 				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
 				A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
 				A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */,
+				143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */,
 				A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */,
 				A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */,
 				A1000072294A0000000000001 /* Keychain.swift in Sources */,
@@ -495,8 +502,8 @@
 				9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */,
 				XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */,
 				9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */,
-				14FFBD372E7787FA00FD9B75 /* BloodTestDataManager.swift in Sources */,
-				14FFBD332E7787E600FD9B75 /* BloodTestMappingService.swift in Sources */,
+				14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */,
+				14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */,
 				1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */,
 				7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */,
 				43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */,
@@ -505,6 +512,7 @@
 				IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */,
 				E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */,
 				NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */,
+				1434468F2E788ED300961754 /* Doctor.swift in Sources */,
 				06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */,
 				DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */,
 				AP42ZSRFIED99JHF9ESMG04E /* StorageUsageView.swift in Sources */,

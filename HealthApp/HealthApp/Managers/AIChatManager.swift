@@ -8,11 +8,12 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Published Properties
     @Published var conversations: [ChatConversation] = []
-    @Published var currentConversation: ChatConversation?
+    @Published var currentConversation: ChatConversation? = nil
     @Published var isConnected: Bool = false
     @Published var isLoading: Bool = false
-    @Published var errorMessage: String?
-    @Published var selectedHealthDataTypes: Set<HealthDataType> = []
+    @Published var errorMessage: String? = nil
+    @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo, .bloodTest]
+    @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Family Medicine" })
     @Published var contextSizeLimit: Int = 4000
     @Published var isOffline: Bool = false
     
@@ -238,6 +239,7 @@ class AIChatManager: ObservableObject {
             content,
             context: context,
             model: settingsManager.modelPreferences.chatModel,
+            systemPrompt: selectedDoctor?.systemPrompt,
             onUpdate: { [weak self] partialContent in
                 Task { @MainActor in
                     guard let self = self else { return }
@@ -291,7 +293,8 @@ class AIChatManager: ObservableObject {
         let response = try await ollamaClient.sendChatMessage(
             content,
             context: context,
-            model: settingsManager.modelPreferences.chatModel
+            model: settingsManager.modelPreferences.chatModel,
+            systemPrompt: selectedDoctor?.systemPrompt
         )
         let processingTime = Date().timeIntervalSince(startTime)
         
@@ -339,12 +342,17 @@ class AIChatManager: ObservableObject {
         }
     }
     
+    // MARK: - Doctor Persona Management
+    func selectDoctor(_ doctor: Doctor) {
+        selectedDoctor = doctor
+    }
+    
     private func updateHealthDataContext() {
         currentContext = ChatContext(
             personalInfo: selectedHealthDataTypes.contains(.personalInfo) ? healthDataManager.personalInfo : nil,
             bloodTests: selectedHealthDataTypes.contains(.bloodTest) ? healthDataManager.bloodTests : [],
-            documents: healthDataManager.documents.filter { doc in
-                doc.extractedData.contains { data in
+            documents: healthDataManager.documents.filter {
+                $0.extractedData.contains { data in
                     selectedHealthDataTypes.contains(data.type)
                 }
             },
@@ -417,8 +425,8 @@ class AIChatManager: ObservableObject {
     }
     
     func filterConversationsByDataType(_ dataType: HealthDataType) -> [ChatConversation] {
-        return conversations.filter { conversation in
-            conversation.includedHealthDataTypes.contains(dataType)
+        return conversations.filter {
+            $0.includedHealthDataTypes.contains(dataType)
         }
     }
     

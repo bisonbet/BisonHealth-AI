@@ -581,7 +581,6 @@ struct ChatView: View {
         healthDataManager: HealthDataManager.shared,
         databaseManager: DatabaseManager.shared
     )
-    @State private var messageText = ""
     @State private var showingContextSelector = false
     @State private var showingConversationList = false
     @State private var searchText = ""
@@ -660,7 +659,6 @@ struct ChatView: View {
             // Main chat interface
             ChatDetailView(
                 chatManager: chatManager,
-                messageText: $messageText,
                 showingContextSelector: $showingContextSelector,
                 isIPad: isIPad
             )
@@ -673,7 +671,6 @@ struct ChatView: View {
         NavigationStack {
             ChatDetailView(
                 chatManager: chatManager,
-                messageText: $messageText,
                 showingContextSelector: $showingContextSelector,
                 isIPad: isIPad
             )
@@ -681,12 +678,6 @@ struct ChatView: View {
                     ToolbarItemGroup(placement: .navigationBarLeading) {
                         Button("Conversations") {
                             showingConversationList = true
-                        }
-                        
-                        if chatManager.currentConversation != nil {
-                            Button("Context") {
-                                showingContextSelector = true
-                            }
                         }
                     }
                     

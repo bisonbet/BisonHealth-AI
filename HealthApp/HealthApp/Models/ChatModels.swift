@@ -281,15 +281,32 @@ extension ChatContext {
         // Blood Tests
         if selectedDataTypes.contains(.bloodTest) {
             if !bloodTests.isEmpty {
-                var bloodTestContext = "Recent Blood Test Results:\n"
+                var bloodTestContext = "Blood Test Results:\n"
                 for test in bloodTests.prefix(3) { // Limit to most recent 3 tests
                     let formatter = DateFormatter()
                     formatter.dateStyle = .medium
-                    bloodTestContext += "- Test Date: \(formatter.string(from: test.testDate))\n"
-                    
-                    let abnormalResults = test.abnormalResults
-                    if !abnormalResults.isEmpty {
-                        bloodTestContext += "  Abnormal Results: \(abnormalResults.map { "\($0.name): \($0.value) \($0.unit ?? "")" }.joined(separator: ", "))\n"
+                    bloodTestContext += "\nTest Date: \(formatter.string(from: test.testDate))\n"
+
+                    if let lab = test.laboratoryName {
+                        bloodTestContext += "Laboratory: \(lab)\n"
+                    }
+
+                    // Include ALL results, not just abnormal ones
+                    if !test.results.isEmpty {
+                        bloodTestContext += "Results:\n"
+                        for result in test.results {
+                            var resultLine = "  - \(result.name): \(result.value)"
+                            if let unit = result.unit {
+                                resultLine += " \(unit)"
+                            }
+                            if let range = result.referenceRange {
+                                resultLine += " (ref: \(range))"
+                            }
+                            if result.isAbnormal {
+                                resultLine += " [ABNORMAL]"
+                            }
+                            bloodTestContext += resultLine + "\n"
+                        }
                     }
                 }
                 contextParts.append(bloodTestContext)

@@ -2,13 +2,14 @@ import SwiftUI
 
 struct ChatDetailView: View {
     @ObservedObject var chatManager: AIChatManager
-    @Binding var messageText: String
+    @State private var messageText: String = ""
     @Binding var showingContextSelector: Bool
     let isIPad: Bool
     
     @State private var showingConversationSettings = false
     @State private var showingExportOptions = false
     @State private var showingClearConfirmation = false
+    @State private var showingDoctorSelector = false
     @FocusState private var isMessageInputFocused: Bool
     
     var body: some View {
@@ -28,21 +29,6 @@ struct ChatDetailView: View {
         .toolbar {
             if chatManager.currentConversation != nil {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    // Done button to dismiss keyboard
-                    if isMessageInputFocused {
-                        Button("Done") {
-                            isMessageInputFocused = false
-                        }
-                        .font(.caption)
-                    }
-                    
-                    if !isIPad {
-                        Button("Context") {
-                            showingContextSelector = true
-                        }
-                        .font(.caption)
-                    }
-                    
                     Menu {
                         menuContent
                     } label: {
@@ -62,6 +48,14 @@ struct ChatDetailView: View {
         .sheet(isPresented: $showingExportOptions) {
             ConversationExportView(
                 conversation: chatManager.currentConversation
+            )
+        }
+        .sheet(isPresented: $showingDoctorSelector) {
+            DoctorSelectorView(
+                selectedDoctor: $chatManager.selectedDoctor,
+                onSave: { doctor in
+                    chatManager.selectDoctor(doctor)
+                }
             )
         }
         .confirmationDialog("Clear Messages", isPresented: $showingClearConfirmation) {
@@ -117,6 +111,11 @@ struct ChatDetailView: View {
             isIPad: isIPad
         )
         
+        // Keyboard accessory to dismiss keyboard
+        if isMessageInputFocused {
+            keyboardAccessoryView
+        }
+        
         // Message input with keyboard shortcuts
         messageInputView
     }
@@ -129,6 +128,47 @@ struct ChatDetailView: View {
                 }
             }
         )
+    }
+    
+    private var keyboardAccessoryView: some View {
+        HStack {
+            Button(action: {
+                showingContextSelector = true
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "slider.horizontal.3")
+                    Text("Context")
+                }
+            }
+            .font(.caption)
+            .foregroundColor(.blue)
+            
+            Button(action: {
+                showingDoctorSelector = true
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "stethoscope")
+                    Text("Doctor")
+                }
+            }
+            .font(.caption)
+            .foregroundColor(.blue)
+            .padding(.leading, 8)
+            
+            Spacer()
+            
+            Button(action: {
+                isMessageInputFocused = false
+            }) {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .background(Color(.systemGray6))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
     
     private var messageInputView: some View {
@@ -185,10 +225,6 @@ struct ChatDetailView: View {
     
     @ViewBuilder
     private var menuContent: some View {
-        Button("Edit Context", systemImage: "slider.horizontal.3") {
-            showingContextSelector = true
-        }
-        
         Button("Conversation Settings", systemImage: "gear") {
             showingConversationSettings = true
         }
@@ -549,7 +585,6 @@ struct ConversationExportView: View {
             healthDataManager: HealthDataManager.shared,
             databaseManager: DatabaseManager.shared
         ),
-        messageText: .constant(""),
         showingContextSelector: .constant(false),
         isIPad: true
     )

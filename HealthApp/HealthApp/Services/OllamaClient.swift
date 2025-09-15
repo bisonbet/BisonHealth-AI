@@ -56,9 +56,9 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     }
     
     // MARK: - Chat Operations
-    func sendChatMessage(_ message: String, context: String = "", model: String = "llama3.2") async throws -> OllamaChatResponse {
+    func sendChatMessage(_ message: String, context: String = "", model: String = "llama3.2", systemPrompt: String? = nil) async throws -> OllamaChatResponse {
         do {
-            let messages = buildMessages(userMessage: message, context: context)
+            let messages = buildMessages(userMessage: message, context: context, systemPrompt: systemPrompt)
             
             let startTime = Date()
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
@@ -87,6 +87,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         _ message: String,
         context: String = "",
         model: String = "llama3.2",
+        systemPrompt: String? = nil,
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (OllamaChatResponse) -> Void
     ) async throws {
@@ -94,7 +95,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
             isStreaming = true
             streamingContent = ""
             
-            let messages = buildMessages(userMessage: message, context: context)
+            let messages = buildMessages(userMessage: message, context: context, systemPrompt: systemPrompt)
             let startTime = Date()
             
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
@@ -151,12 +152,12 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     func getAvailableModels() async throws -> [OllamaModel] {
         do {
             let modelsResponse = try await client.listModels()
-            return modelsResponse.models.map { model in
+            return modelsResponse.models.map {
                 OllamaModel(
-                    name: model.name,
-                    modifiedAt: model.modifiedAt,
-                    size: model.size,
-                    digest: model.digest
+                    name: $0.name,
+                    modifiedAt: $0.modifiedAt,
+                    size: $0.size,
+                    digest: $0.digest
                 )
             }
         } catch {
@@ -217,39 +218,43 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     }
     
     // MARK: - Private Methods
-    private func buildMessages(userMessage: String, context: String) -> [Chat.Message] {
+    private func buildMessages(userMessage: String, context: String, systemPrompt: String?) -> [Chat.Message] {
         var messages: [Chat.Message] = []
         
-        // Add system message with context
-        let systemPrompt = buildSystemPrompt(with: context)
-        messages.append(.system(systemPrompt))
+        // Determine the base system prompt
+        let baseSystemPrompt = systemPrompt ?? buildDefaultSystemPrompt()
         
-        // Add user message
+        // Append health context to the chosen system prompt
+        var finalSystemPrompt = baseSystemPrompt
+        if !context.isEmpty {
+            finalSystemPrompt += "\n\n--- User's Health Context ---\n" + context
+        }
+        
+        messages.append(.system(finalSystemPrompt))
         messages.append(.user(userMessage))
         
         return messages
     }
     
-    private func buildSystemPrompt(with context: String) -> String {
-        var prompt = """
+    private func buildDefaultSystemPrompt() -> String {
+        return """
+        CRITICAL INSTRUCTIONS:
+        - You MUST ONLY use the health data explicitly provided in the user's context
+        - NEVER make up, assume, or hallucinate any medical values, test results, or health data
+        - If the user asks about specific test results that are not in the provided context, clearly state that you don't have that information
+        - Always refer to the actual values provided in the health context when discussing the user's health data
+
         You are a helpful AI health assistant. You have access to the user's personal health information and should provide informative, accurate responses about their health data.
-        
+
         Important guidelines:
         - Always remind users that you are not a replacement for professional medical advice
         - Encourage users to consult with healthcare providers for medical decisions
         - Be supportive and informative while maintaining appropriate boundaries
         - Focus on helping users understand their health data and trends
         - Suggest when they should seek professional medical attention
-        
+
+        Please provide helpful, accurate information while encouraging appropriate medical consultation when needed.
         """
-        
-        if !context.isEmpty {
-            prompt += "\nUser's Health Context:\n\(context)\n"
-        }
-        
-        prompt += "\nPlease provide helpful, accurate information while encouraging appropriate medical consultation when needed."
-        
-        return prompt
     }
 }
 
