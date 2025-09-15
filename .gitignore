@@ -146,3 +146,5 @@ AuthKey_*.p8
 # Simulator specific
 **/iOS Simulator/
 node_modules
+.gemini/
+gha-creds-*.json
