@@ -156,9 +156,19 @@ struct EmptyBloodTestsView: View {
 }
 
 struct BloodTestListView: View {
-    let bloodTests: [BloodTestResult]
+    @State private var bloodTests: [BloodTestResult]
     let onEdit: (BloodTestResult) -> Void
     let onDelete: (BloodTestResult) -> Void
+
+    init(
+        bloodTests: [BloodTestResult],
+        onEdit: @escaping (BloodTestResult) -> Void,
+        onDelete: @escaping (BloodTestResult) -> Void
+    ) {
+        _bloodTests = State(initialValue: bloodTests)
+        self.onEdit = onEdit
+        self.onDelete = onDelete
+    }
 
     var body: some View {
         List {
@@ -174,7 +184,9 @@ struct BloodTestListView: View {
                 }
             }
             .onDelete { indexSet in
-                indexSet.map { bloodTests[$0] }.forEach { onDelete($0) }
+                let items = indexSet.map { bloodTests[$0] }
+                items.forEach { onDelete($0) }
+                bloodTests.remove(atOffsets: indexSet)
             }
         }
         .navigationTitle("Blood Test Results")
