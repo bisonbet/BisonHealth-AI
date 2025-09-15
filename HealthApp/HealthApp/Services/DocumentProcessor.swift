@@ -387,53 +387,67 @@ class DocumentProcessor: ObservableObject {
     private func extractHealthData(from result: ProcessedDocumentResult, document: HealthDocument) async throws -> [AnyHealthData] {
         var extractedData: [AnyHealthData] = []
 
-        // Parse structured data for health information
-        let healthDataItems = result.healthDataItems
-        
-        // Group health data items by type and create appropriate health data objects
-        let groupedItems = Dictionary(grouping: healthDataItems) { $0.type }
-        
-        // Extract personal information
-        if let personalInfoItems = groupedItems["Personal Information"] ?? groupedItems["Demographics"] {
-            if let personalInfo = try? createPersonalHealthInfo(from: personalInfoItems, document: document) {
-                extractedData.append(try AnyHealthData(personalInfo))
-            }
-        }
-        
-        // Extract blood test results using enhanced AI mapping
-        if let bloodTestItems = groupedItems["Blood Test"] ?? groupedItems["Lab Results"] {
-            do {
-                // Use full document text for better AI analysis if available
-                let documentText = result.extractedText.isEmpty ?
-                                   bloodTestItems.map { "\($0.type): \($0.value)" }.joined(separator: "\n") :
-                                   result.extractedText
+        print("📄 DocumentProcessor: Starting health data extraction from document")
+        print("📄 DocumentProcessor: Extracted text length: \(result.extractedText.count) characters")
 
+        // Primary approach: Use full document text for AI-powered blood test extraction
+        if !result.extractedText.isEmpty {
+            print("🧪 DocumentProcessor: Attempting blood test extraction from full document text")
+            do {
                 let bloodTest = try await createBloodTestResultFromText(
-                    documentText: documentText,
-                    extractedItems: bloodTestItems,
+                    documentText: result.extractedText,
+                    extractedItems: [], // We'll use only the text
                     document: document
                 )
                 extractedData.append(try AnyHealthData(bloodTest))
+                print("✅ DocumentProcessor: Successfully extracted blood test data from document text")
             } catch {
-                print("⚠️ DocumentProcessor: Failed to create blood test result: \(error)")
-                // Continue processing other data types
+                print("❌ DocumentProcessor: Failed to create blood test from text: \(error)")
+                // Continue with fallback approaches
             }
         }
-        
-        // Extract vital signs and create health checkup
-        if let vitalSignsItems = groupedItems["Vital Signs"] {
-            if let healthCheckup = try? createHealthCheckup(from: vitalSignsItems, document: document) {
-                extractedData.append(try AnyHealthData(healthCheckup))
+
+        // Fallback approach: Parse structured data if available (for other data types)
+        let healthDataItems = result.healthDataItems
+        print("📊 DocumentProcessor: Found \(healthDataItems.count) structured health data items")
+
+        if !healthDataItems.isEmpty {
+            // Group health data items by type and create appropriate health data objects
+            let groupedItems = Dictionary(grouping: healthDataItems) { $0.type }
+
+            // Extract personal information
+            if let personalInfoItems = groupedItems["Personal Information"] ?? groupedItems["Demographics"] {
+                if let personalInfo = try? createPersonalHealthInfo(from: personalInfoItems, document: document) {
+                    extractedData.append(try AnyHealthData(personalInfo))
+                    print("✅ DocumentProcessor: Extracted personal information")
+                }
+            }
+
+            // Extract vital signs and create health checkup
+            if let vitalSignsItems = groupedItems["Vital Signs"] {
+                if let healthCheckup = try? createHealthCheckup(from: vitalSignsItems, document: document) {
+                    extractedData.append(try AnyHealthData(healthCheckup))
+                    print("✅ DocumentProcessor: Extracted vital signs")
+                }
+            }
+
+            // Extract imaging information
+            if let imagingItems = groupedItems["Imaging"] ?? groupedItems["Radiology"] {
+                if let imagingReport = try? createImagingReport(from: imagingItems, document: document) {
+                    extractedData.append(try AnyHealthData(imagingReport))
+                    print("✅ DocumentProcessor: Extracted imaging report")
+                }
             }
         }
-        
-        // Extract imaging information
-        if let imagingItems = groupedItems["Imaging"] ?? groupedItems["Radiology"] {
-            if let imagingReport = try? createImagingReport(from: imagingItems, document: document) {
-                extractedData.append(try AnyHealthData(imagingReport))
-            }
+
+        // If no data was extracted and we have text, create a basic blood test result
+        if extractedData.isEmpty && !result.extractedText.isEmpty {
+            print("⚠️ DocumentProcessor: No specific data extracted, creating basic blood test placeholder")
+            let basicBloodTest = createBasicBloodTestResult(document: document)
+            extractedData.append(try AnyHealthData(basicBloodTest))
         }
-        
+
+        print("📊 DocumentProcessor: Extraction complete. Found \(extractedData.count) health data items")
         return extractedData
     }
     
@@ -741,7 +755,7 @@ class DocumentProcessor: ObservableObject {
     
     private func parseMedication(from string: String) -> Medication? {
         // Simple medication parsing - could be enhanced with dosage extraction
-        return Medication(name: string, dosage: nil, frequency: nil)
+        return Medication(name: string)
     }
     
     private func parseBloodPressure(from string: String) -> (Int, Int)? {

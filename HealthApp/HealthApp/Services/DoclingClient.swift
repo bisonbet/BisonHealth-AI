@@ -95,9 +95,7 @@ class DoclingClient: ObservableObject {
     
     // MARK: - Document Processing
     func processDocument(_ document: Data, type: DocumentType, options: ProcessingOptions = ProcessingOptions()) async throws -> ProcessedDocumentResult {
-        guard isConnected else {
-            throw DoclingError.notConnected
-        }
+        // Note: Connection will be tested later in this method, so no need to check isConnected here
         
         // Debug: Check data at method entry
         print("🔧 DoclingClient: processDocument called - data size: \(document.count) bytes")
@@ -262,42 +260,46 @@ class DoclingClient: ObservableObject {
         let resultURL = baseURL.appendingPathComponent("v1/result/\(taskId)")
         var request = URLRequest(url: resultURL)
         request.httpMethod = "GET"
-        
+
         print("🔄 DoclingClient: Fetching result from: \(resultURL)")
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DoclingError.invalidResponse
         }
-        
+
         print("📡 DoclingClient: Result response status: \(httpResponse.statusCode), size: \(data.count) bytes")
-        
+
         guard (200...299).contains(httpResponse.statusCode) else {
             print("❌ DoclingClient: Result endpoint failed with status \(httpResponse.statusCode)")
             // If result endpoint doesn't exist, the result might be in the status response
             // Let's check the status response to see if it contains result data
             return try await getResultFromStatusResponse(taskId: taskId, startTime: startTime)
         }
-        
-        // Try to decode the result response
+
+        // Try to decode the result response using v1 API format
         do {
-            // The result might be in a different format - let's see what we get
             let responseString = String(data: data, encoding: .utf8) ?? "Invalid UTF-8"
             print("🔍 DoclingClient: Result response body: \(responseString)")
-            
-            let processingResponse = try JSONDecoder().decode(DoclingProcessingResponse.self, from: data)
+
+            // Parse v1 API response format
+            let v1Response = try JSONDecoder().decode(DoclingV1Response.self, from: data)
             let processingTime = Date().timeIntervalSince(startTime)
-            
+
             return ProcessedDocumentResult(
-                extractedText: processingResponse.extractedText,
-                structuredData: processingResponse.structuredData,
-                confidence: processingResponse.confidence,
+                extractedText: v1Response.document.text_content ?? v1Response.document.md_content ?? "",
+                structuredData: v1Response.document.json_content ?? [:],
+                confidence: 1.0, // v1 API doesn't provide confidence
                 processingTime: processingTime,
-                metadata: processingResponse.metadata
+                metadata: [
+                    "status": v1Response.status,
+                    "processing_time": v1Response.processing_time,
+                    "task_id": taskId
+                ]
             )
         } catch {
-            print("❌ DoclingClient: Failed to decode result from result endpoint: \(error)")
+            print("❌ DoclingClient: Failed to decode v1 result format: \(error)")
             let responseString = String(data: data, encoding: .utf8) ?? "Invalid UTF-8"
             print("🔍 DoclingClient: Raw result response: \(responseString)")
             throw DoclingError.invalidResponse
@@ -423,9 +425,7 @@ class DoclingClient: ObservableObject {
     
     // MARK: - Async Processing
     func submitDocumentForProcessing(_ document: Data, type: DocumentType, options: ProcessingOptions = ProcessingOptions()) async throws -> String {
-        guard isConnected else {
-            throw DoclingError.notConnected
-        }
+        // Note: Connection will be tested by the actual request
         
         let submitURL = baseURL.appendingPathComponent("v1/convert/source")
         var request = URLRequest(url: submitURL)
@@ -480,9 +480,7 @@ class DoclingClient: ObservableObject {
     }
     
     func getProcessingStatus(_ jobId: String) async throws -> DoclingProcessingStatus {
-        guard isConnected else {
-            throw DoclingError.notConnected
-        }
+        // Note: Connection will be tested by the actual request
         
         let statusURL = baseURL.appendingPathComponent("v1/status/\(jobId)")
         var request = URLRequest(url: statusURL)
@@ -522,9 +520,7 @@ class DoclingClient: ObservableObject {
     }
     
     func getProcessingResult(_ jobId: String) async throws -> ProcessedDocumentResult {
-        guard isConnected else {
-            throw DoclingError.notConnected
-        }
+        // Note: Connection will be tested by the actual request
         
         let resultURL = baseURL.appendingPathComponent("v1/result/\(jobId)")
         var request = URLRequest(url: resultURL)
@@ -570,9 +566,7 @@ class DoclingClient: ObservableObject {
     
     // MARK: - Supported Formats
     func getSupportedFormats() async throws -> [String] {
-        guard isConnected else {
-            throw DoclingError.notConnected
-        }
+        // Note: Connection will be tested by the actual request
         
         let formatsURL = baseURL.appendingPathComponent("v1/formats")
         var request = URLRequest(url: formatsURL)
@@ -805,6 +799,21 @@ struct DoclingFormatsResponse: Codable {
     enum CodingKeys: String, CodingKey {
         case supportedFormats = "supported_formats"
     }
+}
+
+// MARK: - V1 API Response Models
+struct DoclingV1Response: Codable {
+    let document: DoclingV1Document
+    let status: String
+    let processing_time: Double
+}
+
+struct DoclingV1Document: Codable {
+    let md_content: String?
+    let json_content: [String: AnyCodable]?
+    let html_content: String?
+    let text_content: String?
+    let doctags_content: String?
 }
 
 // MARK: - Helper for Any Codable

@@ -18,6 +18,11 @@
 		1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */; };
 		1434468F2E788ED300961754 /* Doctor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1434468E2E788ED300961754 /* Doctor.swift */; };
 		143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446902E788EE800961754 /* DoctorSelectorView.swift */; };
+		143446952E78B62F00961754 /* MedicationsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446942E78B62F00961754 /* MedicationsListView.swift */; };
+		143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446932E78B62F00961754 /* MedicationEditorView.swift */; };
+		143446972E78B62F00961754 /* FamilyHistoryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446922E78B62F00961754 /* FamilyHistoryEditorView.swift */; };
+		143446992E78BC8300961754 /* PersonalMedicalHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446982E78BC8300961754 /* PersonalMedicalHistoryView.swift */; };
+		1434469B2E78BCAC00961754 /* MedicalConditionEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1434469A2E78BCAC00961754 /* MedicalConditionEditorView.swift */; };
 		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
 		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
 		14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */; };
@@ -104,6 +109,11 @@
 		1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentKeyboardShortcuts.swift; sourceTree = "<group>"; };
 		1434468E2E788ED300961754 /* Doctor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Doctor.swift; sourceTree = "<group>"; };
 		143446902E788EE800961754 /* DoctorSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoctorSelectorView.swift; sourceTree = "<group>"; };
+		143446922E78B62F00961754 /* FamilyHistoryEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyHistoryEditorView.swift; sourceTree = "<group>"; };
+		143446932E78B62F00961754 /* MedicationEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationEditorView.swift; sourceTree = "<group>"; };
+		143446942E78B62F00961754 /* MedicationsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationsListView.swift; sourceTree = "<group>"; };
+		143446982E78BC8300961754 /* PersonalMedicalHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalMedicalHistoryView.swift; sourceTree = "<group>"; };
+		1434469A2E78BCAC00961754 /* MedicalConditionEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalConditionEditorView.swift; sourceTree = "<group>"; };
 		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
 		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
 		14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
@@ -256,6 +266,11 @@
 		A1000012294A0000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				1434469A2E78BCAC00961754 /* MedicalConditionEditorView.swift */,
+				143446982E78BC8300961754 /* PersonalMedicalHistoryView.swift */,
+				143446922E78B62F00961754 /* FamilyHistoryEditorView.swift */,
+				143446932E78B62F00961754 /* MedicationEditorView.swift */,
+				143446942E78B62F00961754 /* MedicationsListView.swift */,
 				143446902E788EE800961754 /* DoctorSelectorView.swift */,
 				1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */,
 				1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */,
@@ -463,6 +478,10 @@
 			files = (
 				A1000003294A0000000000001 /* ContentView.swift in Sources */,
 				A1000001294A0000000000001 /* HealthAppApp.swift in Sources */,
+				1434469B2E78BCAC00961754 /* MedicalConditionEditorView.swift in Sources */,
+				143446952E78B62F00961754 /* MedicationsListView.swift in Sources */,
+				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
+				143446972E78B62F00961754 /* FamilyHistoryEditorView.swift in Sources */,
 				A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */,
 				A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */,
 				A1000024294A0000000000001 /* BloodTestResult.swift in Sources */,
@@ -512,6 +531,7 @@
 				IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */,
 				E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */,
 				NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */,
+				143446992E78BC8300961754 /* PersonalMedicalHistoryView.swift in Sources */,
 				1434468F2E788ED300961754 /* Doctor.swift in Sources */,
 				06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */,
 				DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */,

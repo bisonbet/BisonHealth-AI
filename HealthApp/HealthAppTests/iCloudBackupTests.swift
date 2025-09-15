@@ -86,18 +86,10 @@ final class iCloudBackupTests: XCTestCase {
         settingsManager.backupSettings.backupHealthData = true
 
         let personalInfo = PersonalHealthInfo(
-            firstName: "John",
-            lastName: "Doe",
+            name: "John Doe",
             dateOfBirth: Date(),
-            bloodType: .aPositive,
             gender: .male,
-            height: 180,
-            weight: 75,
-            emergencyContact: EmergencyContact(
-                name: "Jane Doe",
-                phoneNumber: "+1234567890",
-                relationship: "Spouse"
-            )
+            bloodType: .aPositive
         )
 
         // Set up database with test data
@@ -179,18 +171,10 @@ final class iCloudBackupTests: XCTestCase {
 
         // Set up mock backup data
         let originalPersonalInfo = PersonalHealthInfo(
-            firstName: "Restored",
-            lastName: "User",
+            name: "Restored User",
             dateOfBirth: Date(),
-            bloodType: .bPositive,
             gender: .female,
-            height: 165,
-            weight: 60,
-            emergencyContact: EmergencyContact(
-                name: "Emergency Contact",
-                phoneNumber: "+9876543210",
-                relationship: "Friend"
-            )
+            bloodType: .bPositive
         )
 
         let healthData = HealthDataBackup(personalInfo: originalPersonalInfo, bloodTests: [])
@@ -231,18 +215,10 @@ final class iCloudBackupTests: XCTestCase {
         settingsManager.backupSettings.backupHealthData = true
 
         let personalInfo = PersonalHealthInfo(
-            firstName: "Size",
-            lastName: "Test",
+            name: "Size Test",
             dateOfBirth: Date(),
-            bloodType: .oNegative,
             gender: .male,
-            height: 175,
-            weight: 70,
-            emergencyContact: EmergencyContact(
-                name: "Emergency",
-                phoneNumber: "+1111111111",
-                relationship: "Family"
-            )
+            bloodType: .oNegative
         )
 
         let databaseManager = DatabaseManager.shared
@@ -327,18 +303,10 @@ final class iCloudBackupTests: XCTestCase {
     func testEncryptionDecryption_ShouldPreserveData() async throws {
         // Given
         let originalData = PersonalHealthInfo(
-            firstName: "Encryption",
-            lastName: "Test",
+            name: "Encryption Test",
             dateOfBirth: Date(),
-            bloodType: .abPositive,
             gender: .other,
-            height: 180,
-            weight: 80,
-            emergencyContact: EmergencyContact(
-                name: "Emergency Contact",
-                phoneNumber: "+1234567890",
-                relationship: "Parent"
-            )
+            bloodType: .abPositive
         )
 
         // When
@@ -346,8 +314,7 @@ final class iCloudBackupTests: XCTestCase {
         let decryptedData: PersonalHealthInfo = try await mockDecryptData(encryptedData)
 
         // Then
-        XCTAssertEqual(originalData.firstName, decryptedData.firstName)
-        XCTAssertEqual(originalData.lastName, decryptedData.lastName)
+        XCTAssertEqual(originalData.name, decryptedData.name)
         XCTAssertEqual(originalData.bloodType, decryptedData.bloodType)
         XCTAssertEqual(originalData.gender, decryptedData.gender)
     }

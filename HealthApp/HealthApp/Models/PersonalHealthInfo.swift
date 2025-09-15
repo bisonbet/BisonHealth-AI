@@ -16,8 +16,8 @@ struct PersonalHealthInfo: HealthDataProtocol {
     // Medical Information
     var allergies: [String]
     var medications: [Medication]
-    var medicalHistory: [MedicalCondition]
-    var emergencyContacts: [EmergencyContact]
+    var personalMedicalHistory: [MedicalCondition]
+    var familyHistory: FamilyMedicalHistory
     
     // Protocol Requirements
     let createdAt: Date
@@ -34,8 +34,8 @@ struct PersonalHealthInfo: HealthDataProtocol {
         bloodType: BloodType? = nil,
         allergies: [String] = [],
         medications: [Medication] = [],
-        medicalHistory: [MedicalCondition] = [],
-        emergencyContacts: [EmergencyContact] = [],
+        personalMedicalHistory: [MedicalCondition] = [],
+        familyHistory: FamilyMedicalHistory = FamilyMedicalHistory(),
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         metadata: [String: String]? = nil
@@ -49,33 +49,34 @@ struct PersonalHealthInfo: HealthDataProtocol {
         self.bloodType = bloodType
         self.allergies = allergies
         self.medications = medications
-        self.medicalHistory = medicalHistory
-        self.emergencyContacts = emergencyContacts
+        self.personalMedicalHistory = personalMedicalHistory
+        self.familyHistory = familyHistory
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.metadata = metadata
     }
 }
 
-// MARK: - Supporting Structures
-struct Medication: Codable, Identifiable {
+// MARK: - Medication Structures
+
+struct Medication: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
-    var dosage: String?
-    var frequency: String?
+    var dosage: Dosage
+    var frequency: Frequency
     var prescribedBy: String?
     var startDate: Date?
-    var endDate: Date?
+    var endDate: MedicationEndDate?
     var notes: String?
-    
+
     init(
         id: UUID = UUID(),
         name: String,
-        dosage: String? = nil,
-        frequency: String? = nil,
+        dosage: Dosage = Dosage(),
+        frequency: Frequency = .daily,
         prescribedBy: String? = nil,
         startDate: Date? = nil,
-        endDate: Date? = nil,
+        endDate: MedicationEndDate? = nil,
         notes: String? = nil
     ) {
         self.id = id
@@ -87,102 +88,227 @@ struct Medication: Codable, Identifiable {
         self.endDate = endDate
         self.notes = notes
     }
+
+    var isOngoing: Bool {
+        switch endDate {
+        case .ongoing, .none:
+            return true
+        case .specific:
+            return false
+        }
+    }
+
+    var displayText: String {
+        let dosageText = dosage.displayText
+        let frequencyText = frequency.displayName
+        return "\(name) - \(dosageText), \(frequencyText)"
+    }
 }
 
-struct MedicalCondition: Codable, Identifiable {
+enum MedicationEndDate: Codable, Hashable {
+    case ongoing
+    case specific(Date)
+
+    var displayText: String {
+        switch self {
+        case .ongoing:
+            return "Ongoing"
+        case .specific(let date):
+            return DateFormatter.mediumDate.string(from: date)
+        }
+    }
+
+    // Codable conformance
+    private enum CodingKeys: String, CodingKey {
+        case type, date
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .ongoing:
+            try container.encode("ongoing", forKey: .type)
+        case .specific(let date):
+            try container.encode("specific", forKey: .type)
+            try container.encode(date, forKey: .date)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        switch type {
+        case "ongoing":
+            self = .ongoing
+        case "specific":
+            let date = try container.decode(Date.self, forKey: .date)
+            self = .specific(date)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Invalid medication end date type")
+        }
+    }
+}
+
+struct Dosage: Codable, Hashable {
+    var value: Double = 0.0
+    var unit: DosageUnit = .mg
+
+    var displayText: String {
+        if value == 0.0 {
+            return "Dosage not specified"
+        }
+        return "\(value.cleanString) \(unit.displayName)"
+    }
+}
+
+enum DosageUnit: String, CaseIterable, Codable, Hashable {
+    case mg, ml, g, mcg, iu, tablet, capsule, drop, patch, puff, unit
+    
+    var displayName: String {
+        return rawValue.capitalized
+    }
+}
+
+enum Frequency: Codable, Hashable {
+    case daily
+    case twiceDaily
+    case threeTimesDaily
+    case weekly
+    case other(String)
+
+    var displayName: String {
+        switch self {
+        case .daily: return "Daily"
+        case .twiceDaily: return "Twice a day"
+        case .threeTimesDaily: return "Three times a day"
+        case .weekly: return "Weekly"
+        case .other(let custom): return custom.isEmpty ? "Other" : custom
+        }
+    }
+    
+    // Codable conformance
+    private enum CodingKeys: String, CodingKey {
+        case type, value
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .daily: try container.encode("daily", forKey: .type)
+        case .twiceDaily: try container.encode("twiceDaily", forKey: .type)
+        case .threeTimesDaily: try container.encode("threeTimesDaily", forKey: .type)
+        case .weekly: try container.encode("weekly", forKey: .type)
+        case .other(let value):
+            try container.encode("other", forKey: .type)
+            try container.encode(value, forKey: .value)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        switch type {
+        case "daily": self = .daily
+        case "twiceDaily": self = .twiceDaily
+        case "threeTimesDaily": self = .threeTimesDaily
+        case "weekly": self = .weekly
+        case "other":
+            let value = try container.decode(String.self, forKey: .value)
+            self = .other(value)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Invalid frequency type")
+        }
+    }
+}
+
+// MARK: - Medical History
+
+struct MedicalCondition: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
     var diagnosedDate: Date?
-    var diagnosedBy: String?
-    var severity: ConditionSeverity?
-    var status: ConditionStatus
+    var status: MedicalConditionStatus
+    var severity: MedicalConditionSeverity?
     var notes: String?
-    
+    var treatingPhysician: String?
+
     init(
         id: UUID = UUID(),
         name: String,
         diagnosedDate: Date? = nil,
-        diagnosedBy: String? = nil,
-        severity: ConditionSeverity? = nil,
-        status: ConditionStatus = .active,
-        notes: String? = nil
+        status: MedicalConditionStatus = .active,
+        severity: MedicalConditionSeverity? = nil,
+        notes: String? = nil,
+        treatingPhysician: String? = nil
     ) {
         self.id = id
         self.name = name
         self.diagnosedDate = diagnosedDate
-        self.diagnosedBy = diagnosedBy
-        self.severity = severity
         self.status = status
+        self.severity = severity
         self.notes = notes
+        self.treatingPhysician = treatingPhysician
+    }
+
+    var displayText: String {
+        var text = name
+        if let severity = severity {
+            text += " (\(severity.displayName))"
+        }
+        text += " - \(status.displayName)"
+        return text
     }
 }
 
-struct EmergencyContact: Codable, Identifiable {
-    let id: UUID
-    var name: String
-    var relationship: String?
-    var phoneNumber: String
-    var email: String?
-    var isPrimary: Bool
-    
-    init(
-        id: UUID = UUID(),
-        name: String,
-        relationship: String? = nil,
-        phoneNumber: String,
-        email: String? = nil,
-        isPrimary: Bool = false
-    ) {
-        self.id = id
-        self.name = name
-        self.relationship = relationship
-        self.phoneNumber = phoneNumber
-        self.email = email
-        self.isPrimary = isPrimary
-    }
-}
-
-// MARK: - Supporting Enums
-enum ConditionSeverity: String, CaseIterable, Codable {
-    case mild = "mild"
-    case moderate = "moderate"
-    case severe = "severe"
-    case critical = "critical"
-    
-    var displayName: String {
-        return rawValue.capitalized
-    }
-}
-
-enum ConditionStatus: String, CaseIterable, Codable {
+enum MedicalConditionStatus: String, CaseIterable, Codable, Hashable {
     case active = "active"
     case resolved = "resolved"
     case chronic = "chronic"
     case monitoring = "monitoring"
-    
+    case inactive = "inactive"
+
+    var displayName: String {
+        switch self {
+        case .active: return "Active"
+        case .resolved: return "Resolved"
+        case .chronic: return "Chronic"
+        case .monitoring: return "Monitoring"
+        case .inactive: return "Inactive"
+        }
+    }
+}
+
+enum MedicalConditionSeverity: String, CaseIterable, Codable, Hashable {
+    case mild = "mild"
+    case moderate = "moderate"
+    case severe = "severe"
+
     var displayName: String {
         return rawValue.capitalized
     }
 }
 
-// MARK: - Validation Extensions
-extension PersonalHealthInfo {
-    var isValid: Bool {
-        // Basic validation - at least name should be provided
-        return name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-    
-    var completionPercentage: Double {
-        var completedFields = 0
-        let totalFields = 6 // name, dob, gender, height, weight, bloodType
-        
-        if name?.isEmpty == false { completedFields += 1 }
-        if dateOfBirth != nil { completedFields += 1 }
-        if gender != nil { completedFields += 1 }
-        if height != nil { completedFields += 1 }
-        if weight != nil { completedFields += 1 }
-        if bloodType != nil { completedFields += 1 }
-        
-        return Double(completedFields) / Double(totalFields)
+// MARK: - Family Medical History
+
+struct FamilyMedicalHistory: Codable, Hashable {
+    var mother: String? = ""
+    var father: String? = ""
+    var maternalGrandmother: String? = ""
+    var maternalGrandfather: String? = ""
+    var paternalGrandmother: String? = ""
+    var paternalGrandfather: String? = ""
+    var siblings: String? = ""
+    var other: String? = ""
+}
+
+// MARK: - Other Supporting Structures
+
+// MARK: - Extensions
+
+extension Double {
+    var cleanString: String {
+        return self.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", self) : String(self)
     }
 }
+
+

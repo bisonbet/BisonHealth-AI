@@ -17,7 +17,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     
     enum ResetType {
-        case servers, backup, preferences, all
+        case servers, backup, preferences, all, database
         
         var title: String {
             switch self {
@@ -25,6 +25,7 @@ struct SettingsView: View {
             case .backup: return "Reset Backup Settings"
             case .preferences: return "Reset App Preferences"
             case .all: return "Reset All Settings"
+            case .database: return "Reset Database"
             }
         }
         
@@ -34,6 +35,7 @@ struct SettingsView: View {
             case .backup: return "This will reset backup settings to defaults."
             case .preferences: return "This will reset app preferences to defaults."
             case .all: return "This will reset all settings to their default values."
+            case .database: return "⚠️ WARNING: This will permanently delete ALL your health data, documents, and chat history. This action cannot be undone. A backup will be created first."
             }
         }
     }
@@ -497,15 +499,24 @@ struct SettingsView: View {
             NavigationLink("Export Health Data") {
                 DataExportView()
             }
-            
+
             NavigationLink("Storage Usage") {
                 StorageUsageView()
             }
-            
+
             Button("Clear Cache") {
                 clearCache()
             }
             .foregroundColor(.orange)
+
+            // Advanced/Dangerous Operations
+            Section(footer: Text("⚠️ Advanced operations that may result in data loss")) {
+                Button("Reset Database") {
+                    resetType = .database
+                    showingResetAlert = true
+                }
+                .foregroundColor(.red)
+            }
         }
     }
     
@@ -717,6 +728,8 @@ struct SettingsView: View {
         case .all:
             settingsManager.resetAllSettings()
             successMessage = "All settings have been reset to defaults"
+        case .database:
+            performDatabaseReset()
         }
         
         // Update app state if preferences were reset
@@ -727,7 +740,26 @@ struct SettingsView: View {
         // Show success message
         showingSuccessMessage = true
     }
-    
+
+    // MARK: - Database Reset
+
+    private func performDatabaseReset() {
+        Task {
+            do {
+                try DatabaseManager.shared.resetDatabase()
+                await MainActor.run {
+                    successMessage = "Database has been reset successfully. All health data has been permanently deleted."
+                    showingSuccessMessage = true
+                }
+            } catch {
+                await MainActor.run {
+                    validationError = "Failed to reset database: \(error.localizedDescription)"
+                    showingValidationError = true
+                }
+            }
+        }
+    }
+
     // MARK: - Connection Testing with Enhanced Feedback
     
     private func testOllamaConnection() async {

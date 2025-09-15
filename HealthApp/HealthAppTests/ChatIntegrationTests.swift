@@ -58,16 +58,13 @@ final class ChatIntegrationTests: XCTestCase {
             bloodType: .oPositive,
             allergies: ["Peanuts", "Shellfish"],
             medications: [
-                Medication(name: "Lisinopril", dosage: "10mg", frequency: "Daily"),
-                Medication(name: "Metformin", dosage: "500mg", frequency: "Twice daily")
+                Medication(name: "Lisinopril"),
+                Medication(name: "Metformin")
             ],
-            medicalHistory: [
+            personalMedicalHistory: [
                 MedicalCondition(name: "Hypertension", diagnosedDate: Date(), status: .active),
                 MedicalCondition(name: "Type 2 Diabetes", diagnosedDate: Date(), status: .active)
             ],
-            emergencyContacts: [
-                EmergencyContact(name: "Jane Doe", relationship: "Spouse", phoneNumber: "+1234567890")
-            ]
         )
         
         try await healthDataManager.savePersonalInfo(personalInfo)

@@ -70,19 +70,23 @@ struct PersonalInfoEditorView: View {
             self._weightPounds = State(initialValue: kgValue * 2.20462)
         }
     }
-    
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { editedInfo.name ?? "" },
+            set: { newValue in
+                editedInfo.name = newValue.isEmpty ? nil : newValue
+                validateName(newValue)
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("Basic Information") {
                     VStack(alignment: .leading) {
-                        TextField("Full Name", text: Binding(
-                            get: { editedInfo.name ?? "" },
-                            set: { newValue in
-                                editedInfo.name = newValue.isEmpty ? nil : newValue
-                                validateName(newValue)
-                            }
-                        ))
+                        TextField("Full Name", text: nameBinding)
                         .focused($focusedField, equals: .name)
                         .onTapGesture {
                             // Dismiss keyboard from other fields before focusing
@@ -128,7 +132,8 @@ struct PersonalInfoEditorView: View {
                         get: { editedInfo.gender ?? .preferNotToSay },
                         set: { editedInfo.gender = $0 }
                     )) {
-                        ForEach(Gender.allCases, id: \.self) { gender in
+                        ForEach(Gender.allCases, id: \.self) {
+                            gender in
                             Text(gender.displayName).tag(gender)
                         }
                     }
@@ -137,7 +142,8 @@ struct PersonalInfoEditorView: View {
                         get: { editedInfo.bloodType ?? .unknown },
                         set: { editedInfo.bloodType = $0 }
                     )) {
-                        ForEach(BloodType.allCases, id: \.self) { bloodType in
+                        ForEach(BloodType.allCases, id: \.self) {
+                            bloodType in
                             Text(bloodType.displayName).tag(bloodType)
                         }
                     }
@@ -226,7 +232,8 @@ struct PersonalInfoEditorView: View {
                             if useImperialUnits {
                                 HStack {
                                     Picker("Feet", selection: $heightFeet) {
-                                        ForEach(3...8, id: \.self) { feet in
+                                        ForEach(3...8, id: \.self) {
+                                            feet in
                                             Text("\(feet) ft").tag(feet)
                                         }
                                     }
@@ -234,7 +241,8 @@ struct PersonalInfoEditorView: View {
                                     .frame(maxWidth: .infinity)
                                     
                                     Picker("Inches", selection: $heightInches) {
-                                        ForEach(0...11, id: \.self) { inches in
+                                        ForEach(0...11, id: \.self) {
+                                            inches in
                                             Text("\(inches) in").tag(inches)
                                         }
                                     }
@@ -255,7 +263,8 @@ struct PersonalInfoEditorView: View {
                                         debounceHeightUpdate()
                                     }
                                 )) {
-                                    ForEach(100...220, id: \.self) { cm in
+                                    ForEach(100...220, id: \.self) {
+                                        cm in
                                         Text("\(cm) cm").tag(cm)
                                     }
                                 }
@@ -337,7 +346,8 @@ struct PersonalInfoEditorView: View {
                                         debounceWeightUpdate()
                                     }
                                 )) {
-                                    ForEach(80...400, id: \.self) { lbs in
+                                    ForEach(80...400, id: \.self) {
+                                        lbs in
                                         Text("\(lbs) lbs").tag(lbs)
                                     }
                                 }
@@ -351,7 +361,8 @@ struct PersonalInfoEditorView: View {
                                         debounceWeightUpdate()
                                     }
                                 )) {
-                                    ForEach(35...180, id: \.self) { kg in
+                                    ForEach(35...180, id: \.self) {
+                                        kg in
                                         Text("\(kg) kg").tag(kg)
                                     }
                                 }
@@ -378,16 +389,36 @@ struct PersonalInfoEditorView: View {
                     }
                     
                     NavigationLink("Medications (\(editedInfo.medications.count))") {
-                        MedicationsEditorView(medications: $editedInfo.medications)
+                        MedicationsListView(medications: $editedInfo.medications)
+                    }
+
+                    NavigationLink("Personal Medical History (\(editedInfo.personalMedicalHistory.count))") {
+                        List {
+                            ForEach($editedInfo.personalMedicalHistory) { $condition in
+                                VStack(alignment: .leading) {
+                                    Text(condition.name)
+                                        .font(.headline)
+                                    Text(condition.status.displayName)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .onDelete { indexSet in
+                                editedInfo.personalMedicalHistory.remove(atOffsets: indexSet)
+                            }
+
+                            Button("Add Condition") {
+                                editedInfo.personalMedicalHistory.append(MedicalCondition(name: "New Condition"))
+                            }
+                        }
+                        .navigationTitle("Personal Medical History")
+                        .navigationBarTitleDisplayMode(.inline)
+                    }
+
+                    NavigationLink("Family Medical History") {
+                        FamilyHistoryEditorView(familyHistory: $editedInfo.familyHistory)
                     }
                     
-                    NavigationLink("Medical History (\(editedInfo.medicalHistory.count))") {
-                        MedicalHistoryEditorView(conditions: $editedInfo.medicalHistory)
-                    }
-                    
-                    NavigationLink("Emergency Contacts (\(editedInfo.emergencyContacts.count))") {
-                        EmergencyContactsEditorView(contacts: $editedInfo.emergencyContacts)
-                    }
                 }
             }
             .navigationTitle("Personal Information")
@@ -449,7 +480,7 @@ struct PersonalInfoEditorView: View {
     
     private var currentHeightDisplay: String {
         if useImperialUnits {
-            return "\(heightFeet)' \(heightInches)\" (\(String(format: "%.0f", heightCentimeters)) cm)"
+            return "\(heightFeet)\' \(heightInches)\" (\(String(format: "%.0f", heightCentimeters)) cm)"
         } else {
             let totalInches = heightCentimeters / 2.54
             let feet = Int(totalInches / 12)
@@ -569,7 +600,6 @@ struct PersonalInfoEditorView: View {
     }
 }
 
-// MARK: - Placeholder Editor Views
 struct AllergiesEditorView: View {
     @Binding var allergies: [String]
     @State private var newAllergy = ""
@@ -577,7 +607,8 @@ struct AllergiesEditorView: View {
     var body: some View {
         List {
             Section {
-                ForEach(allergies.indices, id: \.self) { index in
+                ForEach(allergies.indices, id: \.self) {
+                    index in
                     TextField("Allergy", text: $allergies[index])
                 }
                 .onDelete { indexSet in
@@ -601,88 +632,7 @@ struct AllergiesEditorView: View {
     }
 }
 
-struct MedicationsEditorView: View {
-    @Binding var medications: [Medication]
-    
-    var body: some View {
-        List {
-            ForEach(medications) { medication in
-                VStack(alignment: .leading) {
-                    Text(medication.name)
-                        .font(.headline)
-                    if let dosage = medication.dosage {
-                        Text(dosage)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .onDelete { indexSet in
-                medications.remove(atOffsets: indexSet)
-            }
-            
-            Button("Add Medication") {
-                medications.append(Medication(name: "New Medication"))
-            }
-        }
-        .navigationTitle("Medications")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
 
-struct MedicalHistoryEditorView: View {
-    @Binding var conditions: [MedicalCondition]
-    
-    var body: some View {
-        List {
-            ForEach(conditions) { condition in
-                VStack(alignment: .leading) {
-                    Text(condition.name)
-                        .font(.headline)
-                    Text(condition.status.displayName)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .onDelete { indexSet in
-                conditions.remove(atOffsets: indexSet)
-            }
-            
-            Button("Add Condition") {
-                conditions.append(MedicalCondition(name: "New Condition"))
-            }
-        }
-        .navigationTitle("Medical History")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct EmergencyContactsEditorView: View {
-    @Binding var contacts: [EmergencyContact]
-    
-    var body: some View {
-        List {
-            ForEach(contacts) { contact in
-                VStack(alignment: .leading) {
-                    Text(contact.name)
-                        .font(.headline)
-                    Text(contact.phoneNumber)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .onDelete { indexSet in
-                contacts.remove(atOffsets: indexSet)
-            }
-            
-            Button("Add Contact") {
-                contacts.append(EmergencyContact(name: "New Contact", phoneNumber: ""))
-            }
-        }
-        .navigationTitle("Emergency Contacts")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
 
 #Preview {
     PersonalInfoEditorView(

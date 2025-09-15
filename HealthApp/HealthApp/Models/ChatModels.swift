@@ -270,8 +270,62 @@ extension ChatContext {
                     personalContext += "- Allergies: \(personalInfo.allergies.joined(separator: ", "))\n"
                 }
                 if !personalInfo.medications.isEmpty {
-                    personalContext += "- Current Medications: \(personalInfo.medications.map { $0.name }.joined(separator: ", "))\n"
+                    personalContext += "- Current Medications:\n"
+                    for medication in personalInfo.medications {
+                        personalContext += "  • \(medication.name)"
+                        personalContext += " - \(medication.dosage.displayText), \(medication.frequency.displayName)"
+
+                        if let prescribedBy = medication.prescribedBy, !prescribedBy.isEmpty {
+                            personalContext += " (prescribed by \(prescribedBy))"
+                        }
+
+                        if let startDate = medication.startDate {
+                            let startDateString = DateFormatter.mediumDate.string(from: startDate)
+                            personalContext += " [started: \(startDateString)"
+
+                            if let endDate = medication.endDate {
+                                personalContext += ", \(endDate.displayText.lowercased())"
+                            } else {
+                                personalContext += ", ongoing"
+                            }
+                            personalContext += "]"
+                        } else if let endDate = medication.endDate {
+                            personalContext += " [\(endDate.displayText.lowercased())]"
+                        }
+
+                        if let notes = medication.notes, !notes.isEmpty {
+                            personalContext += " (Notes: \(notes))"
+                        }
+                        personalContext += "\n"
+                    }
                 }
+
+                if !personalInfo.personalMedicalHistory.isEmpty {
+                    personalContext += "- Personal Medical History:\n"
+                    for condition in personalInfo.personalMedicalHistory {
+                        personalContext += "  • \(condition.name)"
+                        personalContext += " - \(condition.status.displayName)"
+
+                        if let severity = condition.severity {
+                            personalContext += " (\(severity.displayName))"
+                        }
+
+                        if let diagnosedDate = condition.diagnosedDate {
+                            let diagnosedDateString = DateFormatter.mediumDate.string(from: diagnosedDate)
+                            personalContext += " [diagnosed: \(diagnosedDateString)]"
+                        }
+
+                        if let treatingPhysician = condition.treatingPhysician, !treatingPhysician.isEmpty {
+                            personalContext += " (treating physician: \(treatingPhysician))"
+                        }
+
+                        if let notes = condition.notes, !notes.isEmpty {
+                            personalContext += " (Notes: \(notes))"
+                        }
+                        personalContext += "\n"
+                    }
+                }
+
                 contextParts.append(personalContext)
             } else {
                 contextParts.append("Personal Information: No data available yet\n")

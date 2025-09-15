@@ -109,6 +109,161 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform
 - Optional iCloud encrypted backup
 - No cloud dependencies for core functionality
 
+## Data Safety & Migration Guidelines
+
+⚠️ **CRITICAL**: Always follow these guidelines when modifying data models to prevent user data loss:
+
+### Database Version Management
+- **Current Database Version**: 2 (see `DatabaseManager.currentDatabaseVersion`)
+- **Version Tracking**: Database versions are tracked in the `database_version` table
+- **Automatic Backups**: System creates backups before any migration
+
+### When Making Model Changes
+
+#### 1. **BEFORE Making Changes**
+```bash
+# Always increment database version when modifying data models
+DatabaseManager.currentDatabaseVersion = 3  // Increment by 1
+```
+
+#### 2. **Safe Changes (No Migration Required)**
+- Adding optional fields with default values
+- Adding new computed properties
+- Adding new methods to existing types
+- Modifying UI-only components
+
+#### 3. **Changes Requiring Migration**
+- Adding required fields to existing models
+- Removing fields from models
+- Changing field types
+- Renaming fields
+- Restructuring data relationships
+
+#### 4. **Migration Implementation**
+When making breaking changes, add a migration case in `performMigration(db:toVersion:)`:
+
+```swift
+case 3: // Your new version number
+    // Migration for version 3: Describe what changed
+    // Add specific migration logic here
+    print("   ✓ Description of migration")
+```
+
+### Migration Best Practices
+
+#### Safe Migration Examples:
+```swift
+// ✅ SAFE: Adding optional field with default
+struct PersonalHealthInfo {
+    var newOptionalField: String? = nil  // Safe - has default
+}
+
+// ✅ SAFE: Adding computed property
+extension PersonalHealthInfo {
+    var computedProperty: String { return "value" }  // Safe - not stored
+}
+```
+
+#### Dangerous Changes:
+```swift
+// ❌ DANGEROUS: Adding required field without migration
+struct PersonalHealthInfo {
+    var newRequiredField: String  // Will break existing data!
+}
+
+// ❌ DANGEROUS: Removing existing field without migration
+struct PersonalHealthInfo {
+    // var existingField: String  // Removed - will break!
+}
+
+// ❌ DANGEROUS: Changing field type without migration
+struct PersonalHealthInfo {
+    var existingField: Int  // Was String before - will break!
+}
+```
+
+### Testing Data Changes
+
+#### Before Committing:
+1. **Test with existing data**: Use app with existing database
+2. **Test fresh install**: Verify new installations work
+3. **Test migration**: Delete app, reinstall, verify data loads
+4. **Test version detection**: Verify console shows correct migration messages
+
+#### Migration Testing Checklist:
+- [ ] Fresh database starts at current version
+- [ ] Existing database migrates without data loss
+- [ ] Migration backup is created
+- [ ] Console shows migration progress
+- [ ] All existing functionality works post-migration
+- [ ] New features work correctly
+
+### Database Reset Functionality
+
+#### For Development:
+- Database reset available in advanced settings
+- Creates warning dialog before deletion
+- Completely removes database and recreates from scratch
+- **Use only when necessary** - production users will lose all data
+
+#### Implementation:
+```swift
+// Available in DatabaseManager
+try DatabaseManager.shared.resetDatabase()
+```
+
+### Recovery Options
+
+#### Automatic Backups:
+- Created before each migration as `health_data.sqlite.backup.[timestamp]`
+- Located in app's Database directory
+- Can be manually restored by developer if needed
+
+#### Manual Recovery:
+```swift
+// To restore from backup (emergency use only):
+// 1. Locate backup file in app's Database directory
+// 2. Replace current database with backup
+// 3. Restart app
+```
+
+### Developer Guidelines
+
+#### When Adding New Health Data Types:
+1. Add to `HealthDataType` enum
+2. Create conforming model with `HealthDataProtocol`
+3. Increment database version if changing existing types
+4. Add migration logic if needed
+5. Test thoroughly with existing data
+
+#### When Modifying Existing Types:
+1. **ALWAYS** increment `currentDatabaseVersion`
+2. Add migration case in `performMigration`
+3. Test migration with populated database
+4. Document changes in migration comments
+
+#### Warning Signs - Check These:
+- Compilation errors about missing fields
+- App crashes on startup with existing data
+- Data not loading in UI
+- Console errors about deserialization
+- Missing health information that was previously entered
+
+### Emergency Procedures
+
+#### If Users Report Data Loss:
+1. Check if database version was incremented
+2. Verify migration logic is present
+3. Check console logs for migration errors
+4. Consider providing manual data export/import tool
+
+#### Prevention Checklist:
+- [ ] Database version incremented for breaking changes
+- [ ] Migration logic implemented and tested
+- [ ] Backup functionality verified
+- [ ] Changes tested with existing data
+- [ ] No compilation errors related to data models
+
 ## Key Files and Structure
 
 ```
@@ -315,12 +470,57 @@ Always run these checks (you have permission to run them automatically):
 3. **Simulator issues**: Use iPhone 16 or any available iOS simulator
 4. **Connection failures**: Verify Ollama/Docling server status
 
+### Development Environment Issues
+
+#### Document Picker Console Errors (Safe to Ignore)
+When using "Import File" functionality, you may see these console errors:
+```
+📁 ContentView: Triggering document picker - LaunchServices errors will appear now
+Error acquiring assertion: <Error Domain=RBSAssertionErrorDomain Code=2...
+Plugin query method called
+(501) Invalidation handler invoked, clearing connection
+LaunchServices: store (null) or url (null) was nil...
+Attempt to map database failed: permission was denied...
+Failed to initialize client context with error...
+```
+
+**Status**: ✅ **SAFE TO IGNORE** - These are known iOS Simulator/development environment issues
+- **Cause**: LaunchServices database access limitations in development environment
+- **Impact**: None - document picker functionality works correctly
+- **Occurrence**: Only in development/simulator, not in production builds
+- **Solution**: These errors don't affect app functionality and will not appear in production
+
+#### Other Development Console Messages
+- **SQLite warnings**: Normal during database migrations
+- **Keychain access warnings**: Expected in simulator environment
+- **Network connection timeouts**: Normal when external services (Ollama/Docling) are unavailable
+
 ### Project Recovery
 If project becomes corrupted:
 1. Check `project.pbxproj` for missing target references
 2. Verify scheme configuration
 3. Rebuild package dependencies
 4. Use git to restore to last working state
+
+### Development Best Practices
+
+#### Console Log Management
+- Use descriptive log messages for debugging
+- Prefix logs with emoji/component identifiers (📁, 📷, 🖼️)
+- Include context about expected system errors
+- Filter out known safe development warnings
+
+#### Testing Document Import
+1. **Test File Types**: PDF, images (PNG, JPEG), text files
+2. **Test Multiple Selection**: Verify batch import works
+3. **Test Error Handling**: Try importing unsupported files
+4. **Verify Processing**: Check document processing pipeline works
+
+#### Performance Testing
+- Test with large files (>10MB)
+- Test with many files (10+ documents)
+- Monitor memory usage during processing
+- Verify background processing doesn't block UI
 
 ---
 

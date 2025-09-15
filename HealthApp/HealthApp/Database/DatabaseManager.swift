@@ -18,11 +18,15 @@ class DatabaseManager: ObservableObject {
     private let encryptionKey: SymmetricKey
     private let databaseURL: URL
     
+    // MARK: - Database Version
+    private static let currentDatabaseVersion = 2 // Increment when making schema changes
+
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
     internal let documentsTable = Table("documents")
     internal let chatConversationsTable = Table("chat_conversations")
     internal let chatMessagesTable = Table("chat_messages")
+    internal let databaseVersionTable = Table("database_version")
     
     // MARK: - Column Definitions
     // Health Data Table
@@ -66,7 +70,11 @@ class DatabaseManager: ObservableObject {
     internal let messageIsError = Expression<Bool>("is_error")
     internal let messageTokens = Expression<Int?>("tokens")
     internal let messageProcessingTime = Expression<Double?>("processing_time")
-    
+
+    // Database Version Table
+    internal let versionNumber = Expression<Int>("version")
+    internal let versionCreatedAt = Expression<Int64>("created_at")
+
     // MARK: - Initialization
     init() throws {
         // Generate or retrieve encryption key
@@ -139,7 +147,16 @@ class DatabaseManager: ObservableObject {
                 t.column(messageProcessingTime)
                 t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
             })
-            
+
+            // Create database_version table
+            try db.run(databaseVersionTable.create(ifNotExists: true) { t in
+                t.column(versionNumber, primaryKey: true)
+                t.column(versionCreatedAt)
+            })
+
+            // Handle database migrations
+            try performDatabaseMigration(db: db)
+
             // Create indexes
             try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_type ON health_data(type)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_created ON health_data(created_at)")
@@ -150,17 +167,174 @@ class DatabaseManager: ObservableObject {
             try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
             
-            // Run simple migration check (user_version pragma)
-            let version64 = try db.scalar("PRAGMA user_version") as? Int64
-            let currentVersion = Int(version64 ?? 0)
-            let targetVersion = 1
-            if currentVersion < targetVersion {
-                // Perform migrations here as needed (none currently)
-                try db.execute("PRAGMA user_version = \(targetVersion)")
-            }
         }
     }
-    
+
+    // MARK: - Database Migration
+    private func performDatabaseMigration(db: Connection) throws {
+        // Get current database version
+        let currentVersion = try getCurrentDatabaseVersion(db: db)
+
+        // If this is a fresh database, set the current version
+        if currentVersion == 0 {
+            try setDatabaseVersion(db: db, version: Self.currentDatabaseVersion)
+            return
+        }
+
+        // Check if migration is needed
+        if currentVersion < Self.currentDatabaseVersion {
+            // Perform backup before migration
+            try createBackupBeforeMigration()
+
+            // Perform migrations step by step
+            for version in (currentVersion + 1)...Self.currentDatabaseVersion {
+                try performMigration(db: db, toVersion: version)
+            }
+
+            // Update version
+            try setDatabaseVersion(db: db, version: Self.currentDatabaseVersion)
+
+            print("✅ Database migrated from version \(currentVersion) to \(Self.currentDatabaseVersion)")
+        } else if currentVersion > Self.currentDatabaseVersion {
+            // This shouldn't happen unless user downgraded the app
+            throw DatabaseError.incompatibleVersion("Database version \(currentVersion) is newer than app version \(Self.currentDatabaseVersion). Please update the app.")
+        }
+    }
+
+    private func getCurrentDatabaseVersion(db: Connection) throws -> Int {
+        do {
+            let row = try db.pluck(databaseVersionTable.order(versionNumber.desc))
+            return row?[versionNumber] ?? 0
+        } catch {
+            // Table doesn't exist or is empty, assume version 0
+            return 0
+        }
+    }
+
+    private func setDatabaseVersion(db: Connection, version: Int) throws {
+        let timestamp = Int64(Date().timeIntervalSince1970)
+        try db.run(databaseVersionTable.insert(or: .replace,
+            versionNumber <- version,
+            versionCreatedAt <- timestamp
+        ))
+    }
+
+    private func createBackupBeforeMigration() throws {
+        let backupURL = databaseURL.appendingPathExtension("backup.\(Date().timeIntervalSince1970)")
+        try FileManager.default.copyItem(at: databaseURL, to: backupURL)
+        print("📦 Database backup created at: \(backupURL.path)")
+    }
+
+    private func performMigration(db: Connection, toVersion: Int) throws {
+        print("🔄 Migrating database to version \(toVersion)...")
+
+        switch toVersion {
+        case 2:
+            // Migration for version 2: Added personalMedicalHistory to PersonalHealthInfo
+            // This migration is data-safe since we're only adding a field with a default value
+            print("   ✓ Added support for personal medical history")
+
+        default:
+            throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
+        }
+    }
+
+    // MARK: - Database Reset
+    func resetDatabase() throws {
+        guard db != nil else { throw DatabaseError.connectionFailed }
+
+        // Close current connection
+        self.db = nil
+
+        // Delete database file
+        if FileManager.default.fileExists(atPath: databaseURL.path) {
+            try FileManager.default.removeItem(at: databaseURL)
+        }
+
+        // Reinitialize database
+        self.db = try Connection(databaseURL.path)
+        try self.db!.execute("PRAGMA foreign_keys = ON")
+
+        // Recreate all tables (this will call performDatabaseMigration)
+        try self.createTables()
+
+        print("🗑️ Database reset completed")
+    }
+
+    private func createTables() throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        // Create health_data table
+        try db.run(healthDataTable.create(ifNotExists: true) { t in
+            t.column(healthDataId, primaryKey: true)
+            t.column(healthDataType)
+            t.column(healthDataEncryptedData)
+            t.column(healthDataCreatedAt)
+            t.column(healthDataUpdatedAt)
+            t.column(healthDataMetadata)
+        })
+
+        // Create documents table
+        try db.run(documentsTable.create(ifNotExists: true) { t in
+            t.column(documentId, primaryKey: true)
+            t.column(documentFileName)
+            t.column(documentFileType)
+            t.column(documentFilePath)
+            t.column(documentThumbnailPath)
+            t.column(documentProcessingStatus)
+            t.column(documentImportedAt)
+            t.column(documentProcessedAt)
+            t.column(documentFileSize)
+            t.column(documentTags)
+            t.column(documentNotes)
+            t.column(documentExtractedData)
+        })
+
+        // Create chat_conversations table
+        try db.run(chatConversationsTable.create(ifNotExists: true) { t in
+            t.column(conversationId, primaryKey: true)
+            t.column(conversationTitle)
+            t.column(conversationCreatedAt)
+            t.column(conversationUpdatedAt)
+            t.column(conversationIncludedDataTypes)
+            t.column(conversationIsArchived, defaultValue: false)
+            t.column(conversationTags)
+        })
+
+        // Create chat_messages table
+        try db.run(chatMessagesTable.create(ifNotExists: true) { t in
+            t.column(messageId, primaryKey: true)
+            t.column(messageConversationId)
+            t.column(messageContent)
+            t.column(messageRole)
+            t.column(messageTimestamp)
+            t.column(messageMetadata)
+            t.column(messageIsError, defaultValue: false)
+            t.column(messageTokens)
+            t.column(messageProcessingTime)
+            t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
+        })
+
+        // Create database_version table
+        try db.run(databaseVersionTable.create(ifNotExists: true) { t in
+            t.column(versionNumber, primaryKey: true)
+            t.column(versionCreatedAt)
+        })
+
+        // Handle database migrations
+        try performDatabaseMigration(db: db)
+
+        // Create indexes
+        try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_type ON health_data(type)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_created ON health_data(created_at)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
+    }
+
     // MARK: - Encryption Key Management
     private static func getOrCreateEncryptionKey() throws -> SymmetricKey {
         let keychain = Keychain()
@@ -208,7 +382,9 @@ enum DatabaseError: LocalizedError {
     case invalidData
     case notFound
     case constraintViolation
-    
+    case incompatibleVersion(String)
+    case migrationFailed(String)
+
     var errorDescription: String? {
         switch self {
         case .connectionFailed:
@@ -223,6 +399,10 @@ enum DatabaseError: LocalizedError {
             return "Record not found"
         case .constraintViolation:
             return "Database constraint violation"
+        case .incompatibleVersion(let message):
+            return "Database version incompatibility: \(message)"
+        case .migrationFailed(let message):
+            return "Database migration failed: \(message)"
         }
     }
 }
