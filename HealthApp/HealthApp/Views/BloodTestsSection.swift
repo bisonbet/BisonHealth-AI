@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct BloodTestsSection: View {
-    let bloodTests: [BloodTestResult]
+    @Binding var bloodTests: [BloodTestResult]
     let onAddNew: () -> Void
     let onEdit: (BloodTestResult) -> Void
     let onDelete: (BloodTestResult) -> Void
@@ -26,7 +26,7 @@ struct BloodTestsSection: View {
                 if bloodTests.count > 3 {
                     NavigationLink("View All (\(bloodTests.count))") {
                         BloodTestListView(
-                            bloodTests: bloodTests,
+                            bloodTests: $bloodTests,
                             onEdit: onEdit,
                             onDelete: onDelete
                         )
@@ -156,19 +156,9 @@ struct EmptyBloodTestsView: View {
 }
 
 struct BloodTestListView: View {
-    @State private var bloodTests: [BloodTestResult]
+    @Binding var bloodTests: [BloodTestResult]
     let onEdit: (BloodTestResult) -> Void
     let onDelete: (BloodTestResult) -> Void
-
-    init(
-        bloodTests: [BloodTestResult],
-        onEdit: @escaping (BloodTestResult) -> Void,
-        onDelete: @escaping (BloodTestResult) -> Void
-    ) {
-        _bloodTests = State(initialValue: bloodTests)
-        self.onEdit = onEdit
-        self.onDelete = onDelete
-    }
 
     var body: some View {
         List {
@@ -300,31 +290,43 @@ struct BloodTestItemRow: View {
     }
 }
 
-#Preview {
-    NavigationStack {
-        List {
-            BloodTestsSection(
-                bloodTests: [
-                    BloodTestResult(
-                        testDate: Date(),
-                        laboratoryName: "LabCorp",
-                        results: [
-                            BloodTestItem(name: "Glucose", value: "110", unit: "mg/dL", referenceRange: "70-100", isAbnormal: true),
-                            BloodTestItem(name: "Cholesterol", value: "180", unit: "mg/dL", referenceRange: "<200")
-                        ]
-                    )
-                ],
-                onAddNew: {},
-                onEdit: { _ in },
-                onDelete: { _ in }
-            )
+struct BloodTestsSection_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationStack {
+            List {
+                PreviewWrapper()
+            }
+        }
+    }
 
-            BloodTestsSection(
-                bloodTests: [],
-                onAddNew: {},
-                onEdit: { _ in },
-                onDelete: { _ in }
+    private struct PreviewWrapper: View {
+        @State private var sampleTests = [
+            BloodTestResult(
+                testDate: Date(),
+                laboratoryName: "LabCorp",
+                results: [
+                    BloodTestItem(name: "Glucose", value: "110", unit: "mg/dL", referenceRange: "70-100", isAbnormal: true),
+                    BloodTestItem(name: "Cholesterol", value: "180", unit: "mg/dL", referenceRange: "<200")
+                ]
             )
+        ]
+
+        var body: some View {
+            VStack {
+                BloodTestsSection(
+                    bloodTests: $sampleTests,
+                    onAddNew: {},
+                    onEdit: { _ in },
+                    onDelete: { _ in }
+                )
+
+                BloodTestsSection(
+                    bloodTests: .constant([]),
+                    onAddNew: {},
+                    onEdit: { _ in },
+                    onDelete: { _ in }
+                )
+            }
         }
     }
 }

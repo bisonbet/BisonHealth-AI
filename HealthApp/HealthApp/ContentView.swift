@@ -58,7 +58,7 @@ struct HealthDataView: View {
                 )
                 
                 BloodTestsSection(
-                    bloodTests: healthDataManager.bloodTests,
+                    bloodTests: $healthDataManager.bloodTests,
                     onAddNew: { showingBloodTestEntry = true },
                     onEdit: { editingBloodTest = $0 },
                     onDelete: { bloodTest in
