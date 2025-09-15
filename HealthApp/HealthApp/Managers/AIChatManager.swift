@@ -359,15 +359,23 @@ class AIChatManager: ObservableObject {
         let contextString = currentContext.buildContextString()
         let estimatedTokens = currentContext.estimatedTokenCount
         
-        print("🔍 Context Debug - Selected types: \(selectedHealthDataTypes)")
+        print("🔍 Context Debug - Selected types: \(selectedHealthDataTypes.map { $0.displayName })")
         print("🔍 Context Debug - Personal info exists: \(currentContext.personalInfo != nil)")
         print("🔍 Context Debug - Blood tests count: \(currentContext.bloodTests.count)")
         print("🔍 Context Debug - Documents count: \(currentContext.documents.count)")
-        print("🔍 Context Debug - Context string length: \(contextString.count)")
-        print("🔍 Context Debug - Context preview: \(String(contextString.prefix(200)))...")
+        print("🔍 Context Debug - Context string length: \(contextString.count) characters")
+        print("🔍 Context Debug - Estimated tokens: \(estimatedTokens)")
+        
+        if contextString.isEmpty {
+            print("⚠️ Context Debug - WARNING: Context string is empty!")
+            print("⚠️ Context Debug - This may indicate no data types were selected or no data is available")
+        } else {
+            print("🔍 Context Debug - Context preview: \(String(contextString.prefix(500)))")
+        }
         
         // If context is too large, compress it
         if estimatedTokens > contextCompressionThreshold {
+            print("🔍 Context Debug - Compressing context (tokens: \(estimatedTokens) > threshold: \(contextCompressionThreshold))")
             return compressHealthDataContext(contextString)
         }
         
