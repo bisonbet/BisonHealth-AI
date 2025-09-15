@@ -250,8 +250,8 @@ struct BloodTestTypeOption: Identifiable, Hashable {
 
 // MARK: - Extensions
 
-extension BloodTestCategory: CaseIterable {
-    public static var allCases: [BloodTestCategory] {
+extension BloodTestCategory {
+    static var allCasesOrdered: [BloodTestCategory] {
         return [
             .completeBloodCount,
             .basicMetabolicPanel,

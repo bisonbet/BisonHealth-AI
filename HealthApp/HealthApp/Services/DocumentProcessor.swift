@@ -386,7 +386,7 @@ class DocumentProcessor: ObservableObject {
     
     private func extractHealthData(from result: ProcessedDocumentResult, document: HealthDocument) async throws -> [AnyHealthData] {
         var extractedData: [AnyHealthData] = []
-        
+
         // Parse structured data for health information
         let healthDataItems = result.healthDataItems
         
@@ -400,10 +400,23 @@ class DocumentProcessor: ObservableObject {
             }
         }
         
-        // Extract blood test results
+        // Extract blood test results using enhanced AI mapping
         if let bloodTestItems = groupedItems["Blood Test"] ?? groupedItems["Lab Results"] {
-            if let bloodTest = try? createBloodTestResult(from: bloodTestItems, document: document) {
+            do {
+                // Use full document text for better AI analysis if available
+                let documentText = result.extractedText.isEmpty ?
+                                   bloodTestItems.map { "\($0.type): \($0.value)" }.joined(separator: "\n") :
+                                   result.extractedText
+
+                let bloodTest = try await createBloodTestResultFromText(
+                    documentText: documentText,
+                    extractedItems: bloodTestItems,
+                    document: document
+                )
                 extractedData.append(try AnyHealthData(bloodTest))
+            } catch {
+                print("⚠️ DocumentProcessor: Failed to create blood test result: \(error)")
+                // Continue processing other data types
             }
         }
         
@@ -459,14 +472,126 @@ class DocumentProcessor: ObservableObject {
         return personalInfo
     }
     
-    private func createBloodTestResult(from items: [HealthDataItem], document: HealthDocument) throws -> BloodTestResult {
+    // MARK: - Enhanced Blood Test Creation with Full Document Text
+    private func createBloodTestResultFromText(
+        documentText: String,
+        extractedItems: [HealthDataItem],
+        document: HealthDocument
+    ) async throws -> BloodTestResult {
+        print("🧪 DocumentProcessor: Creating blood test result using enhanced AI-powered mapping...")
+        print("📄 DocumentProcessor: Full document text length: \(documentText.count) characters")
+
+        // Use the full document text for AI analysis
+        do {
+            // Use the AI-powered mapping service with full document content
+            let mappingService = BloodTestMappingService()
+
+            // Extract suggested test date from document
+            let suggestedTestDate = extractTestDate(from: document.fileName) ?? document.importedAt
+
+            print("📅 DocumentProcessor: Using test date: \(suggestedTestDate.formatted())")
+
+            // Perform AI mapping with full document text
+            let mappingResult = try await mappingService.mapDocumentToBloodTest(
+                documentText,
+                suggestedTestDate: suggestedTestDate,
+                patientName: nil as String? // Could be extracted from document metadata if available
+            )
+
+            print("✅ DocumentProcessor: Enhanced AI mapping completed with \(mappingResult.confidence)% confidence")
+            print("🔬 DocumentProcessor: Mapped \(mappingResult.bloodTestResult.results.count) lab values")
+
+            // Add comprehensive metadata
+            var enhancedMetadata = mappingResult.bloodTestResult.metadata ?? [:]
+            enhancedMetadata["source_document_id"] = document.id.uuidString
+            enhancedMetadata["document_filename"] = document.fileName
+            enhancedMetadata["processing_method"] = "enhanced_ai_mapping"
+            enhancedMetadata["document_text_length"] = String(documentText.count)
+            enhancedMetadata["extracted_items_count"] = String(extractedItems.count)
+
+            // Create enhanced blood test result
+            var enhancedBloodTest = mappingResult.bloodTestResult
+            enhancedBloodTest.metadata = enhancedMetadata
+
+            return enhancedBloodTest
+
+        } catch {
+            print("❌ DocumentProcessor: Enhanced AI mapping failed, trying fallback with extracted items: \(error)")
+
+            // Fallback to extracted items if full text analysis fails
+            return try await createBloodTestResultFromItems(from: extractedItems, document: document)
+        }
+    }
+
+    // MARK: - Blood Test Creation from Extracted Items (Fallback)
+    private func createBloodTestResultFromItems(from items: [HealthDataItem], document: HealthDocument) async throws -> BloodTestResult {
+        print("🧪 DocumentProcessor: Creating blood test result using AI-powered mapping...")
+
+        // Check if we have enough data to use AI mapping
+        guard !items.isEmpty else {
+            print("⚠️ DocumentProcessor: No health data items found, falling back to basic blood test result")
+            return createBasicBloodTestResult(document: document)
+        }
+
+        // Try to get the processed document text for AI analysis
+        // Note: We should have access to the processed document content from earlier processing
+        // For now, we'll reconstruct text from items, but ideally we'd pass the full document text
+        let reconstructedText = items.map { "\($0.type): \($0.value)" }.joined(separator: "\n")
+
+        print("🤖 DocumentProcessor: Using AI mapping service with \(items.count) data items")
+        print("📄 DocumentProcessor: Reconstructed text length: \(reconstructedText.count) characters")
+
+        do {
+            // Use the AI-powered mapping service
+            let mappingService = BloodTestMappingService()
+
+            // Extract suggested test date from document
+            let suggestedTestDate = extractTestDate(from: document.fileName) ?? document.importedAt
+
+            print("📅 DocumentProcessor: Using test date: \(suggestedTestDate.formatted())")
+
+            // Perform AI mapping
+            let mappingResult = try await mappingService.mapDocumentToBloodTest(
+                reconstructedText,
+                suggestedTestDate: suggestedTestDate,
+                patientName: nil as String? // Could be extracted from document metadata if available
+            )
+
+            print("✅ DocumentProcessor: AI mapping completed with \(mappingResult.confidence)% confidence")
+            print("🔬 DocumentProcessor: Mapped \(mappingResult.bloodTestResult.results.count) lab values")
+
+            // Add additional metadata
+            var enhancedMetadata = mappingResult.bloodTestResult.metadata ?? [:]
+            enhancedMetadata["source_document_id"] = document.id.uuidString
+            enhancedMetadata["document_filename"] = document.fileName
+            enhancedMetadata["processing_method"] = "ai_powered_mapping"
+            enhancedMetadata["raw_items_count"] = String(items.count)
+
+            // Create enhanced blood test result
+            var enhancedBloodTest = mappingResult.bloodTestResult
+            enhancedBloodTest.metadata = enhancedMetadata
+
+            return enhancedBloodTest
+
+        } catch {
+            print("❌ DocumentProcessor: AI mapping failed, falling back to legacy method: \(error)")
+
+            // Fallback to legacy method if AI mapping fails
+            return createLegacyBloodTestResult(from: items, document: document)
+        }
+    }
+
+    // MARK: - Legacy Blood Test Creation (Fallback)
+    private func createLegacyBloodTestResult(from items: [HealthDataItem], document: HealthDocument) -> BloodTestResult {
+        print("🔄 DocumentProcessor: Using legacy blood test creation method")
+
         var bloodTest = BloodTestResult(testDate: document.importedAt, results: [])
-        
+
         // Try to extract test date from document name or content
         if let testDate = extractTestDate(from: document.fileName) {
             bloodTest.testDate = testDate
         }
-        
+
         // Convert health data items to blood test items
         for item in items {
             let bloodTestItem = BloodTestItem(
@@ -478,11 +603,33 @@ class DocumentProcessor: ObservableObject {
             )
             bloodTest.results.append(bloodTestItem)
         }
-        
+
         // Add document reference to metadata
-        bloodTest.metadata = ["source_document_id": document.id.uuidString]
-        
+        var metadata = bloodTest.metadata ?? [:]
+        metadata["source_document_id"] = document.id.uuidString
+        metadata["processing_method"] = "legacy_extraction"
+        bloodTest.metadata = metadata
+
         return bloodTest
+    }
+
+    // MARK: - Basic Blood Test Creation (No Data)
+    private func createBasicBloodTestResult(document: HealthDocument) -> BloodTestResult {
+        print("📝 DocumentProcessor: Creating basic blood test result placeholder")
+
+        let testDate = extractTestDate(from: document.fileName) ?? document.importedAt
+
+        return BloodTestResult(
+            testDate: testDate,
+            laboratoryName: nil,
+            orderingPhysician: nil,
+            results: [],
+            metadata: [
+                "source_document_id": document.id.uuidString,
+                "processing_method": "basic_placeholder",
+                "note": "No lab values could be extracted from this document"
+            ]
+        )
     }
     
     private func createHealthCheckup(from items: [HealthDataItem], document: HealthDocument) throws -> HealthCheckup {
@@ -840,6 +987,7 @@ extension ImagingStudyType {
         }
     }
 }
+
 
 // MARK: - Date Formatter Extensions
 extension DateFormatter {

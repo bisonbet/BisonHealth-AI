@@ -144,7 +144,7 @@ struct BackupManagementView: View {
     private var availableBackupsSection: some View {
         Section("Available Backups") {
             if let backups = settingsManager.backupManager?.availableBackups, !backups.isEmpty {
-                ForEach(backups.prefix(5), id: \.deviceId) { backup in
+                ForEach(backups.prefix(5), id: \.id) { backup in
                     backupRow(backup)
                 }
 

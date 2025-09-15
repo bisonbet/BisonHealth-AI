@@ -19,8 +19,8 @@ class BloodTestMappingService: ObservableObject {
     private let mappingTimeout: TimeInterval = 120 // 2 minutes
 
     // MARK: - Initialization
-    init(ollamaClient: OllamaClient = OllamaClient.shared) {
-        self.ollamaClient = ollamaClient
+    init(ollamaClient: OllamaClient? = nil) {
+        self.ollamaClient = ollamaClient ?? OllamaClient.shared
     }
 
     // MARK: - Main Mapping Function
@@ -120,7 +120,8 @@ class BloodTestMappingService: ObservableObject {
         PATIENT: Patient name or "unknown"
         """
 
-        let response = try await ollamaClient.generateResponse(prompt: prompt, model: mappingModel)
+        let ollamaResponse = try await ollamaClient.sendChatMessage(prompt, model: mappingModel)
+        let response = ollamaResponse.content
         return parseBasicInfo(from: response)
     }
 
@@ -197,7 +198,8 @@ class BloodTestMappingService: ObservableObject {
         - Include common variations (HbA1c, A1C, Hemoglobin A1c, etc.)
         """
 
-        let response = try await ollamaClient.generateResponse(prompt: prompt, model: mappingModel)
+        let ollamaResponse = try await ollamaClient.sendChatMessage(prompt, model: mappingModel)
+        let response = ollamaResponse.content
         return parseExtractedLabValues(from: response)
     }
 
