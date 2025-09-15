@@ -1,8 +1,10 @@
 import SwiftUI
 
 struct BloodTestsSection: View {
-    let bloodTests: [BloodTestResult]
+    @Binding var bloodTests: [BloodTestResult]
     let onAddNew: () -> Void
+    let onEdit: (BloodTestResult) -> Void
+    let onDelete: (BloodTestResult) -> Void
     
     var body: some View {
         Section {
@@ -10,12 +12,24 @@ struct BloodTestsSection: View {
                 EmptyBloodTestsView()
             } else {
                 ForEach(bloodTests.prefix(3)) { bloodTest in
-                    BloodTestRowView(bloodTest: bloodTest)
+                    NavigationLink {
+                        BloodTestDetailView(
+                            bloodTest: bloodTest,
+                            onEdit: onEdit,
+                            onDelete: onDelete
+                        )
+                    } label: {
+                        BloodTestRowView(bloodTest: bloodTest)
+                    }
                 }
                 
                 if bloodTests.count > 3 {
                     NavigationLink("View All (\(bloodTests.count))") {
-                        BloodTestListView(bloodTests: bloodTests)
+                        BloodTestListView(
+                            bloodTests: $bloodTests,
+                            onEdit: onEdit,
+                            onDelete: onDelete
+                        )
                     }
                     .font(.caption)
                     .foregroundColor(.blue)
@@ -142,14 +156,27 @@ struct EmptyBloodTestsView: View {
 }
 
 struct BloodTestListView: View {
-    let bloodTests: [BloodTestResult]
-    
+    @Binding var bloodTests: [BloodTestResult]
+    let onEdit: (BloodTestResult) -> Void
+    let onDelete: (BloodTestResult) -> Void
+
     var body: some View {
-        List(bloodTests) { bloodTest in
-            NavigationLink {
-                BloodTestDetailView(bloodTest: bloodTest)
-            } label: {
-                BloodTestRowView(bloodTest: bloodTest)
+        List {
+            ForEach(bloodTests) { bloodTest in
+                NavigationLink {
+                    BloodTestDetailView(
+                        bloodTest: bloodTest,
+                        onEdit: onEdit,
+                        onDelete: onDelete
+                    )
+                } label: {
+                    BloodTestRowView(bloodTest: bloodTest)
+                }
+            }
+            .onDelete { indexSet in
+                let items = indexSet.map { bloodTests[$0] }
+                items.forEach { onDelete($0) }
+                bloodTests.remove(atOffsets: indexSet)
             }
         }
         .navigationTitle("Blood Test Results")
@@ -159,7 +186,12 @@ struct BloodTestListView: View {
 
 struct BloodTestDetailView: View {
     let bloodTest: BloodTestResult
-    
+    let onEdit: (BloodTestResult) -> Void
+    let onDelete: (BloodTestResult) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingDeleteConfirm = false
+
     var body: some View {
         List {
             Section("Test Information") {
@@ -168,16 +200,16 @@ struct BloodTestDetailView: View {
                     value: DateFormatter.mediumDate.string(from: bloodTest.testDate),
                     icon: "calendar"
                 )
-                
+
                 if let lab = bloodTest.laboratoryName {
                     InfoRow(label: "Laboratory", value: lab, icon: "building.2")
                 }
-                
+
                 if let physician = bloodTest.orderingPhysician {
                     InfoRow(label: "Ordering Physician", value: physician, icon: "stethoscope")
                 }
             }
-            
+
             Section("Results") {
                 ForEach(bloodTest.results) { result in
                     BloodTestItemRow(item: result)
@@ -186,6 +218,25 @@ struct BloodTestDetailView: View {
         }
         .navigationTitle("Blood Test Details")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack {
+                    Button("Edit") { onEdit(bloodTest) }
+                    Button(role: .destructive) {
+                        showingDeleteConfirm = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
+        }
+        .alert("Delete Blood Test?", isPresented: $showingDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                onDelete(bloodTest)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 
@@ -239,27 +290,43 @@ struct BloodTestItemRow: View {
     }
 }
 
-#Preview {
-    NavigationStack {
-        List {
-            BloodTestsSection(
-                bloodTests: [
-                    BloodTestResult(
-                        testDate: Date(),
-                        laboratoryName: "LabCorp",
-                        results: [
-                            BloodTestItem(name: "Glucose", value: "110", unit: "mg/dL", referenceRange: "70-100", isAbnormal: true),
-                            BloodTestItem(name: "Cholesterol", value: "180", unit: "mg/dL", referenceRange: "<200")
-                        ]
-                    )
-                ],
-                onAddNew: {}
+struct BloodTestsSection_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationStack {
+            List {
+                PreviewWrapper()
+            }
+        }
+    }
+
+    private struct PreviewWrapper: View {
+        @State private var sampleTests = [
+            BloodTestResult(
+                testDate: Date(),
+                laboratoryName: "LabCorp",
+                results: [
+                    BloodTestItem(name: "Glucose", value: "110", unit: "mg/dL", referenceRange: "70-100", isAbnormal: true),
+                    BloodTestItem(name: "Cholesterol", value: "180", unit: "mg/dL", referenceRange: "<200")
+                ]
             )
-            
-            BloodTestsSection(
-                bloodTests: [],
-                onAddNew: {}
-            )
+        ]
+
+        var body: some View {
+            VStack {
+                BloodTestsSection(
+                    bloodTests: $sampleTests,
+                    onAddNew: {},
+                    onEdit: { _ in },
+                    onDelete: { _ in }
+                )
+
+                BloodTestsSection(
+                    bloodTests: .constant([]),
+                    onAddNew: {},
+                    onEdit: { _ in },
+                    onDelete: { _ in }
+                )
+            }
         }
     }
 }

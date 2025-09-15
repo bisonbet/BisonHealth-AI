@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BloodTestEntryView: View {
+    let bloodTest: BloodTestResult?
     let onSave: (BloodTestResult) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -17,6 +18,15 @@ struct BloodTestEntryView: View {
 
     // Focus state for keyboard management
     @FocusState private var isAnyFieldFocused: Bool
+
+    init(bloodTest: BloodTestResult? = nil, onSave: @escaping (BloodTestResult) -> Void) {
+        self.bloodTest = bloodTest
+        self.onSave = onSave
+        _testDate = State(initialValue: bloodTest?.testDate ?? Date())
+        _laboratoryName = State(initialValue: bloodTest?.laboratoryName ?? "")
+        _orderingPhysician = State(initialValue: bloodTest?.orderingPhysician ?? "")
+        _results = State(initialValue: bloodTest?.results ?? [])
+    }
 
     var body: some View {
         NavigationStack {
@@ -134,7 +144,7 @@ struct BloodTestEntryView: View {
                     }
                 }
             }
-            .navigationTitle("Blood Test Entry")
+            .navigationTitle(bloodTest == nil ? "Blood Test Entry" : "Edit Blood Test")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -146,10 +156,13 @@ struct BloodTestEntryView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         let bloodTest = BloodTestResult(
+                            id: bloodTest?.id ?? UUID(),
                             testDate: testDate,
                             laboratoryName: laboratoryName.isEmpty ? nil : laboratoryName,
                             orderingPhysician: orderingPhysician.isEmpty ? nil : orderingPhysician,
-                            results: results.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                            results: results.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                            createdAt: bloodTest?.createdAt ?? Date(),
+                            updatedAt: Date()
                         )
                         onSave(bloodTest)
                         dismiss()
