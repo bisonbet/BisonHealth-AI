@@ -418,32 +418,151 @@ struct ExtractedDataRow: View {
 
 struct QuickLookView: UIViewControllerRepresentable {
     let url: URL
-    
+
     func makeUIViewController(context: Context) -> QLPreviewController {
         let controller = QLPreviewController()
         controller.dataSource = context.coordinator
         return controller
     }
-    
+
     func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
-    
+
     class Coordinator: NSObject, QLPreviewControllerDataSource {
         let parent: QuickLookView
-        
+        private var tempFileURL: URL?
+
         init(_ parent: QuickLookView) {
             self.parent = parent
+            super.init()
+            prepareDecryptedFile()
         }
-        
+
+        deinit {
+            // Clean up temporary file
+            if let tempURL = tempFileURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+        }
+
+        private func prepareDecryptedFile() {
+            // Synchronously prepare the decrypted file
+            do {
+                // Check if file exists first
+                let fileExists = FileManager.default.fileExists(atPath: parent.url.path)
+
+                if !fileExists {
+                    // Check for container ID mismatch
+                    let currentAppDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    let currentContainerPath = currentAppDocuments.path
+                    let documentContainerPath = parent.url.path
+
+                    if !documentContainerPath.hasPrefix(currentContainerPath.components(separatedBy: "/Documents").first ?? "") {
+                        print("🔄 QuickLookView: Container migration detected - searching in current container...")
+
+                        // Try to find the file in the current container
+                        let currentHealthAppDir = currentAppDocuments.appendingPathComponent("HealthApp/Documents/Imported")
+                        let fileName = parent.url.lastPathComponent
+                        let possibleNewPath = currentHealthAppDir.appendingPathComponent(fileName)
+
+                        if FileManager.default.fileExists(atPath: possibleNewPath.path) {
+                            print("✅ QuickLookView: Found file in current container, decrypting for preview...")
+
+                            // Decrypt the found file
+                            let fileManager = FileSystemManager.shared
+                            let decryptedData = try fileManager.retrieveDocument(from: possibleNewPath)
+
+                            // Create temporary file for QuickLook
+                            let tempDir = FileManager.default.temporaryDirectory
+                            let originalFileName = possibleNewPath.lastPathComponent
+                            let tempFileName = "quicklook_\(UUID().uuidString)_\(originalFileName)"
+                            let tempURL = tempDir.appendingPathComponent(tempFileName)
+
+                            // Write decrypted data to temp file
+                            try decryptedData.write(to: tempURL)
+                            self.tempFileURL = tempURL
+
+                            print("✅ QuickLookView: Document preview ready")
+                            return
+
+                        } else {
+                            // Try UUID-based matching as fallback
+                            if let currentContents = try? FileManager.default.contentsOfDirectory(atPath: currentHealthAppDir.path) {
+                                // Extract UUID from the original filename for matching
+                                let pathComponents = parent.url.lastPathComponent.components(separatedBy: "_")
+                                if let uuid = pathComponents.first {
+                                    let matchingFiles = currentContents.filter { $0.contains(uuid) }
+                                    if let match = matchingFiles.first {
+                                        print("🎯 QuickLookView: Found file with matching UUID: \(match)")
+
+                                        let matchPath = currentHealthAppDir.appendingPathComponent(match)
+                                        if FileManager.default.fileExists(atPath: matchPath.path) {
+                                            let fileManager = FileSystemManager.shared
+                                            let decryptedData = try fileManager.retrieveDocument(from: matchPath)
+
+                                            // Create temporary file for QuickLook
+                                            let tempDir = FileManager.default.temporaryDirectory
+                                            let tempFileName = "quicklook_\(UUID().uuidString)_\(match)"
+                                            let tempURL = tempDir.appendingPathComponent(tempFileName)
+
+                                            // Write decrypted data to temp file
+                                            try decryptedData.write(to: tempURL)
+                                            self.tempFileURL = tempURL
+
+                                            print("✅ QuickLookView: Document preview ready from UUID match")
+                                            return
+                                        }
+                                    }
+                                }
+                                print("❌ QuickLookView: No matching files found in current container (\(currentContents.count) files)")
+                            } else {
+                                print("❌ QuickLookView: Could not access current container directory")
+                            }
+                        }
+                    }
+
+                    // Final fallback: ensure directories exist and report error
+                    do {
+                        let fileManager = FileSystemManager.shared
+                        try fileManager.ensureDirectoriesExist()
+                    } catch {
+                        print("❌ QuickLookView: Failed to recreate directories: \(error)")
+                    }
+
+                    throw FileSystemError.fileNotFound
+                }
+
+                // Decrypt the document (normal path - file exists at expected location)
+                let fileManager = FileSystemManager.shared
+                let decryptedData = try fileManager.retrieveDocument(from: parent.url)
+
+                // Create temporary file for QuickLook
+                let tempDir = FileManager.default.temporaryDirectory
+                let originalFileName = parent.url.lastPathComponent
+                let tempFileName = "quicklook_\(UUID().uuidString)_\(originalFileName)"
+                let tempURL = tempDir.appendingPathComponent(tempFileName)
+
+                // Write decrypted data to temp file
+                try decryptedData.write(to: tempURL)
+                self.tempFileURL = tempURL
+
+                print("✅ QuickLookView: Document preview ready")
+
+            } catch {
+                print("❌ QuickLookView: Failed to decrypt document for preview: \(error)")
+            }
+        }
+
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
             return 1
         }
-        
+
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
-            return parent.url as QLPreviewItem
+            // Use decrypted temp file if available, otherwise fall back to original (encrypted) URL
+            return (tempFileURL ?? parent.url) as QLPreviewItem
         }
     }
 }

@@ -172,7 +172,31 @@ struct SettingsView: View {
                         settingsManager.saveSettings()
                     }
                 )
-                
+
+                Divider()
+
+                // AWS Bedrock Configuration Card
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("AWS Bedrock", systemImage: "cloud.fill")
+                            .font(.headline)
+
+                        Spacer()
+
+                        NavigationLink("Configure") {
+                            AWSBedrockSettingsView()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Text("Claude Sonnet 4 and Llama 4 Maverick models for advanced health data analysis")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+                .background(Color(.systemGray6))
+                .cornerRadius(10)
+
                 // Test All Connections button
                 HStack {
                     Spacer()
@@ -196,9 +220,66 @@ struct SettingsView: View {
     private var modelSelectionSection: some View {
         Section("AI Model Selection") {
             VStack(spacing: 16) {
-                // Refresh button and status
-                HStack {
-                    Button("Refresh Models") {
+                // AI Provider Selection
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("AI Provider")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+
+                    Picker("AI Provider", selection: $settingsManager.modelPreferences.aiProvider) {
+                        ForEach(AIProvider.allCases, id: \.self) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Choose between local Ollama models or cloud-based AWS Bedrock models")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                Divider()
+
+                // Bedrock Model Selection (when Bedrock is selected)
+                if settingsManager.modelPreferences.aiProvider == .bedrock {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Bedrock Model")
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+
+                        Picker("Bedrock Model", selection: $settingsManager.modelPreferences.bedrockModel) {
+                            ForEach(AWSBedrockModel.allCases, id: \.self) { model in
+                                VStack(alignment: .leading) {
+                                    Text(model.displayName)
+                                        .font(.body)
+                                    Text("\(model.provider) • \(model.contextWindow/1000)K context")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .tag(model.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Text("High-quality models from Anthropic and Meta via AWS Bedrock")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+
+                        NavigationLink("Configure AWS Credentials") {
+                            AWSBedrockSettingsView()
+                        }
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                    }
+
+                    Divider()
+                }
+
+                // Ollama Model Selection (when Ollama is selected)
+                if settingsManager.modelPreferences.aiProvider == .ollama {
+                    // Refresh button and status
+                    HStack {
+                        Button("Refresh Models") {
                         Task {
                             await settingsManager.fetchAvailableModels()
                         }
@@ -263,7 +344,43 @@ struct SettingsView: View {
                 }
                 
                 Divider()
-                
+
+                // Document processing model selection
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Document Processing Model")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+
+                    if documentModels.isEmpty && !settingsManager.modelSelection.isLoading {
+                        Text("No text models available. Connect to Ollama server and refresh models.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .padding(.vertical, 8)
+                    } else {
+                        Picker("Document Model", selection: $settingsManager.modelPreferences.documentModel) {
+                            ForEach(documentModels, id: \.id) { model in
+                                Text(model.displayName)
+                                    .tag(model.name)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .onAppear {
+                            // Validate selection when view appears
+                            validateDocumentModelSelection()
+                        }
+                        .onChange(of: documentModels) { _, newModels in
+                            // Ensure selected model is valid when models change
+                            validateDocumentModelSelection()
+                        }
+                    }
+
+                    Text("Used for processing PDF and document text. More efficient than vision models for text-only documents.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                Divider()
+
                 // Vision model selection
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Document Scanning Model")
@@ -292,11 +409,12 @@ struct SettingsView: View {
                             validateVisionModelSelection()
                         }
                         
-                        Text("Used for analyzing documents, images, and visual health data")
+                        Text("Used for analyzing images, photos, and complex visual documents that require OCR")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
+                } // Close Ollama conditional
             }
             .padding(.vertical, 8)
         }
@@ -312,6 +430,13 @@ struct SettingsView: View {
     
     private var visionModels: [OllamaModel] {
         settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
+    }
+
+    private var documentModels: [OllamaModel] {
+        // All models can process documents, but prioritize text-only models for efficiency
+        let textModels = settingsManager.modelSelection.availableModels.filter { !$0.supportsVision }
+        let visionModels = settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
+        return textModels + visionModels
     }
     
     // MARK: - Backup Section
@@ -846,6 +971,14 @@ struct SettingsView: View {
         if !visionModels.contains(where: { $0.name == settingsManager.modelPreferences.visionModel }) {
             if let firstModel = visionModels.first {
                 settingsManager.modelPreferences.visionModel = firstModel.name
+            }
+        }
+    }
+
+    private func validateDocumentModelSelection() {
+        if !documentModels.contains(where: { $0.name == settingsManager.modelPreferences.documentModel }) {
+            if let firstModel = documentModels.first {
+                settingsManager.modelPreferences.documentModel = firstModel.name
             }
         }
     }

@@ -58,20 +58,34 @@ class FileSystemManager: ObservableObject {
             exportsDirectory,
             logsDirectory
         ]
-        
+
         for directory in directories {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true,
-                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
-            )
+            do {
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true,
+                    attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+                )
+                // Reduced logging - only log in debug builds
+                #if DEBUG
+                print("📁 FileSystemManager: Ensured directory exists: \(directory.lastPathComponent)")
+                #endif
+            } catch {
+                print("❌ FileSystemManager: Failed to create directory \(directory.path): \(error)")
+                throw error
+            }
         }
+    }
+
+    // Public method to ensure directories exist (for debugging/recovery)
+    func ensureDirectoriesExist() throws {
+        try createDirectoryStructure()
     }
     
     // MARK: - Document Storage
     func storeDocument(data: Data, fileName: String, fileType: DocumentType) throws -> URL {
         let sanitizedFileName = sanitizeFileName(fileName)
-        let fileExtension = getFileExtension(for: fileType)
+        let fileExtension = fileType.rawValue
         
         // Check if fileName already has the correct extension, if so don't add it again
         let finalFileName: String
@@ -223,6 +237,29 @@ class FileSystemManager: ObservableObject {
     
     func fileExists(at url: URL) -> Bool {
         return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func findDocumentByFileName(_ displayName: String) -> URL? {
+        let fileManager = FileManager.default
+
+        do {
+            let documentContents = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
+
+            for fileURL in documentContents {
+                let fileName = fileURL.lastPathComponent
+
+                if fileName.contains(displayName.replacingOccurrences(of: " ", with: "%20")) ||
+                   fileName.contains(displayName.replacingOccurrences(of: " ", with: "_")) ||
+                   fileName.contains(displayName) {
+                    return fileURL
+                }
+            }
+
+            return nil
+        } catch {
+            print("❌ FileSystemManager: Error searching for document '\(displayName)': \(error)")
+            return nil
+        }
     }
     
     // MARK: - Storage Management
@@ -471,6 +508,7 @@ class FileSystemManager: ObservableObject {
         let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
         return try AES.GCM.open(sealedBox, using: encryptionKey)
     }
+
 }
 
 // MARK: - Directory Types

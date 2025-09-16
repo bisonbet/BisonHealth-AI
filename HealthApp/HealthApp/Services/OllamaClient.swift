@@ -15,7 +15,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     @Published var streamingContent = ""
     
     private let client: Client
-    private let timeout: TimeInterval = 30.0
+    private let timeout: TimeInterval = 300.0 // 5 minutes for large document processing
     
     // MARK: - Initialization
     init(hostname: String, port: Int) {
@@ -59,25 +59,33 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     func sendChatMessage(_ message: String, context: String = "", model: String = "llama3.2", systemPrompt: String? = nil) async throws -> OllamaChatResponse {
         do {
             let messages = buildMessages(userMessage: message, context: context, systemPrompt: systemPrompt)
-            
+
             let startTime = Date()
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
-            let response = try await client.chat(
-                model: modelID,
-                messages: messages,
-                keepAlive: .minutes(10)
-            )
+
+            // Simple timeout implementation using Task.timeout equivalent
+            let response = try await withTimeout(timeout) {
+                try await self.client.chat(
+                    model: modelID,
+                    messages: messages,
+                    keepAlive: .minutes(10)
+                )
+            }
+
             let processingTime = Date().timeIntervalSince(startTime)
-            
+
             return OllamaChatResponse(
                 content: response.message.content,
                 model: model,
                 processingTime: processingTime,
                 totalTokens: response.promptEvalCount
             )
-            
+
         } catch {
             lastError = error
+            if error is TimeoutError {
+                throw OllamaError.timeout
+            }
             throw OllamaError.requestFailed(error)
         }
     }
@@ -405,6 +413,32 @@ struct AuthCredentials {
     let password: String?
 }
 
+// MARK: - Timeout Helper
+
+struct TimeoutError: Error {
+    let duration: TimeInterval
+}
+
+func withTimeout<T>(_ duration: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+    return try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            throw TimeoutError(duration: duration)
+        }
+
+        guard let result = try await group.next() else {
+            throw TimeoutError(duration: duration)
+        }
+
+        group.cancelAll()
+        return result
+    }
+}
+
 // MARK: - Errors
 enum OllamaError: LocalizedError {
     case notConnected
@@ -416,6 +450,7 @@ enum OllamaError: LocalizedError {
     case authenticationNotSupported
     case configurationUpdateNotSupported
     case networkError(Error)
+    case timeout
     
     var errorDescription: String? {
         switch self {
@@ -437,6 +472,8 @@ enum OllamaError: LocalizedError {
             return "Configuration updates require app restart"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
+        case .timeout:
+            return "Request timed out - document processing took too long"
         }
     }
     
@@ -458,6 +495,8 @@ enum OllamaError: LocalizedError {
             return "Restart the app to apply configuration changes"
         case .networkError:
             return "Check your network connection and server availability"
+        case .timeout:
+            return "Try using a smaller model or split the document into smaller parts"
         }
     }
 }

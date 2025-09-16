@@ -122,18 +122,34 @@ class HealthDataManager: ObservableObject {
     }
     
     func linkExtractedDataToDocument(_ documentId: UUID, extractedData: [AnyHealthData]) async throws {
-        guard let index = documents.firstIndex(where: { $0.id == documentId }) else {
-            throw HealthDataError.notFound("Document not found")
+        // Find document in our local array first
+        if let index = documents.firstIndex(where: { $0.id == documentId }) {
+            // Update document with extracted data
+            documents[index].extractedData = extractedData
+            documents[index].processingStatus = .completed
+            documents[index].processedAt = Date()
+
+            // Save updated document to database
+            try await databaseManager.saveDocument(documents[index])
+        } else {
+            // Document not in our local array, try to load from database and update
+            do {
+                if var document = try await databaseManager.fetchDocument(id: documentId) {
+                    document.extractedData = extractedData
+                    document.processingStatus = ProcessingStatus.completed
+                    document.processedAt = Date()
+                    try await databaseManager.saveDocument(document)
+
+                    // Add to our local array for future reference
+                    documents.append(document)
+                } else {
+                    print("⚠️ HealthDataManager: Document \(documentId) not found in database, proceeding with health data extraction only")
+                }
+            } catch {
+                print("⚠️ HealthDataManager: Error fetching document \(documentId) from database: \(error), proceeding with health data extraction only")
+            }
         }
-        
-        // Update document with extracted data
-        documents[index].extractedData = extractedData
-        documents[index].processingStatus = .completed
-        documents[index].processedAt = Date()
-        
-        // Save updated document to database
-        try await databaseManager.saveDocument(documents[index])
-        
+
         // Process extracted health data and save to appropriate collections
         for anyHealthData in extractedData {
             switch anyHealthData.type {

@@ -70,19 +70,32 @@ class AIChatManager: ObservableObject {
     private func getOllamaClient() -> OllamaClient {
         return settingsManager.getOllamaClient()
     }
+
+    private func getAIClient() -> any AIProviderInterface {
+        return settingsManager.getAIClient()
+    }
     
     func checkConnection() async {
         guard !isOffline else {
             isConnected = false
             return
         }
-        
-        do {
-            let ollamaClient = getOllamaClient()
-            isConnected = try await ollamaClient.testConnection()
-        } catch {
-            isConnected = false
-            errorMessage = "Failed to connect to AI service: \(error.localizedDescription)"
+
+        // Only auto-check connection for Ollama, not for cloud providers like AWS Bedrock
+        // to avoid rate limiting and unnecessary API calls
+        switch settingsManager.modelPreferences.aiProvider {
+        case .ollama:
+            do {
+                let aiClient = getAIClient()
+                isConnected = try await aiClient.testConnection()
+            } catch {
+                isConnected = false
+                errorMessage = "Failed to connect to Ollama: \(error.localizedDescription)"
+            }
+        case .bedrock:
+            // For AWS Bedrock, assume connected if credentials are configured
+            // User can manually test in settings if needed
+            isConnected = settingsManager.hasValidAWSCredentials()
         }
     }
     
@@ -234,12 +247,15 @@ class AIChatManager: ObservableObject {
             currentConversation = conversations[index]
         }
         
-        let ollamaClient = getOllamaClient()
-        try await ollamaClient.sendStreamingChatMessage(
-            content,
-            context: context,
-            model: settingsManager.modelPreferences.chatModel,
-            systemPrompt: selectedDoctor?.systemPrompt,
+        // Use the selected AI provider (Ollama or AWS Bedrock)
+        switch settingsManager.modelPreferences.aiProvider {
+        case .ollama:
+            let ollamaClient = getOllamaClient()
+            try await ollamaClient.sendStreamingChatMessage(
+                content,
+                context: context,
+                model: settingsManager.modelPreferences.chatModel,
+                systemPrompt: selectedDoctor?.systemPrompt,
             onUpdate: { [weak self] partialContent in
                 Task { @MainActor in
                     guard let self = self else { return }
@@ -284,18 +300,24 @@ class AIChatManager: ObservableObject {
                 }
             }
         )
+        case .bedrock:
+            // AWS Bedrock doesn't support streaming, use non-streaming method
+            try await sendNonStreamingMessage(content, context: context, conversationId: conversationId)
+        }
     }
     
     private func sendNonStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
         // Send to AI service
         let startTime = Date()
-        let ollamaClient = getOllamaClient()
-        let response = try await ollamaClient.sendChatMessage(
-            content,
-            context: context,
-            model: settingsManager.modelPreferences.chatModel,
-            systemPrompt: selectedDoctor?.systemPrompt
-        )
+        let aiClient = getAIClient()
+
+        // Prepare context with doctor's system prompt if available
+        var fullContext = context
+        if let doctorPrompt = selectedDoctor?.systemPrompt {
+            fullContext = "System: \(doctorPrompt)\n\nContext: \(context)"
+        }
+
+        let response = try await aiClient.sendMessage(content, context: fullContext)
         let processingTime = Date().timeIntervalSince(startTime)
         
         // Create assistant message

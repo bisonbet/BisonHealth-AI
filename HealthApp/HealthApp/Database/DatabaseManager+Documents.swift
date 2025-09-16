@@ -90,6 +90,22 @@ extension DatabaseManager {
         }
     }
     
+    // MARK: - Update Document File Path
+    func updateDocumentFilePath(_ documentId: UUID, filePath: URL) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        let query = documentsTable.filter(self.documentId == documentId.uuidString)
+
+        let update = query.update(
+            documentFilePath <- filePath.absoluteString
+        )
+
+        let rowsUpdated = try db.run(update)
+        if rowsUpdated == 0 {
+            throw DatabaseError.notFound
+        }
+    }
+
     // MARK: - Update Document Extracted Data
     func updateDocumentExtractedData(_ documentId: UUID, extractedData: [AnyHealthData]) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }

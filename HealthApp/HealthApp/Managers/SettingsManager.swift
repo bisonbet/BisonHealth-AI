@@ -66,9 +66,24 @@ struct AppPreferences: Equatable {
     var analyticsEnabled: Bool = false
 }
 
+enum AIProvider: String, CaseIterable {
+    case ollama = "ollama"
+    case bedrock = "bedrock"
+
+    var displayName: String {
+        switch self {
+        case .ollama: return "Ollama"
+        case .bedrock: return "AWS Bedrock"
+        }
+    }
+}
+
 struct ModelPreferences: Equatable {
-    var chatModel: String = "llama3.2"  // Default chat model
-    var visionModel: String = "llava"   // Default vision model for document scanning
+    var aiProvider: AIProvider = .ollama   // Default AI provider
+    var chatModel: String = "llama3.2"     // Default chat model
+    var visionModel: String = "llava"      // Default vision model for image processing
+    var documentModel: String = "llama3.2" // Default document processing model (text-only)
+    var bedrockModel: String = AWSBedrockModel.claudeSonnet4.rawValue // Default AWS Bedrock model
     var lastUpdated: Date = Date()
 }
 
@@ -296,11 +311,38 @@ class SettingsManager: ObservableObject {
         ollamaClient = OllamaClient(hostname: ollamaConfig.hostname, port: ollamaConfig.port)
         return ollamaClient!
     }
-    
+
     func getDoclingClient() -> DoclingClient {
         // Always create new client to ensure we use the current configuration
         doclingClient = DoclingClient(hostname: doclingConfig.hostname, port: doclingConfig.port)
         return doclingClient!
+    }
+
+    func getAIClient() -> any AIProviderInterface {
+        switch modelPreferences.aiProvider {
+        case .ollama:
+            return getOllamaClient()
+        case .bedrock:
+            return getBedrockClient()
+        }
+    }
+
+    private func getBedrockClient() -> BedrockClient {
+        // Use shared credentials and selected model (matches working pattern)
+        let sharedCredentials = AWSCredentialsManager.shared.credentials
+        let config = AWSBedrockConfig(
+            region: sharedCredentials.region,
+            accessKeyId: sharedCredentials.accessKeyId,
+            secretAccessKey: sharedCredentials.secretAccessKey,
+            sessionToken: nil,
+            model: AWSBedrockModel(rawValue: modelPreferences.bedrockModel) ?? .claudeSonnet4,
+            temperature: 0.1,
+            maxTokens: 4096,
+            timeout: 60.0,
+            useProfile: false,
+            profileName: nil
+        )
+        return BedrockClient(config: config)
     }
     
     // Force recreation of clients when configuration changes
@@ -310,12 +352,17 @@ class SettingsManager: ObservableObject {
     }
     
     // MARK: - Validation
-    
+
+    func hasValidAWSCredentials() -> Bool {
+        let credentials = AWSCredentialsManager.shared.credentials
+        return credentials.isValid
+    }
+
     func validateServerConfiguration(_ config: ServerConfiguration) -> String? {
         if config.hostname.isEmpty {
             return "Hostname cannot be empty"
         }
-        
+
         if config.port < 1 || config.port > 65535 {
             return "Port must be between 1 and 65535"
         }
@@ -611,6 +658,39 @@ class SettingsManager: ObservableObject {
 extension ServerConfiguration: Codable {}
 extension BackupSettings: Codable {}
 extension AppPreferences: Codable {}
-extension ModelPreferences: Codable {}
+extension ModelPreferences: Codable {
+    enum CodingKeys: String, CodingKey {
+        case aiProvider
+        case chatModel
+        case visionModel
+        case documentModel
+        case bedrockModel
+        case lastUpdated
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Decode with defaults for backwards compatibility
+        self.aiProvider = try container.decodeIfPresent(AIProvider.self, forKey: .aiProvider) ?? .ollama
+        self.chatModel = try container.decode(String.self, forKey: .chatModel)
+        self.visionModel = try container.decode(String.self, forKey: .visionModel)
+        self.documentModel = try container.decode(String.self, forKey: .documentModel)
+        self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet4.rawValue
+        self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(aiProvider, forKey: .aiProvider)
+        try container.encode(chatModel, forKey: .chatModel)
+        try container.encode(visionModel, forKey: .visionModel)
+        try container.encode(documentModel, forKey: .documentModel)
+        try container.encode(bedrockModel, forKey: .bedrockModel)
+        try container.encode(lastUpdated, forKey: .lastUpdated)
+    }
+}
+extension AIProvider: Codable {}
 extension Theme: Codable {}
 extension BackupFrequency: Codable {}

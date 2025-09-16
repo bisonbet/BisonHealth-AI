@@ -23,6 +23,13 @@
 		143446972E78B62F00961754 /* FamilyHistoryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446922E78B62F00961754 /* FamilyHistoryEditorView.swift */; };
 		143446992E78BC8300961754 /* PersonalMedicalHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446982E78BC8300961754 /* PersonalMedicalHistoryView.swift */; };
 		1434469B2E78BCAC00961754 /* MedicalConditionEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1434469A2E78BCAC00961754 /* MedicalConditionEditorView.swift */; };
+		1434469E2E78E36D00961754 /* AWSBedrock in Frameworks */ = {isa = PBXBuildFile; productRef = 1434469D2E78E36D00961754 /* AWSBedrock */; };
+		143446A02E78E36D00961754 /* AWSBedrockRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 1434469F2E78E36D00961754 /* AWSBedrockRuntime */; };
+		143446A22E78E36D00961754 /* AWSClientRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 143446A12E78E36D00961754 /* AWSClientRuntime */; };
+		143446A42E78E68500961754 /* AWSBedrockSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A32E78E68500961754 /* AWSBedrockSettingsView.swift */; };
+		143446AC2E78E6FC00961754 /* AWSCredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */; };
+		143446AD2E78E6FC00961754 /* BedrockClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A92E78E6FC00961754 /* BedrockClient.swift */; };
+		143446AE2E78E6FC00961754 /* AWSCredentialsHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */; };
 		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
 		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
 		14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */; };
@@ -114,6 +121,10 @@
 		143446942E78B62F00961754 /* MedicationsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationsListView.swift; sourceTree = "<group>"; };
 		143446982E78BC8300961754 /* PersonalMedicalHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalMedicalHistoryView.swift; sourceTree = "<group>"; };
 		1434469A2E78BCAC00961754 /* MedicalConditionEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalConditionEditorView.swift; sourceTree = "<group>"; };
+		143446A32E78E68500961754 /* AWSBedrockSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSBedrockSettingsView.swift; sourceTree = "<group>"; };
+		143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsHelper.swift; sourceTree = "<group>"; };
+		143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsManager.swift; sourceTree = "<group>"; };
+		143446A92E78E6FC00961754 /* BedrockClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BedrockClient.swift; sourceTree = "<group>"; };
 		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
 		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
 		14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
@@ -186,6 +197,9 @@
 			files = (
 				1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */,
 				A1000009294A0000000000001 /* SQLite in Frameworks */,
+				143446A22E78E36D00961754 /* AWSClientRuntime in Frameworks */,
+				143446A02E78E36D00961754 /* AWSBedrockRuntime in Frameworks */,
+				1434469E2E78E36D00961754 /* AWSBedrock in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -266,6 +280,7 @@
 		A1000012294A0000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				143446A32E78E68500961754 /* AWSBedrockSettingsView.swift */,
 				1434469A2E78BCAC00961754 /* MedicalConditionEditorView.swift */,
 				143446982E78BC8300961754 /* PersonalMedicalHistoryView.swift */,
 				143446922E78B62F00961754 /* FamilyHistoryEditorView.swift */,
@@ -313,6 +328,9 @@
 		A1000014294A0000000000001 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */,
+				143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */,
+				143446A92E78E6FC00961754 /* BedrockClient.swift */,
 				A1000063294A0000000000001 /* OllamaClient.swift */,
 				A1000065294A0000000000001 /* DoclingClient.swift */,
 				A1000067294A0000000000001 /* AIProviderInterface.swift */,
@@ -391,6 +409,9 @@
 			packageProductDependencies = (
 				A1000010294A0000000000001 /* SQLite */,
 				1427C64A2E667B2500EBEFB0 /* Ollama */,
+				1434469D2E78E36D00961754 /* AWSBedrock */,
+				1434469F2E78E36D00961754 /* AWSBedrockRuntime */,
+				143446A12E78E36D00961754 /* AWSClientRuntime */,
 			);
 			productName = HealthApp;
 			productReference = A1000001294A0000000000000 /* HealthApp.app */;
@@ -441,6 +462,7 @@
 			packageReferences = (
 				A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */,
 				1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */,
+				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
 			projectDirPath = "";
@@ -487,6 +509,9 @@
 				A1000024294A0000000000001 /* BloodTestResult.swift in Sources */,
 				A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */,
 				A1000028294A0000000000001 /* HealthDocument.swift in Sources */,
+				143446AC2E78E6FC00961754 /* AWSCredentialsManager.swift in Sources */,
+				143446AD2E78E6FC00961754 /* BedrockClient.swift in Sources */,
+				143446AE2E78E6FC00961754 /* AWSCredentialsHelper.swift in Sources */,
 				A1000030294A0000000000001 /* ChatModels.swift in Sources */,
 				A1000031294A0000000000002 /* DocumentProcessingModels.swift in Sources */,
 				A1000042294A0000000000001 /* DatabaseManager.swift in Sources */,
@@ -534,6 +559,7 @@
 				143446992E78BC8300961754 /* PersonalMedicalHistoryView.swift in Sources */,
 				1434468F2E788ED300961754 /* Doctor.swift in Sources */,
 				06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */,
+				143446A42E78E68500961754 /* AWSBedrockSettingsView.swift in Sources */,
 				DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */,
 				AP42ZSRFIED99JHF9ESMG04E /* StorageUsageView.swift in Sources */,
 				55083952F69E6067ECDDADD5 /* SettingsManager.swift in Sources */,
@@ -851,6 +877,14 @@
 				kind = branch;
 			};
 		};
+		1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/awslabs/aws-sdk-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.42;
+			};
+		};
 		A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
@@ -866,6 +900,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */;
 			productName = Ollama;
+		};
+		1434469D2E78E36D00961754 /* AWSBedrock */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
+			productName = AWSBedrock;
+		};
+		1434469F2E78E36D00961754 /* AWSBedrockRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
+			productName = AWSBedrockRuntime;
+		};
+		143446A12E78E36D00961754 /* AWSClientRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
+			productName = AWSClientRuntime;
 		};
 		A1000010294A0000000000001 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;

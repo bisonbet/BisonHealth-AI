@@ -14,7 +14,7 @@ class DoclingClient: ObservableObject {
     
     let baseURL: URL
     private let session: URLSession
-    private let timeout: TimeInterval = 60.0 // Longer timeout for document processing
+    private let timeout: TimeInterval = 300.0 // 5 minutes for large document processing
     
     // Authentication properties
     private var apiKey: String?
@@ -255,11 +255,11 @@ class DoclingClient: ObservableObject {
     }
     
     private func getTaskResult(taskId: String, startTime: Date) async throws -> ProcessedDocumentResult {
-        // For async processing, we need to use a separate result endpoint
-        // Try the result endpoint first
+        // Use the correct Docling v1 result endpoint
         let resultURL = baseURL.appendingPathComponent("v1/result/\(taskId)")
         var request = URLRequest(url: resultURL)
         request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         print("🔄 DoclingClient: Fetching result from: \(resultURL)")
 
@@ -273,35 +273,69 @@ class DoclingClient: ObservableObject {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             print("❌ DoclingClient: Result endpoint failed with status \(httpResponse.statusCode)")
-            // If result endpoint doesn't exist, the result might be in the status response
-            // Let's check the status response to see if it contains result data
-            return try await getResultFromStatusResponse(taskId: taskId, startTime: startTime)
+            let errorPreview = String(data: data.prefix(200), encoding: .utf8) ?? "Invalid UTF-8"
+            print("🔍 DoclingClient: Error response: \(errorPreview)")
+            throw DoclingError.requestFailed(httpResponse.statusCode)
         }
 
-        // Try to decode the result response using v1 API format
+        // Parse the result response from Docling v1 API
         do {
-            let responseString = String(data: data, encoding: .utf8) ?? "Invalid UTF-8"
-            print("🔍 DoclingClient: Result response body: \(responseString)")
+            // Show a preview of the response for debugging (first 300 chars)
+            let responsePreview = String(data: data.prefix(300), encoding: .utf8) ?? "Invalid UTF-8"
+            print("🔍 DoclingClient: Result preview: \(responsePreview)...")
 
-            // Parse v1 API response format
-            let v1Response = try JSONDecoder().decode(DoclingV1Response.self, from: data)
+            // Try to parse as Docling v1 result format: {"document": {...}}
+            let resultResponse = try JSONDecoder().decode(DoclingV1ResultResponse.self, from: data)
             let processingTime = Date().timeIntervalSince(startTime)
+            print("✅ DoclingClient: Successfully parsed Docling v1 result")
+
+            // Extract text content - prioritize markdown, then text, then any available content
+            let extractedText = resultResponse.document.md_content ??
+                               resultResponse.document.text_content ??
+                               resultResponse.document.html_content ?? ""
+
+            // Count available content types
+            var availableTypes: [String] = []
+            if resultResponse.document.md_content != nil { availableTypes.append("markdown") }
+            if resultResponse.document.text_content != nil { availableTypes.append("text") }
+            if resultResponse.document.html_content != nil { availableTypes.append("html") }
+            if resultResponse.document.json_content != nil { availableTypes.append("json") }
+
+            print("📄 DoclingClient: Extracted text length: \(extractedText.count) chars, available formats: \(availableTypes.joined(separator: ", "))")
+
+            // Convert RawDoclingDocument to dictionary for structured data
+            var structuredData: [String: AnyCodable] = [:]
+            if let jsonContent = resultResponse.document.json_content {
+                structuredData["schema_name"] = AnyCodable(jsonContent.schema_name ?? "")
+                structuredData["version"] = AnyCodable(jsonContent.version ?? "")
+                structuredData["name"] = AnyCodable(jsonContent.name ?? "")
+                if let origin = jsonContent.origin {
+                    structuredData["origin"] = AnyCodable([
+                        "mimetype": origin.mimetype ?? "",
+                        "binary_hash": origin.binary_hash ?? Int64(0),
+                        "filename": origin.filename ?? "",
+                        "uri": origin.uri ?? ""
+                    ] as [String: Any])
+                }
+            }
 
             return ProcessedDocumentResult(
-                extractedText: v1Response.document.text_content ?? v1Response.document.md_content ?? "",
-                structuredData: v1Response.document.json_content ?? [:],
-                confidence: 1.0, // v1 API doesn't provide confidence
+                extractedText: extractedText,
+                structuredData: structuredData,
+                confidence: 1.0, // Docling v1 doesn't provide confidence scores
                 processingTime: processingTime,
                 metadata: [
-                    "status": v1Response.status,
-                    "processing_time": v1Response.processing_time,
-                    "task_id": taskId
+                    "task_id": taskId,
+                    "available_formats": availableTypes.joined(separator: ","),
+                    "extracted_text_length": String(extractedText.count),
+                    "api_version": "v1"
                 ]
             )
         } catch {
-            print("❌ DoclingClient: Failed to decode v1 result format: \(error)")
-            let responseString = String(data: data, encoding: .utf8) ?? "Invalid UTF-8"
-            print("🔍 DoclingClient: Raw result response: \(responseString)")
+            print("❌ DoclingClient: Failed to parse result: \(error)")
+            // Show preview for debugging but don't crash the console
+            let responsePreview = String(data: data.prefix(200), encoding: .utf8) ?? "Invalid UTF-8"
+            print("🔍 DoclingClient: Parse error preview: \(responsePreview)...")
             throw DoclingError.invalidResponse
         }
     }
@@ -399,7 +433,12 @@ class DoclingClient: ObservableObject {
         formData.append(fileData)
         appendString(crlf) // Line ending after binary data
         
-        // Format field
+        // Format fields - request both markdown and json formats (separate fields)
+        appendString("--\(boundary)\(crlf)")
+        appendString("Content-Disposition: form-data; name=\"to_formats\"\(crlf)")
+        appendString(crlf)
+        appendString("md\(crlf)")
+
         appendString("--\(boundary)\(crlf)")
         appendString("Content-Disposition: form-data; name=\"to_formats\"\(crlf)")
         appendString(crlf)
@@ -804,16 +843,41 @@ struct DoclingFormatsResponse: Codable {
 // MARK: - V1 API Response Models
 struct DoclingV1Response: Codable {
     let document: DoclingV1Document
-    let status: String
-    let processing_time: Double
+    let status: String?
+    let processing_time: Double?
+}
+
+struct DoclingV1ResultResponse: Codable {
+    let document: DoclingV1Document
 }
 
 struct DoclingV1Document: Codable {
+    let filename: String?
     let md_content: String?
-    let json_content: [String: AnyCodable]?
+    let json_content: RawDoclingDocument?
     let html_content: String?
     let text_content: String?
     let doctags_content: String?
+}
+
+// Use a flexible approach that only decodes what we need
+struct RawDoclingDocument: Codable {
+    let schema_name: String?
+    let version: String?
+    let name: String?
+    let origin: DoclingOrigin?
+    // Skip furniture and other complex fields by not defining them
+
+    private enum CodingKeys: String, CodingKey {
+        case schema_name, version, name, origin
+    }
+}
+
+struct DoclingOrigin: Codable {
+    let mimetype: String?
+    let binary_hash: Int64?
+    let filename: String?
+    let uri: String?
 }
 
 // MARK: - Helper for Any Codable
@@ -826,11 +890,13 @@ struct AnyCodable: Codable {
     
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        
+
         if let bool = try? container.decode(Bool.self) {
             value = bool
         } else if let int = try? container.decode(Int.self) {
             value = int
+        } else if let int64 = try? container.decode(Int64.self) {
+            value = int64
         } else if let double = try? container.decode(Double.self) {
             value = double
         } else if let string = try? container.decode(String.self) {
@@ -846,12 +912,14 @@ struct AnyCodable: Codable {
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        
+
         switch value {
         case let bool as Bool:
             try container.encode(bool)
         case let int as Int:
             try container.encode(int)
+        case let int64 as Int64:
+            try container.encode(int64)
         case let double as Double:
             try container.encode(double)
         case let string as String:

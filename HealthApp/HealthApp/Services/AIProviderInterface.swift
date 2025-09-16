@@ -139,9 +139,10 @@ class AIProviderFactory {
         case ollama
         case openai
         case anthropic
+        case bedrock
         case custom(String)
     }
-    
+
     @MainActor
     static func createProvider(
         type: ProviderType,
@@ -154,6 +155,22 @@ class AIProviderFactory {
             return OpenAIProvider(apiKey: config.apiKey ?? "")
         case .anthropic:
             return AnthropicProvider(apiKey: config.apiKey ?? "")
+        case .bedrock:
+            // Use shared credentials manager (matches your pattern)
+            let sharedCredentials = AWSCredentialsManager.shared.credentials
+            let bedrockConfig = AWSBedrockConfig(
+                region: sharedCredentials.region,
+                accessKeyId: sharedCredentials.accessKeyId,
+                secretAccessKey: sharedCredentials.secretAccessKey,
+                sessionToken: nil,
+                model: .claudeSonnet4,  // Default model
+                temperature: 0.1,
+                maxTokens: 4096,
+                timeout: 60.0,
+                useProfile: false,  // Use direct credentials
+                profileName: nil
+            )
+            return BedrockClient(config: bedrockConfig)
         case .custom(let providerName):
             // TODO: Implement custom provider loading
             fatalError("Custom provider \(providerName) not implemented")

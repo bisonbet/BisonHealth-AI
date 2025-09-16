@@ -5,7 +5,7 @@ import Foundation
 class BloodTestMappingService: ObservableObject {
 
     // MARK: - Dependencies
-    private let ollamaClient: OllamaClient
+    private let aiClient: any AIProviderInterface
 
     // MARK: - Published Properties
     @Published var isProcessing = false
@@ -14,13 +14,13 @@ class BloodTestMappingService: ObservableObject {
     @Published var mappingErrors: [BloodTestMappingError] = []
 
     // MARK: - Configuration
-    private let mappingModel = "llama2" // Could be made configurable
     private let maxRetryAttempts = 3
-    private let mappingTimeout: TimeInterval = 120 // 2 minutes
+    private let mappingTimeout: TimeInterval = 600 // 10 minutes for large documents
+
 
     // MARK: - Initialization
-    init(ollamaClient: OllamaClient? = nil) {
-        self.ollamaClient = ollamaClient ?? OllamaClient.shared
+    init(aiClient: any AIProviderInterface) {
+        self.aiClient = aiClient
     }
 
     // MARK: - Main Mapping Function
@@ -62,12 +62,14 @@ class BloodTestMappingService: ObservableObject {
 
             // Phase 4: Create final BloodTestResult (100% progress)
             print("🏗️ BloodTestMappingService: Phase 4 - Creating final BloodTestResult...")
-            let finalTestDate = suggestedTestDate ?? basicInfo.testDate ?? Date()
+            let finalTestDate = basicInfo.testDate ?? suggestedTestDate ?? Date()
+            print("📅 BloodTestMappingService: Final test date selected: \(finalTestDate.formatted()) (AI: \(basicInfo.testDate?.formatted() ?? "none"), Suggested: \(suggestedTestDate?.formatted() ?? "none"))")
             let bloodTestResult = createBloodTestResult(
                 from: mappedParameters,
                 basicInfo: basicInfo,
                 testDate: finalTestDate,
-                patientName: patientName
+                patientName: patientName,
+                model: "AI Provider"
             )
 
             let result = BloodTestMappingResult(
@@ -76,7 +78,7 @@ class BloodTestMappingService: ObservableObject {
                 mappedParameters: mappedParameters,
                 confidence: calculateOverallConfidence(mappedParameters),
                 processingTime: Date().timeIntervalSince1970,
-                aiModel: mappingModel
+                aiModel: "AI Provider"
             )
 
             lastMappingResult = result
@@ -120,8 +122,8 @@ class BloodTestMappingService: ObservableObject {
         PATIENT: Patient name or "unknown"
         """
 
-        let ollamaResponse = try await ollamaClient.sendChatMessage(prompt, model: mappingModel)
-        let response = ollamaResponse.content
+        let aiResponse = try await aiClient.sendMessage(prompt, context: "")
+        let response = aiResponse.content
         return parseBasicInfo(from: response)
     }
 
@@ -198,8 +200,8 @@ class BloodTestMappingService: ObservableObject {
         - Include common variations (HbA1c, A1C, Hemoglobin A1c, etc.)
         """
 
-        let ollamaResponse = try await ollamaClient.sendChatMessage(prompt, model: mappingModel)
-        let response = ollamaResponse.content
+        let aiResponse = try await aiClient.sendMessage(prompt, context: "")
+        let response = aiResponse.content
         return parseExtractedLabValues(from: response)
     }
 
@@ -347,7 +349,8 @@ class BloodTestMappingService: ObservableObject {
         from mappedParameters: [StandardizedLabValue],
         basicInfo: BasicTestInfo,
         testDate: Date,
-        patientName: String?
+        patientName: String?,
+        model: String
     ) -> BloodTestResult {
 
         let bloodTestItems = mappedParameters.map { mappedValue in
@@ -366,7 +369,7 @@ class BloodTestMappingService: ObservableObject {
 
         var metadata: [String: String] = [:]
         metadata["mapping_confidence"] = String(format: "%.2f", calculateOverallConfidence(mappedParameters))
-        metadata["ai_model"] = mappingModel
+        metadata["ai_model"] = model
         metadata["extracted_count"] = String(mappedParameters.count)
         if let patientName = patientName {
             metadata["patient_name"] = patientName
@@ -415,6 +418,7 @@ class BloodTestMappingService: ObservableObject {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter
     }
+
 }
 
 // MARK: - Supporting Data Structures
@@ -458,6 +462,23 @@ struct BloodTestMappingResult {
 
     var summary: String {
         return "\(bloodTestResult.results.count) tests mapped with \(String(format: "%.1f", confidence))% confidence"
+    }
+}
+
+enum BloodTestMappingServiceError: Error, LocalizedError {
+    case visionModelNotAvailable(String)
+    case documentModelNotAvailable(String)
+    case processingFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .visionModelNotAvailable(let message):
+            return "Vision Model Not Available: \(message)"
+        case .documentModelNotAvailable(let message):
+            return "Document Model Not Available: \(message)"
+        case .processingFailed(let message):
+            return "Processing Failed: \(message)"
+        }
     }
 }
 
