@@ -148,3 +148,6 @@ AuthKey_*.p8
 node_modules
 .gemini/
 gha-creds-*.json
+
+# Internal compliance work products
+HIPAA_Compliance_Remediation_Plan.md
