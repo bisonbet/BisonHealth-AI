@@ -69,27 +69,37 @@ struct PersonalInfoRowView: View {
                 }
             }
             
-            if !personalInfo.allergies.isEmpty {
-                InfoRow(
-                    label: "Allergies",
-                    value: personalInfo.allergies.joined(separator: ", "),
-                    icon: "exclamationmark.triangle"
-                )
-            }
-            
-            if !personalInfo.medications.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    InfoRowHeader(label: "Medications", icon: "pills")
-                    ForEach(personalInfo.medications) { medication in
-                        MedicationRowView(medication: medication)
+            // Medical Information with checkmarks
+            VStack(alignment: .leading, spacing: 8) {
+                InfoRowHeader(label: "Medical Information", icon: "heart.text.square")
+
+                HStack {
+                    Spacer().frame(width: 28) // Indent to align with InfoRow
+                    VStack(alignment: .leading, spacing: 4) {
+                        CheckmarkInfoRow(
+                            label: "Allergies",
+                            hasData: !personalInfo.allergies.isEmpty,
+                            icon: "exclamationmark.triangle"
+                        )
+
+                        CheckmarkInfoRow(
+                            label: "Medications",
+                            hasData: !personalInfo.medications.isEmpty,
+                            icon: "pills"
+                        )
+
+                        CheckmarkInfoRow(
+                            label: "Personal Medical History",
+                            hasData: !personalInfo.personalMedicalHistory.isEmpty,
+                            icon: "doc.text"
+                        )
+
+                        CheckmarkInfoRow(
+                            label: "Family Medical History",
+                            hasData: !isFamilyHistoryEmpty(personalInfo.familyHistory),
+                            icon: "person.3"
+                        )
                     }
-                }
-            }
-            
-            if !isFamilyHistoryEmpty(personalInfo.familyHistory) {
-                VStack(alignment: .leading, spacing: 8) {
-                    InfoRowHeader(label: "Family Medical History", icon: "person.3")
-                    FamilyHistoryRowView(history: personalInfo.familyHistory)
                 }
             }
         }
@@ -216,18 +226,44 @@ struct InfoRow: View {
 struct InfoRowHeader: View {
     let label: String
     let icon: String
-    
+
     var body: some View {
         HStack {
             Image(systemName: icon)
                 .foregroundColor(.blue)
                 .frame(width: 20)
-            
+
             Text(label)
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
+
             Spacer()
+        }
+    }
+}
+
+struct CheckmarkInfoRow: View {
+    let label: String
+    let hasData: Bool
+    let icon: String
+
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(.secondary)
+                .frame(width: 16)
+
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.primary)
+
+            Spacer()
+
+            if hasData {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.caption)
+            }
         }
     }
 }
@@ -244,12 +280,14 @@ struct InfoRowHeader: View {
                 dateOfBirth: Date(),
                 gender: .male,
                 bloodType: .oPositive,
+                allergies: ["Peanuts", "Dust"],
                 medications: [Medication(name: "Test Med", dosage: Dosage(value: 50, unit: .mg), frequency: .daily)],
+                personalMedicalHistory: [MedicalCondition(name: "Hypertension")],
                 familyHistory: FamilyMedicalHistory(mother: "High blood pressure")
             ),
             onEdit: {}
         )
-        
+
         PersonalInfoSection(
             personalInfo: nil,
             onEdit: {}

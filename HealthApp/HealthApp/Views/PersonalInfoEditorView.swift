@@ -393,26 +393,7 @@ struct PersonalInfoEditorView: View {
                     }
 
                     NavigationLink("Personal Medical History (\(editedInfo.personalMedicalHistory.count))") {
-                        List {
-                            ForEach($editedInfo.personalMedicalHistory) { $condition in
-                                VStack(alignment: .leading) {
-                                    Text(condition.name)
-                                        .font(.headline)
-                                    Text(condition.status.displayName)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .onDelete { indexSet in
-                                editedInfo.personalMedicalHistory.remove(atOffsets: indexSet)
-                            }
-
-                            Button("Add Condition") {
-                                editedInfo.personalMedicalHistory.append(MedicalCondition(name: "New Condition"))
-                            }
-                        }
-                        .navigationTitle("Personal Medical History")
-                        .navigationBarTitleDisplayMode(.inline)
+                        PersonalMedicalHistoryView(conditions: $editedInfo.personalMedicalHistory)
                     }
 
                     NavigationLink("Family Medical History") {

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct PersonalMedicalHistoryView: View {
     @Binding var conditions: [MedicalCondition]
+    @State private var showingNewConditionEditor = false
+    @State private var newCondition = MedicalCondition(name: "")
 
     var body: some View {
         List {
@@ -50,11 +52,35 @@ struct PersonalMedicalHistoryView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingNewConditionEditor) {
+            NavigationStack {
+                MedicalConditionEditorView(condition: $newCondition)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Cancel") {
+                                showingNewConditionEditor = false
+                                newCondition = MedicalCondition(name: "")
+                            }
+                        }
+
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Save") {
+                                if !newCondition.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    conditions.append(newCondition)
+                                }
+                                showingNewConditionEditor = false
+                                newCondition = MedicalCondition(name: "")
+                            }
+                        }
+                    }
+            }
+        }
     }
 
     private func addCondition() {
-        let newCondition = MedicalCondition(name: "")
-        conditions.append(newCondition)
+        newCondition = MedicalCondition(name: "")
+        showingNewConditionEditor = true
     }
 
     private func backgroundColorForStatus(_ status: MedicalConditionStatus) -> Color {
