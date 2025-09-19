@@ -139,7 +139,7 @@ class DoclingClient: ObservableObject {
             filename: filename,
             fileData: document,
             fileType: type,
-            ocrEnabled: options.ocrEnabled
+            options: options
         )
         
         request.httpBody = formData
@@ -390,7 +390,7 @@ class DoclingClient: ObservableObject {
         filename: String,
         fileData: Data,
         fileType: DocumentType,
-        ocrEnabled: Bool
+        options: ProcessingOptions
     ) -> Data {
         var formData = Data()
         let crlf = "\r\n"
@@ -445,13 +445,27 @@ class DoclingClient: ObservableObject {
         appendString("json\(crlf)")
         
         // OCR field if enabled
-        if ocrEnabled {
+        if options.ocrEnabled {
             appendString("--\(boundary)\(crlf)")
             appendString("Content-Disposition: form-data; name=\"do_ocr\"\(crlf)")
             appendString(crlf)
             appendString("true\(crlf)")
         }
-        
+
+        if let hints = options.bloodTestExtractionHints, !hints.isEmpty {
+            appendString("--\(boundary)\(crlf)")
+            appendString("Content-Disposition: form-data; name=\"instructions\"\(crlf)")
+            appendString(crlf)
+            appendString("\(hints)\(crlf)")
+        }
+
+        if let targetedKeys = options.targetedLabKeys, !targetedKeys.isEmpty {
+            appendString("--\(boundary)\(crlf)")
+            appendString("Content-Disposition: form-data; name=\"target_lab_keys\"\(crlf)")
+            appendString(crlf)
+            appendString("\(targetedKeys.joined(separator: ","))\(crlf)")
+        }
+
         // Close boundary - important: double dash at end
         appendString("--\(boundary)--\(crlf)")
         
