@@ -33,14 +33,16 @@
 		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
 		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
 		14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */; };
-		14FFBD3B2E77894700FD9B75 /* Views/TestTypePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */; };
-		1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */; };
+                14FFBD3B2E77894700FD9B75 /* Views/TestTypePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */; };
+                69A425084D0A49F2B722B9BE3B618BCD /* AudioRecordingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB34ACDDAF1E4EFC992C2ACC7F45A1F8 /* AudioRecordingManager.swift */; };
+                1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */; };
 		2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */; };
 		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
 		55083952F69E6067ECDDADD5 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F48E6CF308D42C7D377B84 /* SettingsManager.swift */; };
 		71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */; };
-		7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */; };
-		7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */; };
+                7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */; };
+                7909B54D092E4D87950F4DF68B24E37B /* AudioRecordingBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149DC9546A97449F84555DDE46649BC3 /* AudioRecordingBanner.swift */; };
+                7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */; };
 		9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */; };
 		9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */; };
 		A1000001294A0000000000001 /* HealthAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002294A0000000000001 /* HealthAppApp.swift */; };
@@ -89,9 +91,10 @@
 		NOGIZO9RJZY59O1P2JP03MX6 /* HealthDataContextSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */; };
 		NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */; };
 		NYKH99Y51U8QC2SPCELX794F /* MessageInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */; };
-		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
-		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
-		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
+                UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
+                UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
+                XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
+                D4C27B663BE24511B2DF978186086B59 /* StartAudioRecordingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5136BE18BC4427CA3CD909C4F772FE3 /* StartAudioRecordingIntent.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -125,10 +128,11 @@
 		143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsHelper.swift; sourceTree = "<group>"; };
 		143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsManager.swift; sourceTree = "<group>"; };
 		143446A92E78E6FC00961754 /* BedrockClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BedrockClient.swift; sourceTree = "<group>"; };
-		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
-		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
-		14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
-		14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TestTypePickerView.swift; sourceTree = "<group>"; };
+                14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
+                14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
+                14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
+                14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TestTypePickerView.swift; sourceTree = "<group>"; };
+                149DC9546A97449F84555DDE46649BC3 /* AudioRecordingBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingBanner.swift; sourceTree = "<group>"; };
 		4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryView.swift; sourceTree = "<group>"; };
 		4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorView.swift; sourceTree = "<group>"; };
 		50F48E6CF308D42C7D377B84 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
@@ -162,22 +166,24 @@
 		A1000065294A0000000000001 /* DoclingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoclingClient.swift; sourceTree = "<group>"; };
 		A1000067294A0000000000001 /* AIProviderInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderInterface.swift; sourceTree = "<group>"; };
 		A1000069294A0000000000001 /* ServiceClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceClientTests.swift; sourceTree = "<group>"; };
-		A1000071294A0000000000001 /* HealthDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManager.swift; sourceTree = "<group>"; };
-		A1000073294A0000000000001 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
-		A1000073294A0000000000003 /* ServerConfigurationConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigurationConstants.swift; sourceTree = "<group>"; };
-		A1000075294A0000000000001 /* HealthDataManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManagerTests.swift; sourceTree = "<group>"; };
-		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
-		AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
-		ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
-		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
+                A1000071294A0000000000001 /* HealthDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManager.swift; sourceTree = "<group>"; };
+                A1000073294A0000000000001 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+                A1000073294A0000000000003 /* ServerConfigurationConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigurationConstants.swift; sourceTree = "<group>"; };
+                A1000075294A0000000000001 /* HealthDataManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManagerTests.swift; sourceTree = "<group>"; };
+                AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
+                AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
+                ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
+                CB34ACDDAF1E4EFC992C2ACC7F45A1F8 /* AudioRecordingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingManager.swift; sourceTree = "<group>"; };
+                AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageInputView.swift; sourceTree = "<group>"; };
 		B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
 		C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataContextSelector.swift; sourceTree = "<group>"; };
 		DEF123456789BACKUP00001 /* iCloudBackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupManager.swift; sourceTree = "<group>"; };
 		DEF123456789BACKUP00002 /* BackupManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManagementView.swift; sourceTree = "<group>"; };
-		DEF123456789BACKUP00003 /* iCloudBackupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupTests.swift; sourceTree = "<group>"; };
-		ENT123456789ENTITLE0001 /* HealthApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthApp.entitlements; sourceTree = "<group>"; };
-		H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
+                DEF123456789BACKUP00003 /* iCloudBackupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupTests.swift; sourceTree = "<group>"; };
+                ENT123456789ENTITLE0001 /* HealthApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthApp.entitlements; sourceTree = "<group>"; };
+                F5136BE18BC4427CA3CD909C4F772FE3 /* StartAudioRecordingIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartAudioRecordingIntent.swift; sourceTree = "<group>"; };
+                H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
 		HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIntegrationTests.swift; sourceTree = "<group>"; };
 		I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
 		JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderSection.swift; sourceTree = "<group>"; };
@@ -242,11 +248,12 @@
 				A1000012294A0000000000001 /* Views */,
 				A1000013294A0000000000001 /* ViewModels */,
 				A1000076294A0000000000001 /* Managers */,
-				A1000014294A0000000000001 /* Services */,
-				A1000015294A0000000000001 /* Database */,
-				A1000016294A0000000000001 /* Utils */,
-				A1000002294A0000000000001 /* HealthAppApp.swift */,
-				A1000004294A0000000000001 /* ContentView.swift */,
+                                A1000014294A0000000000001 /* Services */,
+                                A1000015294A0000000000001 /* Database */,
+                                A1000016294A0000000000001 /* Utils */,
+                                DF39659CEBB54E9B81F49938870D7FD0 /* Intents */,
+                                A1000002294A0000000000001 /* HealthAppApp.swift */,
+                                A1000004294A0000000000001 /* ContentView.swift */,
 				A1000006294A0000000000001 /* Assets.xcassets */,
 				ENT123456789ENTITLE0001 /* HealthApp.entitlements */,
 				A1000009294A0000000000002 /* Preview Content */,
@@ -295,10 +302,11 @@
 				1427C6512E66847000EBEFB0 /* DocumentGridView.swift */,
 				DEF123456789BACKUP00002 /* BackupManagementView.swift */,
 				1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */,
-				4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */,
-				5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */,
-				0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */,
-				H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */,
+                                4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */,
+                                5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */,
+                                0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */,
+                                149DC9546A97449F84555DDE46649BC3 /* AudioRecordingBanner.swift */,
+                                H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */,
 				I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */,
 				NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */,
 				TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */,
@@ -350,19 +358,27 @@
 			path = Database;
 			sourceTree = "<group>";
 		};
-		A1000016294A0000000000001 /* Utils */ = {
-			isa = PBXGroup;
-			children = (
-				A1000055294A0000000000001 /* FileSystemManager.swift */,
-				A1000057294A0000000000001 /* DocumentImporter.swift */,
-				A1000059294A0000000000001 /* DocumentExporter.swift */,
-				A1000073294A0000000000001 /* Keychain.swift */,
-				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
-			);
-			path = Utils;
-			sourceTree = "<group>";
-		};
-		A1000035294A0000000000001 /* HealthAppTests */ = {
+                A1000016294A0000000000001 /* Utils */ = {
+                        isa = PBXGroup;
+                        children = (
+                                A1000055294A0000000000001 /* FileSystemManager.swift */,
+                                A1000057294A0000000000001 /* DocumentImporter.swift */,
+                                A1000059294A0000000000001 /* DocumentExporter.swift */,
+                                A1000073294A0000000000001 /* Keychain.swift */,
+                                A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
+                        );
+                        path = Utils;
+                        sourceTree = "<group>";
+                };
+                DF39659CEBB54E9B81F49938870D7FD0 /* Intents */ = {
+                        isa = PBXGroup;
+                        children = (
+                                F5136BE18BC4427CA3CD909C4F772FE3 /* StartAudioRecordingIntent.swift */,
+                        );
+                        path = Intents;
+                        sourceTree = "<group>";
+                };
+                A1000035294A0000000000001 /* HealthAppTests */ = {
 			isa = PBXGroup;
 			children = (
 				A1000033294A0000000000001 /* ModelTests.swift */,
@@ -378,15 +394,16 @@
 			path = HealthAppTests;
 			sourceTree = "<group>";
 		};
-		A1000076294A0000000000001 /* Managers */ = {
-			isa = PBXGroup;
-			children = (
-				A1000071294A0000000000001 /* HealthDataManager.swift */,
-				ADE33702D7631403A9F76CF91 /* AIChatManager.swift */,
-				AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */,
-				50F48E6CF308D42C7D377B84 /* SettingsManager.swift */,
-				DEF123456789BACKUP00001 /* iCloudBackupManager.swift */,
-			);
+                A1000076294A0000000000001 /* Managers */ = {
+                        isa = PBXGroup;
+                        children = (
+                                A1000071294A0000000000001 /* HealthDataManager.swift */,
+                                ADE33702D7631403A9F76CF91 /* AIChatManager.swift */,
+                                AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */,
+                                CB34ACDDAF1E4EFC992C2ACC7F45A1F8 /* AudioRecordingManager.swift */,
+                                50F48E6CF308D42C7D377B84 /* SettingsManager.swift */,
+                                DEF123456789BACKUP00001 /* iCloudBackupManager.swift */,
+                        );
 			path = Managers;
 			sourceTree = "<group>";
 		};
@@ -498,8 +515,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1000003294A0000000000001 /* ContentView.swift in Sources */,
-				A1000001294A0000000000001 /* HealthAppApp.swift in Sources */,
+                                A1000003294A0000000000001 /* ContentView.swift in Sources */,
+                                A1000001294A0000000000001 /* HealthAppApp.swift in Sources */,
+                                D4C27B663BE24511B2DF978186086B59 /* StartAudioRecordingIntent.swift in Sources */,
 				1434469B2E78BCAC00961754 /* MedicalConditionEditorView.swift in Sources */,
 				143446952E78B62F00961754 /* MedicationsListView.swift in Sources */,
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
@@ -532,18 +550,20 @@
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
 				A1000062294A0000000000001 /* OllamaClient.swift in Sources */,
 				A1000064294A0000000000001 /* DoclingClient.swift in Sources */,
-				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
-				A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
-				A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */,
+                                A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
+                                A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
+                                69A425084D0A49F2B722B9BE3B618BCD /* AudioRecordingManager.swift in Sources */,
+                                A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */,
 				143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */,
 				A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */,
 				A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */,
 				A1000072294A0000000000001 /* Keychain.swift in Sources */,
 				A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */,
 				7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */,
-				LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */,
-				UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */,
-				9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */,
+                                LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */,
+                                UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */,
+                                7909B54D092E4D87950F4DF68B24E37B /* AudioRecordingBanner.swift in Sources */,
+                                9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */,
 				XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */,
 				9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */,
 				14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */,
@@ -731,8 +751,9 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "BisonHealth AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
+                            INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
+                            INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app uses the microphone to capture health notes and voice recordings.";
+                            INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -770,8 +791,9 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "BisonHealth AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
+                            INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
+                            INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app uses the microphone to capture health notes and voice recordings.";
+                            INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
