@@ -198,6 +198,7 @@ class BloodTestMappingService: ObservableObject {
         - Use "Normal" if no abnormal flag is present
         - Be precise with test names as they appear in the document
         - Include common variations (HbA1c, A1C, Hemoglobin A1c, etc.)
+        - Pay attention to extended panels such as CBC differentials (RDW, MPV, neutrophil %, lymphocyte %, monocyte %, basophil %, immature granulocytes, reticulocyte count), metabolic and electrolyte markers (CO2/Bicarbonate, Anion Gap, Phosphorus, Magnesium, Serum Osmolality, BUN/Creatinine Ratio, Cystatin C), lipid risk markers (Non-HDL Cholesterol, Apolipoprotein B, Lipoprotein(a)), thyroid antibodies (Thyroid Peroxidase Antibodies, Thyroglobulin Antibody), diabetes markers (Fructosamine), inflammatory and coagulation markers (High-Sensitivity CRP, Procalcitonin, D-Dimer), cardiac markers (CK-MB, Homocysteine), and micronutrients (Zinc, Copper, Selenium, Vitamins A/B6/C/E, Coenzyme Q10, Iodine).
         """
 
         let aiResponse = try await aiClient.sendMessage(prompt, context: "")

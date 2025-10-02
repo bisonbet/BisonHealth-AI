@@ -348,7 +348,9 @@ class DocumentProcessor: ObservableObject {
             extractStructuredData: true,
             extractImages: document.fileType.isImage,
             ocrEnabled: true,
-            language: "en"
+            language: "en",
+            bloodTestExtractionHints: BloodTestResult.bloodTestExtractionHint,
+            targetedLabKeys: Array(BloodTestResult.standardizedLabParameters.keys).sorted()
         )
         print("⚙️ DocumentProcessor: Processing options configured for \(document.fileType.displayName)")
         

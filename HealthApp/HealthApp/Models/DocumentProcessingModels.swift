@@ -57,18 +57,24 @@ struct ProcessingOptions: Codable {
     let extractImages: Bool
     let ocrEnabled: Bool
     let language: String?
-    
+    let bloodTestExtractionHints: String?
+    let targetedLabKeys: [String]?
+
     init(
         extractText: Bool = true,
         extractStructuredData: Bool = true,
         extractImages: Bool = false,
         ocrEnabled: Bool = true,
-        language: String? = "en"
+        language: String? = "en",
+        bloodTestExtractionHints: String? = nil,
+        targetedLabKeys: [String]? = nil
     ) {
         self.extractText = extractText
         self.extractStructuredData = extractStructuredData
         self.extractImages = extractImages
         self.ocrEnabled = ocrEnabled
         self.language = language
+        self.bloodTestExtractionHints = bloodTestExtractionHints
+        self.targetedLabKeys = targetedLabKeys
     }
 }
