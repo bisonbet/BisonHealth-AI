@@ -17,7 +17,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     
     enum ResetType {
-        case servers, backup, preferences, all, database
+        case servers, backup, preferences, all, database, disclaimer
         
         var title: String {
             switch self {
@@ -26,6 +26,7 @@ struct SettingsView: View {
             case .preferences: return "Reset App Preferences"
             case .all: return "Reset All Settings"
             case .database: return "Reset Database"
+            case .disclaimer: return "Reset Disclaimer Acceptance"
             }
         }
         
@@ -36,6 +37,7 @@ struct SettingsView: View {
             case .preferences: return "This will reset app preferences to defaults."
             case .all: return "This will reset all settings to their default values."
             case .database: return "⚠️ WARNING: This will permanently delete ALL your health data, documents, and chat history. This action cannot be undone. A backup will be created first."
+            case .disclaimer: return "This will reset the disclaimer acceptance. You will need to accept the disclaimer again on next app launch."
             }
         }
     }
@@ -43,6 +45,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                disclaimerSection
                 serverConfigurationSection
                 modelSelectionSection
                 backupSection
@@ -73,6 +76,13 @@ struct SettingsView: View {
                         
                         Button("Reset All Settings", role: .destructive) {
                             resetType = .all
+                            showingResetAlert = true
+                        }
+                        
+                        Divider()
+                        
+                        Button("Reset Disclaimer Acceptance", role: .destructive) {
+                            resetType = .disclaimer
                             showingResetAlert = true
                         }
                     } label: {
@@ -138,6 +148,29 @@ struct SettingsView: View {
     
     private var serverConfigurationSection: some View {
         Section("AI Services") {
+            // External services disclaimer
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.title3)
+                    
+                    Text("External Services Notice")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                }
+                
+                Text("Enabling external AI services means your data may leave your device for processing. These services are not HIPAA compliant and should only be used for personal health data management.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 24)
+            }
+            .padding(.vertical, 8)
+            .background(Color.orange.opacity(0.1))
+            .cornerRadius(8)
+            
             VStack(alignment: .leading, spacing: 12) {
                 serverConfigCard(
                     title: "Ollama Server",
@@ -443,6 +476,29 @@ struct SettingsView: View {
 
     private var backupSection: some View {
         Section("iCloud Backup") {
+            // iCloud backup disclaimer
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.title3)
+                    
+                    Text("iCloud Backup Notice")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                }
+                
+                Text("iCloud backup is an optional convenience for personal use. Apple does not provide a Business Associate Agreement (BAA) for iCloud services. If you need regulated storage, you should disable iCloud backup.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 24)
+            }
+            .padding(.vertical, 8)
+            .background(Color.blue.opacity(0.1))
+            .cornerRadius(8)
+            
             // Main backup toggle with status
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Enable iCloud Backup", isOn: $settingsManager.backupSettings.iCloudEnabled)
@@ -642,6 +698,59 @@ struct SettingsView: View {
                 }
                 .foregroundColor(.red)
             }
+        }
+    }
+    
+    // MARK: - Disclaimer Section
+    
+    private var disclaimerSection: some View {
+        Section("Important Notice") {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.title2)
+                    
+                    Text("Personal Use Only")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                }
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("BisonHealth AI is designed exclusively for individual, personal health tracking and management.")
+                        .font(.body)
+                    
+                    Text("This application is NOT intended for use by:")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .padding(.top, 8)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("• HIPAA Covered Entities")
+                        Text("• Business Associates")
+                        Text("• Healthcare providers or clinics")
+                        Text("• Professional or enterprise environments")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 8)
+                    
+                    Text("We do not provide Business Associate Agreements (BAAs) or HIPAA-compliant guarantees.")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .fontWeight(.medium)
+                        .padding(.top, 8)
+                }
+                
+                NavigationLink("View Full Disclaimer") {
+                    DetailedDisclaimerView()
+                }
+                .buttonStyle(.bordered)
+                .font(.caption)
+            }
+            .padding(.vertical, 8)
         }
     }
     
@@ -855,6 +964,9 @@ struct SettingsView: View {
             successMessage = "All settings have been reset to defaults"
         case .database:
             performDatabaseReset()
+        case .disclaimer:
+            AppSettingsManager.shared.resetDisclaimerAcceptance()
+            successMessage = "Disclaimer acceptance has been reset. You will need to accept the disclaimer again on next app launch."
         }
         
         // Update app state if preferences were reset

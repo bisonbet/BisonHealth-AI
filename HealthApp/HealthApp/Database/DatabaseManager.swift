@@ -19,7 +19,7 @@ class DatabaseManager: ObservableObject {
     private let databaseURL: URL
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 2 // Increment when making schema changes
+    private static let currentDatabaseVersion = 3 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
@@ -153,6 +153,9 @@ class DatabaseManager: ObservableObject {
                 t.column(versionNumber, primaryKey: true)
                 t.column(versionCreatedAt)
             })
+            
+            // Create app_settings table
+            try createAppSettingsTable()
 
             // Handle database migrations
             try performDatabaseMigration(db: db)
@@ -233,6 +236,11 @@ class DatabaseManager: ObservableObject {
             // Migration for version 2: Added personalMedicalHistory to PersonalHealthInfo
             // This migration is data-safe since we're only adding a field with a default value
             print("   ✓ Added support for personal medical history")
+            
+        case 3:
+            // Migration for version 3: Added app_settings table for disclaimer acceptance
+            try createAppSettingsTable()
+            print("   ✓ Added app_settings table for disclaimer management")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
@@ -320,6 +328,9 @@ class DatabaseManager: ObservableObject {
             t.column(versionNumber, primaryKey: true)
             t.column(versionCreatedAt)
         })
+        
+        // Create app_settings table
+        try createAppSettingsTable()
 
         // Handle database migrations
         try performDatabaseMigration(db: db)

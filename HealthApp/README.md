@@ -2,6 +2,10 @@
 
 A privacy-first iOS application for personal health data management with AI-powered assistance.
 
+> **⚠️ IMPORTANT: Personal Use Only**
+> 
+> This application is designed exclusively for individual, personal health tracking and management. It is **NOT** intended for use by HIPAA Covered Entities, Business Associates, or any professional, clinical, or enterprise environments. We do not provide Business Associate Agreements (BAAs) or HIPAA-compliant guarantees.
+
 ## Features
 
 - **Local Data Storage**: All health data is stored locally on your device with encryption
@@ -41,13 +45,15 @@ The app follows a modular MVVM architecture with the following layers:
 3. Configure server connections in Settings
 4. Start importing your health documents
 
-## Privacy
+## Privacy & Personal Use
 
-This app prioritizes your privacy:
+This app prioritizes your privacy for personal health management:
 - All health data is encrypted and stored locally
 - External services are used only for processing, not storage
 - iCloud backup is optional and encrypted
 - No analytics or tracking
+- **Personal Use Only**: Designed for individual health tracking, not professional healthcare
+- **Not HIPAA Compliant**: We do not provide BAAs or regulated hosting guarantees
 
 ## License
 

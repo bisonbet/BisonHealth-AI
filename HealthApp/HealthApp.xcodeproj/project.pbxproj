@@ -92,6 +92,10 @@
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
 		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
+		HIPAA001B /* AppSettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA001 /* AppSettingsManager.swift */; };
+		HIPAA002B /* FirstLaunchDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA002 /* FirstLaunchDisclaimerView.swift */; };
+		HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA003 /* DatabaseManager+AppSettings.swift */; };
+		HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA004 /* UserDefaults+FirstLaunch.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -188,6 +192,10 @@
 		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
 		X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessingIntegrationTests.swift; sourceTree = "<group>"; };
 		Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentListView.swift; sourceTree = "<group>"; };
+		HIPAA001 /* AppSettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsManager.swift; sourceTree = "<group>"; };
+		HIPAA002 /* FirstLaunchDisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunchDisclaimerView.swift; sourceTree = "<group>"; };
+		HIPAA003 /* DatabaseManager+AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+AppSettings.swift"; sourceTree = "<group>"; };
+		HIPAA004 /* UserDefaults+FirstLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UserDefaults+FirstLaunch.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -314,6 +322,7 @@
 				MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */,
 				7DBD421D8370DAE5B6FC9FB1 /* SettingsView.swift */,
 				68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */,
+				HIPAA002 /* FirstLaunchDisclaimerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -346,6 +355,7 @@
 				A1000045294A0000000000001 /* DatabaseManager+HealthData.swift */,
 				A1000047294A0000000000001 /* DatabaseManager+Documents.swift */,
 				A1000049294A0000000000001 /* DatabaseManager+Chat.swift */,
+				HIPAA003 /* DatabaseManager+AppSettings.swift */,
 			);
 			path = Database;
 			sourceTree = "<group>";
@@ -358,6 +368,7 @@
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
 				A1000073294A0000000000001 /* Keychain.swift */,
 				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
+				HIPAA004 /* UserDefaults+FirstLaunch.swift */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -386,6 +397,7 @@
 				AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */,
 				50F48E6CF308D42C7D377B84 /* SettingsManager.swift */,
 				DEF123456789BACKUP00001 /* iCloudBackupManager.swift */,
+				HIPAA001 /* AppSettingsManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -567,6 +579,10 @@
 				UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */,
 				ABC123456789BACKUP00001 /* iCloudBackupManager.swift in Sources */,
 				ABC123456789BACKUP00002 /* BackupManagementView.swift in Sources */,
+				HIPAA001B /* AppSettingsManager.swift in Sources */,
+				HIPAA002B /* FirstLaunchDisclaimerView.swift in Sources */,
+				HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */,
+				HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

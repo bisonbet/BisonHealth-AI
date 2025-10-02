@@ -15,7 +15,11 @@
 
 ## 🌟 Overview
 
-BisonHealth AI is a privacy-first iOS application that empowers users to take complete control of their health data. By leveraging AI and personal health information, BisonHealth AI provides a private assistant that helps users better understand and manage their health - all while keeping sensitive data securely stored locally on their device.
+BisonHealth AI is a privacy-first iOS application that empowers users to take complete control of their personal health data. By leveraging AI and personal health information, BisonHealth AI provides a private assistant that helps users better understand and manage their health - all while keeping sensitive data securely stored locally on their device.
+
+> **⚠️ IMPORTANT: Personal Use Only**
+> 
+> BisonHealth AI is designed exclusively for individual, personal health tracking and management. This application is **NOT** intended for use by HIPAA Covered Entities, Business Associates, or any professional, clinical, or enterprise environments. We do not provide Business Associate Agreements (BAAs) or HIPAA-compliant guarantees. Users assume full responsibility for their own data choices and usage decisions.
 
 ### ✨ Key Features
 
@@ -27,6 +31,21 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 - 📊 **Data Export** - Export your data in JSON or PDF formats
 - 🌙 **Accessibility** - Full support for Dark Mode, VoiceOver, and Dynamic Type
 - ☁️ **Optional iCloud Backup** - Secure, encrypted backup with granular control
+
+## 🚫 Personal Use Only - Not HIPAA Compliant
+
+**BisonHealth AI is designed exclusively for individual, personal health management and is NOT suitable for professional, clinical, or enterprise use.**
+
+### What This Means:
+- ✅ **Personal Health Records**: Perfect for individuals managing their own health data
+- ✅ **Consumer Privacy**: Built with consumer-grade privacy protections
+- ✅ **Individual Control**: You maintain complete control over your personal data
+- ❌ **No HIPAA Compliance**: We do not provide Business Associate Agreements (BAAs)
+- ❌ **No Professional Use**: Not intended for healthcare providers, clinics, or organizations
+- ❌ **No Regulated Hosting**: We do not offer HIPAA-compliant hosting or guarantees
+
+### Your Responsibility:
+As a user, you are responsible for ensuring that your use of BisonHealth AI complies with all applicable laws and regulations. If you are a healthcare provider or work in a regulated environment, you must not use this application for managing patient data or any professional healthcare activities.
 
 ## 🏗️ Architecture
 
@@ -187,13 +206,15 @@ We welcome contributions! Please see our contributing guidelines for details on:
 
 ## 🔒 Privacy & Security
 
-BisonHealth AI is built with privacy as the foundation:
+BisonHealth AI is built with privacy as the foundation for personal health data management:
 
 - **Local-First** - All sensitive data stays on your device
 - **Encryption** - Health data encrypted using CryptoKit
 - **No Tracking** - No analytics, tracking, or data collection
 - **Open Source** - Transparent, auditable codebase
 - **User Control** - You decide what data to backup or export
+- **Personal Use Only** - Designed for individual health management, not professional healthcare
+- **Consumer-Grade Protection** - Privacy safeguards appropriate for personal use, not HIPAA compliance
 
 ## 📄 License
 

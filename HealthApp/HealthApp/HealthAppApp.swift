@@ -3,12 +3,19 @@ import SwiftUI
 @main
 struct HealthAppApp: App {
     @StateObject private var appState = AppState()
+    @StateObject private var appSettingsManager = AppSettingsManager.shared
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appState)
-                .preferredColorScheme(appState.colorScheme)
+            if appSettingsManager.shouldShowDisclaimer {
+                FirstLaunchDisclaimerView {
+                    appSettingsManager.acceptDisclaimer()
+                }
+            } else {
+                ContentView()
+                    .environmentObject(appState)
+                    .preferredColorScheme(appState.colorScheme)
+            }
         }
     }
 }
