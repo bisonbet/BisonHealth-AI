@@ -8,34 +8,43 @@ import PhotosUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
-    
+
     var body: some View {
-        TabView {
-            HealthDataView()
-                .tabItem {
-                    Image(systemName: "heart.fill")
-                    Text("Health Data")
-                }
-            
-            DocumentsView()
-                .tabItem {
-                    Image(systemName: "doc.fill")
-                    Text("Documents")
-                }
-            
-            ChatView()
-                .tabItem {
-                    Image(systemName: "message.fill")
-                    Text("AI Chat")
-                }
-            
-            SettingsView()
-                .tabItem {
-                    Image(systemName: "gear")
-                    Text("Settings")
-                }
+        ZStack(alignment: .top) {
+            TabView {
+                HealthDataView()
+                    .tabItem {
+                        Image(systemName: "heart.fill")
+                        Text("Health Data")
+                    }
+
+                DocumentsView()
+                    .tabItem {
+                        Image(systemName: "doc.fill")
+                        Text("Documents")
+                    }
+
+                ChatView()
+                    .tabItem {
+                        Image(systemName: "message.fill")
+                        Text("AI Chat")
+                    }
+
+                SettingsView()
+                    .tabItem {
+                        Image(systemName: "gear")
+                        Text("Settings")
+                    }
+            }
+            .accentColor(.blue)
+
+            // Global offline indicator
+            VStack {
+                OfflineIndicatorView()
+                Spacer()
+            }
+            .ignoresSafeArea(edges: .top)
         }
-        .accentColor(.blue)
     }
 }
 

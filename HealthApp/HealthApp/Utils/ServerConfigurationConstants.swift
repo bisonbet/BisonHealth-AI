@@ -6,9 +6,12 @@ struct ServerConfigurationConstants {
     // MARK: - Default Server Settings
     static let defaultOllamaHostname = "localhost"
     static let defaultOllamaPort = 11434
-    
+
     static let defaultDoclingHostname = "localhost"
     static let defaultDoclingPort = 5001
+
+    static let defaultOpenAICompatibleBaseURL = "http://localhost:4000"
+    static let defaultOpenAICompatibleAPIKey = ""
     
     // MARK: - URL Construction Helpers
     static func buildOllamaURL(hostname: String, port: Int) -> URL? {

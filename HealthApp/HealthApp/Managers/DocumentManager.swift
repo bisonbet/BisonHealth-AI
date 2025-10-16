@@ -35,6 +35,8 @@ class DocumentManager: ObservableObject {
     private let documentProcessor: DocumentProcessor
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
+    private let networkManager = NetworkManager.shared
+    private let pendingOperationsManager = PendingOperationsManager.shared
     
     // MARK: - Computed Properties
     var filteredDocuments: [HealthDocument] {
@@ -235,12 +237,32 @@ class DocumentManager: ObservableObject {
     
     // MARK: - Document Processing
     func processDocument(_ document: HealthDocument, immediately: Bool = false) async {
+        // Check network connectivity before processing
+        guard networkManager.isConnected else {
+            print("⚠️ DocumentManager: Network unavailable, queueing document for processing")
+            await pendingOperationsManager.queueDocumentProcessing(
+                documentId: document.id,
+                immediately: immediately
+            )
+            return
+        }
+
         if immediately {
             do {
                 _ = try await documentProcessor.processDocumentImmediately(document)
                 await refreshDocuments()
             } catch {
                 lastError = error
+
+                // Queue for retry if network error
+                let networkError = NetworkError.from(error: error)
+                if networkError.isRetryable {
+                    print("⚠️ DocumentManager: Network error, queueing document for retry")
+                    await pendingOperationsManager.queueDocumentProcessing(
+                        documentId: document.id,
+                        immediately: immediately
+                    )
+                }
             }
         } else {
             await documentProcessor.addToQueue(document, priority: .normal)

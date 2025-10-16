@@ -8,6 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */; };
+		1423481A2EA07B3300059087 /* NetworkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348162EA07B3300059087 /* NetworkError.swift */; };
+		1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348182EA07B3300059087 /* PendingOperationsManager.swift */; };
+		1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348172EA07B3300059087 /* NetworkManager.swift */; };
+		1423481E2EA07B4E00059087 /* OfflineIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */; };
+		142348202EA07B6300059087 /* NetworkingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1423481F2EA07B6300059087 /* NetworkingTests.swift */; };
+		142348222EA07F5D00059087 /* OpenAICompatibleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348212EA07F5D00059087 /* OpenAICompatibleSettingsView.swift */; };
+		142348242EA07F6D00059087 /* OpenAICompatibleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348232EA07F6D00059087 /* OpenAICompatibleClient.swift */; };
 		1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */ = {isa = PBXBuildFile; productRef = 1427C64A2E667B2500EBEFB0 /* Ollama */; };
 		1427C6532E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */; };
 		1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */; };
@@ -30,6 +37,7 @@
 		143446AC2E78E6FC00961754 /* AWSCredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */; };
 		143446AD2E78E6FC00961754 /* BedrockClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A92E78E6FC00961754 /* BedrockClient.swift */; };
 		143446AE2E78E6FC00961754 /* AWSCredentialsHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */; };
+		145D8D332EA1941E000BB28A /* OllamaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */; };
 		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
 		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
 		14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */; };
@@ -83,6 +91,10 @@
 		D715EC3156258AF86CC36B19 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DBD421D8370DAE5B6FC9FB1 /* SettingsView.swift */; };
 		DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */; };
 		E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */; };
+		HIPAA001B /* AppSettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA001 /* AppSettingsManager.swift */; };
+		HIPAA002B /* FirstLaunchDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA002 /* FirstLaunchDisclaimerView.swift */; };
+		HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA003 /* DatabaseManager+AppSettings.swift */; };
+		HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA004 /* UserDefaults+FirstLaunch.swift */; };
 		HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */; };
 		IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */; };
 		LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */; };
@@ -92,10 +104,6 @@
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
 		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
-		HIPAA001B /* AppSettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA001 /* AppSettingsManager.swift */; };
-		HIPAA002B /* FirstLaunchDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA002 /* FirstLaunchDisclaimerView.swift */; };
-		HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA003 /* DatabaseManager+AppSettings.swift */; };
-		HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA004 /* UserDefaults+FirstLaunch.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -111,6 +119,13 @@
 /* Begin PBXFileReference section */
 		0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmptyStateView.swift; sourceTree = "<group>"; };
 		0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoSection.swift; sourceTree = "<group>"; };
+		142348162EA07B3300059087 /* NetworkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkError.swift; sourceTree = "<group>"; };
+		142348172EA07B3300059087 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
+		142348182EA07B3300059087 /* PendingOperationsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingOperationsManager.swift; sourceTree = "<group>"; };
+		1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineIndicatorView.swift; sourceTree = "<group>"; };
+		1423481F2EA07B6300059087 /* NetworkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkingTests.swift; sourceTree = "<group>"; };
+		142348212EA07F5D00059087 /* OpenAICompatibleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleSettingsView.swift; sourceTree = "<group>"; };
+		142348232EA07F6D00059087 /* OpenAICompatibleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleClient.swift; sourceTree = "<group>"; };
 		1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchProcessingView.swift; sourceTree = "<group>"; };
 		1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailView.swift; sourceTree = "<group>"; };
 		1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSidebarView.swift; sourceTree = "<group>"; };
@@ -129,6 +144,7 @@
 		143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsHelper.swift; sourceTree = "<group>"; };
 		143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsManager.swift; sourceTree = "<group>"; };
 		143446A92E78E6FC00961754 /* BedrockClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BedrockClient.swift; sourceTree = "<group>"; };
+		145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaSettingsView.swift; sourceTree = "<group>"; };
 		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
 		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
 		14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
@@ -182,6 +198,10 @@
 		DEF123456789BACKUP00003 /* iCloudBackupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupTests.swift; sourceTree = "<group>"; };
 		ENT123456789ENTITLE0001 /* HealthApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthApp.entitlements; sourceTree = "<group>"; };
 		H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
+		HIPAA001 /* AppSettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsManager.swift; sourceTree = "<group>"; };
+		HIPAA002 /* FirstLaunchDisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunchDisclaimerView.swift; sourceTree = "<group>"; };
+		HIPAA003 /* DatabaseManager+AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+AppSettings.swift"; sourceTree = "<group>"; };
+		HIPAA004 /* UserDefaults+FirstLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UserDefaults+FirstLaunch.swift"; sourceTree = "<group>"; };
 		HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIntegrationTests.swift; sourceTree = "<group>"; };
 		I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
 		JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderSection.swift; sourceTree = "<group>"; };
@@ -192,10 +212,6 @@
 		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
 		X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessingIntegrationTests.swift; sourceTree = "<group>"; };
 		Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentListView.swift; sourceTree = "<group>"; };
-		HIPAA001 /* AppSettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsManager.swift; sourceTree = "<group>"; };
-		HIPAA002 /* FirstLaunchDisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunchDisclaimerView.swift; sourceTree = "<group>"; };
-		HIPAA003 /* DatabaseManager+AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+AppSettings.swift"; sourceTree = "<group>"; };
-		HIPAA004 /* UserDefaults+FirstLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UserDefaults+FirstLaunch.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -221,6 +237,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		142348192EA07B3300059087 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				142348162EA07B3300059087 /* NetworkError.swift */,
+				142348172EA07B3300059087 /* NetworkManager.swift */,
+				142348182EA07B3300059087 /* PendingOperationsManager.swift */,
+			);
+			name = Networking;
+			path = HealthApp/Networking;
+			sourceTree = SOURCE_ROOT;
+		};
 		A1000000294A0000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -296,6 +323,7 @@
 				143446942E78B62F00961754 /* MedicationsListView.swift */,
 				143446902E788EE800961754 /* DoctorSelectorView.swift */,
 				1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */,
+				142348212EA07F5D00059087 /* OpenAICompatibleSettingsView.swift */,
 				1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */,
 				1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */,
 				1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */,
@@ -315,8 +343,10 @@
 				C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */,
 				AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */,
 				B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */,
+				1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */,
 				4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */,
 				0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */,
+				145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */,
 				JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */,
 				AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */,
 				MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */,
@@ -341,6 +371,7 @@
 				143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */,
 				143446A92E78E6FC00961754 /* BedrockClient.swift */,
 				A1000063294A0000000000001 /* OllamaClient.swift */,
+				142348232EA07F6D00059087 /* OpenAICompatibleClient.swift */,
 				A1000065294A0000000000001 /* DoclingClient.swift */,
 				A1000067294A0000000000001 /* AIProviderInterface.swift */,
 				AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */,
@@ -363,6 +394,7 @@
 		A1000016294A0000000000001 /* Utils */ = {
 			isa = PBXGroup;
 			children = (
+				142348192EA07B3300059087 /* Networking */,
 				A1000055294A0000000000001 /* FileSystemManager.swift */,
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
@@ -381,6 +413,7 @@
 				A1000061294A0000000000001 /* FileSystemTests.swift */,
 				A1000069294A0000000000001 /* ServiceClientTests.swift */,
 				A1000075294A0000000000001 /* HealthDataManagerTests.swift */,
+				1423481F2EA07B6300059087 /* NetworkingTests.swift */,
 				TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */,
 				HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */,
 				X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */,
@@ -516,6 +549,9 @@
 				143446952E78B62F00961754 /* MedicationsListView.swift in Sources */,
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
 				143446972E78B62F00961754 /* FamilyHistoryEditorView.swift in Sources */,
+				1423481A2EA07B3300059087 /* NetworkError.swift in Sources */,
+				1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */,
+				1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */,
 				A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */,
 				A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */,
 				A1000024294A0000000000001 /* BloodTestResult.swift in Sources */,
@@ -526,6 +562,7 @@
 				143446AE2E78E6FC00961754 /* AWSCredentialsHelper.swift in Sources */,
 				A1000030294A0000000000001 /* ChatModels.swift in Sources */,
 				A1000031294A0000000000002 /* DocumentProcessingModels.swift in Sources */,
+				142348222EA07F5D00059087 /* OpenAICompatibleSettingsView.swift in Sources */,
 				A1000042294A0000000000001 /* DatabaseManager.swift in Sources */,
 				A1000044294A0000000000001 /* DatabaseManager+HealthData.swift in Sources */,
 				A1000046294A0000000000001 /* DatabaseManager+Documents.swift in Sources */,
@@ -543,6 +580,7 @@
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
 				A1000062294A0000000000001 /* OllamaClient.swift in Sources */,
+				145D8D332EA1941E000BB28A /* OllamaSettingsView.swift in Sources */,
 				A1000064294A0000000000001 /* DoclingClient.swift in Sources */,
 				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
 				A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
@@ -561,6 +599,7 @@
 				14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */,
 				14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */,
 				1F9QEPD2UW2P9MS5P9CK80LF /* DocumentCameraView.swift in Sources */,
+				142348242EA07F6D00059087 /* OpenAICompatibleClient.swift in Sources */,
 				7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */,
 				43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */,
 				NOGIZO9RJZY59O1P2JP03MX6 /* HealthDataContextSelector.swift in Sources */,
@@ -575,6 +614,7 @@
 				DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */,
 				AP42ZSRFIED99JHF9ESMG04E /* StorageUsageView.swift in Sources */,
 				55083952F69E6067ECDDADD5 /* SettingsManager.swift in Sources */,
+				1423481E2EA07B4E00059087 /* OfflineIndicatorView.swift in Sources */,
 				D715EC3156258AF86CC36B19 /* SettingsView.swift in Sources */,
 				UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */,
 				ABC123456789BACKUP00001 /* iCloudBackupManager.swift in Sources */,
@@ -593,6 +633,7 @@
 				A1000032294A0000000000001 /* ModelTests.swift in Sources */,
 				A1000052294A0000000000001 /* DatabaseTests.swift in Sources */,
 				A1000060294A0000000000001 /* FileSystemTests.swift in Sources */,
+				142348202EA07B6300059087 /* NetworkingTests.swift in Sources */,
 				A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */,
 				A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */,
 				HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */,

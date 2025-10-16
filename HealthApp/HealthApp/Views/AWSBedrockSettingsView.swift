@@ -36,30 +36,22 @@ struct AWSBedrockSettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                headerSection
+        Form {
+            headerSection
 
-                if enableAWSBedrock {
-                    authenticationSection
-                    modelConfigurationSection
-                    advancedSettingsSection
-                    connectionTestSection
-                    setupInstructionsSection
-                    documentationSection
-                }
-            }
-            .navigationTitle("AWS Bedrock Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
+            if enableAWSBedrock {
+                authenticationSection
+                modelConfigurationSection
+                advancedSettingsSection
+                connectionTestSection
+                setupInstructionsSection
+                documentationSection
             }
         }
+        .navigationTitle("AWS Bedrock Settings")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            print("🔵 AWSBedrockSettingsView.onAppear called")
             // Initialize editing states with current credentials
             editingAccessKey = credentialsManager.credentials.accessKeyId
             editingSecretKey = credentialsManager.credentials.secretAccessKey

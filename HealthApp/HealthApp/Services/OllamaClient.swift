@@ -86,7 +86,9 @@ class OllamaClient: ObservableObject, AIProviderInterface {
             if error is TimeoutError {
                 throw OllamaError.timeout
             }
-            throw OllamaError.requestFailed(error)
+            // Convert to NetworkError for better handling
+            let networkError = NetworkError.from(error: error)
+            throw OllamaError.networkError(networkError)
         }
     }
     
@@ -449,7 +451,7 @@ enum OllamaError: LocalizedError {
     case invalidModel
     case authenticationNotSupported
     case configurationUpdateNotSupported
-    case networkError(Error)
+    case networkError(NetworkError)
     case timeout
     
     var errorDescription: String? {
@@ -470,8 +472,8 @@ enum OllamaError: LocalizedError {
             return "Authentication not supported by Ollama"
         case .configurationUpdateNotSupported:
             return "Configuration updates require app restart"
-        case .networkError(let error):
-            return "Network error: \(error.localizedDescription)"
+        case .networkError(let networkError):
+            return networkError.errorDescription ?? "Network error occurred"
         case .timeout:
             return "Request timed out - document processing took too long"
         }
@@ -493,8 +495,8 @@ enum OllamaError: LocalizedError {
             return "Ollama typically doesn't require authentication"
         case .configurationUpdateNotSupported:
             return "Restart the app to apply configuration changes"
-        case .networkError:
-            return "Check your network connection and server availability"
+        case .networkError(let networkError):
+            return networkError.recoverySuggestion
         case .timeout:
             return "Try using a smaller model or split the document into smaller parts"
         }

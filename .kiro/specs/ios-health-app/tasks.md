@@ -135,7 +135,7 @@
   - Write integration tests for iCloud backup functionality
   - _Requirements: 1.4, 7.1, 7.2, 7.3, 7.4, 7.5_
 
-- [ ] 15. Implement offline functionality and network handling
+- [x] 15. Implement offline functionality and network handling
   - Add network connectivity monitoring throughout the app
   - Implement offline mode with appropriate UI state changes
   - Create operation queuing for when connectivity returns

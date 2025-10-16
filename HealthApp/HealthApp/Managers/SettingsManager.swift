@@ -69,11 +69,24 @@ struct AppPreferences: Equatable {
 enum AIProvider: String, CaseIterable {
     case ollama = "ollama"
     case bedrock = "bedrock"
+    case openAICompatible = "openai_compatible"
 
     var displayName: String {
         switch self {
         case .ollama: return "Ollama"
         case .bedrock: return "AWS Bedrock"
+        case .openAICompatible: return "OpenAI Compatible"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .ollama:
+            return "Local Ollama server for privacy-focused AI"
+        case .bedrock:
+            return "AWS Bedrock cloud AI service"
+        case .openAICompatible:
+            return "OpenAI-compatible servers (LiteLLM, LocalAI, vLLM, etc.)"
         }
     }
 }
@@ -83,6 +96,7 @@ struct ModelPreferences: Equatable {
     var chatModel: String = "llama3.2"     // Default chat model
     var visionModel: String = "llava"      // Default vision model for image processing
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
+    var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet4.rawValue // Default AWS Bedrock model
     var lastUpdated: Date = Date()
 }
@@ -146,10 +160,13 @@ class SettingsManager: ObservableObject {
     // Server configurations
     @Published var ollamaConfig = ServerConfigurationConstants.defaultOllamaConfig
     @Published var doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
-    
+    @Published var openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
+    @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
+
     // Connection statuses
     @Published var ollamaStatus: ConnectionStatus = .unknown
     @Published var doclingStatus: ConnectionStatus = .unknown
+    @Published var openAICompatibleStatus: ConnectionStatus = .unknown
     
     // Backup settings
     @Published var backupSettings = BackupSettings()
@@ -166,6 +183,7 @@ class SettingsManager: ObservableObject {
     // Service clients (lazy loaded)
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
+    private var openAICompatibleClient: OpenAICompatibleClient?
 
     // iCloud backup manager
     @Published var backupManager: iCloudBackupManager?
@@ -177,6 +195,7 @@ class SettingsManager: ObservableObject {
     private let kcOllamaKey = "settings.ollamaConfig.v1"
     private let kcDoclingKey = "settings.doclingConfig.v1"
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
+    private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
 
     // Tracks whether model prefs were loaded from persisted storage
     private var loadedModelPrefsFromStorage: Bool = false
@@ -209,6 +228,17 @@ class SettingsManager: ObservableObject {
         } else if let kcData = try? keychain.retrieve(for: kcDoclingKey),
                   let decoded = try? JSONDecoder().decode(ServerConfiguration.self, from: kcData) {
             doclingConfig = decoded
+        }
+
+        // Load OpenAI-compatible configuration
+        if let storedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL"), !storedBaseURL.isEmpty {
+            openAICompatibleBaseURL = storedBaseURL
+        }
+        if let storedAPIKey = try? keychain.retrieveString(for: kcOpenAICompatibleKey) {
+            openAICompatibleAPIKey = storedAPIKey
+        } else if let legacyAPIKey = userDefaults.string(forKey: "openAICompatibleAPIKey") {
+            // Legacy fallback from older builds
+            openAICompatibleAPIKey = legacyAPIKey
         }
         
         // Load backup settings
@@ -249,6 +279,14 @@ class SettingsManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(doclingConfig) {
             userDefaults.set(encoded, forKey: "doclingConfig")
             _ = try? keychain.store(data: encoded, for: kcDoclingKey)
+        }
+
+        // Save OpenAI-compatible configuration
+        userDefaults.set(openAICompatibleBaseURL, forKey: "openAICompatibleBaseURL")
+        if openAICompatibleAPIKey.isEmpty {
+            _ = try? keychain.delete(for: kcOpenAICompatibleKey)
+        } else {
+            _ = try? keychain.store(string: openAICompatibleAPIKey, for: kcOpenAICompatibleKey)
         }
         
         // Save backup settings
@@ -324,7 +362,40 @@ class SettingsManager: ObservableObject {
             return getOllamaClient()
         case .bedrock:
             return getBedrockClient()
+        case .openAICompatible:
+            return getOpenAICompatibleClient()
         }
+    }
+
+    private func getOpenAICompatibleClient() -> OpenAICompatibleClient {
+        if openAICompatibleClient == nil {
+            let temperature = UserDefaults.standard.double(forKey: "openAICompatibleTemperature")
+            let maxTokens = UserDefaults.standard.integer(forKey: "openAICompatibleMaxTokens")
+
+            // Use defaults if not set
+            let finalTemperature = temperature == 0 ? 0.1 : temperature
+            let finalMaxTokens = maxTokens == 0 ? 2048 : maxTokens
+
+            print("🔧 Creating new OpenAICompatibleClient:")
+            print("   baseURL: '\(openAICompatibleBaseURL)'")
+            print("   apiKey: '\(openAICompatibleAPIKey.isEmpty ? "(empty)" : "(has \(openAICompatibleAPIKey.count) chars)")'")
+            print("   model: '\(modelPreferences.openAICompatibleModel)'")
+            print("   temperature: \(finalTemperature)")
+            print("   maxTokens: \(finalMaxTokens)")
+
+            openAICompatibleClient = OpenAICompatibleClient(
+                baseURL: openAICompatibleBaseURL,
+                apiKey: openAICompatibleAPIKey.isEmpty ? nil : openAICompatibleAPIKey,
+                timeout: 60.0,
+                defaultModel: modelPreferences.openAICompatibleModel,
+                temperature: finalTemperature,
+                maxTokens: finalMaxTokens
+            )
+        } else {
+            print("🔧 Reusing existing OpenAICompatibleClient, updating model to: '\(modelPreferences.openAICompatibleModel)'")
+            openAICompatibleClient?.updateDefaultModel(modelPreferences.openAICompatibleModel)
+        }
+        return openAICompatibleClient!
     }
 
     private func getBedrockClient() -> BedrockClient {
@@ -349,6 +420,11 @@ class SettingsManager: ObservableObject {
     func invalidateClients() {
         ollamaClient = nil
         doclingClient = nil
+        openAICompatibleClient = nil
+    }
+
+    func invalidateOpenAICompatibleClient() {
+        openAICompatibleClient = nil
     }
     
     // MARK: - Validation
@@ -356,6 +432,10 @@ class SettingsManager: ObservableObject {
     func hasValidAWSCredentials() -> Bool {
         let credentials = AWSCredentialsManager.shared.credentials
         return credentials.isValid
+    }
+
+    func hasValidOpenAICompatibleConfig() -> Bool {
+        return !openAICompatibleBaseURL.isEmpty && URL(string: openAICompatibleBaseURL) != nil
     }
 
     func validateServerConfiguration(_ config: ServerConfiguration) -> String? {
@@ -463,6 +543,12 @@ class SettingsManager: ObservableObject {
         doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
         ollamaStatus = .unknown
         doclingStatus = .unknown
+        openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
+        openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
+        openAICompatibleStatus = .unknown
+        modelPreferences.openAICompatibleModel = ""
+        _ = try? keychain.delete(for: kcOpenAICompatibleKey)
+        invalidateOpenAICompatibleClient()
         saveSettings()
     }
     
@@ -485,6 +571,13 @@ class SettingsManager: ObservableObject {
     
     func resetModelPreferences() {
         modelPreferences = ModelPreferences()
+        saveSettings()
+    }
+
+    func updateOpenAICompatibleModel(_ model: String) {
+        modelPreferences.openAICompatibleModel = model
+        modelPreferences.lastUpdated = Date()
+        openAICompatibleClient?.updateDefaultModel(model)
         saveSettings()
     }
     
@@ -664,6 +757,7 @@ extension ModelPreferences: Codable {
         case chatModel
         case visionModel
         case documentModel
+        case openAICompatibleModel
         case bedrockModel
         case lastUpdated
     }
@@ -676,6 +770,7 @@ extension ModelPreferences: Codable {
         self.chatModel = try container.decode(String.self, forKey: .chatModel)
         self.visionModel = try container.decode(String.self, forKey: .visionModel)
         self.documentModel = try container.decode(String.self, forKey: .documentModel)
+        self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet4.rawValue
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
@@ -687,6 +782,7 @@ extension ModelPreferences: Codable {
         try container.encode(chatModel, forKey: .chatModel)
         try container.encode(visionModel, forKey: .visionModel)
         try container.encode(documentModel, forKey: .documentModel)
+        try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }

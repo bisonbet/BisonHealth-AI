@@ -59,6 +59,7 @@ final class SettingsManagerTests: XCTestCase {
     func testDefaultConnectionStatus() {
         XCTAssertEqual(settingsManager.ollamaStatus, .unknown)
         XCTAssertEqual(settingsManager.doclingStatus, .unknown)
+        XCTAssertEqual(settingsManager.openAICompatibleStatus, .unknown)
     }
     
     // MARK: - Configuration Validation Tests
@@ -337,6 +338,7 @@ final class SettingsManagerTests: XCTestCase {
     func testDefaultModelPreferences() {
         XCTAssertEqual(settingsManager.modelPreferences.chatModel, "llama3.2")
         XCTAssertEqual(settingsManager.modelPreferences.visionModel, "llava")
+        XCTAssertEqual(settingsManager.modelPreferences.openAICompatibleModel, "")
         XCTAssertNotNil(settingsManager.modelPreferences.lastUpdated)
     }
     
@@ -351,6 +353,7 @@ final class SettingsManagerTests: XCTestCase {
         // Modify model preferences
         settingsManager.modelPreferences.chatModel = "custom-model"
         settingsManager.modelPreferences.visionModel = "custom-vision-model"
+        settingsManager.modelPreferences.openAICompatibleModel = "custom-openai-model"
         
         // Reset model preferences
         settingsManager.resetModelPreferences()
@@ -358,6 +361,12 @@ final class SettingsManagerTests: XCTestCase {
         // Verify reset to defaults
         XCTAssertEqual(settingsManager.modelPreferences.chatModel, "llama3.2")
         XCTAssertEqual(settingsManager.modelPreferences.visionModel, "llava")
+        XCTAssertEqual(settingsManager.modelPreferences.openAICompatibleModel, "")
+    }
+
+    func testUpdateOpenAICompatibleModel() {
+        settingsManager.updateOpenAICompatibleModel("gpt-test-model")
+        XCTAssertEqual(settingsManager.modelPreferences.openAICompatibleModel, "gpt-test-model")
     }
     
     // MARK: - Validation Edge Cases Tests
@@ -431,6 +440,7 @@ final class SettingsManagerTests: XCTestCase {
         var originalPreferences = ModelPreferences()
         originalPreferences.chatModel = "test-chat-model"
         originalPreferences.visionModel = "test-vision-model"
+        originalPreferences.openAICompatibleModel = "test-openai-model"
         originalPreferences.lastUpdated = Date()
         
         let encoded = try JSONEncoder().encode(originalPreferences)
@@ -438,7 +448,7 @@ final class SettingsManagerTests: XCTestCase {
         
         XCTAssertEqual(originalPreferences.chatModel, decoded.chatModel)
         XCTAssertEqual(originalPreferences.visionModel, decoded.visionModel)
+        XCTAssertEqual(originalPreferences.openAICompatibleModel, decoded.openAICompatibleModel)
         // Note: Date comparison might need some tolerance due to encoding precision
     }
 }
-

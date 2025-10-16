@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Network
+import Combine
 
 // MARK: - AI Chat Manager
 @MainActor
@@ -22,6 +23,8 @@ class AIChatManager: ObservableObject {
     private let databaseManager: DatabaseManager
     private let networkMonitor: NetworkMonitor
     private let settingsManager = SettingsManager.shared
+    private let networkManager = NetworkManager.shared
+    private let pendingOperationsManager = PendingOperationsManager.shared
     
     // MARK: - Context Management
     private var currentContext: ChatContext = ChatContext()
@@ -48,18 +51,33 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
+        // Use the new NetworkManager for monitoring
+        networkManager.statusPublisher
+            .sink { [weak self] status in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+
+                    self.isOffline = !status.isConnected
+                    if status.isConnected {
+                        // Only check connection if user has explicitly interacted with chat
+                        // This prevents noisy connection attempts when network comes back
+                        if !self.conversations.isEmpty {
+                            await self.checkConnection()
+                        }
+
+                        // Process any pending operations
+                        await self.pendingOperationsManager.retryAllOperations()
+                    } else {
+                        self.isConnected = false
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Keep legacy monitor for compatibility
         networkMonitor.onNetworkStatusChanged = { [weak self] isConnected in
             Task { @MainActor in
                 self?.isOffline = !isConnected
-                if isConnected {
-                    // Only check connection if user has explicitly interacted with chat
-                    // This prevents noisy connection attempts when network comes back
-                    if self?.conversations.isEmpty == false {
-                        await self?.checkConnection()
-                    }
-                } else {
-                    self?.isConnected = false
-                }
             }
         }
         networkMonitor.startMonitoring()
@@ -81,8 +99,8 @@ class AIChatManager: ObservableObject {
             return
         }
 
-        // Only auto-check connection for Ollama, not for cloud providers like AWS Bedrock
-        // to avoid rate limiting and unnecessary API calls
+        // Only auto-check connection for Ollama and OpenAI-compatible servers
+        // Don't auto-check for cloud providers to avoid rate limiting
         switch settingsManager.modelPreferences.aiProvider {
         case .ollama:
             do {
@@ -96,6 +114,10 @@ class AIChatManager: ObservableObject {
             // For AWS Bedrock, assume connected if credentials are configured
             // User can manually test in settings if needed
             isConnected = settingsManager.hasValidAWSCredentials()
+        case .openAICompatible:
+            // For OpenAI-compatible servers, assume connected if configuration is valid
+            // User can manually test in settings if needed
+            isConnected = settingsManager.hasValidOpenAICompatibleConfig()
         }
     }
     
@@ -300,41 +322,62 @@ class AIChatManager: ObservableObject {
                 }
             }
         )
-        case .bedrock:
-            // AWS Bedrock doesn't support streaming, use non-streaming method
+        case .bedrock, .openAICompatible:
+            // AWS Bedrock and OpenAI-compatible servers don't support streaming in this implementation
+            // Use non-streaming method
             try await sendNonStreamingMessage(content, context: context, conversationId: conversationId)
         }
     }
     
     private func sendNonStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
-        // Send to AI service
-        let startTime = Date()
-        let aiClient = getAIClient()
+        do {
+            // Send to AI service
+            let startTime = Date()
+            let aiClient = getAIClient()
 
-        // Prepare context with doctor's system prompt if available
-        var fullContext = context
-        if let doctorPrompt = selectedDoctor?.systemPrompt {
-            fullContext = "System: \(doctorPrompt)\n\nContext: \(context)"
-        }
+            // Prepare context with doctor's system prompt if available
+            var fullContext = context
+            if let doctorPrompt = selectedDoctor?.systemPrompt {
+                fullContext = "System: \(doctorPrompt)\n\nContext: \(context)"
+            }
 
-        let response = try await aiClient.sendMessage(content, context: fullContext)
-        let processingTime = Date().timeIntervalSince(startTime)
-        
-        // Create assistant message
-        let assistantMessage = ChatMessage(
-            content: response.content,
-            role: .assistant,
-            tokens: response.tokenCount,
-            processingTime: processingTime
-        )
-        
-        // Save assistant message
-        try await databaseManager.addMessage(to: conversationId, message: assistantMessage)
-        
-        // Update local conversation
-        if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
-            conversations[index].addMessage(assistantMessage)
-            currentConversation = conversations[index]
+            let response = try await aiClient.sendMessage(content, context: fullContext)
+            let processingTime = Date().timeIntervalSince(startTime)
+
+            // Create assistant message
+            let assistantMessage = ChatMessage(
+                content: response.content,
+                role: .assistant,
+                tokens: response.tokenCount,
+                processingTime: processingTime
+            )
+
+            // Save assistant message
+            try await databaseManager.addMessage(to: conversationId, message: assistantMessage)
+
+            // Update local conversation
+            if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+                conversations[index].addMessage(assistantMessage)
+                currentConversation = conversations[index]
+            }
+        } catch {
+            // Queue for retry if network error
+            if error is OpenAICompatibleError || error is DecodingError {
+                throw error
+            }
+            let networkError = NetworkError.from(error: error)
+            if networkError.isRetryable {
+                print("⚠️ AIChatManager: Network error, queueing message for retry")
+                await pendingOperationsManager.queueChatMessage(
+                    conversationId: conversationId,
+                    message: content,
+                    context: context,
+                    useStreaming: false,
+                    model: settingsManager.modelPreferences.chatModel,
+                    systemPrompt: selectedDoctor?.systemPrompt
+                )
+            }
+            throw error
         }
     }
     
@@ -488,7 +531,10 @@ class AIChatManager: ObservableObject {
         return buildHealthDataContext()
     }
     #endif
-    
+
+    // MARK: - Private Properties
+    private var cancellables = Set<AnyCancellable>()
+
     // MARK: - Cleanup
     deinit {
         networkMonitor.stopMonitoring()

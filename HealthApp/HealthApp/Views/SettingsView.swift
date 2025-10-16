@@ -2,8 +2,14 @@ import SwiftUI
 import Combine
 
 struct SettingsView: View {
+    enum SettingsRoute: Hashable {
+        case ollamaSettings
+        case awsBedrockSettings
+        case openAICompatibleSettings
+    }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
+    @State private var navigationPath = NavigationPath()
     
     @State private var showingResetAlert = false
     @State private var resetType: ResetType?
@@ -43,434 +49,240 @@ struct SettingsView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            Form {
-                disclaimerSection
-                serverConfigurationSection
-                modelSelectionSection
-                backupSection
-                appPreferencesSection
-                dataManagementSection
-                aboutSection
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("Reset Server Settings") {
-                            resetType = .servers
-                            showingResetAlert = true
-                        }
-                        
-                        Button("Reset Backup Settings") {
-                            resetType = .backup
-                            showingResetAlert = true
-                        }
-                        
-                        Button("Reset App Preferences") {
-                            resetType = .preferences
-                            showingResetAlert = true
-                        }
-                        
-                        Divider()
-                        
-                        Button("Reset All Settings", role: .destructive) {
-                            resetType = .all
-                            showingResetAlert = true
-                        }
-                        
-                        Divider()
-                        
-                        Button("Reset Disclaimer Acceptance", role: .destructive) {
-                            resetType = .disclaimer
-                            showingResetAlert = true
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
+        NavigationStack(path: $navigationPath) {
+            settingsForm
+                .navigationTitle("Settings")
+                .toolbar { toolbarContent }
+                .modifier(AlertsModifier(
+                    resetType: resetType,
+                    showingResetAlert: $showingResetAlert,
+                    showingValidationError: $showingValidationError,
+                    showingConnectionError: $showingConnectionError,
+                    showingSuccessMessage: $showingSuccessMessage,
+                    validationError: validationError,
+                    connectionError: connectionError,
+                    successMessage: successMessage,
+                    performReset: performReset
+                ))
+                .modifier(ChangeObserversModifier(
+                    settingsManager: settingsManager,
+                    appState: appState,
+                    validateAndSave: validateAndSave
+                ))
+                .task {
+                    await settingsManager.refreshModelsIfNeeded()
                 }
-            }
-            .alert(resetType?.title ?? "", isPresented: $showingResetAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Reset", role: .destructive) {
-                    performReset()
+                .navigationDestination(for: SettingsRoute.self) { destination in
+                    navigationDestinationView(for: destination)
                 }
-            } message: {
-                Text(resetType?.message ?? "")
-            }
-            .alert("Validation Error", isPresented: $showingValidationError) {
-                Button("OK") { }
-            } message: {
-                Text(validationError)
-            }
-            .alert("Connection Error", isPresented: $showingConnectionError) {
-                Button("OK") { }
-            } message: {
-                Text(connectionError)
-            }
-            .alert("Success", isPresented: $showingSuccessMessage) {
-                Button("OK") { }
-            } message: {
-                Text(successMessage)
-            }
-            .onReceive(
-                settingsManager.$ollamaConfig
-                    .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            ) { _ in
-                settingsManager.invalidateClients()
-                validateAndSave()
-            }
-            .onReceive(
-                settingsManager.$doclingConfig
-                    .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            ) { _ in
-                settingsManager.invalidateClients()
-                validateAndSave()
-            }
-            .onChange(of: settingsManager.backupSettings) { _, _ in
-                settingsManager.saveSettings()
-            }
-            .onChange(of: settingsManager.appPreferences) { _, newPreferences in
-                appState.colorScheme = newPreferences.theme.colorScheme
-                settingsManager.saveSettings()
-            }
-            .onChange(of: settingsManager.modelPreferences) { _, _ in
-                settingsManager.saveSettings()
-            }
-            .task {
-                // Load models when view appears
-                await settingsManager.refreshModelsIfNeeded()
-            }
         }
     }
-    
-    // MARK: - Server Configuration Section
-    
-    private var serverConfigurationSection: some View {
-        Section("AI Services") {
-            // External services disclaimer
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                        .font(.title3)
-                    
-                    Text("External Services Notice")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    Spacer()
+
+    private var settingsForm: some View {
+        Form {
+            disclaimerSection
+            aiProviderSection
+            documentProcessingSection
+            backupSection
+            appPreferencesSection
+            dataManagementSection
+            aboutSection
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Menu {
+                Button("Reset Server Settings") {
+                    resetType = .servers
+                    showingResetAlert = true
                 }
-                
-                Text("Enabling external AI services means your data may leave your device for processing. These services are not HIPAA compliant and should only be used for personal health data management.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 24)
-            }
-            .padding(.vertical, 8)
-            .background(Color.orange.opacity(0.1))
-            .cornerRadius(8)
-            
-            VStack(alignment: .leading, spacing: 12) {
-                serverConfigCard(
-                    title: "Ollama Server",
-                    icon: "brain.head.profile",
-                    config: $settingsManager.ollamaConfig,
-                    status: settingsManager.ollamaStatus,
-                    testAction: {
-                        Task {
-                            await testOllamaConnection()
-                        }
-                    },
-                    onConfigChange: { newConfig in
-                        settingsManager.ollamaConfig = newConfig
-                        settingsManager.saveSettings()
-                    }
-                )
-                
-                Divider()
-                
-                serverConfigCard(
-                    title: "Docling Server",
-                    icon: "doc.text.magnifyingglass",
-                    config: $settingsManager.doclingConfig,
-                    status: settingsManager.doclingStatus,
-                    testAction: {
-                        Task {
-                            await testDoclingConnection()
-                        }
-                    },
-                    onConfigChange: { newConfig in
-                        settingsManager.doclingConfig = newConfig
-                        settingsManager.saveSettings()
-                    }
-                )
+
+                Button("Reset Backup Settings") {
+                    resetType = .backup
+                    showingResetAlert = true
+                }
+
+                Button("Reset App Preferences") {
+                    resetType = .preferences
+                    showingResetAlert = true
+                }
 
                 Divider()
 
-                // AWS Bedrock Configuration Card
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Label("AWS Bedrock", systemImage: "cloud.fill")
-                            .font(.headline)
-
-                        Spacer()
-
-                        NavigationLink("Configure") {
-                            AWSBedrockSettingsView()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    Text("Claude Sonnet 4 and Llama 4 Maverick models for advanced health data analysis")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                Button("Reset All Settings", role: .destructive) {
+                    resetType = .all
+                    showingResetAlert = true
                 }
-                .padding(16)
-                .background(Color(.systemGray6))
-                .cornerRadius(10)
 
-                // Test All Connections button
-                HStack {
-                    Spacer()
-                    Button("Test All Connections") {
-                        Task {
-                            await testAllConnections()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(settingsManager.ollamaStatus == .testing || settingsManager.doclingStatus == .testing)
-                    Spacer()
+                Divider()
+
+                Button("Reset Disclaimer Acceptance", role: .destructive) {
+                    resetType = .disclaimer
+                    showingResetAlert = true
                 }
-                .padding(.top, 8)
+            } label: {
+                Image(systemName: "arrow.clockwise")
             }
-            .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func navigationDestinationView(for destination: SettingsRoute) -> some View {
+        let _ = print("📍 navigationDestination called with: \(destination)")
+        switch destination {
+        case .ollamaSettings:
+            let _ = print("📍 Creating OllamaSettingsView")
+            OllamaSettingsView()
+                .onAppear {
+                    print("🟠 Navigated to Ollama Settings")
+                }
+        case .awsBedrockSettings:
+            let _ = print("📍 Creating AWSBedrockSettingsView")
+            AWSBedrockSettingsView()
+                .onAppear {
+                    print("🔵 Navigated to AWS Bedrock Settings")
+                }
+        case .openAICompatibleSettings:
+            let _ = print("📍 Creating OpenAICompatibleSettingsView")
+            OpenAICompatibleSettingsView(settingsManager: settingsManager)
+                .onAppear {
+                    print("🟢 Navigated to OpenAI Compatible Settings")
+                }
         }
     }
     
-    // MARK: - Model Selection Section
-    
-    private var modelSelectionSection: some View {
-        Section("AI Model Selection") {
+    // MARK: - Provider Configuration Cards
+
+    private var ollamaServerCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Ollama Server", systemImage: "brain.head.profile")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    print("🟠 Ollama Configure button tapped")
+                    navigationPath.append(SettingsRoute.ollamaSettings)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Local AI models for chat, document processing, and vision tasks")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    private var doclingServerCard: some View {
+        serverConfigCard(
+            title: "Docling Server",
+            icon: "doc.text.magnifyingglass",
+            config: $settingsManager.doclingConfig,
+            status: settingsManager.doclingStatus,
+            testAction: {
+                Task {
+                    await testDoclingConnection()
+                }
+            },
+            onConfigChange: { newConfig in
+                settingsManager.doclingConfig = newConfig
+                settingsManager.saveSettings()
+            }
+        )
+    }
+
+    private var awsBedrockCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("AWS Bedrock", systemImage: "cloud.fill")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    print("🔵 AWS Bedrock Configure button tapped")
+                    navigationPath.append(SettingsRoute.awsBedrockSettings)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Claude Sonnet 4 and Llama 4 Maverick models for advanced health data analysis")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    private var openAICompatibleCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("OpenAI Compatible", systemImage: "network")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    print("🟢 OpenAI Compatible Configure button tapped")
+                    navigationPath.append(SettingsRoute.openAICompatibleSettings)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("LiteLLM, LocalAI, vLLM, and other OpenAI-compatible servers")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    // MARK: - AI Provider Section
+
+    private var aiProviderSection: some View {
+        Section("AI Provider") {
             VStack(spacing: 16) {
-                // AI Provider Selection
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("AI Provider")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-
-                    Picker("AI Provider", selection: $settingsManager.modelPreferences.aiProvider) {
-                        ForEach(AIProvider.allCases, id: \.self) { provider in
-                            Text(provider.displayName).tag(provider)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Text("Choose between local Ollama models or cloud-based AWS Bedrock models")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
-                Divider()
-
-                // Bedrock Model Selection (when Bedrock is selected)
-                if settingsManager.modelPreferences.aiProvider == .bedrock {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Bedrock Model")
-                            .font(.subheadline)
-                            .foregroundColor(.primary)
-
-                        Picker("Bedrock Model", selection: $settingsManager.modelPreferences.bedrockModel) {
-                            ForEach(AWSBedrockModel.allCases, id: \.self) { model in
-                                VStack(alignment: .leading) {
-                                    Text(model.displayName)
-                                        .font(.body)
-                                    Text("\(model.provider) • \(model.contextWindow/1000)K context")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .tag(model.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-
-                        Text("High-quality models from Anthropic and Meta via AWS Bedrock")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-
-                        NavigationLink("Configure AWS Credentials") {
-                            AWSBedrockSettingsView()
-                        }
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                    }
-
-                    Divider()
-                }
-
-                // Ollama Model Selection (when Ollama is selected)
-                if settingsManager.modelPreferences.aiProvider == .ollama {
-                    // Refresh button and status
-                    HStack {
-                        Button("Refresh Models") {
-                        Task {
-                            await settingsManager.fetchAvailableModels()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(settingsManager.modelSelection.isLoading)
-                    
-                    Spacer()
-                    
-                    if settingsManager.modelSelection.isLoading {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Loading...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                Picker("AI Provider", selection: $settingsManager.modelPreferences.aiProvider) {
+                    ForEach(AIProvider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
                     }
                 }
-                
-                if let error = settingsManager.modelSelection.error {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
+                .pickerStyle(.menu)
+
+                Text("Choose your AI service provider")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
+                // Show only the selected provider's configuration card
+                switch settingsManager.modelPreferences.aiProvider {
+                case .ollama:
+                    ollamaServerCard
+                case .bedrock:
+                    awsBedrockCard
+                case .openAICompatible:
+                    openAICompatibleCard
                 }
-                
-                // Chat model selection
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Chat Model")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-                    
-                    if chatModels.isEmpty && !settingsManager.modelSelection.isLoading {
-                        Text("No models available. Connect to Ollama server and refresh models.")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .padding(.vertical, 8)
-                    } else {
-                        Picker("Chat Model", selection: $settingsManager.modelPreferences.chatModel) {
-                            ForEach(chatModels, id: \.id) { model in
-                                Text(model.displayName)
-                                    .tag(model.name)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .onAppear {
-                            // Validate selection when view appears
-                            validateChatModelSelection()
-                        }
-                        .onChange(of: chatModels) { _, newModels in
-                            // Ensure selected model is valid when models change
-                            validateChatModelSelection()
-                        }
-                    }
-                    
-                    Text("Used for health conversations. Vision models (👁️) can also handle images and documents in chat.")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                
-                Divider()
-
-                // Document processing model selection
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Document Processing Model")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-
-                    if documentModels.isEmpty && !settingsManager.modelSelection.isLoading {
-                        Text("No text models available. Connect to Ollama server and refresh models.")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .padding(.vertical, 8)
-                    } else {
-                        Picker("Document Model", selection: $settingsManager.modelPreferences.documentModel) {
-                            ForEach(documentModels, id: \.id) { model in
-                                Text(model.displayName)
-                                    .tag(model.name)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .onAppear {
-                            // Validate selection when view appears
-                            validateDocumentModelSelection()
-                        }
-                        .onChange(of: documentModels) { _, newModels in
-                            // Ensure selected model is valid when models change
-                            validateDocumentModelSelection()
-                        }
-                    }
-
-                    Text("Used for processing PDF and document text. More efficient than vision models for text-only documents.")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
-                Divider()
-
-                // Vision model selection
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Document Scanning Model")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-                    
-                    if visionModels.isEmpty && !settingsManager.modelSelection.isLoading {
-                        Text("No vision-capable models found. Install models like llava or moondream for document scanning.")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .padding(.vertical, 8)
-                    } else {
-                        Picker("Vision Model", selection: $settingsManager.modelPreferences.visionModel) {
-                            ForEach(visionModels, id: \.id) { model in
-                                Text(model.displayName)
-                                    .tag(model.name)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .onAppear {
-                            // Validate selection when view appears
-                            validateVisionModelSelection()
-                        }
-                        .onChange(of: visionModels) { _, newModels in
-                            // Ensure selected model is valid when models change
-                            validateVisionModelSelection()
-                        }
-                        
-                        Text("Used for analyzing images, photos, and complex visual documents that require OCR")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                } // Close Ollama conditional
             }
             .padding(.vertical, 8)
         }
     }
-    
-    // Helper computed properties for model lists
-    private var chatModels: [OllamaModel] {
-        // All models can be used for chat, but prioritize text-only models first
-        let textModels = settingsManager.modelSelection.availableModels.filter { !$0.supportsVision }
-        let visionModels = settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
-        return textModels + visionModels
-    }
-    
-    private var visionModels: [OllamaModel] {
-        settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
+
+    // MARK: - Document Processing Section
+
+    private var documentProcessingSection: some View {
+        Section("Document Processing") {
+            doclingServerCard
+        }
     }
 
-    private var documentModels: [OllamaModel] {
-        // All models can process documents, but prioritize text-only models for efficiency
-        let textModels = settingsManager.modelSelection.availableModels.filter { !$0.supportsVision }
-        let visionModels = settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
-        return textModels + visionModels
-    }
     
     // MARK: - Backup Section
 
@@ -657,10 +469,12 @@ struct SettingsView: View {
             HStack {
                 Label("Theme", systemImage: "paintbrush")
                 Spacer()
-                Picker("Theme", selection: $settingsManager.appPreferences.theme) {
+                Picker(selection: $settingsManager.appPreferences.theme) {
                     ForEach(Theme.allCases, id: \.self) { theme in
                         Text(theme.displayName).tag(theme)
                     }
+                } label: {
+                    EmptyView()
                 }
                 .pickerStyle(.menu)
             }
@@ -1069,32 +883,81 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Model Selection Validation
-    
-    private func validateChatModelSelection() {
-        if !chatModels.contains(where: { $0.name == settingsManager.modelPreferences.chatModel }) {
-            if let firstModel = chatModels.first {
-                settingsManager.modelPreferences.chatModel = firstModel.name
-            }
-        }
-    }
-    
-    private func validateVisionModelSelection() {
-        if !visionModels.contains(where: { $0.name == settingsManager.modelPreferences.visionModel }) {
-            if let firstModel = visionModels.first {
-                settingsManager.modelPreferences.visionModel = firstModel.name
-            }
-        }
-    }
+}
 
-    private func validateDocumentModelSelection() {
-        if !documentModels.contains(where: { $0.name == settingsManager.modelPreferences.documentModel }) {
-            if let firstModel = documentModels.first {
-                settingsManager.modelPreferences.documentModel = firstModel.name
+// MARK: - View Modifiers
+
+struct AlertsModifier: ViewModifier {
+    let resetType: SettingsView.ResetType?
+    @Binding var showingResetAlert: Bool
+    @Binding var showingValidationError: Bool
+    @Binding var showingConnectionError: Bool
+    @Binding var showingSuccessMessage: Bool
+    let validationError: String
+    let connectionError: String
+    let successMessage: String
+    let performReset: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .alert(resetType?.title ?? "", isPresented: $showingResetAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Reset", role: .destructive) {
+                    performReset()
+                }
+            } message: {
+                Text(resetType?.message ?? "")
             }
-        }
+            .alert("Validation Error", isPresented: $showingValidationError) {
+                Button("OK") { }
+            } message: {
+                Text(validationError)
+            }
+            .alert("Connection Error", isPresented: $showingConnectionError) {
+                Button("OK") { }
+            } message: {
+                Text(connectionError)
+            }
+            .alert("Success", isPresented: $showingSuccessMessage) {
+                Button("OK") { }
+            } message: {
+                Text(successMessage)
+            }
     }
-    
+}
+
+struct ChangeObserversModifier: ViewModifier {
+    @ObservedObject var settingsManager: SettingsManager
+    @ObservedObject var appState: AppState
+    let validateAndSave: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(
+                settingsManager.$ollamaConfig
+                    .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            ) { _ in
+                settingsManager.invalidateClients()
+                validateAndSave()
+            }
+            .onReceive(
+                settingsManager.$doclingConfig
+                    .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            ) { _ in
+                settingsManager.invalidateClients()
+                validateAndSave()
+            }
+            .onChange(of: settingsManager.backupSettings) { _, _ in
+                settingsManager.saveSettings()
+            }
+            .onChange(of: settingsManager.appPreferences) { _, newPreferences in
+                appState.colorScheme = newPreferences.theme.colorScheme
+                settingsManager.saveSettings()
+            }
+            .onChange(of: settingsManager.modelPreferences) { _, _ in
+                settingsManager.saveSettings()
+            }
+    }
 }
 
 #Preview {
