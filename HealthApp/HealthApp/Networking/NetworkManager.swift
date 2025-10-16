@@ -105,7 +105,7 @@ class NetworkManager: ObservableObject {
             var hasResumed = false
 
             cancellable = statusPublisher
-                .sink { [weak self] status in
+                .sink { status in
                     guard !hasResumed else { return }
 
                     if status.isConnected {
