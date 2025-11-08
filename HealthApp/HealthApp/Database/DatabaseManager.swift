@@ -19,7 +19,7 @@ class DatabaseManager: ObservableObject {
     private let databaseURL: URL
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 3 // Increment when making schema changes
+    private static let currentDatabaseVersion = 4 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
@@ -50,6 +50,17 @@ class DatabaseManager: ObservableObject {
     internal let documentTags = Expression<String>("tags")
     internal let documentNotes = Expression<String?>("notes")
     internal let documentExtractedData = Expression<Data?>("extracted_data")
+    // Medical document fields (added in v4)
+    internal let documentDate = Expression<Int64?>("document_date")
+    internal let documentProviderName = Expression<String?>("provider_name")
+    internal let documentProviderType = Expression<String?>("provider_type")
+    internal let documentCategory = Expression<String>("document_category")
+    internal let documentExtractedText = Expression<String?>("extracted_text")
+    internal let documentRawDoclingOutput = Expression<Data?>("raw_docling_output")
+    internal let documentExtractedSections = Expression<Data?>("extracted_sections")
+    internal let documentIncludeInAIContext = Expression<Bool>("include_in_ai_context")
+    internal let documentContextPriority = Expression<Int>("context_priority")
+    internal let documentLastEditedAt = Expression<Int64?>("last_edited_at")
     
     // Chat Conversations Table
     internal let conversationId = Expression<String>("id")
@@ -121,6 +132,17 @@ class DatabaseManager: ObservableObject {
                 t.column(documentTags)
                 t.column(documentNotes)
                 t.column(documentExtractedData)
+                // Medical document fields (v4)
+                t.column(documentDate)
+                t.column(documentProviderName)
+                t.column(documentProviderType)
+                t.column(documentCategory, defaultValue: "other")
+                t.column(documentExtractedText)
+                t.column(documentRawDoclingOutput)
+                t.column(documentExtractedSections)
+                t.column(documentIncludeInAIContext, defaultValue: false)
+                t.column(documentContextPriority, defaultValue: 3)
+                t.column(documentLastEditedAt)
             })
             
             // Create chat_conversations table
@@ -166,6 +188,9 @@ class DatabaseManager: ObservableObject {
             try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(document_date)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
@@ -242,6 +267,26 @@ class DatabaseManager: ObservableObject {
             try createAppSettingsTable()
             print("   ✓ Added app_settings table for disclaimer management")
 
+        case 4:
+            // Migration for version 4: Enhanced documents table with medical document fields
+            try db.run("ALTER TABLE documents ADD COLUMN document_date INTEGER DEFAULT NULL")
+            try db.run("ALTER TABLE documents ADD COLUMN provider_name TEXT DEFAULT NULL")
+            try db.run("ALTER TABLE documents ADD COLUMN provider_type TEXT DEFAULT NULL")
+            try db.run("ALTER TABLE documents ADD COLUMN document_category TEXT DEFAULT 'other'")
+            try db.run("ALTER TABLE documents ADD COLUMN extracted_text TEXT DEFAULT NULL")
+            try db.run("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB DEFAULT NULL")
+            try db.run("ALTER TABLE documents ADD COLUMN extracted_sections BLOB DEFAULT NULL")
+            try db.run("ALTER TABLE documents ADD COLUMN include_in_ai_context INTEGER DEFAULT 0")
+            try db.run("ALTER TABLE documents ADD COLUMN context_priority INTEGER DEFAULT 3")
+            try db.run("ALTER TABLE documents ADD COLUMN last_edited_at INTEGER DEFAULT NULL")
+
+            // Create indexes for frequently queried fields
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(document_date)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
+            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
+
+            print("   ✓ Added medical document fields and indexes")
+
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
         }
@@ -296,6 +341,17 @@ class DatabaseManager: ObservableObject {
             t.column(documentTags)
             t.column(documentNotes)
             t.column(documentExtractedData)
+            // Medical document fields (v4)
+            t.column(documentDate)
+            t.column(documentProviderName)
+            t.column(documentProviderType)
+            t.column(documentCategory, defaultValue: "other")
+            t.column(documentExtractedText)
+            t.column(documentRawDoclingOutput)
+            t.column(documentExtractedSections)
+            t.column(documentIncludeInAIContext, defaultValue: false)
+            t.column(documentContextPriority, defaultValue: 3)
+            t.column(documentLastEditedAt)
         })
 
         // Create chat_conversations table

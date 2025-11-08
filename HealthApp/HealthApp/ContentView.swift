@@ -166,6 +166,7 @@ struct DocumentsView: View {
     @State private var selectedDocument: HealthDocument?
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var viewMode: DocumentViewMode = .list
+    @State private var showingAIContextSelector = false
     
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
@@ -231,6 +232,13 @@ struct DocumentsView: View {
                 
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     if !documentManager.documents.isEmpty {
+                        // AI Context Selector button
+                        Button {
+                            showingAIContextSelector = true
+                        } label: {
+                            Image(systemName: "brain.head.profile")
+                        }
+
                         // View mode toggle (iPad only)
                         if isIPad {
                             Picker("View Mode", selection: $viewMode) {
@@ -240,7 +248,7 @@ struct DocumentsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 100)
                         }
-                        
+
                         Button("Filter") {
                             showingFilterView = true
                         }
@@ -357,6 +365,9 @@ struct DocumentsView: View {
                 documentManager: documentManager,
                 documentProcessor: documentProcessor
             )
+        }
+        .sheet(isPresented: $showingAIContextSelector) {
+            AIContextSelectorView()
         }
 
     }
