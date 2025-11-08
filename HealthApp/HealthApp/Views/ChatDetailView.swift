@@ -10,6 +10,7 @@ struct ChatDetailView: View {
     @State private var showingExportOptions = false
     @State private var showingClearConfirmation = false
     @State private var showingDoctorSelector = false
+    @State private var showingAIDocumentSelector = false
     @FocusState private var isMessageInputFocused: Bool
     
     var body: some View {
@@ -57,6 +58,9 @@ struct ChatDetailView: View {
                     chatManager.selectDoctor(doctor)
                 }
             )
+        }
+        .sheet(isPresented: $showingAIDocumentSelector) {
+            AIContextSelectorView()
         }
         .confirmationDialog("Clear Messages", isPresented: $showingClearConfirmation) {
             Button("Clear All Messages", role: .destructive) {
@@ -228,13 +232,17 @@ struct ChatDetailView: View {
         Button("Conversation Settings", systemImage: "gear") {
             showingConversationSettings = true
         }
-        
+
+        Button("Select Medical Documents", systemImage: "doc.text.fill") {
+            showingAIDocumentSelector = true
+        }
+
         Divider()
-        
+
         Button("Export Conversation", systemImage: "square.and.arrow.up") {
             showingExportOptions = true
         }
-        
+
         Button("Clear Messages", systemImage: "trash", role: .destructive) {
             showingClearConfirmation = true
         }
