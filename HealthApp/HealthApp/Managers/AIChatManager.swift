@@ -223,7 +223,7 @@ class AIChatManager: ObservableObject {
             }
             
             // Build health data context
-            let healthContext = buildHealthDataContext()
+            let healthContext = await buildHealthDataContext()
             
             if useStreaming {
                 // Use streaming for real-time response
@@ -412,7 +412,17 @@ class AIChatManager: ObservableObject {
         selectedDoctor = doctor
     }
     
-    private func updateHealthDataContext() {
+    private func updateHealthDataContext() async {
+        // Fetch medical documents selected for AI context
+        let medicalDocuments: [MedicalDocumentSummary]
+        do {
+            let fetchedDocs = try await databaseManager.fetchDocumentsForAIContext()
+            medicalDocuments = fetchedDocs.map { MedicalDocumentSummary(from: $0) }
+        } catch {
+            print("⚠️ Failed to fetch medical documents for AI context: \(error)")
+            medicalDocuments = []
+        }
+
         currentContext = ChatContext(
             personalInfo: selectedHealthDataTypes.contains(.personalInfo) ? healthDataManager.personalInfo : nil,
             bloodTests: selectedHealthDataTypes.contains(.bloodTest) ? healthDataManager.bloodTests : [],
@@ -421,37 +431,39 @@ class AIChatManager: ObservableObject {
                     selectedHealthDataTypes.contains(data.type)
                 }
             },
+            medicalDocuments: medicalDocuments,
             selectedDataTypes: selectedHealthDataTypes,
             maxTokens: contextSizeLimit
         )
     }
     
-    private func buildHealthDataContext() -> String {
-        updateHealthDataContext()
-        
+    private func buildHealthDataContext() async -> String {
+        await updateHealthDataContext()
+
         let contextString = currentContext.buildContextString()
         let estimatedTokens = currentContext.estimatedTokenCount
-        
+
         print("🔍 Context Debug - Selected types: \(selectedHealthDataTypes.map { $0.displayName })")
         print("🔍 Context Debug - Personal info exists: \(currentContext.personalInfo != nil)")
         print("🔍 Context Debug - Blood tests count: \(currentContext.bloodTests.count)")
         print("🔍 Context Debug - Documents count: \(currentContext.documents.count)")
+        print("🔍 Context Debug - Medical documents count: \(currentContext.medicalDocuments.count)")
         print("🔍 Context Debug - Context string length: \(contextString.count) characters")
         print("🔍 Context Debug - Estimated tokens: \(estimatedTokens)")
-        
+
         if contextString.isEmpty {
             print("⚠️ Context Debug - WARNING: Context string is empty!")
             print("⚠️ Context Debug - This may indicate no data types were selected or no data is available")
         } else {
             print("🔍 Context Debug - Context preview: \(String(contextString.prefix(500)))")
         }
-        
+
         // If context is too large, compress it
         if estimatedTokens > contextCompressionThreshold {
             print("🔍 Context Debug - Compressing context (tokens: \(estimatedTokens) > threshold: \(contextCompressionThreshold))")
             return compressHealthDataContext(contextString)
         }
-        
+
         return contextString
     }
     
@@ -527,8 +539,8 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Testing Support
     #if DEBUG
-    func buildHealthDataContextForTesting() -> String {
-        return buildHealthDataContext()
+    func buildHealthDataContextForTesting() async -> String {
+        return await buildHealthDataContext()
     }
     #endif
 

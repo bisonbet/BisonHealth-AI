@@ -98,14 +98,16 @@ struct ChatContext: Codable {
     var personalInfo: PersonalHealthInfo?
     var bloodTests: [BloodTestResult]
     var documents: [HealthDocument]
+    var medicalDocuments: [MedicalDocumentSummary]  // Medical documents selected for AI context
     var selectedDataTypes: Set<HealthDataType>
     var contextSummary: String?
     var maxTokens: Int
-    
+
     init(
         personalInfo: PersonalHealthInfo? = nil,
         bloodTests: [BloodTestResult] = [],
         documents: [HealthDocument] = [],
+        medicalDocuments: [MedicalDocumentSummary] = [],
         selectedDataTypes: Set<HealthDataType> = [],
         contextSummary: String? = nil,
         maxTokens: Int = 4000
@@ -113,9 +115,47 @@ struct ChatContext: Codable {
         self.personalInfo = personalInfo
         self.bloodTests = bloodTests
         self.documents = documents
+        self.medicalDocuments = medicalDocuments
         self.selectedDataTypes = selectedDataTypes
         self.contextSummary = contextSummary
         self.maxTokens = maxTokens
+    }
+}
+
+// MARK: - Medical Document Summary for Context
+/// Lightweight summary of a medical document for inclusion in chat context
+struct MedicalDocumentSummary: Codable, Hashable {
+    let id: UUID
+    let documentDate: Date?
+    let providerName: String?
+    let documentCategory: DocumentCategory
+    let sections: [DocumentSection]
+    let contextPriority: Int
+
+    init(from medicalDocument: MedicalDocument) {
+        self.id = medicalDocument.id
+        self.documentDate = medicalDocument.documentDate
+        self.providerName = medicalDocument.providerName
+        self.documentCategory = medicalDocument.documentCategory
+        self.sections = medicalDocument.extractedSections
+        self.contextPriority = medicalDocument.contextPriority
+    }
+
+    var formattedHeader: String {
+        var header = "[\(documentCategory.displayName)"
+
+        if let date = documentDate {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            header += " from \(formatter.string(from: date))"
+        }
+
+        if let provider = providerName {
+            header += " - \(provider)"
+        }
+
+        header += "]"
+        return header
     }
 }
 
@@ -225,18 +265,28 @@ extension ChatMessage {
 
 extension ChatContext {
     var isEmpty: Bool {
-        return personalInfo == nil && 
-               bloodTests.isEmpty && 
-               documents.isEmpty
+        return personalInfo == nil &&
+               bloodTests.isEmpty &&
+               documents.isEmpty &&
+               medicalDocuments.isEmpty
     }
-    
+
     var estimatedTokenCount: Int {
         // Rough estimation: 1 token ≈ 4 characters
         let personalInfoTokens = personalInfo != nil ? 200 : 0
         let bloodTestTokens = bloodTests.count * 100
         let documentTokens = documents.count * 50
-        
-        return personalInfoTokens + bloodTestTokens + documentTokens
+
+        // Estimate tokens for medical documents based on sections
+        var medicalDocTokens = 0
+        for doc in medicalDocuments {
+            medicalDocTokens += 50 // Header
+            for section in doc.sections {
+                medicalDocTokens += section.content.count / 4 // ~4 chars per token
+            }
+        }
+
+        return personalInfoTokens + bloodTestTokens + documentTokens + medicalDocTokens
     }
     
     func buildContextString() -> String {
@@ -380,12 +430,42 @@ extension ChatContext {
                 contextParts.append(docContext)
             }
         }
-        
+
+        // Medical Documents (selected for AI context)
+        if !medicalDocuments.isEmpty {
+            var medicalDocContext = "\nMedical Documents:\n"
+
+            // Sort by priority (highest first) and date (newest first)
+            let sortedDocs = medicalDocuments.sorted { doc1, doc2 in
+                if doc1.contextPriority != doc2.contextPriority {
+                    return doc1.contextPriority > doc2.contextPriority
+                }
+                guard let date1 = doc1.documentDate, let date2 = doc2.documentDate else {
+                    return doc1.documentDate != nil
+                }
+                return date1 > date2
+            }
+
+            for medicalDoc in sortedDocs {
+                medicalDocContext += "\n\(medicalDoc.formattedHeader)\n"
+
+                // Include extracted sections
+                if !medicalDoc.sections.isEmpty {
+                    for section in medicalDoc.sections {
+                        medicalDocContext += "\n\(section.sectionType):\n"
+                        medicalDocContext += "\(section.content)\n"
+                    }
+                }
+            }
+
+            contextParts.append(medicalDocContext)
+        }
+
         // If no context parts were added but types were selected, provide feedback
         if contextParts.isEmpty && !selectedDataTypes.isEmpty {
             contextParts.append("Health context types were selected but no data is available yet. Please add health data to your profile.")
         }
-        
+
         return contextParts.joined(separator: "\n")
     }
 }
