@@ -147,7 +147,9 @@ class AIChatManager: ObservableObject {
     func selectConversation(_ conversation: ChatConversation) {
         currentConversation = conversation
         selectedHealthDataTypes = conversation.includedHealthDataTypes
-        updateHealthDataContext()
+        Task {
+            await updateHealthDataContext()
+        }
     }
     
     func deleteConversation(_ conversation: ChatConversation) async throws {
@@ -385,12 +387,14 @@ class AIChatManager: ObservableObject {
     func selectHealthDataForContext(_ types: Set<HealthDataType>) {
         print("🎯 Context Selection - Selected types: \(types)")
         print("🎯 Context Selection - Previous types: \(selectedHealthDataTypes)")
-        
+
         selectedHealthDataTypes = types
-        updateHealthDataContext()
-        
+        Task {
+            await updateHealthDataContext()
+        }
+
         print("🎯 Context Selection - After update, selectedHealthDataTypes: \(selectedHealthDataTypes)")
-        
+
         // Update current conversation's included data types
         if var conversation = currentConversation {
             conversation.includedHealthDataTypes = types
@@ -489,7 +493,9 @@ class AIChatManager: ObservableObject {
     
     func updateContextSizeLimit(_ newLimit: Int) {
         contextSizeLimit = max(1000, min(newLimit, 8000)) // Reasonable bounds
-        updateHealthDataContext()
+        Task {
+            await updateHealthDataContext()
+        }
     }
     
     // MARK: - Conversation Search and Filtering
