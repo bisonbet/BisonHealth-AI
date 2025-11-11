@@ -16,7 +16,7 @@ struct PersonalHealthInfo: HealthDataProtocol {
     // Medical Information
     var allergies: [String]
     var medications: [Medication]
-    var supplements: [Supplement]
+    var supplements: [Supplement] = []
     var personalMedicalHistory: [MedicalCondition]
     var familyHistory: FamilyMedicalHistory
     

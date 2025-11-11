@@ -1,5 +1,6 @@
 import SwiftUI
 import MarkdownUI
+import UIKit
 
 struct ChatDetailView: View {
     @ObservedObject var chatManager: AIChatManager
