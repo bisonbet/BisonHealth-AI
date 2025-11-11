@@ -14,6 +14,32 @@ extension DatabaseManager {
             
             let extractedDataJson = try JSONEncoder().encode(document.extractedData)
             
+            // CRITICAL: Preserve MedicalDocument fields (extractedText, sections, etc.) when saving HealthDocument
+            // Read existing values first to avoid overwriting them
+            var existingExtractedText: String? = nil
+            var existingRawDoclingOutput: Data? = nil
+            var existingExtractedSections: Data? = nil
+            var existingDocumentDate: Int64? = nil
+            var existingProviderName: String? = nil
+            var existingProviderType: String? = nil
+            var existingIncludeInAIContext: Bool = false
+            var existingContextPriority: Int = 3
+            var existingLastEditedAt: Int64? = nil
+            
+            // Try to read existing MedicalDocument fields
+            let existingQuery = documentsTable.filter(self.documentId == document.id.uuidString)
+            if let existingRow = try? db.pluck(existingQuery) {
+                existingExtractedText = try? existingRow.get(self.documentExtractedText)
+                existingRawDoclingOutput = try? existingRow.get(self.documentRawDoclingOutput)
+                existingExtractedSections = try? existingRow.get(self.documentExtractedSections)
+                existingDocumentDate = try? existingRow.get(self.documentDate)
+                existingProviderName = try? existingRow.get(self.documentProviderName)
+                existingProviderType = try? existingRow.get(self.documentProviderType)
+                existingIncludeInAIContext = (try? existingRow.get(self.documentIncludeInAIContext)) ?? false
+                existingContextPriority = (try? existingRow.get(self.documentContextPriority)) ?? 3
+                existingLastEditedAt = try? existingRow.get(self.documentLastEditedAt)
+            }
+            
             let insert = documentsTable.insert(or: .replace,
                 documentId <- document.id.uuidString,
                 documentFileName <- document.fileName,
@@ -26,7 +52,18 @@ extension DatabaseManager {
                 documentFileSize <- document.fileSize,
                 documentTags <- tagsString,
                 documentNotes <- document.notes,
-                documentExtractedData <- extractedDataJson
+                documentExtractedData <- extractedDataJson,
+                documentCategory <- document.documentCategory?.rawValue ?? "other",
+                // Preserve MedicalDocument fields if they exist
+                documentExtractedText <- existingExtractedText,
+                documentRawDoclingOutput <- existingRawDoclingOutput,
+                documentExtractedSections <- existingExtractedSections,
+                documentDate <- existingDocumentDate,
+                documentProviderName <- existingProviderName,
+                documentProviderType <- existingProviderType,
+                documentIncludeInAIContext <- existingIncludeInAIContext,
+                documentContextPriority <- existingContextPriority,
+                documentLastEditedAt <- existingLastEditedAt
             )
             
             try db.run(insert)
@@ -105,6 +142,22 @@ extension DatabaseManager {
             throw DatabaseError.notFound
         }
     }
+    
+    // MARK: - Update Document Category
+    func updateDocumentCategory(_ documentId: UUID, category: DocumentCategory) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        let query = documentsTable.filter(self.documentId == documentId.uuidString)
+
+        let update = query.update(
+            documentCategory <- category.rawValue
+        )
+
+        let rowsUpdated = try db.run(update)
+        if rowsUpdated == 0 {
+            throw DatabaseError.notFound
+        }
+    }
 
     // MARK: - Update Document Extracted Data
     func updateDocumentExtractedData(_ documentId: UUID, extractedData: [AnyHealthData]) async throws {
@@ -113,11 +166,47 @@ extension DatabaseManager {
         do {
             let extractedDataJson = try JSONEncoder().encode(extractedData)
             
+            // CRITICAL: Preserve MedicalDocument fields when updating extracted data
+            // Read existing values first to avoid overwriting them
+            var existingExtractedText: String? = nil
+            var existingRawDoclingOutput: Data? = nil
+            var existingExtractedSections: Data? = nil
+            var existingDocumentDate: Int64? = nil
+            var existingProviderName: String? = nil
+            var existingProviderType: String? = nil
+            var existingIncludeInAIContext: Bool = false
+            var existingContextPriority: Int = 3
+            var existingLastEditedAt: Int64? = nil
+            
+            // Try to read existing MedicalDocument fields
+            let existingQuery = documentsTable.filter(self.documentId == documentId.uuidString)
+            if let existingRow = try? db.pluck(existingQuery) {
+                existingExtractedText = try? existingRow.get(self.documentExtractedText)
+                existingRawDoclingOutput = try? existingRow.get(self.documentRawDoclingOutput)
+                existingExtractedSections = try? existingRow.get(self.documentExtractedSections)
+                existingDocumentDate = try? existingRow.get(self.documentDate)
+                existingProviderName = try? existingRow.get(self.documentProviderName)
+                existingProviderType = try? existingRow.get(self.documentProviderType)
+                existingIncludeInAIContext = (try? existingRow.get(self.documentIncludeInAIContext)) ?? false
+                existingContextPriority = (try? existingRow.get(self.documentContextPriority)) ?? 3
+                existingLastEditedAt = try? existingRow.get(self.documentLastEditedAt)
+            }
+            
             let query = documentsTable.filter(self.documentId == documentId.uuidString)
             let update = query.update(
                 documentExtractedData <- extractedDataJson,
                 documentProcessingStatus <- ProcessingStatus.completed.rawValue,
-                documentProcessedAt <- Int64(Date().timeIntervalSince1970)
+                documentProcessedAt <- Int64(Date().timeIntervalSince1970),
+                // Preserve MedicalDocument fields
+                documentExtractedText <- existingExtractedText,
+                documentRawDoclingOutput <- existingRawDoclingOutput,
+                documentExtractedSections <- existingExtractedSections,
+                documentDate <- existingDocumentDate,
+                documentProviderName <- existingProviderName,
+                documentProviderType <- existingProviderType,
+                documentIncludeInAIContext <- existingIncludeInAIContext,
+                documentContextPriority <- existingContextPriority,
+                documentLastEditedAt <- existingLastEditedAt
             )
             
             let rowsUpdated = try db.run(update)
@@ -259,6 +348,10 @@ extension DatabaseManager {
             extractedData = []
         }
         
+        // Decode document category
+        let categoryRaw = (try? row.get(self.documentCategory)) ?? "other"
+        let documentCategory = DocumentCategory(rawValue: categoryRaw)
+        
         return HealthDocument(
             id: id,
             fileName: fileName,
@@ -267,6 +360,7 @@ extension DatabaseManager {
             thumbnailPath: thumbnailPath,
             processingStatus: processingStatus,
             extractedData: extractedData,
+            documentCategory: documentCategory,
             importedAt: importedAt,
             processedAt: processedAt,
             fileSize: fileSize,

@@ -352,7 +352,88 @@ extension BloodTestResult {
         // Blood Type and Immunology
         "abo_blood_type": LabParameter(name: "ABO Blood Type", key: "abo_blood_type", unit: "", referenceRange: "", category: .immunology, description: "ABO Blood Type, ABO Group"),
         "rh_factor": LabParameter(name: "Rh Factor", key: "rh_factor", unit: "", referenceRange: "", category: .immunology, description: "Rh Factor"),
-        "total_ige": LabParameter(name: "Total IgE", key: "total_ige", unit: "IU/mL", referenceRange: "0-100", category: .immunology, description: "Total Immunoglobulin E")
+        "total_ige": LabParameter(name: "Total IgE", key: "total_ige", unit: "IU/mL", referenceRange: "0-100", category: .immunology, description: "Total Immunoglobulin E"),
+        "iga": LabParameter(name: "IgA", key: "iga", unit: "mg/dL", referenceRange: "70-400", category: .immunology, description: "Immunoglobulin A"),
+        "igg": LabParameter(name: "IgG", key: "igg", unit: "mg/dL", referenceRange: "700-1600", category: .immunology, description: "Immunoglobulin G"),
+        "igm": LabParameter(name: "IgM", key: "igm", unit: "mg/dL", referenceRange: "40-230", category: .immunology, description: "Immunoglobulin M"),
+        
+        // Additional CBC Parameters
+        "nucleated_rbc": LabParameter(name: "Nucleated RBC", key: "nucleated_rbc", unit: "/100 WBC", referenceRange: "0", category: .completeBloodCount, description: "Nucleated Red Blood Cells"),
+        "platelet_distribution_width": LabParameter(name: "Platelet Distribution Width", key: "platelet_distribution_width", unit: "fL", referenceRange: "9-17", category: .completeBloodCount, description: "PDW, Platelet Distribution Width"),
+        "mean_cell_hemoglobin_concentration": LabParameter(name: "Mean Cell Hemoglobin Concentration", key: "mean_cell_hemoglobin_concentration", unit: "g/dL", referenceRange: "32-36", category: .completeBloodCount, description: "MCHC"),
+        
+        // Additional Metabolic Panel Tests
+        "lactate": LabParameter(name: "Lactate", key: "lactate", unit: "mmol/L", referenceRange: "0.5-2.2", category: .basicMetabolicPanel, description: "Lactic Acid, Lactate"),
+        "osmolal_gap": LabParameter(name: "Osmolal Gap", key: "osmolal_gap", unit: "mOsm/kg", referenceRange: "-10 to 10", category: .basicMetabolicPanel, description: "Osmolal Gap"),
+        
+        // Additional Kidney Function Tests
+        "urine_protein": LabParameter(name: "Urine Protein", key: "urine_protein", unit: "mg/dL", referenceRange: "<30", category: .kidneyFunction, description: "Urine Protein"),
+        "urine_creatinine": LabParameter(name: "Urine Creatinine", key: "urine_creatinine", unit: "mg/dL", referenceRange: "20-250", category: .kidneyFunction, description: "Urine Creatinine"),
+        "urine_protein_creatinine_ratio": LabParameter(name: "Urine Protein/Creatinine Ratio", key: "urine_protein_creatinine_ratio", unit: "", referenceRange: "<0.2", category: .kidneyFunction, description: "Urine Protein/Creatinine Ratio"),
+        "microalbumin": LabParameter(name: "Microalbumin", key: "microalbumin", unit: "mg/L", referenceRange: "<30", category: .kidneyFunction, description: "Microalbuminuria"),
+        
+        // Additional Liver Function Tests
+        "aptt": LabParameter(name: "APTT", key: "aptt", unit: "sec", referenceRange: "25-35", category: .liverFunction, description: "Activated Partial Thromboplastin Time"),
+        "protein_electrophoresis": LabParameter(name: "Protein Electrophoresis", key: "protein_electrophoresis", unit: "g/dL", referenceRange: "", category: .liverFunction, description: "Protein Electrophoresis"),
+        "ammonia": LabParameter(name: "Ammonia", key: "ammonia", unit: "μmol/L", referenceRange: "11-32", category: .liverFunction, description: "Blood Ammonia"),
+        
+        // Additional Thyroid Tests
+        "thyroglobulin": LabParameter(name: "Thyroglobulin", key: "thyroglobulin", unit: "ng/mL", referenceRange: "1.4-29.2", category: .thyroidFunction, description: "Thyroglobulin"),
+        "tsh_receptor_antibodies": LabParameter(name: "TSH Receptor Antibodies", key: "tsh_receptor_antibodies", unit: "IU/L", referenceRange: "<1.75", category: .thyroidFunction, description: "TSH Receptor Antibodies"),
+        
+        // Additional Diabetes Markers
+        "glucose_tolerance_test_2hr": LabParameter(name: "Glucose Tolerance Test (2hr)", key: "glucose_tolerance_test_2hr", unit: "mg/dL", referenceRange: "<140", category: .diabetesMarkers, description: "2-Hour Glucose Tolerance Test"),
+        "fasting_glucose": LabParameter(name: "Fasting Glucose", key: "fasting_glucose", unit: "mg/dL", referenceRange: "70-100", category: .diabetesMarkers, description: "Fasting Blood Glucose"),
+        "random_glucose": LabParameter(name: "Random Glucose", key: "random_glucose", unit: "mg/dL", referenceRange: "<140", category: .diabetesMarkers, description: "Random Blood Glucose"),
+        
+        // Additional Cardiac Markers
+        "troponin_t": LabParameter(name: "Troponin T", key: "troponin_t", unit: "ng/mL", referenceRange: "<0.01", category: .cardiacMarkers, description: "Troponin T"),
+        "ck_total": LabParameter(name: "Creatine Kinase Total", key: "ck_total", unit: "U/L", referenceRange: "30-200", category: .cardiacMarkers, description: "Total Creatine Kinase"),
+        "myoglobin": LabParameter(name: "Myoglobin", key: "myoglobin", unit: "ng/mL", referenceRange: "17-106", category: .cardiacMarkers, description: "Myoglobin"),
+        
+        // Additional Coagulation Tests
+        "protein_c": LabParameter(name: "Protein C", key: "protein_c", unit: "%", referenceRange: "70-140", category: .coagulation, description: "Protein C Activity"),
+        "protein_s": LabParameter(name: "Protein S", key: "protein_s", unit: "%", referenceRange: "60-140", category: .coagulation, description: "Protein S Activity"),
+        "antithrombin_iii": LabParameter(name: "Antithrombin III", key: "antithrombin_iii", unit: "%", referenceRange: "80-120", category: .coagulation, description: "Antithrombin III"),
+        "factor_viii": LabParameter(name: "Factor VIII", key: "factor_viii", unit: "%", referenceRange: "50-200", category: .coagulation, description: "Factor VIII Activity"),
+        "factor_ix": LabParameter(name: "Factor IX", key: "factor_ix", unit: "%", referenceRange: "50-200", category: .coagulation, description: "Factor IX Activity"),
+        "von_willebrand_factor": LabParameter(name: "Von Willebrand Factor", key: "von_willebrand_factor", unit: "%", referenceRange: "50-200", category: .coagulation, description: "Von Willebrand Factor"),
+        
+        // Additional Hormones
+        "progesterone": LabParameter(name: "Progesterone", key: "progesterone", unit: "ng/mL", referenceRange: "0.1-25", category: .hormones, description: "Progesterone"),
+        "prolactin": LabParameter(name: "Prolactin", key: "prolactin", unit: "ng/mL", referenceRange: "2-18", category: .hormones, description: "Prolactin"),
+        "lh": LabParameter(name: "LH", key: "lh", unit: "mIU/mL", referenceRange: "1-18", category: .hormones, description: "Luteinizing Hormone"),
+        "fsh": LabParameter(name: "FSH", key: "fsh", unit: "mIU/mL", referenceRange: "1-18", category: .hormones, description: "Follicle Stimulating Hormone"),
+        "gh": LabParameter(name: "Growth Hormone", key: "gh", unit: "ng/mL", referenceRange: "<3", category: .hormones, description: "Growth Hormone (GH)"),
+        "igf1": LabParameter(name: "IGF-1", key: "igf1", unit: "ng/mL", referenceRange: "117-329", category: .hormones, description: "Insulin-like Growth Factor 1"),
+        "aldosterone": LabParameter(name: "Aldosterone", key: "aldosterone", unit: "ng/dL", referenceRange: "3-16", category: .hormones, description: "Aldosterone"),
+        "renin": LabParameter(name: "Renin", key: "renin", unit: "ng/mL/hr", referenceRange: "0.5-4.0", category: .hormones, description: "Renin Activity"),
+        
+        // Additional Inflammatory Markers
+        "il6": LabParameter(name: "Interleukin-6", key: "il6", unit: "pg/mL", referenceRange: "<3", category: .inflammatoryMarkers, description: "Interleukin-6 (IL-6)"),
+        "tnf_alpha": LabParameter(name: "TNF-α", key: "tnf_alpha", unit: "pg/mL", referenceRange: "<8.1", category: .inflammatoryMarkers, description: "Tumor Necrosis Factor Alpha"),
+        "ferritin_acute_phase": LabParameter(name: "Ferritin (Acute Phase)", key: "ferritin_acute_phase", unit: "ng/mL", referenceRange: "15-200", category: .inflammatoryMarkers, description: "Ferritin as acute phase reactant"),
+        
+        // Additional Vitamins and Minerals
+        "vitamin_b1": LabParameter(name: "Vitamin B1", key: "vitamin_b1", unit: "ng/mL", referenceRange: "2.5-7.5", category: .vitaminsAndMinerals, description: "Thiamine (Vitamin B1)"),
+        "vitamin_b2": LabParameter(name: "Vitamin B2", key: "vitamin_b2", unit: "ng/mL", referenceRange: "4-24", category: .vitaminsAndMinerals, description: "Riboflavin (Vitamin B2)"),
+        "vitamin_b3": LabParameter(name: "Vitamin B3", key: "vitamin_b3", unit: "mg/dL", referenceRange: "0.5-8.5", category: .vitaminsAndMinerals, description: "Niacin (Vitamin B3)"),
+        "vitamin_b9": LabParameter(name: "Vitamin B9", key: "vitamin_b9", unit: "ng/mL", referenceRange: "3-17", category: .vitaminsAndMinerals, description: "Folic Acid (Vitamin B9)"),
+        "vitamin_k": LabParameter(name: "Vitamin K", key: "vitamin_k", unit: "ng/mL", referenceRange: "0.1-2.2", category: .vitaminsAndMinerals, description: "Vitamin K"),
+        "manganese": LabParameter(name: "Manganese", key: "manganese", unit: "µg/L", referenceRange: "4-15", category: .vitaminsAndMinerals, description: "Manganese"),
+        "chromium": LabParameter(name: "Chromium", key: "chromium", unit: "µg/L", referenceRange: "0.05-0.5", category: .vitaminsAndMinerals, description: "Chromium"),
+        "molybdenum": LabParameter(name: "Molybdenum", key: "molybdenum", unit: "µg/L", referenceRange: "0.3-1.2", category: .vitaminsAndMinerals, description: "Molybdenum"),
+        
+        // Tumor Markers (Other category)
+        "psa": LabParameter(name: "PSA", key: "psa", unit: "ng/mL", referenceRange: "<4.0", category: .other, description: "Prostate-Specific Antigen"),
+        "cea": LabParameter(name: "CEA", key: "cea", unit: "ng/mL", referenceRange: "<3.0", category: .other, description: "Carcinoembryonic Antigen"),
+        "ca125": LabParameter(name: "CA 125", key: "ca125", unit: "U/mL", referenceRange: "<35", category: .other, description: "Cancer Antigen 125"),
+        "ca199": LabParameter(name: "CA 19-9", key: "ca199", unit: "U/mL", referenceRange: "<37", category: .other, description: "Cancer Antigen 19-9"),
+        "afp": LabParameter(name: "AFP", key: "afp", unit: "ng/mL", referenceRange: "<10", category: .other, description: "Alpha-Fetoprotein"),
+        
+        // Additional Metabolic Tests
+        "lactate_dehydrogenase": LabParameter(name: "Lactate Dehydrogenase", key: "lactate_dehydrogenase", unit: "U/L", referenceRange: "140-280", category: .other, description: "LDH, Lactate Dehydrogenase"),
+        "alkaline_phosphatase_bone": LabParameter(name: "Alkaline Phosphatase (Bone)", key: "alkaline_phosphatase_bone", unit: "U/L", referenceRange: "44-147", category: .other, description: "Bone-specific Alkaline Phosphatase")
     ]
 
     static var bloodTestExtractionHint: String {
@@ -367,9 +448,48 @@ extension BloodTestResult {
             return "\(categoryName): \(testNames)"
         }
 
+        // Create a comprehensive list of all test names and common abbreviations
+        _ = standardizedLabParameters.values.map { $0.name }.sorted() // Available for future use
+        let commonAbbreviations = [
+            "CBC", "CMP", "BMP", "HGB", "HCT", "WBC", "RBC", "PLT", "MCV", "MCH", "MCHC",
+            "RDW", "MPV", "ALT", "AST", "ALP", "GGT", "LDH", "TSH", "T4", "T3", "FT4", "FT3",
+            "HbA1c", "A1C", "CRP", "ESR", "PT", "PTT", "INR", "BNP", "CK", "CK-MB", "Troponin",
+            "LDL", "HDL", "TG", "Chol", "BUN", "Cr", "eGFR", "Na", "K", "Cl", "CO2", "Ca", "Mg", "P"
+        ]
+        
         return """
-        Focus on extracting quantitative lab analytes from the following panels: \(categorySummaries.joined(separator: " | ")). Capture the reported value, units, reference ranges, and abnormal flags for each analyte you encounter.
-        """.trimmingCharacters(in: .whitespacesAndNewlines)
+        EXTRACT ALL LABORATORY VALUES FROM THIS DOCUMENT
+        
+        Instructions for Docling:
+        1. Identify ALL numerical laboratory test results in the document
+        2. For each test, extract:
+           - Test name (exactly as written, including abbreviations)
+           - Numerical value
+           - Unit of measurement (mg/dL, g/dL, %, U/L, etc.)
+           - Reference range (normal range) if provided
+           - Abnormal flag (High, Low, Critical, H, L, *, etc.) if present
+        
+        3. Common test categories to look for:
+        \(categorySummaries.joined(separator: "\n"))
+        
+        4. Common abbreviations to recognize:
+        \(commonAbbreviations.joined(separator: ", "))
+        
+        5. Pay special attention to:
+           - Tables with test results (often have columns: Test Name | Value | Unit | Reference Range | Flag)
+           - Sections labeled "Results", "Laboratory Results", "Test Results", "Lab Values"
+           - Both absolute values and percentages for CBC differentials
+           - Calculated values (e.g., LDL calculated, ratios)
+           - Multiple panels (CBC, CMP, Lipid Panel, etc.) in the same document
+        
+        6. Format requirements:
+           - Preserve exact test names as they appear (don't normalize)
+           - Include all variations (e.g., "HbA1c", "A1C", "Hemoglobin A1c" are all valid)
+           - Capture reference ranges exactly as shown (e.g., "<200", "70-100", ">40")
+           - Note any flags or indicators of abnormal values
+        
+        7. Important: Extract EVERY numerical lab value you find, even if it's not in the standard list above.
+        """
     }
 }
 

@@ -19,6 +19,7 @@ enum NetworkError: LocalizedError {
     case tooManyRequests
     case serviceUnavailable
     case underlying(Error)
+    case notImplemented(String) // For features not yet implemented
 
     // MARK: - Error Description
     var errorDescription: String? {
@@ -61,6 +62,8 @@ enum NetworkError: LocalizedError {
             return "Service temporarily unavailable"
         case .underlying(let error):
             return error.localizedDescription
+        case .notImplemented(let feature):
+            return "Feature not implemented: \(feature)"
         }
     }
 
@@ -105,6 +108,8 @@ enum NetworkError: LocalizedError {
             return "The service is temporarily down. Please try again in a few minutes"
         case .underlying:
             return "Please try again or contact support if the problem persists"
+        case .notImplemented:
+            return "This feature is not yet available"
         }
     }
 
@@ -118,7 +123,7 @@ enum NetworkError: LocalizedError {
         case .requestFailed(let code):
             // Retry on server errors (5xx), not client errors (4xx)
             return (500...599).contains(code)
-        case .cancelled, .unauthorized, .forbidden, .notFound, .clientError:
+        case .cancelled, .unauthorized, .forbidden, .notFound, .clientError, .notImplemented:
             return false
         case .invalidResponse, .underlying:
             return true // Conservative: allow retry for unknown errors

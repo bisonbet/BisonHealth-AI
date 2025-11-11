@@ -124,20 +124,24 @@ struct ChatContext: Codable {
 
 // MARK: - Medical Document Summary for Context
 /// Lightweight summary of a medical document for inclusion in chat context
-struct MedicalDocumentSummary: Codable, Hashable {
+struct MedicalDocumentSummary: Codable, Hashable, Equatable {
     let id: UUID
+    let fileName: String
     let documentDate: Date?
     let providerName: String?
     let documentCategory: DocumentCategory
     let sections: [DocumentSection]
+    let extractedText: String?
     let contextPriority: Int
 
     init(from medicalDocument: MedicalDocument) {
         self.id = medicalDocument.id
+        self.fileName = medicalDocument.fileName
         self.documentDate = medicalDocument.documentDate
         self.providerName = medicalDocument.providerName
         self.documentCategory = medicalDocument.documentCategory
         self.sections = medicalDocument.extractedSections
+        self.extractedText = medicalDocument.extractedText
         self.contextPriority = medicalDocument.contextPriority
     }
 
@@ -156,6 +160,16 @@ struct MedicalDocumentSummary: Codable, Hashable {
 
         header += "]"
         return header
+    }
+
+    // Explicit Equatable conformance
+    static func == (lhs: MedicalDocumentSummary, rhs: MedicalDocumentSummary) -> Bool {
+        return lhs.id == rhs.id
+    }
+
+    // Explicit Hashable conformance
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -291,6 +305,15 @@ extension ChatContext {
     
     func buildContextString() -> String {
         var contextParts: [String] = []
+        
+        // Add current date and time for temporal context
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .full
+        dateFormatter.timeStyle = .medium
+        dateFormatter.timeZone = TimeZone.current
+        let currentDateTime = dateFormatter.string(from: now)
+        contextParts.append("Current Date and Time: \(currentDateTime)\n")
         
         // Add header indicating what context types were requested
         if !selectedDataTypes.isEmpty {
@@ -448,13 +471,35 @@ extension ChatContext {
 
             for medicalDoc in sortedDocs {
                 medicalDocContext += "\n\(medicalDoc.formattedHeader)\n"
+                medicalDocContext += "File: \(medicalDoc.fileName)\n"
+                
+                // Debug logging
+                print("🔍 Context Build - Processing medical doc: \(medicalDoc.fileName)")
+                print("🔍 Context Build -   Sections count: \(medicalDoc.sections.count)")
+                print("🔍 Context Build -   Extracted text length: \(medicalDoc.extractedText?.count ?? 0)")
+                print("🔍 Context Build -   Extracted text is nil: \(medicalDoc.extractedText == nil)")
 
-                // Include extracted sections
+                // Include extracted sections if available
                 if !medicalDoc.sections.isEmpty {
+                    print("🔍 Context Build -   Using sections for context")
                     for section in medicalDoc.sections {
                         medicalDocContext += "\n\(section.sectionType):\n"
                         medicalDocContext += "\(section.content)\n"
                     }
+                } else if let extractedText = medicalDoc.extractedText, !extractedText.isEmpty {
+                    // Fallback to extracted text if no sections are available
+                    print("🔍 Context Build -   Using extracted text for context (length: \(extractedText.count))")
+                    // Clean markdown to remove any base64 image data that might still be present
+                    let cleanedText = cleanMarkdownForContext(extractedText)
+                    // Truncate if too long to avoid context overflow
+                    let maxTextLength = 5000
+                    let displayText = cleanedText.count > maxTextLength 
+                        ? String(cleanedText.prefix(maxTextLength)) + "\n... (text truncated)"
+                        : cleanedText
+                    medicalDocContext += "\nDocument Content:\n\(displayText)\n"
+                } else {
+                    print("⚠️ Context Build -   WARNING: No sections or extracted text available!")
+                    medicalDocContext += "\n(No content available - document may still be processing)\n"
                 }
             }
 
@@ -467,5 +512,36 @@ extension ChatContext {
         }
 
         return contextParts.joined(separator: "\n")
+    }
+    
+    // MARK: - Helper Functions
+    /// Cleans markdown text by removing base64 image data for AI context
+    private func cleanMarkdownForContext(_ markdown: String) -> String {
+        var cleaned = markdown
+        
+        // Remove base64 image references: ![Image](data:image/...)
+        let imagePattern = #"!\[[^\]]*\]\(data:image/[^)]+\)"#
+        cleaned = cleaned.replacingOccurrences(
+            of: imagePattern,
+            with: "",
+            options: [.regularExpression]
+        )
+        
+        // Remove standalone base64 data URLs
+        let dataUrlPattern = #"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"#
+        cleaned = cleaned.replacingOccurrences(
+            of: dataUrlPattern,
+            with: "[Image removed]",
+            options: [.regularExpression]
+        )
+        
+        // Clean up multiple consecutive newlines
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\n{3,}"#,
+            with: "\n\n",
+            options: [.regularExpression]
+        )
+        
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

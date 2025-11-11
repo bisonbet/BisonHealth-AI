@@ -289,12 +289,14 @@ class DoclingClient: ObservableObject {
             let processingTime = Date().timeIntervalSince(startTime)
             print("✅ DoclingClient: Successfully parsed Docling v1 result")
 
-            // Extract text content - prioritize markdown, then text, then any available content
+            // Extract text content - prioritize markdown for clean, readable text
+            // Markdown is preferred over plain text/html because it preserves structure better
+            // The JSON format is used separately for structured section extraction
             let extractedText = resultResponse.document.md_content ??
                                resultResponse.document.text_content ??
                                resultResponse.document.html_content ?? ""
 
-            // Count available content types
+            // Count available content types for logging
             var availableTypes: [String] = []
             if resultResponse.document.md_content != nil { availableTypes.append("markdown") }
             if resultResponse.document.text_content != nil { availableTypes.append("text") }
@@ -302,6 +304,7 @@ class DoclingClient: ObservableObject {
             if resultResponse.document.json_content != nil { availableTypes.append("json") }
 
             print("📄 DoclingClient: Extracted text length: \(extractedText.count) chars, available formats: \(availableTypes.joined(separator: ", "))")
+            print("📄 DoclingClient: Using markdown for text content, JSON will be used for structured section extraction")
 
             // Convert RawDoclingDocument to dictionary for structured data
             var structuredData: [String: AnyCodable] = [:]
@@ -329,7 +332,8 @@ class DoclingClient: ObservableObject {
                     "available_formats": availableTypes.joined(separator: ","),
                     "extracted_text_length": String(extractedText.count),
                     "api_version": "v1"
-                ]
+                ],
+                rawDoclingOutput: data  // Include raw JSON for medical document extraction
             )
         } catch {
             print("❌ DoclingClient: Failed to parse result: \(error)")
@@ -433,7 +437,11 @@ class DoclingClient: ObservableObject {
         formData.append(fileData)
         appendString(crlf) // Line ending after binary data
         
-        // Format fields - request both markdown and json formats (separate fields)
+        // Format fields - request both markdown and json formats
+        // We need both formats:
+        // - Markdown: Clean, readable text for extractedText (used in AI context and display)
+        // - JSON: Structured data with body.children for section extraction (used by MedicalDocumentExtractor)
+        // Both formats are returned in the response, and we use each for its specific purpose
         appendString("--\(boundary)\(crlf)")
         appendString("Content-Disposition: form-data; name=\"to_formats\"\(crlf)")
         appendString(crlf)

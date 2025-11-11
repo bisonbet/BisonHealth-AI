@@ -16,6 +16,8 @@ class HealthDataManager: ObservableObject {
     @Published var personalInfo: PersonalHealthInfo?
     @Published var bloodTests: [BloodTestResult] = []
     @Published var documents: [HealthDocument] = []
+    @Published var imagingReports: [MedicalDocument] = []
+    @Published var healthCheckups: [MedicalDocument] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
     
@@ -42,11 +44,31 @@ class HealthDataManager: ObservableObject {
             // Load personal info
             personalInfo = try await databaseManager.fetchPersonalHealthInfo()
             
-            // Load blood test results
-            bloodTests = try await databaseManager.fetchBloodTestResults()
+            // Load blood test results (only from lab reports or manually entered)
+            // Filter out any blood tests that came from non-lab-report documents
+            let allBloodTests = try await databaseManager.fetchBloodTestResults()
+            bloodTests = await filterValidBloodTests(allBloodTests)
             
             // Load documents
             documents = try await databaseManager.fetchDocuments()
+            
+            // Load imaging reports
+            imagingReports = try await databaseManager.fetchMedicalDocuments(category: .imagingReport)
+            imagingReports.sort { doc1, doc2 in
+                let date1 = doc1.documentDate ?? doc1.importedAt
+                let date2 = doc2.documentDate ?? doc2.importedAt
+                return date1 > date2
+            }
+            
+            // Load health checkups (doctors notes and consultations)
+            let doctorsNotes = try await databaseManager.fetchMedicalDocuments(category: .doctorsNote)
+            let consultations = try await databaseManager.fetchMedicalDocuments(category: .consultation)
+            healthCheckups = doctorsNotes + consultations
+            healthCheckups.sort { doc1, doc2 in
+                let date1 = doc1.documentDate ?? doc1.importedAt
+                let date2 = doc2.documentDate ?? doc2.importedAt
+                return date1 > date2
+            }
             
         } catch {
             errorMessage = "Failed to load health data: \(error.localizedDescription)"
@@ -274,6 +296,35 @@ class HealthDataManager: ObservableObject {
     }
     
     // MARK: - Helper Methods
+    private func filterValidBloodTests(_ tests: [BloodTestResult]) async -> [BloodTestResult] {
+        // Filter out blood tests that came from non-lab-report documents
+        var validTests: [BloodTestResult] = []
+        
+        for test in tests {
+            // Check if this blood test came from a document
+            // DocumentProcessor uses "source_document_id" key
+            if let documentIdString = test.metadata?["source_document_id"] ?? test.metadata?["sourceDocumentId"],
+               let documentId = UUID(uuidString: documentIdString) {
+                // Check the document's category
+                if let document = try? await databaseManager.fetchDocument(id: documentId) {
+                    // Only include if document is a lab report or has no category (manually entered)
+                    if document.documentCategory == .labReport || document.documentCategory == nil {
+                        validTests.append(test)
+                    }
+                    // Skip if document is an imaging report or other non-lab category
+                } else {
+                    // Document not found, assume it's valid (might have been deleted)
+                    validTests.append(test)
+                }
+            } else {
+                // No source document ID, assume manually entered - include it
+                validTests.append(test)
+            }
+        }
+        
+        return validTests
+    }
+    
     private func mergePersonalInfo(existing: PersonalHealthInfo, extracted: PersonalHealthInfo) -> PersonalHealthInfo {
         var merged = existing
         

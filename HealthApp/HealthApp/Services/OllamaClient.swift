@@ -63,12 +63,20 @@ class OllamaClient: ObservableObject, AIProviderInterface {
             let startTime = Date()
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
 
+            // Get settings from SettingsManager
+            let contextSize = SettingsManager.shared.modelPreferences.contextSizeLimit
+            print("🔧 OllamaClient: Using context size: \(contextSize) tokens, keep_alive: forever")
+
             // Simple timeout implementation using Task.timeout equivalent
+            // Use Ollama.Value to create the options dictionary with the correct type
             let response = try await withTimeout(timeout) {
-                try await self.client.chat(
+                // The library expects [String: Value] where Value is Ollama.Value
+                // Initialize Value using .init() or Ollama.Value()
+                return try await self.client.chat(
                     model: modelID,
                     messages: messages,
-                    keepAlive: .minutes(10)
+                    options: ["num_ctx": Ollama.Value(contextSize)],
+                    keepAlive: .forever
                 )
             }
 
@@ -104,15 +112,21 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         do {
             isStreaming = true
             streamingContent = ""
-            
+
             let messages = buildMessages(userMessage: message, context: context, systemPrompt: systemPrompt)
             let startTime = Date()
-            
+
+            // Get settings from SettingsManager
+            let contextSize = SettingsManager.shared.modelPreferences.contextSizeLimit
+            print("🔧 OllamaClient (streaming): Using context size: \(contextSize) tokens, keep_alive: forever")
+
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
+            // Use Ollama.Value to create the options dictionary with the correct type
             let stream = try client.chatStream(
                 model: modelID,
                 messages: messages,
-                keepAlive: .minutes(10)
+                options: ["num_ctx": Ollama.Value(contextSize)],
+                keepAlive: .forever
             )
             
             var accumulatedContent = ""

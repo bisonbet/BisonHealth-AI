@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UserNotifications
+import CryptoKit
 
 // MARK: - Document Processor
 @MainActor
@@ -196,13 +197,123 @@ class DocumentProcessor: ObservableObject {
             let extractedHealthData = try await extractHealthData(from: result, document: currentItem.document)
             print("✅ DocumentProcessor: Health data extraction completed, found \(extractedHealthData.count) items")
             
-            // Update document with extracted data
-            print("💾 DocumentProcessor: Saving extracted data to database")
-            try await databaseManager.updateDocumentExtractedData(
-                currentItem.document.id,
-                extractedData: extractedHealthData
-            )
-            print("✅ DocumentProcessor: Extracted data saved to database")
+            // Extract medical document information (sections, metadata, etc.)
+            print("🏥 DocumentProcessor: Extracting medical document information")
+            var medicalDocument: MedicalDocument?
+            if let rawDoclingOutput = result.rawDoclingOutput {
+                do {
+                    let extractor = MedicalDocumentExtractor()
+                    // Get AI client for enhanced extraction if available
+                    let aiClient = settingsManager.getAIClient()
+                    let extractionResult = try await extractor.extractMedicalInformation(
+                        from: rawDoclingOutput,
+                        fileName: currentItem.document.fileName,
+                        aiClient: aiClient
+                    )
+                    
+                    // Convert HealthDocument to MedicalDocument with extracted information
+                    // Use document category from HealthDocument if set, otherwise use extracted category
+                    let finalCategory = currentItem.document.documentCategory ?? extractionResult.documentCategory
+                    
+                    // Use extracted text from extractionResult, or fallback to markdown text from Docling
+                    // Clean markdown to remove base64 image data which is not useful for AI context
+                    let rawExtractedText = extractionResult.extractedText.isEmpty ? result.extractedText : extractionResult.extractedText
+                    let extractedText = cleanMarkdownForAIContext(rawExtractedText)
+                    print("🔍 DocumentProcessor: extractionResult.extractedText length: \(extractionResult.extractedText.count)")
+                    print("🔍 DocumentProcessor: result.extractedText (markdown) length: \(result.extractedText.count)")
+                    print("🔍 DocumentProcessor: Cleaned extracted text length: \(extractedText.count)")
+
+                    medicalDocument = MedicalDocument(
+                        id: currentItem.document.id,
+                        fileName: currentItem.document.fileName,
+                        fileType: currentItem.document.fileType,
+                        filePath: currentItem.document.filePath,
+                        thumbnailPath: currentItem.document.thumbnailPath,
+                        processingStatus: .completed,
+                        documentDate: extractionResult.documentDate,
+                        providerName: extractionResult.providerName,
+                        providerType: extractionResult.providerType,
+                        documentCategory: finalCategory,
+                        extractedText: extractedText.isEmpty ? nil : extractedText,
+                        rawDoclingOutput: rawDoclingOutput,
+                        extractedSections: extractionResult.extractedSections,
+                        includeInAIContext: false, // User must explicitly enable
+                        contextPriority: 3,
+                        extractedHealthData: extractedHealthData,
+                        importedAt: currentItem.document.importedAt,
+                        processedAt: Date(),
+                        lastEditedAt: nil,
+                        fileSize: currentItem.document.fileSize,
+                        tags: currentItem.document.tags,
+                        notes: currentItem.document.notes
+                    )
+                    
+                    // Save as MedicalDocument
+                    try await databaseManager.saveMedicalDocument(medicalDocument!)
+                    print("✅ DocumentProcessor: Medical document information saved")
+                    print("✅ DocumentProcessor: Extracted text length: \(extractedText.count) chars, Sections: \(extractionResult.extractedSections.count)")
+
+                    // CRITICAL: Verify the document is still in DB correctly AFTER potential UI interactions
+                    try? await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 seconds
+                    if let verifiedDoc = try? await databaseManager.fetchMedicalDocument(id: medicalDocument!.id) {
+                        print("🔍 DocumentProcessor: POST-SAVE VERIFICATION (after 0.5s):")
+                        print("🔍 DocumentProcessor:   - extractedText length: \(verifiedDoc.extractedText?.count ?? 0) chars")
+                        print("🔍 DocumentProcessor:   - extractedText is nil: \(verifiedDoc.extractedText == nil)")
+                        if verifiedDoc.extractedText == nil || verifiedDoc.extractedText?.isEmpty == true {
+                            print("❌ DocumentProcessor: DATA LOST! Something overwrote extractedText between save and now!")
+                        }
+                    }
+                } catch {
+                    print("⚠️ DocumentProcessor: Failed to extract medical document information: \(error)")
+                    print("⚠️ DocumentProcessor: Error details: \(error.localizedDescription)")
+                    
+                    // Fallback: Still create a MedicalDocument with at least the markdown text
+                    // This ensures the document can be enabled for AI context later
+                    do {
+                        let finalCategory = currentItem.document.documentCategory ?? .other
+                        let cleanedText = cleanMarkdownForAIContext(result.extractedText)
+                        let fallbackDocument = MedicalDocument(
+                            id: currentItem.document.id,
+                            fileName: currentItem.document.fileName,
+                            fileType: currentItem.document.fileType,
+                            filePath: currentItem.document.filePath,
+                            thumbnailPath: currentItem.document.thumbnailPath,
+                            processingStatus: .completed,
+                            documentDate: nil,
+                            providerName: nil,
+                            providerType: nil,
+                            documentCategory: finalCategory,
+                            extractedText: cleanedText.isEmpty ? nil : cleanedText,
+                            rawDoclingOutput: rawDoclingOutput,
+                            extractedSections: [],
+                            includeInAIContext: false,
+                            contextPriority: 3,
+                            extractedHealthData: extractedHealthData,
+                            importedAt: currentItem.document.importedAt,
+                            processedAt: Date(),
+                            lastEditedAt: nil,
+                            fileSize: currentItem.document.fileSize,
+                            tags: currentItem.document.tags,
+                            notes: currentItem.document.notes
+                        )
+                        try await databaseManager.saveMedicalDocument(fallbackDocument)
+                        medicalDocument = fallbackDocument
+                        print("✅ DocumentProcessor: Saved MedicalDocument with fallback text (\(cleanedText.count) chars, cleaned from \(result.extractedText.count) chars)")
+                    } catch {
+                        print("❌ DocumentProcessor: Failed to save fallback MedicalDocument: \(error)")
+                    }
+                }
+            }
+            
+            // Update document with extracted data (fallback if medical extraction failed)
+            if medicalDocument == nil {
+                print("💾 DocumentProcessor: Saving extracted data to database (fallback)")
+                try await databaseManager.updateDocumentExtractedData(
+                    currentItem.document.id,
+                    extractedData: extractedHealthData
+                )
+                print("✅ DocumentProcessor: Extracted data saved to database")
+            }
             
             // Link extracted data to health data manager
             print("🔗 DocumentProcessor: Linking extracted data to health data manager")
@@ -228,6 +339,12 @@ class DocumentProcessor: ObservableObject {
             // Log specific error types and check for known iOS permission issues
             if let urlError = error as? URLError {
                 print("❌ DocumentProcessor: Network error - Code: \(urlError.code), Description: \(urlError.localizedDescription)")
+            } else if let cryptoError = error as? CryptoKitError {
+                print("❌ DocumentProcessor: CryptoKit error detected")
+                if case .authenticationFailure = cryptoError {
+                    print("❌ DocumentProcessor: Decryption authentication failure - file may be encrypted with different key or corrupted")
+                    print("❌ DocumentProcessor: This can happen if the encryption key changed or the file was moved between devices")
+                }
             } else if error.localizedDescription.contains("database") || 
                       error.localizedDescription.contains("process may not map database") ||
                       error.localizedDescription.contains("permission was denied") {
@@ -409,10 +526,14 @@ class DocumentProcessor: ObservableObject {
 
         print("📄 DocumentProcessor: Starting health data extraction from document")
         print("📄 DocumentProcessor: Extracted text length: \(result.extractedText.count) characters")
+        print("📄 DocumentProcessor: Document category: \(document.documentCategory?.displayName ?? "none")")
 
-        // Primary approach: Use full document text for AI-powered blood test extraction
-        if !result.extractedText.isEmpty {
-            print("🧪 DocumentProcessor: Attempting blood test extraction from full document text")
+        // Only extract blood tests for lab reports
+        let isLabReport = document.documentCategory == .labReport || document.documentCategory == nil
+        
+        // Primary approach: Use full document text for AI-powered blood test extraction (only for lab reports)
+        if isLabReport && !result.extractedText.isEmpty {
+            print("🧪 DocumentProcessor: Attempting blood test extraction from full document text (lab report)")
             do {
                 let bloodTest = try await createBloodTestResultFromText(
                     documentText: result.extractedText,
@@ -425,6 +546,8 @@ class DocumentProcessor: ObservableObject {
                 print("❌ DocumentProcessor: Failed to create blood test from text: \(error)")
                 // Continue with fallback approaches
             }
+        } else if !isLabReport {
+            print("ℹ️ DocumentProcessor: Skipping blood test extraction for \(document.documentCategory?.displayName ?? "non-lab") document")
         }
 
         // Fallback approach: Parse structured data if available (for other data types)
@@ -460,11 +583,13 @@ class DocumentProcessor: ObservableObject {
             }
         }
 
-        // If no data was extracted and we have text, create a basic blood test result
-        if extractedData.isEmpty && !result.extractedText.isEmpty {
+        // Only create basic blood test fallback for lab reports (or if category is nil for backward compatibility)
+        if isLabReport && extractedData.isEmpty && !result.extractedText.isEmpty {
             print("⚠️ DocumentProcessor: No specific data extracted, creating basic blood test placeholder")
             let basicBloodTest = createBasicBloodTestResult(document: document)
             extractedData.append(try AnyHealthData(basicBloodTest))
+        } else if !isLabReport && extractedData.isEmpty {
+            print("ℹ️ DocumentProcessor: No health data extracted for \(document.documentCategory?.displayName ?? "non-lab") document - this is expected")
         }
 
         print("📊 DocumentProcessor: Extraction complete. Found \(extractedData.count) health data items")
@@ -754,6 +879,41 @@ class DocumentProcessor: ObservableObject {
         return report
     }
     
+    // MARK: - Markdown Cleaning Helper
+    /// Removes base64-encoded images and other non-text content from markdown for AI context
+    private func cleanMarkdownForAIContext(_ markdown: String) -> String {
+        var cleaned = markdown
+        
+        // Remove base64 image references: ![Image](data:image/...)
+        // This regex matches: ![optional text](data:image/type;base64,verylongstring)
+        let imagePattern = #"!\[[^\]]*\]\(data:image/[^)]+\)"#
+        cleaned = cleaned.replacingOccurrences(
+            of: imagePattern,
+            with: "",
+            options: [.regularExpression]
+        )
+        
+        // Remove standalone base64 data URLs
+        let dataUrlPattern = #"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"#
+        cleaned = cleaned.replacingOccurrences(
+            of: dataUrlPattern,
+            with: "[Image removed]",
+            options: [.regularExpression]
+        )
+        
+        // Clean up multiple consecutive newlines
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\n{3,}"#,
+            with: "\n\n",
+            options: [.regularExpression]
+        )
+        
+        // Trim whitespace
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return cleaned
+    }
+
     // MARK: - Parsing Helpers
     private func parseDate(from string: String) -> Date? {
         let formatters = [

@@ -115,8 +115,49 @@ class FileSystemManager: ObservableObject {
         // Read encrypted data
         let encryptedData = try Data(contentsOf: url)
         
-        // Decrypt and return
-        return try decryptData(encryptedData)
+        // Try to decrypt, but handle authentication failures gracefully
+        do {
+            return try decryptData(encryptedData)
+        } catch let error as CryptoKitError {
+            // Check if this is an authentication failure (wrong key or corrupted data)
+            if case .authenticationFailure = error {
+                print("⚠️ FileSystemManager: Decryption authentication failure for file: \(url.lastPathComponent)")
+                print("⚠️ FileSystemManager: This may indicate the file was encrypted with a different key or is corrupted")
+                
+                // Check if the file might be unencrypted by checking common file signatures
+                let firstBytes = encryptedData.prefix(8)
+                
+                // PDF files start with "%PDF"
+                if let pdfHeader = String(data: encryptedData.prefix(4), encoding: .utf8),
+                   pdfHeader == "%PDF" {
+                    print("ℹ️ FileSystemManager: File appears to be unencrypted PDF, returning as-is")
+                    return encryptedData
+                }
+                
+                // JPEG files start with FF D8 FF
+                if firstBytes.count >= 3 && firstBytes[0] == 0xFF && firstBytes[1] == 0xD8 && firstBytes[2] == 0xFF {
+                    print("ℹ️ FileSystemManager: File appears to be unencrypted JPEG, returning as-is")
+                    return encryptedData
+                }
+                
+                // PNG files start with 89 50 4E 47
+                if firstBytes.count >= 4 && firstBytes[0] == 0x89 && firstBytes[1] == 0x50 && 
+                   firstBytes[2] == 0x4E && firstBytes[3] == 0x47 {
+                    print("ℹ️ FileSystemManager: File appears to be unencrypted PNG, returning as-is")
+                    return encryptedData
+                }
+                
+                // If it's not a recognizable unencrypted format, throw the error
+                print("❌ FileSystemManager: Cannot decrypt file and it doesn't appear to be unencrypted")
+                throw FileSystemError.decryptionFailed
+            } else {
+                // Other CryptoKit errors
+                throw FileSystemError.decryptionFailed
+            }
+        } catch {
+            // Re-throw other errors
+            throw error
+        }
     }
     
     func deleteDocument(at url: URL) throws {

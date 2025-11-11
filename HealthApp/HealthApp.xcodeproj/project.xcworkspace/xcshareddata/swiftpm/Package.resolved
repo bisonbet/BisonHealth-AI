@@ -1,5 +1,5 @@
 {
-  "originHash" : "a7e735c9bb64f99528a19c896e23c788c4c812e15a1e1fef9f81510d7bd910f9",
+  "originHash" : "c9edcaab0c6c20a2cbfc23a458a3bd57a9c9ddd09ffa4eaf8593973299248a75",
   "pins" : [
     {
       "identity" : "aws-crt-swift",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "a56a157218877ef3e9625f7e1f7b2cb7e46ead1b",
         "version" : "1.26.1"
+      }
+    },
+    {
+      "identity" : "networkimage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/NetworkImage",
+      "state" : {
+        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
+        "version" : "6.0.1"
       }
     },
     {
@@ -128,6 +137,15 @@
       }
     },
     {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark",
+      "state" : {
+        "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+        "version" : "0.7.1"
+      }
+    },
+    {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-collections.git",
@@ -170,6 +188,15 @@
       "state" : {
         "revision" : "ce592ae52f982c847a4efc0dd881cc9eb32d29f2",
         "version" : "1.6.4"
+      }
+    },
+    {
+      "identity" : "swift-markdown-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bisonbet/swift-markdown-ui",
+      "state" : {
+        "branch" : "main",
+        "revision" : "a9c7615fb50323069c2979c69263973aa1b24a8f"
       }
     },
     {

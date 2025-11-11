@@ -135,7 +135,7 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Import
-    func importDocuments(from urls: [URL]) async {
+    func importDocuments(from urls: [URL]) async -> [HealthDocument] {
         isImporting = true
         importProgress = 0.0
         
@@ -151,13 +151,12 @@ class DocumentManager: ObservableObject {
             documents.append(contentsOf: importedDocuments)
             documents.sort { $0.importedAt > $1.importedAt }
             
-            // Add to processing queue
-            for document in importedDocuments {
-                await documentProcessor.addToQueue(document)
-            }
+            // Return documents for category selection (don't add to queue yet)
+            return importedDocuments
             
         } catch {
             lastError = error
+            return []
         }
     }
     
@@ -185,7 +184,7 @@ class DocumentManager: ObservableObject {
         }
     }
     
-    func importScannedDocument(_ scan: VNDocumentCameraScan) async {
+    func importScannedDocument(_ scan: VNDocumentCameraScan) async -> HealthDocument? {
         isImporting = true
         importProgress = 0.0
         
@@ -201,15 +200,35 @@ class DocumentManager: ObservableObject {
             documents.append(document)
             documents.sort { $0.importedAt > $1.importedAt }
             
-            // Add to processing queue with high priority for scanned documents
-            await documentProcessor.addToQueue(document, priority: .high)
+            // Return document for category selection (don't add to queue yet)
+            return document
             
+        } catch {
+            lastError = error
+            return nil
+        }
+    }
+    
+    func setDocumentCategoryAndProcess(_ documentId: UUID, category: DocumentCategory) async {
+        do {
+            // Update document category in database
+            try await databaseManager.updateDocumentCategory(documentId, category: category)
+            
+            // Update local document
+            if let index = documents.firstIndex(where: { $0.id == documentId }) {
+                documents[index].documentCategory = category
+            }
+            
+            // Find the document and add to processing queue
+            if let document = documents.first(where: { $0.id == documentId }) {
+                await documentProcessor.addToQueue(document, priority: .high)
+            }
         } catch {
             lastError = error
         }
     }
     
-    func importFromPhotoLibrary(_ results: [PHPickerResult]) async {
+    func importFromPhotoLibrary(_ results: [PHPickerResult]) async -> [HealthDocument] {
         isImporting = true
         importProgress = 0.0
         
@@ -225,13 +244,12 @@ class DocumentManager: ObservableObject {
             documents.append(contentsOf: importedDocuments)
             documents.sort { $0.importedAt > $1.importedAt }
             
-            // Add to processing queue
-            for document in importedDocuments {
-                await documentProcessor.addToQueue(document)
-            }
+            // Return documents for category selection (don't add to queue yet)
+            return importedDocuments
             
         } catch {
             lastError = error
+            return []
         }
     }
     

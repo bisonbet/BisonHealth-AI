@@ -706,7 +706,7 @@ struct SettingsView: View {
                         ProgressView()
                             .scaleEffect(0.8)
                     } else {
-                        Image(systemName: status == .connected ? "checkmark.network" : "network")
+                        Image(systemName: status == .connected ? "checkmark.circle" : "network")
                             .foregroundColor(status == .connected ? .green : .primary)
                     }
                     

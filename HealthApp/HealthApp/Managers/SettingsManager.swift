@@ -98,6 +98,7 @@ struct ModelPreferences: Equatable {
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet4.rawValue // Default AWS Bedrock model
+    var contextSizeLimit: Int = 16384      // Default context size: 16k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
 

@@ -18,7 +18,16 @@
 - Unit/UI tests (Simulator): `xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro'`
 - Legacy web-app (optional, reference only): `cd legacy/web-app && npm i && npm run dev` (unsupported)
 
-Note: Our default Simulator target is `iPhone 16 Pro`. If that runtime isn’t installed locally, either install it via Xcode > Settings > Platforms or temporarily substitute another available device (e.g., `iPhone 15`).
+Note: Our default Simulator target is `iPhone 16 Pro`. If that runtime isn't installed locally, either install it via Xcode > Settings > Platforms or temporarily substitute another available device (e.g., `iPhone 15`).
+
+### AI Agent Guidelines for Build Commands
+- **DO NOT run `xcodebuild` commands unless the user explicitly requests a build or test run**
+- Use `read_lints` tool to check for compilation errors instead of building
+- Only run builds when:
+  - User explicitly asks to build, test, or verify compilation
+  - User asks to check if something compiles
+  - User requests running tests
+- For checking code correctness, prefer static analysis tools (linter) over building
 
 ## Coding Style & Naming Conventions
 - Swift: follow Apple’s Swift API Design Guidelines; 4‑space indentation; no force‑unwraps.

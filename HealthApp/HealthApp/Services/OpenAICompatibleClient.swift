@@ -119,13 +119,26 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        // Debug: Log the complete request
+        // Debug: Log request with sanitized headers and truncated body
         print("📤 OpenAICompatibleClient: Sending request to \(messagesURL)")
         print("   Model: \(defaultModel ?? "(none)")")
-        print("   Headers: \(request.allHTTPHeaderFields ?? [:])")
+
+        // Sanitize headers to hide API key
+        if let headers = request.allHTTPHeaderFields {
+            var sanitizedHeaders = headers
+            if sanitizedHeaders["Authorization"] != nil {
+                sanitizedHeaders["Authorization"] = "Bearer [REDACTED]"
+            }
+            print("   Headers: \(sanitizedHeaders)")
+        }
+
+        // Truncate body to first 200 characters
         if let bodyData = request.httpBody,
            let bodyString = String(data: bodyData, encoding: .utf8) {
-            print("   Body: \(bodyString)")
+            let truncatedBody = bodyString.count > 200
+                ? String(bodyString.prefix(200)) + "... (\(bodyString.count - 200) more chars)"
+                : bodyString
+            print("   Body: \(truncatedBody)")
         }
 
         let startTime = Date()

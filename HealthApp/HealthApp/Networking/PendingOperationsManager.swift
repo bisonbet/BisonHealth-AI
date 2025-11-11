@@ -23,7 +23,39 @@ class PendingOperationsManager: ObservableObject {
     // MARK: - Initialization
     private init() {
         loadPersistedOperations()
+        cleanupStaleOperations() // Remove old/failed operations on startup
         setupNetworkMonitoring()
+    }
+    
+    /// Clean up stale operations (failed or too old)
+    private func cleanupStaleOperations() {
+        let now = Date()
+        let maxAge: TimeInterval = 24 * 60 * 60 // 1 day (operations older than this are likely stale)
+        
+        let initialCount = pendingOperations.count
+        
+        pendingOperations.removeAll { operation in
+            // Remove failed operations older than maxAge
+            if operation.status == .failed {
+                if let lastAttempt = operation.lastAttempt {
+                    return now.timeIntervalSince(lastAttempt) > maxAge
+                }
+                return true // Remove failed operations without lastAttempt
+            }
+            
+            // Remove pending operations that are too old (likely from before implementation)
+            if operation.status == .pending {
+                return now.timeIntervalSince(operation.createdAt) > maxAge
+            }
+            
+            return false
+        }
+        
+        let removedCount = initialCount - pendingOperations.count
+        if removedCount > 0 {
+            print("🧹 PendingOperationsManager: Cleaned up \(removedCount) stale operations")
+            persistOperations()
+        }
     }
 
     // MARK: - Public Methods
@@ -225,17 +257,17 @@ class PendingOperationsManager: ObservableObject {
         model: String,
         systemPrompt: String?
     ) async throws {
-        // Get the chat manager and retry the message
-        // This is a placeholder - actual implementation would need dependency injection
-        print("🔄 PendingOperationsManager: Retrying chat message for conversation \(conversationId)")
-        throw NetworkError.notConnected // Placeholder
+        // TODO: Implement actual chat message retry
+        // For now, mark as failed since this is not implemented
+        print("⚠️ PendingOperationsManager: Chat message retry not implemented, marking as failed")
+        throw NetworkError.notImplemented("Chat message retry is not yet implemented")
     }
 
     private func executeDocumentProcessing(documentId: UUID, immediately: Bool) async throws {
-        // Get the document manager and retry processing
-        // This is a placeholder - actual implementation would need dependency injection
-        print("🔄 PendingOperationsManager: Retrying document processing for \(documentId)")
-        throw NetworkError.notConnected // Placeholder
+        // TODO: Implement actual document processing retry
+        // For now, mark as failed since this is not implemented
+        print("⚠️ PendingOperationsManager: Document processing retry not implemented, marking as failed")
+        throw NetworkError.notImplemented("Document processing retry is not yet implemented")
     }
 
     private func processQueue() async {
@@ -253,11 +285,13 @@ class PendingOperationsManager: ObservableObject {
 
     private func setupNetworkMonitoring() {
         NetworkManager.shared.statusPublisher
+            .debounce(for: .seconds(2), scheduler: RunLoop.main) // Debounce to prevent rapid retries
             .sink { [weak self] status in
                 Task { @MainActor [weak self] in
                     guard let self = self else { return }
-
-                    if status.isConnected && !self.pendingOperations.isEmpty {
+                    
+                    // Only process if network is connected, we have operations, and we're not already processing
+                    if status.isConnected && !self.pendingOperations.isEmpty && !self.isProcessingQueue {
                         print("✅ PendingOperationsManager: Network restored, processing \(self.pendingOperations.count) pending operations")
                         await self.processQueue()
                     }

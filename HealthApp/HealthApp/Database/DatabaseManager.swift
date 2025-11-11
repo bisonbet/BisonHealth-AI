@@ -92,14 +92,27 @@ class DatabaseManager: ObservableObject {
         self.encryptionKey = try Self.getOrCreateEncryptionKey()
         
         // Set up database URL
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let healthAppDirectory = documentsPath.appendingPathComponent("HealthApp/Database")
+        // Use Application Support directory instead of Documents for better persistence
+        // This directory persists across app updates and Xcode reinstalls (unless app is deleted)
+        let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
         
         // Create directory if it doesn't exist
         try FileManager.default.createDirectory(at: healthAppDirectory, withIntermediateDirectories: true)
         
         self.databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
+
+        print("🗄️ DatabaseManager: Database path: \(databaseURL.path)")
+        print("🗄️ DatabaseManager: Database file exists: \(FileManager.default.fileExists(atPath: databaseURL.path))")
         
+        // Migrate database from Documents directory if it exists (one-time migration)
+        try migrateDatabaseFromDocumentsIfNeeded(newLocation: databaseURL)
+        
+        // Note: Database persists across Xcode installs unless:
+        // - App is manually deleted from device/simulator
+        // - Simulator is reset (Device > Erase All Content and Settings)
+        // - App's container is explicitly deleted
+
         // Initialize database connection and schema (actor init is nonisolated in Swift 6; inline to avoid isolation issues)
         db = try Connection(databaseURL.path)
         
@@ -198,19 +211,81 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Database Location Migration
+    /// Migrates database from Documents directory to Application Support directory (one-time migration)
+    private func migrateDatabaseFromDocumentsIfNeeded(newLocation: URL) throws {
+        // Check if database already exists in new location
+        if FileManager.default.fileExists(atPath: newLocation.path) {
+            print("✅ DatabaseManager: Database already in Application Support directory")
+            return
+        }
+        
+        // Check for old location in Documents directory
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let oldDatabasePath = documentsPath.appendingPathComponent("HealthApp/Database/health_data.sqlite")
+        
+        if FileManager.default.fileExists(atPath: oldDatabasePath.path) {
+            print("🔄 DatabaseManager: Found database in Documents directory, migrating to Application Support...")
+            
+            // Also check for WAL and SHM files (SQLite write-ahead logging files)
+            let oldWALPath = oldDatabasePath.appendingPathExtension("wal")
+            let oldSHMPath = oldDatabasePath.appendingPathExtension("shm")
+            
+            do {
+                // Copy main database file
+                try FileManager.default.copyItem(at: oldDatabasePath, to: newLocation)
+                print("✅ DatabaseManager: Copied database file to Application Support")
+                
+                // Copy WAL file if it exists
+                if FileManager.default.fileExists(atPath: oldWALPath.path) {
+                    let newWALPath = newLocation.appendingPathExtension("wal")
+                    try FileManager.default.copyItem(at: oldWALPath, to: newWALPath)
+                    print("✅ DatabaseManager: Copied WAL file to Application Support")
+                }
+                
+                // Copy SHM file if it exists
+                if FileManager.default.fileExists(atPath: oldSHMPath.path) {
+                    let newSHMPath = newLocation.appendingPathExtension("shm")
+                    try FileManager.default.copyItem(at: oldSHMPath, to: newSHMPath)
+                    print("✅ DatabaseManager: Copied SHM file to Application Support")
+                }
+                
+                // Remove old files after successful migration
+                try FileManager.default.removeItem(at: oldDatabasePath)
+                if FileManager.default.fileExists(atPath: oldWALPath.path) {
+                    try? FileManager.default.removeItem(at: oldWALPath)
+                }
+                if FileManager.default.fileExists(atPath: oldSHMPath.path) {
+                    try? FileManager.default.removeItem(at: oldSHMPath)
+                }
+                
+                print("✅ DatabaseManager: Successfully migrated database from Documents to Application Support")
+            } catch {
+                print("⚠️ DatabaseManager: Failed to migrate database: \(error)")
+                // Don't throw - allow app to continue with new database location
+                // Old database will remain in Documents directory
+            }
+        } else {
+            print("ℹ️ DatabaseManager: No existing database found in Documents directory")
+        }
+    }
+
     // MARK: - Database Migration
     private func performDatabaseMigration(db: Connection) throws {
         // Get current database version
         let currentVersion = try getCurrentDatabaseVersion(db: db)
+        print("🔧 DatabaseManager: Current DB version: \(currentVersion), Target version: \(Self.currentDatabaseVersion)")
 
         // If this is a fresh database, set the current version
         if currentVersion == 0 {
+            print("🔧 DatabaseManager: Fresh database detected, setting version to \(Self.currentDatabaseVersion)")
             try setDatabaseVersion(db: db, version: Self.currentDatabaseVersion)
             return
         }
 
         // Check if migration is needed
         if currentVersion < Self.currentDatabaseVersion {
+            print("⚠️ DatabaseManager: Migration needed from v\(currentVersion) to v\(Self.currentDatabaseVersion)")
             // Perform backup before migration
             try createBackupBeforeMigration()
 

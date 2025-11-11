@@ -171,39 +171,162 @@ class BloodTestMappingService: ObservableObject {
 
     // MARK: - Phase 2: Extract Lab Values with AI
     private func extractLabValuesWithAI(from text: String) async throws -> [ExtractedLabValue] {
+        // Check if document is too large and needs chunking
+        let maxChunkSize = 15000 // Conservative estimate for most AI models
+        let chunks = chunkDocument(text, maxChunkSize: maxChunkSize)
+        
+        print("🧪 BloodTestMappingService: Document split into \(chunks.count) chunks for processing")
+        
+        var allExtractedValues: [ExtractedLabValue] = []
+        
+        // Process each chunk
+        for (index, chunk) in chunks.enumerated() {
+            print("🧪 BloodTestMappingService: Processing chunk \(index + 1)/\(chunks.count) (\(chunk.count) characters)")
+            
+            let chunkValues = try await extractLabValuesFromChunk(chunk, chunkIndex: index, totalChunks: chunks.count)
+            allExtractedValues.append(contentsOf: chunkValues)
+        }
+        
+        // Deduplicate values (same test name and value)
+        let deduplicatedValues = deduplicateLabValues(allExtractedValues)
+        print("🧪 BloodTestMappingService: Extracted \(allExtractedValues.count) total values, \(deduplicatedValues.count) after deduplication")
+        
+        return deduplicatedValues
+    }
+    
+    // MARK: - Document Chunking
+    private func chunkDocument(_ text: String, maxChunkSize: Int) -> [String] {
+        // If document is small enough, return as single chunk
+        if text.count <= maxChunkSize {
+            return [text]
+        }
+        
+        var chunks: [String] = []
+        let lines = text.components(separatedBy: .newlines)
+        var currentChunk: [String] = []
+        var currentSize = 0
+        
+        for line in lines {
+            let lineSize = line.count + 1 // +1 for newline
+            
+            // If adding this line would exceed max size, start a new chunk
+            if currentSize + lineSize > maxChunkSize && !currentChunk.isEmpty {
+                chunks.append(currentChunk.joined(separator: "\n"))
+                currentChunk = []
+                currentSize = 0
+            }
+            
+            currentChunk.append(line)
+            currentSize += lineSize
+        }
+        
+        // Add remaining chunk
+        if !currentChunk.isEmpty {
+            chunks.append(currentChunk.joined(separator: "\n"))
+        }
+        
+        return chunks
+    }
+    
+    // MARK: - Extract Lab Values from Chunk
+    private func extractLabValuesFromChunk(_ chunk: String, chunkIndex: Int, totalChunks: Int) async throws -> [ExtractedLabValue] {
+        let chunkContext = totalChunks > 1 ? " (Chunk \(chunkIndex + 1) of \(totalChunks))" : ""
+        
+        // Build comprehensive list of test names for the prompt
+        // Note: Available for future use in prompt enhancement
+        _ = BloodTestResult.standardizedLabParameters.values.map { $0.name }.sorted().prefix(100).joined(separator: ", ")
+        
         let prompt = """
-        You are a medical AI assistant specializing in laboratory report analysis. Analyze this lab report and extract ALL laboratory values.
+        You are a medical AI assistant specializing in laboratory report analysis. Analyze this lab report section\(chunkContext) and extract ALL laboratory values.
 
-        Document text:
-        \(text)
+        CRITICAL INSTRUCTIONS:
+        1. Extract EVERY numerical laboratory test result you find
+        2. Look for test results in tables, lists, and paragraph form
+        3. Pay attention to sections labeled: "Results", "Laboratory Results", "Test Results", "Lab Values", "Chemistry", "Hematology", etc.
+        4. Extract both absolute values AND percentages (e.g., both "Neutrophils: 3.5 K/uL" and "Neutrophils: 55%")
+        
+        Document text\(chunkContext):
+        \(chunk)
 
         For each lab value you find, extract:
-        1. Test name (exactly as written)
-        2. Numerical value
-        3. Unit (mg/dL, g/dL, %, etc.)
-        4. Reference range (if provided)
-        5. Whether it's flagged as abnormal (High, Low, Critical, etc.)
+        1. Test name (exactly as written in the document, preserve abbreviations)
+        2. Numerical value (the actual number)
+        3. Unit (mg/dL, g/dL, %, U/L, ng/mL, pg/mL, μIU/mL, etc.)
+        4. Reference range (normal range) if provided (e.g., "70-100", "<200", ">40")
+        5. Abnormal flag if present (High, Low, Critical, H, L, *, ↑, ↓, etc. - use "Normal" if none)
 
         Return ONLY lab values in this exact format, one per line:
         TEST_NAME|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
 
-        Example:
+        Examples of correct format:
         Glucose|95|mg/dL|70-100|Normal
         Hemoglobin|14.2|g/dL|12.0-16.0|Normal
         Total Cholesterol|220|mg/dL|<200|High
+        Hemoglobin A1c|6.2|%|<5.7|High
+        TSH|2.5|mIU/L|0.4-4.0|Normal
+        LDL Cholesterol|135|mg/dL|<100|High
+        WBC|7.2|K/uL|4.5-11.0|Normal
+        Neutrophils|55|%|40-60|Normal
+        Absolute Neutrophils|3.96|K/uL|1.8-7.8|Normal
 
-        Important:
-        - Include ALL numerical lab values you can find
-        - Use "unknown" for missing information
-        - Use "Normal" if no abnormal flag is present
-        - Be precise with test names as they appear in the document
-        - Include common variations (HbA1c, A1C, Hemoglobin A1c, etc.)
-        - Pay attention to extended panels such as CBC differentials (RDW, MPV, neutrophil %, lymphocyte %, monocyte %, basophil %, immature granulocytes, reticulocyte count), metabolic and electrolyte markers (CO2/Bicarbonate, Anion Gap, Phosphorus, Magnesium, Serum Osmolality, BUN/Creatinine Ratio, Cystatin C), lipid risk markers (Non-HDL Cholesterol, Apolipoprotein B, Lipoprotein(a)), thyroid antibodies (Thyroid Peroxidase Antibodies, Thyroglobulin Antibody), diabetes markers (Fructosamine), inflammatory and coagulation markers (High-Sensitivity CRP, Procalcitonin, D-Dimer), cardiac markers (CK-MB, Homocysteine), and micronutrients (Zinc, Copper, Selenium, Vitamins A/B6/C/E, Coenzyme Q10, Iodine).
+        IMPORTANT RULES:
+        - Include ALL numerical lab values, even if not in standard panels
+        - Use "unknown" for missing information (unit, reference range, or flag)
+        - Use "Normal" for abnormal flag if no flag is present
+        - Preserve test names exactly as written (don't normalize or expand abbreviations)
+        - Include common variations: HbA1c, A1C, Hemoglobin A1c are all valid
+        - Extract both absolute counts AND percentages for CBC differentials
+        - Include calculated values (e.g., "LDL Cholesterol (Calculated)", ratios)
+        - Look for values in various formats: tables, lists, inline text
+        - Pay attention to footnotes or flags (H, L, *, ↑, ↓) indicating abnormal values
+        
+        Common test categories to look for:
+        - Complete Blood Count (CBC): Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, RDW, MPV, differentials
+        - Metabolic Panel: Glucose, Sodium, Potassium, Chloride, CO2, BUN, Creatinine, eGFR, Calcium, Albumin, Total Protein
+        - Lipid Panel: Total Cholesterol, LDL, HDL, Triglycerides, Non-HDL, ratios
+        - Liver Function: ALT, AST, ALP, GGT, LDH, Bilirubin (total, direct, indirect)
+        - Kidney Function: BUN, Creatinine, eGFR, Cystatin C, BUN/Creatinine Ratio
+        - Thyroid: TSH, Free T4, Free T3, Total T4, Total T3, Reverse T3, antibodies
+        - Diabetes: Hemoglobin A1c, Glucose (fasting, random), Insulin, C-Peptide, Fructosamine
+        - Cardiac: Troponin I/T, BNP, NT-proBNP, CK-MB, Homocysteine
+        - Inflammatory: CRP, High-Sensitivity CRP, ESR, Procalcitonin, IL-6
+        - Coagulation: PT, PTT, INR, Fibrinogen, D-Dimer, Protein C/S, Antithrombin III
+        - Vitamins/Minerals: Vitamin D, B12, Folate, Iron, Ferritin, TIBC, Magnesium, Zinc, Copper, Selenium
+        - Hormones: Testosterone, Estradiol, Cortisol, PTH, Progesterone, Prolactin, LH, FSH, Growth Hormone
+        - Immunology: ABO Blood Type, Rh Factor, Total IgE, IgA, IgG, IgM
+        - Tumor Markers: PSA, CEA, CA 125, CA 19-9, AFP
+        
+        Return your response now with ONLY the extracted lab values in the specified format:
         """
 
-        let aiResponse = try await aiClient.sendMessage(prompt, context: "")
-        let response = aiResponse.content
-        return parseExtractedLabValues(from: response)
+        do {
+            let aiResponse = try await aiClient.sendMessage(prompt, context: "")
+            let response = aiResponse.content
+            return parseExtractedLabValues(from: response)
+        } catch {
+            print("❌ BloodTestMappingService: Failed to extract from chunk \(chunkIndex + 1): \(error)")
+            // If chunk processing fails, return empty array rather than failing entirely
+            // This allows other chunks to still be processed
+            return []
+        }
+    }
+    
+    // MARK: - Deduplicate Lab Values
+    private func deduplicateLabValues(_ values: [ExtractedLabValue]) -> [ExtractedLabValue] {
+        var seen: Set<String> = []
+        var deduplicated: [ExtractedLabValue] = []
+        
+        for value in values {
+            // Create a unique key from test name and value
+            let key = "\(value.testName.lowercased().trimmingCharacters(in: .whitespaces))|\(value.value.trimmingCharacters(in: .whitespaces))"
+            
+            if !seen.contains(key) {
+                seen.insert(key)
+                deduplicated.append(value)
+            }
+        }
+        
+        return deduplicated
     }
 
     private func parseExtractedLabValues(from response: String) -> [ExtractedLabValue] {
@@ -285,27 +408,101 @@ class BloodTestMappingService: ObservableObject {
         let testNameVariations = [
             // Glucose variations
             ("glucose", ["blood_sugar", "fasting_glucose", "random_glucose"]),
+            ("fasting_glucose", ["fasting_blood_glucose", "fbg", "fasting_glucose"]),
+            ("random_glucose", ["random_blood_glucose", "rbg", "random_glucose"]),
+            ("glucose_tolerance_test_2hr", ["2_hour_glucose", "gtt_2hr", "glucose_tolerance_2hr"]),
             // Hemoglobin variations
             ("hemoglobin", ["hgb", "hb", "hemoglobin_concentration"]),
-            ("hemoglobin_a1c", ["hba1c", "a1c", "glycated_hemoglobin", "hemoglobin_a1c_"]),
+            ("hemoglobin_a1c", ["hba1c", "a1c", "glycated_hemoglobin", "hemoglobin_a1c_", "hba1c"]),
             // Cholesterol variations
-            ("cholesterol_total", ["total_cholesterol", "cholesterol", "chol_total"]),
-            ("ldl_cholesterol", ["ldl", "ldl_chol", "low_density_lipoprotein"]),
-            ("hdl_cholesterol", ["hdl", "hdl_chol", "high_density_lipoprotein"]),
+            ("cholesterol_total", ["total_cholesterol", "cholesterol", "chol_total", "chol"]),
+            ("ldl_cholesterol", ["ldl", "ldl_chol", "low_density_lipoprotein", "ldl_c"]),
+            ("hdl_cholesterol", ["hdl", "hdl_chol", "high_density_lipoprotein", "hdl_c"]),
+            ("non_hdl_cholesterol", ["non_hdl", "non_hdl_c", "non_high_density_lipoprotein"]),
+            ("apolipoprotein_b", ["apob", "apolipoprotein_b", "apo_b"]),
+            ("lipoprotein_a", ["lpa", "lipoprotein_a", "lp_a"]),
             // Liver function variations
             ("alt_sgpt", ["alt", "sgpt", "alanine_aminotransferase"]),
             ("ast_sgot", ["ast", "sgot", "aspartate_aminotransferase"]),
+            ("alp", ["alkaline_phosphatase", "alk_phos"]),
+            ("ggt", ["gamma_glutamyl_transferase", "gamma_gt", "ggtp"]),
+            ("ldh", ["lactate_dehydrogenase", "ld"]),
+            ("lactate_dehydrogenase", ["ldh", "ld", "lactate_dehydrogenase"]),
             // Kidney function variations
-            ("creatinine", ["creat", "serum_creatinine"]),
-            ("bun", ["blood_urea_nitrogen", "urea_nitrogen"]),
+            ("creatinine", ["creat", "serum_creatinine", "cr"]),
+            ("bun", ["blood_urea_nitrogen", "urea_nitrogen", "urea"]),
+            ("egfr", ["estimated_gfr", "gfr", "egfr_estimated"]),
+            ("cystatin_c", ["cys_c", "cystatin_c"]),
+            ("bun_creatinine_ratio", ["bun_cr_ratio", "bun_creat_ratio"]),
             // Complete Blood Count variations
-            ("wbc", ["white_blood_cell_count", "white_blood_cells", "leukocytes"]),
-            ("rbc", ["red_blood_cell_count", "red_blood_cells", "erythrocytes"]),
-            ("platelet_count", ["platelets", "plt", "platelet"]),
+            ("wbc", ["white_blood_cell_count", "white_blood_cells", "leukocytes", "wbc_count"]),
+            ("rbc", ["red_blood_cell_count", "red_blood_cells", "erythrocytes", "rbc_count"]),
+            ("platelet_count", ["platelets", "plt", "platelet", "platelet_count"]),
+            ("mcv", ["mean_corpuscular_volume"]),
+            ("mch", ["mean_corpuscular_hemoglobin"]),
+            ("mchc", ["mean_corpuscular_hemoglobin_concentration", "mean_cell_hemoglobin_concentration"]),
+            ("rdw", ["red_cell_distribution_width", "rdw_cv"]),
+            ("mpv", ["mean_platelet_volume"]),
+            ("absolute_neutrophils", ["abs_neutrophils", "neutrophil_count", "neutrophils_abs"]),
+            ("absolute_lymphocytes", ["abs_lymphocytes", "lymphocyte_count", "lymphocytes_abs"]),
+            ("absolute_monocytes", ["abs_monocytes", "monocyte_count", "monocytes_abs"]),
+            ("absolute_eosinophils", ["abs_eosinophils", "eosinophil_count", "eosinophils_abs"]),
+            ("absolute_basophils", ["abs_basophils", "basophil_count", "basophils_abs"]),
             // Thyroid variations
             ("tsh", ["thyroid_stimulating_hormone", "thyrotropin"]),
-            ("free_t4", ["ft4", "free_thyroxine"]),
-            ("free_t3", ["ft3", "free_triiodothyronine"])
+            ("free_t4", ["ft4", "free_thyroxine", "t4_free"]),
+            ("free_t3", ["ft3", "free_triiodothyronine", "t3_free"]),
+            ("total_t4", ["t4", "total_thyroxine", "thyroxine"]),
+            ("total_t3", ["t3", "total_triiodothyronine", "triiodothyronine"]),
+            ("reverse_t3", ["rt3", "reverse_triiodothyronine"]),
+            ("thyroid_peroxidase_antibodies", ["tpo_ab", "tpo_antibodies", "anti_tpo"]),
+            ("thyroglobulin_antibody", ["tg_ab", "thyroglobulin_ab", "anti_tg"]),
+            // Diabetes markers
+            ("insulin", ["serum_insulin", "insulin_level"]),
+            ("c_peptide", ["cpeptide", "c_peptide", "connecting_peptide"]),
+            // Cardiac markers
+            ("troponin_i", ["trop_i", "troponin_i", "ctni"]),
+            ("troponin_t", ["trop_t", "troponin_t", "ctnt"]),
+            ("bnp", ["b_type_natriuretic_peptide", "bnp_level"]),
+            ("nt_pro_bnp", ["nt_probnp", "ntprobnp", "n_terminal_pro_bnp"]),
+            ("ck_mb", ["ckmb", "creatine_kinase_mb", "ck_mb"]),
+            ("homocysteine", ["hcy", "homocysteine_level"]),
+            // Inflammatory markers
+            ("crp_c_reactive_protein", ["crp", "c_reactive_protein", "reactive_protein"]),
+            ("hs_crp", ["high_sensitivity_crp", "hs_c_reactive_protein", "hs_crp"]),
+            ("esr", ["erythrocyte_sedimentation_rate", "sed_rate"]),
+            // Coagulation
+            ("pt", ["prothrombin_time", "pro_time"]),
+            ("ptt", ["partial_thromboplastin_time", "aptt", "ptt"]),
+            ("aptt", ["activated_partial_thromboplastin_time", "aptt"]),
+            ("inr", ["international_normalized_ratio"]),
+            ("d_dimer", ["ddimer", "d_dimer"]),
+            ("fibrinogen", ["fibrinogen_level"]),
+            // Vitamins and minerals
+            ("vitamin_d", ["25_oh_vitamin_d", "25_hydroxyvitamin_d", "vit_d", "25ohd"]),
+            ("vitamin_b12", ["b12", "cobalamin", "vitamin_b_12"]),
+            ("folate", ["folic_acid", "vitamin_b9"]),
+            ("iron", ["serum_iron", "fe"]),
+            ("ferritin", ["ferritin_level"]),
+            ("tibc", ["total_iron_binding_capacity", "tibc"]),
+            ("percent_saturation", ["iron_saturation", "tsat", "transferrin_saturation"]),
+            // Hormones
+            ("testosterone", ["test", "total_testosterone"]),
+            ("estradiol", ["e2", "estradiol_level"]),
+            ("cortisol", ["cortisol_level"]),
+            ("parathyroid_hormone", ["pth", "parathyroid_hormone"]),
+            ("progesterone", ["prog", "progesterone_level"]),
+            ("prolactin", ["prl", "prolactin_level"]),
+            ("lh", ["luteinizing_hormone", "lh_level"]),
+            ("fsh", ["follicle_stimulating_hormone", "fsh_level"]),
+            ("gh", ["growth_hormone", "hgh", "somatotropin"]),
+            ("igf1", ["igf_1", "insulin_like_growth_factor_1", "somatomedin_c"]),
+            // Tumor markers
+            ("psa", ["prostate_specific_antigen", "total_psa"]),
+            ("cea", ["carcinoembryonic_antigen"]),
+            ("ca125", ["ca_125", "cancer_antigen_125"]),
+            ("ca199", ["ca_19_9", "cancer_antigen_19_9"]),
+            ("afp", ["alpha_fetoprotein", "alpha_feto_protein"])
         ]
 
         for (standardKey, variations) in testNameVariations {

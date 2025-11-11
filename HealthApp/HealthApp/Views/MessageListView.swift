@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 struct MessageListView: View {
     let messages: [ChatMessage]
@@ -57,6 +58,100 @@ struct MessageBubbleView: View {
         horizontalSizeClass == .regular
     }
     
+    private var markdownContentView: some View {
+        buildMarkdownView()
+    }
+    
+    private func buildMarkdownView() -> some View {
+        applyTextStyles(
+            applyBlockStyles(
+                applyCodeStyles(
+                    applyLinkAndListStyles(
+                        Markdown(message.content).markdownTheme(.gitHub)
+                    )
+                )
+            )
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.systemGray6))
+        .cornerRadius(18)
+        .textSelection(.enabled)
+    }
+    
+    private func applyTextStyles<Content: View>(_ content: Content) -> some View {
+        content.markdownTextStyle(\.text) {
+            FontSize(.em(1))
+            ForegroundColor(.primary)
+        }
+    }
+    
+    private func applyBlockStyles<Content: View>(_ content: Content) -> some View {
+        content
+            .markdownBlockStyle(\.paragraph) { configuration in
+                configuration.label
+                    .markdownMargin(top: .em(0), bottom: .em(0.5))
+            }
+            .markdownBlockStyle(\.heading1) { configuration in
+                configuration.label
+                    .markdownTextStyle {
+                        FontSize(.em(1.25))
+                        FontWeight(.bold)
+                    }
+                    .markdownMargin(top: .em(0.5), bottom: .em(0.25))
+            }
+            .markdownBlockStyle(\.heading2) { configuration in
+                configuration.label
+                    .markdownTextStyle {
+                        FontSize(.em(1.15))
+                        FontWeight(.semibold)
+                    }
+                    .markdownMargin(top: .em(0.5), bottom: .em(0.25))
+            }
+    }
+    
+    private func applyCodeStyles<Content: View>(_ content: Content) -> some View {
+        content
+            .markdownBlockStyle(\.codeBlock) { configuration in
+                configuration.label
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(.em(0.9))
+                    }
+                    .padding()
+                    .background(Color(.systemGray5))
+                    .cornerRadius(8)
+                    .markdownMargin(top: .em(0.5), bottom: .em(0.5))
+            }
+            .markdownTextStyle(\.code) {
+                FontFamilyVariant(.monospaced)
+                FontSize(.em(0.9))
+                ForegroundColor(.blue)
+                BackgroundColor(Color(.systemGray5))
+            }
+    }
+    
+    private func applyLinkAndListStyles<Content: View>(_ content: Content) -> some View {
+        content
+            .markdownTextStyle(\.link) {
+                ForegroundColor(.blue)
+            }
+            .markdownBlockStyle(\.listItem) { configuration in
+                configuration.label
+                    .markdownMargin(top: .em(0.25))
+            }
+            .markdownBlockStyle(\.blockquote) { configuration in
+                configuration.label
+                    .padding(.leading, 12)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(Color.blue.opacity(0.3))
+                            .frame(width: 4)
+                    }
+                    .markdownMargin(top: .em(0.5), bottom: .em(0.5))
+            }
+    }
+    
     var body: some View {
         HStack {
             if message.isFromUser {
@@ -88,13 +183,19 @@ struct MessageBubbleView: View {
                     }
                     
                     HStack {
-                        Text(message.content)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(message.isError ? Color.red.opacity(0.1) : Color(.systemGray6))
-                            .foregroundColor(message.isError ? .red : .primary)
-                            .cornerRadius(18)
-                            .textSelection(.enabled)
+                        // Use MarkdownUI for assistant messages (which contain markdown from AI doctor)
+                        // Keep plain Text for user messages and errors
+                        if message.isError {
+                            Text(message.content)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Color.red.opacity(0.1))
+                                .foregroundColor(.red)
+                                .cornerRadius(18)
+                                .textSelection(.enabled)
+                        } else {
+                            markdownContentView
+                        }
                         
                         // Show streaming indicator for messages being typed
                         if message.role == .assistant && message.content.isEmpty {

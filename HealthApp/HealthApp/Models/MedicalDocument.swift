@@ -296,12 +296,46 @@ struct DoclingDocument: Codable {
     var origin: DocumentOrigin?          // Source information
     var furniture: DocumentContent?      // Headers, footers, page numbers
     var body: DocumentContent?           // Main document content
-    var groups: [String]?                // Content groupings
+    var groups: [[String: AnyCodable]]?  // Content groupings (array of dictionaries, not strings)
 
+    
     struct DocumentOrigin: Codable {
         var filename: String?
         var mimetype: String?
-        var binary_hash: String?
+        var binary_hash: Int64?  // Changed from String? to Int64? to match actual JSON format
+    }
+    
+    // Custom decoder to handle groups field which may be dictionaries
+    enum CodingKeys: String, CodingKey {
+        case schema_name
+        case version
+        case name
+        case origin
+        case furniture
+        case body
+        // Skip groups - we don't use it and it has variable structure
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schema_name = try container.decode(String.self, forKey: .schema_name)
+        version = try container.decode(String.self, forKey: .version)
+        name = try container.decode(String.self, forKey: .name)
+        origin = try container.decodeIfPresent(DocumentOrigin.self, forKey: .origin)
+        furniture = try container.decodeIfPresent(DocumentContent.self, forKey: .furniture)
+        body = try container.decodeIfPresent(DocumentContent.self, forKey: .body)
+        groups = nil  // Skip groups - not used in our extraction logic
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schema_name, forKey: .schema_name)
+        try container.encode(version, forKey: .version)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(origin, forKey: .origin)
+        try container.encodeIfPresent(furniture, forKey: .furniture)
+        try container.encodeIfPresent(body, forKey: .body)
+        // Skip groups in encoding too
     }
 
     struct DocumentContent: Codable {

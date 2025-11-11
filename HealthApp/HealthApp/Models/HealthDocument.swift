@@ -9,6 +9,7 @@ struct HealthDocument: Identifiable, Codable {
     var thumbnailPath: URL?
     var processingStatus: ProcessingStatus
     var extractedData: [AnyHealthData]
+    var documentCategory: DocumentCategory? // Optional category for medical documents
     let importedAt: Date
     var processedAt: Date?
     var fileSize: Int64
@@ -23,6 +24,7 @@ struct HealthDocument: Identifiable, Codable {
         thumbnailPath: URL? = nil,
         processingStatus: ProcessingStatus = .pending,
         extractedData: [AnyHealthData] = [],
+        documentCategory: DocumentCategory? = nil,
         importedAt: Date = Date(),
         processedAt: Date? = nil,
         fileSize: Int64 = 0,
@@ -36,6 +38,7 @@ struct HealthDocument: Identifiable, Codable {
         self.thumbnailPath = thumbnailPath
         self.processingStatus = processingStatus
         self.extractedData = extractedData
+        self.documentCategory = documentCategory
         self.importedAt = importedAt
         self.processedAt = processedAt
         self.fileSize = fileSize

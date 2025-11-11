@@ -8,10 +8,27 @@ struct ProcessedDocumentResult {
     let confidence: Double
     let processingTime: TimeInterval
     let metadata: [String: Any]?
+    let rawDoclingOutput: Data?  // Raw docling JSON output for medical document extraction
     
     var healthDataItems: [HealthDataItem] {
         // Parse structured data to extract health information
         return parseHealthData(from: structuredData)
+    }
+    
+    init(
+        extractedText: String,
+        structuredData: [String: Any] = [:],
+        confidence: Double = 1.0,
+        processingTime: TimeInterval = 0,
+        metadata: [String: Any]? = nil,
+        rawDoclingOutput: Data? = nil
+    ) {
+        self.extractedText = extractedText
+        self.structuredData = structuredData
+        self.confidence = confidence
+        self.processingTime = processingTime
+        self.metadata = metadata
+        self.rawDoclingOutput = rawDoclingOutput
     }
     
     private func parseHealthData(from data: [String: Any]) -> [HealthDataItem] {

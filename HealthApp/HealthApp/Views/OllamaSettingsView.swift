@@ -14,6 +14,7 @@ struct OllamaSettingsView: View {
         Form {
             serverConfigurationSection
             modelSelectionSection
+            contextSizeSection
             testConnectionSection
         }
         .navigationTitle("Ollama Settings")
@@ -188,6 +189,44 @@ struct OllamaSettingsView: View {
                 }
             }
             .padding(.vertical, 8)
+        }
+    }
+    
+    // MARK: - Context Size Section
+    
+    private var contextSizeSection: some View {
+        Section("Context Size") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Maximum context size for AI conversations")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                // Context size options: 4k, 8k, 16k, 32k, 64k
+                let contextSizes: [(value: Int, label: String)] = [
+                    (4096, "4k"),
+                    (8192, "8k"),
+                    (16384, "16k"),
+                    (32768, "32k"),
+                    (65536, "64k")
+                ]
+                
+                Picker("Context Size", selection: Binding(
+                    get: { settingsManager.modelPreferences.contextSizeLimit },
+                    set: { newValue in
+                        settingsManager.modelPreferences.contextSizeLimit = newValue
+                        settingsManager.saveSettings()
+                    }
+                )) {
+                    ForEach(contextSizes, id: \.value) { size in
+                        Text("\(size.label) (\(size.value) tokens)").tag(size.value)
+                    }
+                }
+                .pickerStyle(.menu)
+                
+                Text("Larger context sizes allow the AI to see more of your health data and documents, but require more memory. Default is 16k.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 

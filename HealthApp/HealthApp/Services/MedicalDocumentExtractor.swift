@@ -1,5 +1,20 @@
 import Foundation
 
+// MARK: - Extraction Error
+enum ExtractionError: LocalizedError {
+    case missingJsonContent
+    case invalidJsonStructure
+    
+    var errorDescription: String? {
+        switch self {
+        case .missingJsonContent:
+            return "JSON content is missing from Docling response"
+        case .invalidJsonStructure:
+            return "Invalid JSON structure in Docling response"
+        }
+    }
+}
+
 // MARK: - Medical Document Extractor
 /// Service that extracts structured medical information from docling output
 class MedicalDocumentExtractor {
@@ -19,17 +34,27 @@ class MedicalDocumentExtractor {
     func extractMedicalInformation(
         from doclingOutput: Data,
         fileName: String,
-        aiClient: AIProviderProtocol?
+        aiClient: (any AIProviderInterface)?
     ) async throws -> ExtractionResult {
 
-        // Parse docling JSON output
-        let doclingDocument = try JSONDecoder().decode(DoclingDocument.self, from: doclingOutput)
+        // Parse docling JSON output - the response is wrapped in {"document": {...}}
+        // Extract the json_content which contains the full DoclingDocument structure
+        // We use JSONSerialization to extract it since RawDoclingDocument is incomplete
+        guard let jsonObject = try JSONSerialization.jsonObject(with: doclingOutput) as? [String: Any],
+              let documentDict = jsonObject["document"] as? [String: Any],
+              let jsonContentDict = documentDict["json_content"] as? [String: Any] else {
+            throw ExtractionError.missingJsonContent
+        }
+        
+        // Convert the json_content dictionary back to Data and decode as DoclingDocument
+        let jsonContentData = try JSONSerialization.data(withJSONObject: jsonContentDict)
+        let doclingDocument = try JSONDecoder().decode(DoclingDocument.self, from: jsonContentData)
 
         // Extract full text
         let fullText = extractFullText(from: doclingDocument)
 
         // Try to extract structured sections
-        var sections = extractSections(from: doclingDocument)
+        let sections = extractSections(from: doclingDocument)
 
         // Use AI to enhance extraction if available
         if let aiClient = aiClient, !fullText.isEmpty {
@@ -73,7 +98,9 @@ class MedicalDocumentExtractor {
             extractTextRecursive(from: body, into: &textParts)
         }
 
-        return textParts.joined(separator: "\n\n")
+        let fullText = textParts.joined(separator: "\n\n")
+        print("🔍 MedicalDocumentExtractor: Extracted \(textParts.count) text parts, total length: \(fullText.count) chars")
+        return fullText
     }
 
     private func extractTextRecursive(from content: DoclingDocument.DocumentContent, into textParts: inout [String]) {
@@ -83,13 +110,10 @@ class MedicalDocumentExtractor {
                     textParts.append(text)
                 }
 
-                // Recurse if there are nested children
-                if let nestedChildren = child.children {
-                    for nested in nestedChildren {
-                        if let nestedText = nested.text, !nestedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            textParts.append(nestedText)
-                        }
-                    }
+                // Recurse into nested children (full recursion, not just one level)
+                if let nestedChildren = child.children, !nestedChildren.isEmpty {
+                    let nestedContent = DoclingDocument.DocumentContent(self_ref: nil, name: nil, children: nestedChildren)
+                    extractTextRecursive(from: nestedContent, into: &textParts)
                 }
             }
         }
@@ -389,7 +413,7 @@ class MedicalDocumentExtractor {
     private func enhanceWithAI(
         text: String,
         fileName: String,
-        aiClient: AIProviderProtocol
+        aiClient: any AIProviderInterface
     ) async throws -> AIEnhancedInfo {
 
         // Truncate text if too long (keep first ~4000 characters for analysis)
@@ -420,10 +444,10 @@ class MedicalDocumentExtractor {
         Identify the most relevant sections in the document (e.g., Chief Complaint, Findings, Impression, Medications, etc.).
         """
 
-        let response = try await aiClient.sendMessage(prompt)
+        let response = try await aiClient.sendMessage(prompt, context: "")
 
         // Parse AI response
-        return try parseAIResponse(response, fallbackText: text, fileName: fileName)
+        return try parseAIResponse(response.content, fallbackText: text, fileName: fileName)
     }
 
     private func parseAIResponse(_ response: String, fallbackText: String, fileName: String) throws -> AIEnhancedInfo {

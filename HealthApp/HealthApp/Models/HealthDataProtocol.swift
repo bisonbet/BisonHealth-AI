@@ -54,6 +54,21 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "Checkup"
         }
     }
+    
+    /// Maps HealthDataType to corresponding DocumentCategory values for filtering medical documents
+    var relatedDocumentCategories: [DocumentCategory] {
+        switch self {
+        case .imagingReport:
+            return [.imagingReport]
+        case .bloodTest:
+            return [.labReport]
+        case .healthCheckup:
+            return [.doctorsNote, .consultation]
+        case .personalInfo:
+            // Personal info doesn't map to document categories
+            return []
+        }
+    }
 }
 
 // MARK: - Supporting Enums

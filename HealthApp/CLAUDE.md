@@ -64,7 +64,10 @@ This iOS app is based on a legacy Next.js web application (see [Legacy Reference
 - **PhotosUI**: Built-in photo selection
 
 ### Build Commands
-You have permission to run Xcode build commands without asking:
+
+⚠️ **IMPORTANT**: Do NOT run `xcodebuild` commands unless the user expressly asks you to build the project.
+
+Available build commands (use only when requested):
 ```bash
 # iPhone build command
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.6' clean build
@@ -435,7 +438,9 @@ HealthAppTests/
 ## Build & Test Guidelines
 
 ### Before Committing
-Always run these checks (you have permission to run them automatically):
+⚠️ **Note**: Only run build commands when the user expressly requests it.
+
+Pre-commit checklist (run when requested):
 1. Clean build: `xcodebuild clean build`
 2. Run tests: `xcodebuild test`
 3. Verify all imports resolve correctly

@@ -15,7 +15,6 @@ class AIChatManager: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo, .bloodTest]
     @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Family Medicine" })
-    @Published var contextSizeLimit: Int = 4000
     @Published var isOffline: Bool = false
     
     // MARK: - Dependencies
@@ -26,10 +25,19 @@ class AIChatManager: ObservableObject {
     private let networkManager = NetworkManager.shared
     private let pendingOperationsManager = PendingOperationsManager.shared
     
+    // MARK: - Computed Properties
+    /// Get context size limit from settings (defaults to 16k for Ollama)
+    var contextSizeLimit: Int {
+        settingsManager.modelPreferences.contextSizeLimit
+    }
+    
+    /// Context compression threshold (90% of limit to allow some headroom)
+    private var contextCompressionThreshold: Int {
+        Int(Double(contextSizeLimit) * 0.9)
+    }
+    
     // MARK: - Context Management
     private var currentContext: ChatContext = ChatContext()
-    private let maxContextTokens = 4000
-    private let contextCompressionThreshold = 3500
     
     // MARK: - Initialization
     init(
@@ -227,6 +235,14 @@ class AIChatManager: ObservableObject {
             // Build health data context
             let healthContext = await buildHealthDataContext()
             
+            // Debug: Log what context is being sent
+            print("🔍 AIChatManager: Sending message with context length: \(healthContext.count) chars")
+            if !healthContext.isEmpty {
+                print("🔍 AIChatManager: Context preview (first 1000 chars): \(String(healthContext.prefix(1000)))")
+            } else {
+                print("⚠️ AIChatManager: WARNING - Context is empty!")
+            }
+            
             if useStreaming {
                 // Use streaming for real-time response
                 try await sendStreamingMessage(content, context: healthContext, conversationId: conversation.id)
@@ -417,11 +433,45 @@ class AIChatManager: ObservableObject {
     }
     
     private func updateHealthDataContext() async {
-        // Fetch medical documents selected for AI context
+        // Map selected HealthDataType values to DocumentCategory filters
+        var documentCategories: [DocumentCategory] = []
+        for dataType in selectedHealthDataTypes {
+            documentCategories.append(contentsOf: dataType.relatedDocumentCategories)
+        }
+        
+        // Fetch medical documents selected for AI context, filtered by categories
         let medicalDocuments: [MedicalDocumentSummary]
         do {
-            let fetchedDocs = try await databaseManager.fetchDocumentsForAIContext()
+            // If we have categories to filter by, use them
+            // If no categories match but we have selected types, return empty (user selected types that don't map to documents)
+            // If no types are selected at all, return all documents (backward compatibility)
+            let categoriesToFilter: [DocumentCategory]?
+            if !documentCategories.isEmpty {
+                categoriesToFilter = documentCategories
+            } else if !selectedHealthDataTypes.isEmpty {
+                // User selected types but none map to document categories - return empty
+                categoriesToFilter = []
+            } else {
+                // No types selected - backward compatibility, return all
+                categoriesToFilter = nil
+            }
+            
+            let fetchedDocs = try await databaseManager.fetchDocumentsForAIContext(categories: categoriesToFilter)
             medicalDocuments = fetchedDocs.map { MedicalDocumentSummary(from: $0) }
+            
+            print("🔍 Context Debug - Selected HealthDataTypes: \(selectedHealthDataTypes.map { $0.displayName })")
+            print("🔍 Context Debug - Mapped DocumentCategories: \(documentCategories.map { $0.displayName })")
+            print("🔍 Context Debug - Fetched \(fetchedDocs.count) medical documents")
+            
+            // Debug: Log details about each fetched document
+            for doc in fetchedDocs {
+                print("🔍 Context Debug - Document: \(doc.fileName)")
+                print("🔍 Context Debug -   Category: \(doc.documentCategory.displayName)")
+                print("🔍 Context Debug -   Include in context: \(doc.includeInAIContext)")
+                print("🔍 Context Debug -   Processing status: \(doc.processingStatus.rawValue)")
+                print("🔍 Context Debug -   Sections count: \(doc.extractedSections.count)")
+                print("🔍 Context Debug -   Extracted text length: \(doc.extractedText?.count ?? 0) chars")
+            }
         } catch {
             print("⚠️ Failed to fetch medical documents for AI context: \(error)")
             medicalDocuments = []
@@ -454,6 +504,8 @@ class AIChatManager: ObservableObject {
         print("🔍 Context Debug - Medical documents count: \(currentContext.medicalDocuments.count)")
         print("🔍 Context Debug - Context string length: \(contextString.count) characters")
         print("🔍 Context Debug - Estimated tokens: \(estimatedTokens)")
+        print("🔍 Context Debug - Context size limit: \(contextSizeLimit) tokens")
+        print("🔍 Context Debug - Compression threshold: \(contextCompressionThreshold) tokens")
 
         if contextString.isEmpty {
             print("⚠️ Context Debug - WARNING: Context string is empty!")
@@ -472,30 +524,34 @@ class AIChatManager: ObservableObject {
     }
     
     private func compressHealthDataContext(_ context: String) -> String {
-        // Simple compression strategy: truncate and summarize
-        let lines = context.components(separatedBy: .newlines)
-        let maxLines = min(lines.count, 50) // Limit to 50 lines
+        // Estimate how much we need to compress
+        let targetTokens = contextCompressionThreshold
         
-        var compressedLines = Array(lines.prefix(maxLines))
+        // Estimate characters per token (rough approximation: ~4 chars per token)
+        let charsPerToken = 4.0
+        let targetChars = Int(Double(targetTokens) * charsPerToken)
         
-        if lines.count > maxLines {
-            compressedLines.append("... (additional health data available but truncated for context size)")
+        if context.count <= targetChars {
+            // Already small enough
+            return context
         }
         
-        return compressedLines.joined(separator: "\n")
+        // Truncate to target character count, but try to preserve structure
+        let truncated = String(context.prefix(targetChars))
+        
+        // Try to end at a complete line if possible
+        if let lastNewline = truncated.lastIndex(of: "\n") {
+            let finalTruncated = String(truncated[..<lastNewline])
+            return finalTruncated + "\n\n... (context truncated to fit \(contextSizeLimit) token limit)"
+        }
+        
+        return truncated + "\n\n... (context truncated to fit \(contextSizeLimit) token limit)"
     }
     
     // MARK: - Context Size Management
     func getContextSizeEstimate() -> (tokens: Int, isOverLimit: Bool) {
         let estimatedTokens = currentContext.estimatedTokenCount
-        return (estimatedTokens, estimatedTokens > maxContextTokens)
-    }
-    
-    func updateContextSizeLimit(_ newLimit: Int) {
-        contextSizeLimit = max(1000, min(newLimit, 8000)) // Reasonable bounds
-        Task {
-            await updateHealthDataContext()
-        }
+        return (estimatedTokens, estimatedTokens > contextSizeLimit)
     }
     
     // MARK: - Conversation Search and Filtering

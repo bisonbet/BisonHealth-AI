@@ -464,42 +464,6 @@ struct SectionRowView: View {
     }
 }
 
-// MARK: - Processing Status Badge
-struct ProcessingStatusBadge: View {
-    let status: ProcessingStatus
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: status.icon)
-                .font(.caption2)
-
-            Text(status.displayName)
-                .font(.caption2)
-                .fontWeight(.medium)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(statusColor.opacity(0.2))
-        .foregroundColor(statusColor)
-        .cornerRadius(4)
-    }
-
-    private var statusColor: Color {
-        switch status {
-        case .pending:
-            return .orange
-        case .processing:
-            return .blue
-        case .completed:
-            return .green
-        case .failed:
-            return .red
-        case .queued:
-            return .gray
-        }
-    }
-}
-
 // MARK: - Tag Input View
 struct TagInputView: View {
     @Binding var tags: [String]

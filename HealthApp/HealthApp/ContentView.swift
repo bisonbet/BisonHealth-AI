@@ -77,17 +77,16 @@ struct HealthDataView: View {
                     }
                 )
                 
-                // Placeholder sections for future data types
-                PlaceholderSection(
-                    title: "Imaging Reports",
-                    icon: "camera.metering.matrix",
-                    description: "X-rays, MRIs, CT scans, and other imaging results"
+                // Imaging Reports Section
+                ImagingReportsSection(
+                    imagingReports: $healthDataManager.imagingReports,
+                    onDocumentTap: { _ in }
                 )
                 
-                PlaceholderSection(
-                    title: "Health Checkups",
-                    icon: "stethoscope",
-                    description: "Annual physicals and routine health examinations"
+                // Health Checkups Section
+                HealthCheckupsSection(
+                    healthCheckups: $healthDataManager.healthCheckups,
+                    onDocumentTap: { _ in }
                 )
             }
             .navigationTitle("Health Data")
@@ -156,7 +155,7 @@ struct DocumentsView: View {
         fileSystemManager: FileSystemManager.shared
     )
     @StateObject private var documentProcessor = DocumentProcessor.shared
-    
+
     @State private var showingDocumentPicker = false
     @State private var showingCamera = false
     @State private var showingPhotosPicker = false
@@ -166,7 +165,8 @@ struct DocumentsView: View {
     @State private var selectedDocument: HealthDocument?
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var viewMode: DocumentViewMode = .list
-    @State private var showingAIContextSelector = false
+    @State private var showingDocumentTypeSelector = false
+    @State private var pendingDocumentForCategory: HealthDocument?
     
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
@@ -232,13 +232,6 @@ struct DocumentsView: View {
                 
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     if !documentManager.documents.isEmpty {
-                        // AI Context Selector button
-                        Button {
-                            showingAIContextSelector = true
-                        } label: {
-                            Image(systemName: "brain.head.profile")
-                        }
-
                         // View mode toggle (iPad only)
                         if isIPad {
                             Picker("View Mode", selection: $viewMode) {
@@ -248,11 +241,6 @@ struct DocumentsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 100)
                         }
-
-                        Button("Filter") {
-                            showingFilterView = true
-                        }
-                        .font(.caption)
                     }
                     
                     Menu {
@@ -294,7 +282,10 @@ struct DocumentsView: View {
         .fullScreenCover(isPresented: $showingCamera) {
             DocumentCameraView { scan in
                 Task {
-                    await documentManager.importScannedDocument(scan)
+                    if let document = await documentManager.importScannedDocument(scan) {
+                        pendingDocumentForCategory = document
+                        showingDocumentTypeSelector = true
+                    }
                 }
             }
         }
@@ -314,8 +305,14 @@ struct DocumentsView: View {
                 
                 Task {
                     print("🚀 ContentView: Starting document import process...")
-                    await documentManager.importDocuments(from: urls)
+                    let importedDocs = await documentManager.importDocuments(from: urls)
                     print("✅ ContentView: Document import process completed")
+                    
+                    // Show category selector for first document
+                    if let firstDoc = importedDocs.first {
+                        pendingDocumentForCategory = firstDoc
+                        showingDocumentTypeSelector = true
+                    }
                 }
                 
             case .failure(let error):
@@ -344,8 +341,30 @@ struct DocumentsView: View {
         .onChange(of: selectedPhotos) { _, photos in
             if !photos.isEmpty {
                 Task {
-                    // Convert PhotosPickerItem to PHPickerResult equivalent
-                    // This is a simplified implementation
+                    var importedDocs: [HealthDocument] = []
+                    
+                    for photo in photos {
+                        if let data = try? await photo.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            do {
+                                let doc = try await DocumentImporter.shared.importImage(image)
+                                importedDocs.append(doc)
+                            } catch {
+                                print("Failed to import photo: \(error)")
+                            }
+                        }
+                    }
+                    
+                    // Add to document manager
+                    documentManager.documents.append(contentsOf: importedDocs)
+                    documentManager.documents.sort { $0.importedAt > $1.importedAt }
+                    
+                    // Show category selector for first document
+                    if let firstDoc = importedDocs.first {
+                        pendingDocumentForCategory = firstDoc
+                        showingDocumentTypeSelector = true
+                    }
+                    
                     selectedPhotos = []
                 }
             }
@@ -366,8 +385,22 @@ struct DocumentsView: View {
                 documentProcessor: documentProcessor
             )
         }
-        .sheet(isPresented: $showingAIContextSelector) {
-            AIContextSelectorView()
+        .sheet(isPresented: $showingDocumentTypeSelector) {
+            if let document = pendingDocumentForCategory {
+                DocumentTypeSelectorView(
+                    fileName: document.fileName,
+                    selectedCategory: Binding(
+                        get: { document.documentCategory },
+                        set: { _ in }
+                    ),
+                    onConfirm: { category in
+                        Task {
+                            await documentManager.setDocumentCategoryAndProcess(document.id, category: category)
+                            pendingDocumentForCategory = nil
+                        }
+                    }
+                )
+            }
         }
 
     }
@@ -416,19 +449,19 @@ struct DocumentsView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         if let status = documentManager.filterStatus {
-                            FilterChip(title: status.displayName) {
+                            ActiveFilterChip(title: status.displayName) {
                                 documentManager.filterStatus = nil
                             }
                         }
                         
                         if let type = documentManager.filterType {
-                            FilterChip(title: type.rawValue.capitalized) {
+                            ActiveFilterChip(title: type.rawValue.capitalized) {
                                 documentManager.filterType = nil
                             }
                         }
                         
                         if documentManager.sortOrder != .dateDescending {
-                            FilterChip(title: documentManager.sortOrder.displayName) {
+                            ActiveFilterChip(title: documentManager.sortOrder.displayName) {
                                 documentManager.sortOrder = .dateDescending
                             }
                         }
@@ -576,7 +609,7 @@ enum DocumentViewMode {
     case grid
 }
 
-struct FilterChip: View {
+struct ActiveFilterChip: View {
     let title: String
     let onRemove: () -> Void
     
@@ -629,14 +662,9 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $showingContextSelector) {
-            HealthDataContextSelector(
-                selectedTypes: $chatManager.selectedHealthDataTypes,
-                onSave: { types in
-                    chatManager.selectHealthDataForContext(types)
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            UnifiedContextSelectorView(chatManager: chatManager)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .task {
             await chatManager.loadConversations()
