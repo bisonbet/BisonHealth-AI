@@ -411,15 +411,29 @@ final class DocumentExporterTests: XCTestCase {
         // Add some test data
         let personalInfo = PersonalHealthInfo(name: "Test User", gender: .male)
         try await databaseManager.save(personalInfo)
-        
+
         // Export as PDF
         let exportURL = try await documentExporter.exportHealthReportAsPDF()
-        
+
         XCTAssertTrue(FileManager.default.fileExists(atPath: exportURL.path))
         XCTAssertEqual(exportURL.pathExtension, "pdf")
-        
+
         // Verify file size (should be greater than 0)
         let fileSize = try fileSystemManager.getFileSize(at: exportURL)
         XCTAssertGreaterThan(fileSize, 0)
+    }
+
+    func testEncryptedJSONExportIsProtected() async throws {
+        // Add some test data
+        let personalInfo = PersonalHealthInfo(name: "Secret User", gender: .female)
+        try await databaseManager.save(personalInfo)
+
+        let exportURL = try await documentExporter.exportHealthDataAsJSON(encrypt: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportURL.path))
+
+        let encryptedData = try Data(contentsOf: exportURL)
+        XCTAssertFalse(encryptedData.isEmpty)
+
+        XCTAssertThrowsError(try JSONSerialization.jsonObject(with: encryptedData))
     }
 }

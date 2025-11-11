@@ -674,6 +674,9 @@ struct ConversationExportView: View {
     @State private var isExporting = false
     @State private var exportedFileURL: URL?
     @State private var showingShareSheet = false
+    @State private var showingShareWarning = false
+    @State private var pendingShareURL: URL?
+    @State private var encryptExport = false
     @State private var errorMessage: String?
     @State private var showingError = false
 
@@ -753,6 +756,14 @@ struct ConversationExportView: View {
                     Text("Export Format")
                 }
 
+                Section("Security") {
+                    Toggle("Encrypt export file", isOn: $encryptExport)
+                    Text("Sharing exports may disclose sensitive health data. Encryption keeps the file private but requires BisonHealth AI to open it.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
+                }
+
                 Section {
                     Button(action: exportConversation) {
                         HStack {
@@ -791,6 +802,29 @@ struct ConversationExportView: View {
                     ShareSheet(items: [url])
                 }
             }
+            .confirmationDialog(
+                "Share sensitive information?",
+                isPresented: $showingShareWarning,
+                titleVisibility: .visible
+            ) {
+                Button("Share securely") {
+                    if let shareURL = pendingShareURL {
+                        exportedFileURL = shareURL
+                        pendingShareURL = nil
+                        showingShareSheet = true
+                    } else {
+                        showingShareSheet = false
+                    }
+                    showingShareWarning = false
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingShareURL = nil
+                    showingShareSheet = false
+                    showingShareWarning = false
+                }
+            } message: {
+                Text("Health conversations often contain private information. Only continue if you trust the destination app.")
+            }
             .alert("Export Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) {
                     errorMessage = nil
@@ -819,15 +853,22 @@ struct ConversationExportView: View {
 
                 switch selectedFormat {
                 case .pdf:
-                    exportURL = try await exporter.exportConversationAsPDF(conversation)
+                    exportURL = try await exporter.exportConversationAsPDF(
+                        conversation,
+                        encrypt: encryptExport
+                    )
                 case .markdown:
-                    exportURL = try await exporter.exportConversationAsMarkdown(conversation)
+                    exportURL = try await exporter.exportConversationAsMarkdown(
+                        conversation,
+                        encrypt: encryptExport
+                    )
                 }
 
                 await MainActor.run {
-                    exportedFileURL = exportURL
+                    exportedFileURL = nil
+                    pendingShareURL = exportURL
                     isExporting = false
-                    showingShareSheet = true
+                    showingShareWarning = true
                 }
             } catch {
                 await MainActor.run {

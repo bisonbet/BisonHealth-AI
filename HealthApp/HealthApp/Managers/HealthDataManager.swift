@@ -199,7 +199,7 @@ class HealthDataManager: ObservableObject {
     }
     
     // MARK: - Data Export
-    func exportHealthDataAsJSON() async throws -> URL {
+    func exportHealthDataAsJSON(encrypt: Bool = false) async throws -> URL {
         let exportData = HealthDataExport(
             personalInfo: personalInfo,
             bloodTests: bloodTests,
@@ -214,11 +214,12 @@ class HealthDataManager: ObservableObject {
         return try fileSystemManager.createExportFile(
             data: jsonData,
             fileName: fileName,
-            fileType: .json
+            fileType: .json,
+            encrypt: encrypt
         )
     }
-    
-    func exportHealthDataAsPDF() async throws -> URL {
+
+    func exportHealthDataAsPDF(encrypt: Bool = false) async throws -> URL {
         // Create PDF report
         let pdfData = try await generatePDFReport()
         
@@ -226,7 +227,8 @@ class HealthDataManager: ObservableObject {
         return try fileSystemManager.createExportFile(
             data: pdfData,
             fileName: fileName,
-            fileType: .pdf
+            fileType: .pdf,
+            encrypt: encrypt
         )
     }
     

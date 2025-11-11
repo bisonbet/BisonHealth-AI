@@ -18,7 +18,10 @@ class ConversationExporter: ObservableObject {
     }
 
     // MARK: - Markdown Export
-    func exportConversationAsMarkdown(_ conversation: ChatConversation) async throws -> URL {
+    func exportConversationAsMarkdown(
+        _ conversation: ChatConversation,
+        encrypt: Bool = false
+    ) async throws -> URL {
         isExporting = true
         exportProgress = 0.0
 
@@ -89,7 +92,8 @@ class ConversationExporter: ObservableObject {
             let exportURL = try fileSystemManager.createExportFile(
                 data: markdownData,
                 fileName: fileName,
-                fileType: .markdown
+                fileType: .markdown,
+                encrypt: encrypt
             )
 
             exportProgress = 1.0
@@ -102,7 +106,10 @@ class ConversationExporter: ObservableObject {
     }
 
     // MARK: - PDF Export
-    func exportConversationAsPDF(_ conversation: ChatConversation) async throws -> URL {
+    func exportConversationAsPDF(
+        _ conversation: ChatConversation,
+        encrypt: Bool = false
+    ) async throws -> URL {
         isExporting = true
         exportProgress = 0.0
 
@@ -149,7 +156,8 @@ class ConversationExporter: ObservableObject {
             let exportURL = try fileSystemManager.createExportFile(
                 data: pdfData,
                 fileName: fileName,
-                fileType: .pdf
+                fileType: .pdf,
+                encrypt: encrypt
             )
 
             exportProgress = 1.0

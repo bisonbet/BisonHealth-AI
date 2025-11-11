@@ -20,7 +20,10 @@ class DocumentExporter: ObservableObject {
     }
     
     // MARK: - JSON Export
-    func exportHealthDataAsJSON(includeTypes: Set<HealthDataType> = Set(HealthDataType.allCases)) async throws -> URL {
+    func exportHealthDataAsJSON(
+        includeTypes: Set<HealthDataType> = Set(HealthDataType.allCases),
+        encrypt: Bool = false
+    ) async throws -> URL {
         isExporting = true
         exportProgress = 0.0
         
@@ -94,7 +97,8 @@ class DocumentExporter: ObservableObject {
             let exportURL = try fileSystemManager.createExportFile(
                 data: jsonData,
                 fileName: fileName,
-                fileType: .json
+                fileType: .json,
+                encrypt: encrypt
             )
             
             exportProgress = 1.0
@@ -107,7 +111,10 @@ class DocumentExporter: ObservableObject {
     }
     
     // MARK: - PDF Report Export
-    func exportHealthReportAsPDF(includeTypes: Set<HealthDataType> = Set(HealthDataType.allCases)) async throws -> URL {
+    func exportHealthReportAsPDF(
+        includeTypes: Set<HealthDataType> = Set(HealthDataType.allCases),
+        encrypt: Bool = false
+    ) async throws -> URL {
         isExporting = true
         exportProgress = 0.0
         
@@ -190,7 +197,8 @@ class DocumentExporter: ObservableObject {
             let exportURL = try fileSystemManager.createExportFile(
                 data: pdfData,
                 fileName: fileName,
-                fileType: .pdf
+                fileType: .pdf,
+                encrypt: encrypt
             )
             
             exportProgress = 1.0

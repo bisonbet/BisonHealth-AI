@@ -406,13 +406,31 @@ class FileSystemManager: ObservableObject {
     }
     
     // MARK: - Export Management
-    func createExportFile(data: Data, fileName: String, fileType: ExportFileType) throws -> URL {
+    func createExportFile(
+        data: Data,
+        fileName: String,
+        fileType: ExportFileType,
+        encrypt: Bool = false
+    ) throws -> URL {
         let sanitizedFileName = sanitizeFileName(fileName)
         let fileExtension = fileType.fileExtension
         let finalFileName = "\(sanitizedFileName).\(fileExtension)"
         let exportURL = exportsDirectory.appendingPathComponent(finalFileName)
-        
-        try data.write(to: exportURL)
+
+        let dataToWrite: Data
+        if encrypt {
+            dataToWrite = try encryptData(data)
+        } else {
+            dataToWrite = data
+        }
+
+        try dataToWrite.write(to: exportURL, options: .atomic)
+
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: exportURL.path
+        )
+
         return exportURL
     }
     

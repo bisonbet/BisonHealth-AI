@@ -6,6 +6,7 @@ struct DataExportView: View {
     @State private var includeBloodTests = true
     @State private var includeChatHistory = false
     @State private var includeDocuments = false
+    @State private var encryptExport = false
     @State private var isExporting = false
     @State private var exportProgress: Double = 0.0
     @State private var exportedFileURL: URL?
@@ -40,6 +41,14 @@ struct DataExportView: View {
                 Toggle("Document Metadata", isOn: $includeDocuments)
             }
             
+            Section("Security") {
+                Toggle("Encrypt export file", isOn: $encryptExport)
+                Text("Encrypted exports require the app to decrypt them. If you leave encryption off, handle the exported file carefully because it may contain sensitive health information.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+
             Section("Export Options") {
                 Button(action: exportData) {
                     HStack {
@@ -109,9 +118,15 @@ struct DataExportView: View {
                 let exportURL: URL
                 switch selectedFormat {
                 case .json:
-                    exportURL = try await documentExporter.exportHealthDataAsJSON(includeTypes: includeTypes)
+                    exportURL = try await documentExporter.exportHealthDataAsJSON(
+                        includeTypes: includeTypes,
+                        encrypt: encryptExport
+                    )
                 case .pdf:
-                    exportURL = try await documentExporter.exportHealthReportAsPDF(includeTypes: includeTypes)
+                    exportURL = try await documentExporter.exportHealthReportAsPDF(
+                        includeTypes: includeTypes,
+                        encrypt: encryptExport
+                    )
                 }
                 
                 await MainActor.run {
