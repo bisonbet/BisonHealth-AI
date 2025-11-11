@@ -16,6 +16,7 @@ struct PersonalHealthInfo: HealthDataProtocol {
     // Medical Information
     var allergies: [String]
     var medications: [Medication]
+    var supplements: [Supplement]
     var personalMedicalHistory: [MedicalCondition]
     var familyHistory: FamilyMedicalHistory
     
@@ -34,6 +35,7 @@ struct PersonalHealthInfo: HealthDataProtocol {
         bloodType: BloodType? = nil,
         allergies: [String] = [],
         medications: [Medication] = [],
+        supplements: [Supplement] = [],
         personalMedicalHistory: [MedicalCondition] = [],
         familyHistory: FamilyMedicalHistory = FamilyMedicalHistory(),
         createdAt: Date = Date(),
@@ -49,6 +51,7 @@ struct PersonalHealthInfo: HealthDataProtocol {
         self.bloodType = bloodType
         self.allergies = allergies
         self.medications = medications
+        self.supplements = supplements
         self.personalMedicalHistory = personalMedicalHistory
         self.familyHistory = familyHistory
         self.createdAt = createdAt
@@ -185,7 +188,7 @@ enum Frequency: Codable, Hashable {
         case .other(let custom): return custom.isEmpty ? "Other" : custom
         }
     }
-    
+
     // Codable conformance
     private enum CodingKeys: String, CodingKey {
         case type, value
@@ -219,6 +222,198 @@ enum Frequency: Codable, Hashable {
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Invalid frequency type")
         }
     }
+}
+
+// MARK: - Supplement Structures
+
+struct Supplement: Codable, Identifiable, Hashable {
+    let id: UUID
+    var name: String
+    var category: SupplementCategory
+    var dosage: Dosage
+    var frequency: Frequency
+    var startDate: Date?
+    var notes: String?
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        category: SupplementCategory = .other,
+        dosage: Dosage = Dosage(),
+        frequency: Frequency = .daily,
+        startDate: Date? = nil,
+        notes: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.category = category
+        self.dosage = dosage
+        self.frequency = frequency
+        self.startDate = startDate
+        self.notes = notes
+    }
+
+    var displayText: String {
+        let dosageText = dosage.displayText
+        let frequencyText = frequency.displayName
+        return "\(name) - \(dosageText), \(frequencyText)"
+    }
+}
+
+enum SupplementCategory: String, CaseIterable, Codable, Hashable {
+    case vitamin
+    case mineral
+    case herb
+    case aminoAcid
+    case fatty acid = "fattyAcid"
+    case probiotic
+    case protein
+    case fiber
+    case other
+
+    var displayName: String {
+        switch self {
+        case .vitamin: return "Vitamin"
+        case .mineral: return "Mineral"
+        case .herb: return "Herbal"
+        case .aminoAcid: return "Amino Acid"
+        case .fattyAcid: return "Fatty Acid"
+        case .probiotic: return "Probiotic"
+        case .protein: return "Protein"
+        case .fiber: return "Fiber"
+        case .other: return "Other"
+        }
+    }
+}
+
+// MARK: - Supplement Database
+
+struct SupplementTemplate: Identifiable, Hashable {
+    let id: UUID
+    let name: String
+    let category: SupplementCategory
+    let defaultDosage: Dosage
+    let defaultFrequency: Frequency
+    let commonUses: String
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        category: SupplementCategory,
+        defaultDosage: Dosage,
+        defaultFrequency: Frequency = .daily,
+        commonUses: String = ""
+    ) {
+        self.id = id
+        self.name = name
+        self.category = category
+        self.defaultDosage = defaultDosage
+        self.defaultFrequency = defaultFrequency
+        self.commonUses = commonUses
+    }
+
+    func toSupplement() -> Supplement {
+        Supplement(
+            name: name,
+            category: category,
+            dosage: defaultDosage,
+            frequency: defaultFrequency,
+            startDate: Date()
+        )
+    }
+}
+
+// Comprehensive supplement database
+extension SupplementTemplate {
+    static let database: [SupplementTemplate] = [
+        // Vitamins
+        SupplementTemplate(name: "Vitamin A", category: .vitamin, defaultDosage: Dosage(value: 3000, unit: .mcg), commonUses: "Vision, immune function, skin health"),
+        SupplementTemplate(name: "Vitamin B1 (Thiamine)", category: .vitamin, defaultDosage: Dosage(value: 1.2, unit: .mg), commonUses: "Energy metabolism, nerve function"),
+        SupplementTemplate(name: "Vitamin B2 (Riboflavin)", category: .vitamin, defaultDosage: Dosage(value: 1.3, unit: .mg), commonUses: "Energy production, cellular function"),
+        SupplementTemplate(name: "Vitamin B3 (Niacin)", category: .vitamin, defaultDosage: Dosage(value: 16, unit: .mg), commonUses: "Energy metabolism, DNA repair"),
+        SupplementTemplate(name: "Vitamin B5 (Pantothenic Acid)", category: .vitamin, defaultDosage: Dosage(value: 5, unit: .mg), commonUses: "Energy metabolism, hormone synthesis"),
+        SupplementTemplate(name: "Vitamin B6 (Pyridoxine)", category: .vitamin, defaultDosage: Dosage(value: 1.7, unit: .mg), commonUses: "Protein metabolism, neurotransmitter synthesis"),
+        SupplementTemplate(name: "Vitamin B7 (Biotin)", category: .vitamin, defaultDosage: Dosage(value: 30, unit: .mcg), commonUses: "Hair, skin, and nail health"),
+        SupplementTemplate(name: "Vitamin B9 (Folate)", category: .vitamin, defaultDosage: Dosage(value: 400, unit: .mcg), commonUses: "DNA synthesis, cell division"),
+        SupplementTemplate(name: "Vitamin B12 (Cobalamin)", category: .vitamin, defaultDosage: Dosage(value: 2.4, unit: .mcg), commonUses: "Red blood cell formation, nerve function"),
+        SupplementTemplate(name: "Vitamin C", category: .vitamin, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Immune support, antioxidant, collagen synthesis"),
+        SupplementTemplate(name: "Vitamin D", category: .vitamin, defaultDosage: Dosage(value: 2000, unit: .iu), commonUses: "Bone health, immune function"),
+        SupplementTemplate(name: "Vitamin D3", category: .vitamin, defaultDosage: Dosage(value: 2000, unit: .iu), commonUses: "Bone health, immune function, mood"),
+        SupplementTemplate(name: "Vitamin E", category: .vitamin, defaultDosage: Dosage(value: 15, unit: .mg), commonUses: "Antioxidant, skin health"),
+        SupplementTemplate(name: "Vitamin K", category: .vitamin, defaultDosage: Dosage(value: 120, unit: .mcg), commonUses: "Blood clotting, bone health"),
+        SupplementTemplate(name: "Vitamin K2", category: .vitamin, defaultDosage: Dosage(value: 100, unit: .mcg), commonUses: "Bone and cardiovascular health"),
+
+        // Minerals
+        SupplementTemplate(name: "Calcium", category: .mineral, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Bone health, muscle function"),
+        SupplementTemplate(name: "Magnesium", category: .mineral, defaultDosage: Dosage(value: 400, unit: .mg), commonUses: "Muscle relaxation, sleep, energy"),
+        SupplementTemplate(name: "Zinc", category: .mineral, defaultDosage: Dosage(value: 15, unit: .mg), commonUses: "Immune function, wound healing"),
+        SupplementTemplate(name: "Iron", category: .mineral, defaultDosage: Dosage(value: 18, unit: .mg), commonUses: "Red blood cell formation, energy"),
+        SupplementTemplate(name: "Selenium", category: .mineral, defaultDosage: Dosage(value: 55, unit: .mcg), commonUses: "Antioxidant, thyroid function"),
+        SupplementTemplate(name: "Potassium", category: .mineral, defaultDosage: Dosage(value: 99, unit: .mg), commonUses: "Heart health, blood pressure"),
+        SupplementTemplate(name: "Chromium", category: .mineral, defaultDosage: Dosage(value: 35, unit: .mcg), commonUses: "Blood sugar regulation"),
+        SupplementTemplate(name: "Copper", category: .mineral, defaultDosage: Dosage(value: 900, unit: .mcg), commonUses: "Iron metabolism, nerve function"),
+        SupplementTemplate(name: "Manganese", category: .mineral, defaultDosage: Dosage(value: 2.3, unit: .mg), commonUses: "Bone health, metabolism"),
+        SupplementTemplate(name: "Iodine", category: .mineral, defaultDosage: Dosage(value: 150, unit: .mcg), commonUses: "Thyroid function"),
+
+        // Omega Fatty Acids
+        SupplementTemplate(name: "Omega-3 Fish Oil", category: .fattyAcid, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Heart health, brain function, inflammation"),
+        SupplementTemplate(name: "Omega-3 EPA/DHA", category: .fattyAcid, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Cardiovascular and cognitive health"),
+        SupplementTemplate(name: "Flaxseed Oil", category: .fattyAcid, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Omega-3 ALA, heart health"),
+        SupplementTemplate(name: "Evening Primrose Oil", category: .fattyAcid, defaultDosage: Dosage(value: 500, unit: .mg), commonUses: "Skin health, hormonal balance"),
+
+        // Probiotics
+        SupplementTemplate(name: "Probiotic (General)", category: .probiotic, defaultDosage: Dosage(value: 10, unit: .unit), commonUses: "Digestive health, immune support"),
+        SupplementTemplate(name: "Lactobacillus Acidophilus", category: .probiotic, defaultDosage: Dosage(value: 5, unit: .unit), commonUses: "Gut health, digestion"),
+        SupplementTemplate(name: "Bifidobacterium", category: .probiotic, defaultDosage: Dosage(value: 5, unit: .unit), commonUses: "Intestinal health, immune function"),
+
+        // Herbs
+        SupplementTemplate(name: "Turmeric/Curcumin", category: .herb, defaultDosage: Dosage(value: 500, unit: .mg), commonUses: "Anti-inflammatory, joint health"),
+        SupplementTemplate(name: "Ginger", category: .herb, defaultDosage: Dosage(value: 250, unit: .mg), commonUses: "Digestive health, nausea relief"),
+        SupplementTemplate(name: "Ginseng", category: .herb, defaultDosage: Dosage(value: 200, unit: .mg), commonUses: "Energy, immune support"),
+        SupplementTemplate(name: "Echinacea", category: .herb, defaultDosage: Dosage(value: 400, unit: .mg), commonUses: "Immune support"),
+        SupplementTemplate(name: "Garlic Extract", category: .herb, defaultDosage: Dosage(value: 600, unit: .mg), commonUses: "Heart health, immune support"),
+        SupplementTemplate(name: "Milk Thistle", category: .herb, defaultDosage: Dosage(value: 150, unit: .mg), commonUses: "Liver health"),
+        SupplementTemplate(name: "Saw Palmetto", category: .herb, defaultDosage: Dosage(value: 320, unit: .mg), commonUses: "Prostate health"),
+        SupplementTemplate(name: "St. John's Wort", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), frequency: .threeTimesDaily, commonUses: "Mood support"),
+        SupplementTemplate(name: "Valerian Root", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), commonUses: "Sleep support, relaxation"),
+        SupplementTemplate(name: "Ashwagandha", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), commonUses: "Stress relief, adaptogen"),
+        SupplementTemplate(name: "Rhodiola", category: .herb, defaultDosage: Dosage(value: 200, unit: .mg), commonUses: "Energy, stress adaptation"),
+        SupplementTemplate(name: "Green Tea Extract", category: .herb, defaultDosage: Dosage(value: 250, unit: .mg), commonUses: "Antioxidant, metabolism"),
+
+        // Amino Acids
+        SupplementTemplate(name: "L-Glutamine", category: .aminoAcid, defaultDosage: Dosage(value: 5, unit: .g), commonUses: "Gut health, muscle recovery"),
+        SupplementTemplate(name: "L-Arginine", category: .aminoAcid, defaultDosage: Dosage(value: 3, unit: .g), commonUses: "Blood flow, exercise performance"),
+        SupplementTemplate(name: "L-Lysine", category: .aminoAcid, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Collagen formation, immune support"),
+        SupplementTemplate(name: "L-Theanine", category: .aminoAcid, defaultDosage: Dosage(value: 200, unit: .mg), commonUses: "Relaxation, focus"),
+        SupplementTemplate(name: "BCAA (Branched-Chain Amino Acids)", category: .aminoAcid, defaultDosage: Dosage(value: 5, unit: .g), commonUses: "Muscle recovery, exercise performance"),
+        SupplementTemplate(name: "L-Carnitine", category: .aminoAcid, defaultDosage: Dosage(value: 500, unit: .mg), commonUses: "Energy metabolism, fat burning"),
+        SupplementTemplate(name: "Taurine", category: .aminoAcid, defaultDosage: Dosage(value: 500, unit: .mg), commonUses: "Heart health, energy"),
+
+        // Protein
+        SupplementTemplate(name: "Whey Protein", category: .protein, defaultDosage: Dosage(value: 25, unit: .g), commonUses: "Muscle building, recovery"),
+        SupplementTemplate(name: "Plant Protein", category: .protein, defaultDosage: Dosage(value: 25, unit: .g), commonUses: "Muscle support, vegan option"),
+        SupplementTemplate(name: "Collagen Peptides", category: .protein, defaultDosage: Dosage(value: 10, unit: .g), commonUses: "Skin, joint, and bone health"),
+
+        // Fiber
+        SupplementTemplate(name: "Psyllium Husk", category: .fiber, defaultDosage: Dosage(value: 5, unit: .g), commonUses: "Digestive health, regularity"),
+        SupplementTemplate(name: "Inulin", category: .fiber, defaultDosage: Dosage(value: 5, unit: .g), commonUses: "Prebiotic, digestive health"),
+
+        // Other Popular Supplements
+        SupplementTemplate(name: "Coenzyme Q10 (CoQ10)", category: .other, defaultDosage: Dosage(value: 100, unit: .mg), commonUses: "Heart health, energy production"),
+        SupplementTemplate(name: "Alpha-Lipoic Acid", category: .other, defaultDosage: Dosage(value: 300, unit: .mg), commonUses: "Antioxidant, blood sugar support"),
+        SupplementTemplate(name: "Glucosamine", category: .other, defaultDosage: Dosage(value: 1500, unit: .mg), commonUses: "Joint health"),
+        SupplementTemplate(name: "Chondroitin", category: .other, defaultDosage: Dosage(value: 1200, unit: .mg), commonUses: "Joint health, cartilage support"),
+        SupplementTemplate(name: "MSM (Methylsulfonylmethane)", category: .other, defaultDosage: Dosage(value: 1000, unit: .mg), commonUses: "Joint health, inflammation"),
+        SupplementTemplate(name: "Melatonin", category: .other, defaultDosage: Dosage(value: 3, unit: .mg), commonUses: "Sleep support"),
+        SupplementTemplate(name: "Creatine", category: .other, defaultDosage: Dosage(value: 5, unit: .g), commonUses: "Muscle strength, exercise performance"),
+        SupplementTemplate(name: "Beta-Alanine", category: .other, defaultDosage: Dosage(value: 2, unit: .g), commonUses: "Exercise performance, endurance"),
+        SupplementTemplate(name: "Resveratrol", category: .other, defaultDosage: Dosage(value: 100, unit: .mg), commonUses: "Antioxidant, cardiovascular health"),
+        SupplementTemplate(name: "Lutein", category: .other, defaultDosage: Dosage(value: 10, unit: .mg), commonUses: "Eye health, vision"),
+        SupplementTemplate(name: "Zeaxanthin", category: .other, defaultDosage: Dosage(value: 2, unit: .mg), commonUses: "Eye health, macular protection"),
+        SupplementTemplate(name: "SAMe (S-Adenosyl Methionine)", category: .other, defaultDosage: Dosage(value: 400, unit: .mg), commonUses: "Mood support, joint health"),
+        SupplementTemplate(name: "5-HTP", category: .other, defaultDosage: Dosage(value: 100, unit: .mg), commonUses: "Mood support, sleep"),
+        SupplementTemplate(name: "Berberine", category: .other, defaultDosage: Dosage(value: 500, unit: .mg), frequency: .twiceDaily, commonUses: "Blood sugar support, metabolic health"),
+    ]
 }
 
 // MARK: - Medical History

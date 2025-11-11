@@ -665,27 +665,196 @@ struct ConversationSettingsView: View {
 
 struct ConversationExportView: View {
     let conversation: ChatConversation?
-    
+
     @Environment(\.dismiss) private var dismiss
-    
+    @StateObject private var exporter = ConversationExporter(fileSystemManager: FileSystemManager.shared)
+
+    @State private var selectedFormat: ExportFormat = .pdf
+    @State private var isExporting = false
+    @State private var exportedFileURL: URL?
+    @State private var showingShareSheet = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
+
+    enum ExportFormat: String, CaseIterable {
+        case pdf = "PDF"
+        case markdown = "Markdown"
+
+        var displayName: String { rawValue }
+        var icon: String {
+            switch self {
+            case .pdf: return "doc.fill"
+            case .markdown: return "doc.text.fill"
+            }
+        }
+        var description: String {
+            switch self {
+            case .pdf: return "Well-formatted PDF document"
+            case .markdown: return "Plain text markdown format"
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Export Options") {
-                    Text("Export functionality coming soon...")
-                        .foregroundColor(.secondary)
+                Section {
+                    if let conv = conversation {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(conv.title)
+                                .font(.headline)
+                            HStack {
+                                Text("\(conv.messages.count) messages")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text("•")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(formatDate(conv.updatedAt))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                } header: {
+                    Text("Conversation")
+                }
+
+                Section {
+                    ForEach(ExportFormat.allCases, id: \.self) { format in
+                        HStack {
+                            Image(systemName: format.icon)
+                                .foregroundColor(.blue)
+                                .frame(width: 30)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(format.displayName)
+                                    .font(.body)
+                                Text(format.description)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            if selectedFormat == format {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedFormat = format
+                        }
+                    }
+                } header: {
+                    Text("Export Format")
+                }
+
+                Section {
+                    Button(action: exportConversation) {
+                        HStack {
+                            Spacer()
+                            if isExporting {
+                                ProgressView()
+                                    .padding(.trailing, 8)
+                            }
+                            Text(isExporting ? "Exporting..." : "Export Conversation")
+                                .font(.headline)
+                            Spacer()
+                        }
+                    }
+                    .disabled(isExporting || conversation == nil)
+                }
+
+                if let error = errorMessage {
+                    Section {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
                 }
             }
-            .navigationTitle("Export")
+            .navigationTitle("Export Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
                         dismiss()
                     }
                 }
             }
+            .sheet(isPresented: $showingShareSheet) {
+                if let url = exportedFileURL {
+                    ShareSheet(items: [url])
+                }
+            }
+            .alert("Export Error", isPresented: $showingError) {
+                Button("OK", role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                if let error = errorMessage {
+                    Text(error)
+                }
+            }
         }
+    }
+
+    private func exportConversation() {
+        guard let conversation = conversation else {
+            errorMessage = "No conversation to export"
+            showingError = true
+            return
+        }
+
+        isExporting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                let exportURL: URL
+
+                switch selectedFormat {
+                case .pdf:
+                    exportURL = try await exporter.exportConversationAsPDF(conversation)
+                case .markdown:
+                    exportURL = try await exporter.exportConversationAsMarkdown(conversation)
+                }
+
+                await MainActor.run {
+                    exportedFileURL = exportURL
+                    isExporting = false
+                    showingShareSheet = true
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showingError = true
+                    isExporting = false
+                }
+            }
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+        // No updates needed
     }
 }
 
