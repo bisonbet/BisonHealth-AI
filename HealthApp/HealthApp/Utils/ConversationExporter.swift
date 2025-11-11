@@ -126,7 +126,7 @@ class ConversationExporter: ObservableObject {
             exportProgress = 0.3
 
             // Message Pages
-            let messagePages = createMessagePages(conversation: conversation)
+            let messagePages = try createMessagePages(conversation: conversation)
             for page in messagePages {
                 pdfDocument.insert(page, at: pageIndex)
                 pageIndex += 1
@@ -237,10 +237,13 @@ class ConversationExporter: ObservableObject {
             footerText.draw(in: footerRect, withAttributes: footerAttributes)
         }
 
-        return PDFPage(image: image)!
+        guard let pdfPage = PDFPage(image: image) else {
+            throw ConversationExportError.pdfGenerationFailed
+        }
+        return pdfPage
     }
 
-    private func createMessagePages(conversation: ChatConversation) -> [PDFPage] {
+    private func createMessagePages(conversation: ChatConversation) throws -> [PDFPage] {
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter size
         var pages: [PDFPage] = []
 
@@ -257,7 +260,7 @@ class ConversationExporter: ObservableObject {
             // Check if we need a new page
             if currentYPosition + messageHeight > maxYPosition && !currentPageMessages.isEmpty {
                 // Create page with current messages
-                let page = renderMessagesPage(
+                let page = try renderMessagesPage(
                     messages: currentPageMessages.map { $0.message },
                     pageRect: pageRect,
                     margin: margin
@@ -275,7 +278,7 @@ class ConversationExporter: ObservableObject {
 
         // Create final page if there are remaining messages
         if !currentPageMessages.isEmpty {
-            let page = renderMessagesPage(
+            let page = try renderMessagesPage(
                 messages: currentPageMessages.map { $0.message },
                 pageRect: pageRect,
                 margin: margin
@@ -286,7 +289,7 @@ class ConversationExporter: ObservableObject {
         return pages
     }
 
-    private func renderMessagesPage(messages: [ChatMessage], pageRect: CGRect, margin: CGFloat) -> PDFPage {
+    private func renderMessagesPage(messages: [ChatMessage], pageRect: CGRect, margin: CGFloat) throws -> PDFPage {
         let renderer = UIGraphicsImageRenderer(size: pageRect.size)
 
         let image = renderer.image { context in
@@ -368,7 +371,10 @@ class ConversationExporter: ObservableObject {
             }
         }
 
-        return PDFPage(image: image)!
+        guard let pdfPage = PDFPage(image: image) else {
+            throw ConversationExportError.pdfGenerationFailed
+        }
+        return pdfPage
     }
 
     private func calculateMessageHeight(message: ChatMessage, width: CGFloat) -> CGFloat {

@@ -19,7 +19,7 @@ class DatabaseManager: ObservableObject {
     private let databaseURL: URL
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 4 // Increment when making schema changes
+    private static let currentDatabaseVersion = 5 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
@@ -361,6 +361,13 @@ class DatabaseManager: ObservableObject {
             try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
 
             print("   ✓ Added medical document fields and indexes")
+
+        case 5:
+            // Migration for version 5: Added supplements array to PersonalHealthInfo
+            // This migration is data-safe since PersonalHealthInfo is stored as encrypted JSON
+            // and the supplements property has a default value of [] in the model.
+            // The Codable decoder will automatically use the default for existing records.
+            print("   ✓ Added support for supplements in personal health info")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
