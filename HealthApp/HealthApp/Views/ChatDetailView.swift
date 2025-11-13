@@ -13,6 +13,8 @@ struct ChatDetailView: View {
     @State private var showingClearConfirmation = false
     @State private var showingDoctorSelector = false
     @State private var showingAIDocumentSelector = false
+    @State private var errorMessage: String?
+    @State private var showingErrorAlert = false
     @FocusState private var isMessageInputFocused: Bool
     
     var body: some View {
@@ -79,6 +81,15 @@ struct ChatDetailView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     isMessageInputFocused = true
                 }
+            }
+        }
+        .alert("Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+            }
+        } message: {
+            if let error = errorMessage {
+                Text(error)
             }
         }
         // Note: iPad keyboard shortcuts would be implemented using
@@ -211,8 +222,9 @@ struct ChatDetailView: View {
                     }
                 }
             } catch {
-                // Error handling is managed by the chat manager
-                print("Failed to send message: \(error)")
+                // Show user-facing error alert
+                errorMessage = "Failed to send message: \(error.localizedDescription)"
+                showingErrorAlert = true
             }
         }
     }
@@ -224,8 +236,8 @@ struct ChatDetailView: View {
             do {
                 try await chatManager.clearConversationMessages(conversation)
             } catch {
-                print("Failed to clear conversation messages: \(error)")
-                // You might want to show an alert to the user here
+                errorMessage = "Failed to clear conversation: \(error.localizedDescription)"
+                showingErrorAlert = true
             }
         }
     }

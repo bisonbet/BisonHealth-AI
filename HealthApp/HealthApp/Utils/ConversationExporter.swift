@@ -2,6 +2,33 @@ import Foundation
 import UIKit
 import PDFKit
 
+// MARK: - Paper Size Configuration
+enum PaperSize {
+    case usLetter  // 8.5" x 11" (612 x 792 points)
+    case a4        // 210mm x 297mm (595 x 842 points)
+
+    var size: CGSize {
+        switch self {
+        case .usLetter:
+            return CGSize(width: 612, height: 792)
+        case .a4:
+            return CGSize(width: 595, height: 842)
+        }
+    }
+
+    /// Determines appropriate paper size based on user's locale
+    static var `default`: PaperSize {
+        let locale = Locale.current
+        // Use A4 for most international locales, US Letter for US/Canada/Mexico
+        let usLetterRegions = ["US", "CA", "MX"]
+        if let regionCode = locale.region?.identifier,
+           usLetterRegions.contains(regionCode) {
+            return .usLetter
+        }
+        return .a4
+    }
+}
+
 // MARK: - Conversation Exporter
 @MainActor
 class ConversationExporter: ObservableObject {
@@ -11,10 +38,12 @@ class ConversationExporter: ObservableObject {
     @Published var lastError: Error?
 
     private let fileSystemManager: FileSystemManager
+    private let paperSize: PaperSize
 
     // MARK: - Initialization
-    init(fileSystemManager: FileSystemManager) {
+    init(fileSystemManager: FileSystemManager, paperSize: PaperSize = .default) {
         self.fileSystemManager = fileSystemManager
+        self.paperSize = paperSize
     }
 
     // MARK: - Markdown Export
@@ -163,7 +192,8 @@ class ConversationExporter: ObservableObject {
 
     // MARK: - PDF Page Creation
     private func createTitlePage(conversation: ChatConversation) -> PDFPage {
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter size
+        let pageSize = paperSize.size
+        let pageRect = CGRect(origin: .zero, size: pageSize)
         let renderer = UIGraphicsImageRenderer(size: pageRect.size)
 
         let image = renderer.image { context in
@@ -244,7 +274,8 @@ class ConversationExporter: ObservableObject {
     }
 
     private func createMessagePages(conversation: ChatConversation) throws -> [PDFPage] {
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter size
+        let pageSize = paperSize.size
+        let pageRect = CGRect(origin: .zero, size: pageSize)
         var pages: [PDFPage] = []
 
         let margin: CGFloat = 72
