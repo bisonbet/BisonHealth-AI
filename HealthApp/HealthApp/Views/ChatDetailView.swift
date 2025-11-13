@@ -689,6 +689,7 @@ struct ConversationExportView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var showingPHIWarning = false
+    @State private var showingShareWarning = false
 
     enum ExportFormat: String, CaseIterable {
         case pdf = "PDF"
@@ -821,6 +822,14 @@ struct ConversationExportView: View {
             } message: {
                 Text("This conversation may contain Protected Health Information (PHI) and other sensitive medical data.\n\nThe exported file will be stored unencrypted on your device. Please handle it securely:\n\n• Do not share via unencrypted channels\n• Store in a secure location\n• Delete when no longer needed\n• Be mindful of who has access to your device")
             }
+            .alert("Share Health Information Warning", isPresented: $showingShareWarning) {
+                Button("Cancel", role: .cancel) { }
+                Button("I Understand, Share") {
+                    showingShareSheet = true
+                }
+            } message: {
+                Text("You are about to share a file containing Protected Health Information.\n\nBe cautious when selecting where to share:\n\n• Avoid cloud services unless HIPAA-compliant\n• Don't share via unencrypted messaging\n• Only share with trusted recipients\n• Consider the security of the destination app\n• Remember that once shared, you cannot control the data")
+            }
         }
     }
 
@@ -848,7 +857,7 @@ struct ConversationExportView: View {
                 await MainActor.run {
                     exportedFileURL = exportURL
                     isExporting = false
-                    showingShareSheet = true
+                    showingShareWarning = true
                 }
             } catch {
                 await MainActor.run {
