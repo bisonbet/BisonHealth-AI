@@ -688,6 +688,7 @@ struct ConversationExportView: View {
     @State private var showingShareSheet = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    @State private var showingPHIWarning = false
 
     enum ExportFormat: String, CaseIterable {
         case pdf = "PDF"
@@ -766,7 +767,7 @@ struct ConversationExportView: View {
                 }
 
                 Section {
-                    Button(action: exportConversation) {
+                    Button(action: { showingPHIWarning = true }) {
                         HStack {
                             Spacer()
                             if isExporting {
@@ -811,6 +812,14 @@ struct ConversationExportView: View {
                 if let error = errorMessage {
                     Text(error)
                 }
+            }
+            .alert("Protected Health Information Warning", isPresented: $showingPHIWarning) {
+                Button("Cancel", role: .cancel) { }
+                Button("I Understand, Continue") {
+                    exportConversation()
+                }
+            } message: {
+                Text("This conversation may contain Protected Health Information (PHI) and other sensitive medical data.\n\nThe exported file will be stored unencrypted on your device. Please handle it securely:\n\n• Do not share via unencrypted channels\n• Store in a secure location\n• Delete when no longer needed\n• Be mindful of who has access to your device")
             }
         }
     }
