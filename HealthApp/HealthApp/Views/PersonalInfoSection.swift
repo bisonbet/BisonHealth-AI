@@ -89,6 +89,12 @@ struct PersonalInfoRowView: View {
                         )
 
                         CheckmarkInfoRow(
+                            label: "Supplements",
+                            hasData: !personalInfo.supplements.isEmpty,
+                            icon: "leaf"
+                        )
+
+                        CheckmarkInfoRow(
                             label: "Personal Medical History",
                             hasData: !personalInfo.personalMedicalHistory.isEmpty,
                             icon: "doc.text"

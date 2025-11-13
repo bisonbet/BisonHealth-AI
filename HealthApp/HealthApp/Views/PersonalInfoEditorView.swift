@@ -392,6 +392,10 @@ struct PersonalInfoEditorView: View {
                         MedicationsListView(medications: $editedInfo.medications)
                     }
 
+                    NavigationLink("Supplements (\(editedInfo.supplements.count))") {
+                        SupplementsListView(supplements: $editedInfo.supplements)
+                    }
+
                     NavigationLink("Personal Medical History (\(editedInfo.personalMedicalHistory.count))") {
                         PersonalMedicalHistoryView(conditions: $editedInfo.personalMedicalHistory)
                     }

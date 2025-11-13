@@ -565,20 +565,23 @@ enum ExportFileType {
     case json
     case pdf
     case csv
-    
+    case markdown
+
     var fileExtension: String {
         switch self {
         case .json: return "json"
         case .pdf: return "pdf"
         case .csv: return "csv"
+        case .markdown: return "md"
         }
     }
-    
+
     var mimeType: String {
         switch self {
         case .json: return "application/json"
         case .pdf: return "application/pdf"
         case .csv: return "text/csv"
+        case .markdown: return "text/markdown"
         }
     }
 }
