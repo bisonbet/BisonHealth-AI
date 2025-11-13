@@ -17,7 +17,7 @@ struct SupplementsListView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
-                                .background(categoryColor(for: supplement.category))
+                                .background(supplement.category.color)
                                 .cornerRadius(4)
                             Text(supplement.dosage.displayText)
                                 .font(.caption)
@@ -49,20 +49,6 @@ struct SupplementsListView: View {
             NavigationStack {
                 SupplementSelectorView(supplements: $supplements)
             }
-        }
-    }
-
-    private func categoryColor(for category: SupplementCategory) -> Color {
-        switch category {
-        case .vitamin: return .purple
-        case .mineral: return .orange
-        case .herb: return .green
-        case .aminoAcid: return .blue
-        case .fattyAcid: return .teal
-        case .probiotic: return .pink
-        case .protein: return .red
-        case .fiber: return .brown
-        case .other: return .gray
         }
     }
 }

@@ -103,7 +103,7 @@ struct SupplementSelectorView: View {
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
-                                        .background(categoryColor(for: template.category))
+                                        .background(template.category.color)
                                         .cornerRadius(4)
                                 }
 
@@ -162,20 +162,6 @@ struct SupplementSelectorView: View {
         let newSupplement = template.toSupplement()
         supplements.append(newSupplement)
         dismiss()
-    }
-
-    private func categoryColor(for category: SupplementCategory) -> Color {
-        switch category {
-        case .vitamin: return .purple
-        case .mineral: return .orange
-        case .herb: return .green
-        case .aminoAcid: return .blue
-        case .fattyAcid: return .teal
-        case .probiotic: return .pink
-        case .protein: return .red
-        case .fiber: return .brown
-        case .other: return .gray
-        }
     }
 }
 

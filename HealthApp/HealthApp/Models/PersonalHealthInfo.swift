@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Personal Health Information
 struct PersonalHealthInfo: HealthDataProtocol {
@@ -313,6 +314,20 @@ enum SupplementCategory: String, CaseIterable, Codable, Hashable {
         case .protein: return "Protein"
         case .fiber: return "Fiber"
         case .other: return "Other"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .vitamin: return .purple
+        case .mineral: return .orange
+        case .herb: return .green
+        case .aminoAcid: return .blue
+        case .fattyAcid: return .teal
+        case .probiotic: return .pink
+        case .protein: return .red
+        case .fiber: return .brown
+        case .other: return .gray
         }
     }
 }

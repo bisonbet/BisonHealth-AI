@@ -56,7 +56,10 @@ struct SupplementEditorView: View {
                     set: { supplement.startDate = $0.timeIntervalSince1970 > 0 ? $0 : nil }
                 ), displayedComponents: .date)
 
-                TextField("Notes", text: Binding(get: { supplement.notes ?? "" }, set: { supplement.notes = $0 }), axis: .vertical)
+                TextField("Notes", text: Binding(
+                    get: { supplement.notes ?? "" },
+                    set: { supplement.notes = $0.isEmpty ? nil : $0 }
+                ), axis: .vertical)
                     .lineLimit(3...6)
                     .autocorrectionDisabled()
             }
