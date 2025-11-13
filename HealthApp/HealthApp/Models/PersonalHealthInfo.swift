@@ -297,7 +297,7 @@ enum SupplementCategory: String, CaseIterable, Codable, Hashable {
     case mineral
     case herb
     case aminoAcid
-    case fatty acid = "fattyAcid"
+    case fattyAcid
     case probiotic
     case protein
     case fiber
