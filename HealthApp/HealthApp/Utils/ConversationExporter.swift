@@ -160,7 +160,7 @@ class ConversationExporter: ObservableObject {
             exportProgress = 0.1
 
             // Title Page
-            let titlePage = createTitlePage(conversation: conversation)
+            let titlePage = try createTitlePage(conversation: conversation)
             pdfDocument.insert(titlePage, at: pageIndex)
             pageIndex += 1
 
@@ -203,7 +203,7 @@ class ConversationExporter: ObservableObject {
     }
 
     // MARK: - PDF Page Creation
-    private func createTitlePage(conversation: ChatConversation) -> PDFPage {
+    private func createTitlePage(conversation: ChatConversation) throws -> PDFPage {
         let pageSize = paperSize.size
         let pageRect = CGRect(origin: .zero, size: pageSize)
         let renderer = UIGraphicsImageRenderer(size: pageRect.size)
