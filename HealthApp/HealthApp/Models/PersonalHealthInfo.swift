@@ -58,6 +58,37 @@ struct PersonalHealthInfo: HealthDataProtocol {
         self.updatedAt = updatedAt
         self.metadata = metadata
     }
+
+    // Custom Codable implementation for backward compatibility
+    private enum CodingKeys: String, CodingKey {
+        case id, name, dateOfBirth, gender, height, weight, bloodType
+        case allergies, medications, supplements
+        case personalMedicalHistory, familyHistory
+        case createdAt, updatedAt, metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        dateOfBirth = try container.decodeIfPresent(Date.self, forKey: .dateOfBirth)
+        gender = try container.decodeIfPresent(Gender.self, forKey: .gender)
+        height = try container.decodeIfPresent(Measurement<UnitLength>.self, forKey: .height)
+        weight = try container.decodeIfPresent(Measurement<UnitMass>.self, forKey: .weight)
+        bloodType = try container.decodeIfPresent(BloodType.self, forKey: .bloodType)
+
+        allergies = try container.decode([String].self, forKey: .allergies)
+        medications = try container.decode([Medication].self, forKey: .medications)
+        // Use decodeIfPresent for backward compatibility with existing data
+        supplements = try container.decodeIfPresent([Supplement].self, forKey: .supplements) ?? []
+        personalMedicalHistory = try container.decode([MedicalCondition].self, forKey: .personalMedicalHistory)
+        familyHistory = try container.decode(FamilyMedicalHistory.self, forKey: .familyHistory)
+
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
+    }
 }
 
 // MARK: - Medication Structures
