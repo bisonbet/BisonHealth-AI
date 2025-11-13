@@ -57,6 +57,12 @@ class ConversationExporter: ObservableObject {
         }
 
         do {
+            // Performance: Log warning for large conversations
+            let messageCount = conversation.messages.count
+            if messageCount > 100 {
+                print("⚠️ Large conversation (\(messageCount) messages) - export may take time")
+            }
+
             // Generate markdown content
             var markdown = "# \(conversation.title)\n\n"
             markdown += "**Created:** \(formatDate(conversation.createdAt))\n"
@@ -141,6 +147,12 @@ class ConversationExporter: ObservableObject {
         }
 
         do {
+            // Performance: Log warning for large conversations
+            let messageCount = conversation.messages.count
+            if messageCount > 100 {
+                print("⚠️ Large conversation (\(messageCount) messages) - export may take time")
+            }
+
             // Create PDF document
             let pdfDocument = PDFDocument()
             var pageIndex = 0
@@ -155,7 +167,7 @@ class ConversationExporter: ObservableObject {
             exportProgress = 0.3
 
             // Message Pages
-            let messagePages = try createMessagePages(conversation: conversation)
+            let messagePages = try await createMessagePages(conversation: conversation)
             for page in messagePages {
                 pdfDocument.insert(page, at: pageIndex)
                 pageIndex += 1
@@ -273,7 +285,7 @@ class ConversationExporter: ObservableObject {
         return pdfPage
     }
 
-    private func createMessagePages(conversation: ChatConversation) throws -> [PDFPage] {
+    private func createMessagePages(conversation: ChatConversation) async throws -> [PDFPage] {
         let pageSize = paperSize.size
         let pageRect = CGRect(origin: .zero, size: pageSize)
         var pages: [PDFPage] = []
@@ -285,7 +297,21 @@ class ConversationExporter: ObservableObject {
 
         var currentPageMessages: [(message: ChatMessage, height: CGFloat)] = []
 
-        for message in conversation.messages {
+        let totalMessages = conversation.messages.count
+        let isLargeConversation = totalMessages > 50
+
+        for (index, message) in conversation.messages.enumerated() {
+            // Performance: Yield every 10 messages to keep UI responsive
+            if index % 10 == 0 {
+                await Task.yield()
+            }
+
+            // Performance: Update progress more frequently for large conversations
+            if isLargeConversation {
+                let messageProgress = 0.3 + (0.5 * Double(index) / Double(totalMessages))
+                exportProgress = messageProgress
+            }
+
             let messageHeight = calculateMessageHeight(message: message, width: contentWidth)
 
             // Check if we need a new page
