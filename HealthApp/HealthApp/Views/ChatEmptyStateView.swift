@@ -32,7 +32,7 @@ struct ChatEmptyStateView: View {
                 FeatureHighlight(
                     icon: "chart.line.uptrend.xyaxis",
                     title: "Track Trends",
-                    description: "Understand patterns in your blood test results over time"
+                    description: "Understand patterns in your lab results over time"
                 )
                 
                 FeatureHighlight(

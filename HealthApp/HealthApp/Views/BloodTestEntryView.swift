@@ -134,7 +134,7 @@ struct BloodTestEntryView: View {
                                 .font(.headline)
                                 .foregroundColor(.secondary)
 
-                            Text("Add individual test results to create a complete blood test record")
+                            Text("Add individual test results to create a complete lab results record")
                                 .font(.caption)
                                 .foregroundColor(Color(.tertiaryLabel))
                                 .multilineTextAlignment(.center)
@@ -144,7 +144,7 @@ struct BloodTestEntryView: View {
                     }
                 }
             }
-            .navigationTitle(bloodTest == nil ? "Blood Test Entry" : "Edit Blood Test")
+            .navigationTitle(bloodTest == nil ? "Lab Results Entry" : "Edit Lab Results")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

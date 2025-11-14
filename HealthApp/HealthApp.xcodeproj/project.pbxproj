@@ -24,6 +24,7 @@
 		1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64C2E66847000EBEFB0 /* BatchProcessingView.swift */; };
 		1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6512E66847000EBEFB0 /* DocumentGridView.swift */; };
 		1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */; };
+		A10000X6PP0AIOVJSYPSP3LJFU /* DuplicateBloodTestReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000R5WCN5TCBELL9IW4K5PU /* DuplicateBloodTestReviewView.swift */; };
 		1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */; };
 		1434468F2E788ED300961754 /* Doctor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1434468E2E788ED300961754 /* Doctor.swift */; };
 		143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446902E788EE800961754 /* DoctorSelectorView.swift */; };
@@ -68,6 +69,7 @@
 		A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000021294A0000000000001 /* HealthDataProtocol.swift */; };
 		A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000023294A0000000000001 /* PersonalHealthInfo.swift */; };
 		A1000024294A0000000000001 /* BloodTestResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000025294A0000000000001 /* BloodTestResult.swift */; };
+		A1000055YAHI7QXGF2TWBDSYSE /* DuplicateBloodTestCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */; };
 		A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000027294A0000000000001 /* PlaceholderModels.swift */; };
 		A1000028294A0000000000001 /* HealthDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000029294A0000000000001 /* HealthDocument.swift */; };
 		A1000030294A0000000000001 /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000031294A0000000000001 /* ChatModels.swift */; };
@@ -81,6 +83,7 @@
 		A1000054294A0000000000001 /* FileSystemManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000055294A0000000000001 /* FileSystemManager.swift */; };
 		A1000056294A0000000000001 /* DocumentImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000057294A0000000000001 /* DocumentImporter.swift */; };
 		A1000058294A0000000000001 /* DocumentExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000059294A0000000000001 /* DocumentExporter.swift */; };
+		A100005GBD03QSQI2B4SK0KVT0 /* BloodTestValueValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */; };
 		A1000060294A0000000000001 /* FileSystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000061294A0000000000001 /* FileSystemTests.swift */; };
 		A1000062294A0000000000001 /* OllamaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000063294A0000000000001 /* OllamaClient.swift */; };
 		A1000064294A0000000000001 /* DoclingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000065294A0000000000001 /* DoclingClient.swift */; };
@@ -148,6 +151,7 @@
 		1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailView.swift; sourceTree = "<group>"; };
 		1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSidebarView.swift; sourceTree = "<group>"; };
 		1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentDetailView.swift; sourceTree = "<group>"; };
+		A10000R5WCN5TCBELL9IW4K5PU /* DuplicateBloodTestReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateBloodTestReviewView.swift; sourceTree = "<group>"; };
 		1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentFilterView.swift; sourceTree = "<group>"; };
 		1427C6512E66847000EBEFB0 /* DocumentGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentGridView.swift; sourceTree = "<group>"; };
 		1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentKeyboardShortcuts.swift; sourceTree = "<group>"; };
@@ -186,6 +190,7 @@
 		A1000021294A0000000000001 /* HealthDataProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataProtocol.swift; sourceTree = "<group>"; };
 		A1000023294A0000000000001 /* PersonalHealthInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalHealthInfo.swift; sourceTree = "<group>"; };
 		A1000025294A0000000000001 /* BloodTestResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestResult.swift; sourceTree = "<group>"; };
+		A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateBloodTestCandidate.swift; sourceTree = "<group>"; };
 		A1000027294A0000000000001 /* PlaceholderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderModels.swift; sourceTree = "<group>"; };
 		A1000029294A0000000000001 /* HealthDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDocument.swift; sourceTree = "<group>"; };
 		A1000031294A0000000000001 /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
@@ -200,6 +205,7 @@
 		A1000055294A0000000000001 /* FileSystemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemManager.swift; sourceTree = "<group>"; };
 		A1000057294A0000000000001 /* DocumentImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentImporter.swift; sourceTree = "<group>"; };
 		A1000059294A0000000000001 /* DocumentExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentExporter.swift; sourceTree = "<group>"; };
+		A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestValueValidator.swift; sourceTree = "<group>"; };
 		A1000061294A0000000000001 /* FileSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemTests.swift; sourceTree = "<group>"; };
 		A1000063294A0000000000001 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
 		A1000065294A0000000000001 /* DoclingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoclingClient.swift; sourceTree = "<group>"; };
@@ -337,6 +343,7 @@
 				A1000021294A0000000000001 /* HealthDataProtocol.swift */,
 				A1000023294A0000000000001 /* PersonalHealthInfo.swift */,
 				A1000025294A0000000000001 /* BloodTestResult.swift */,
+				A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */,
 				A1000027294A0000000000001 /* PlaceholderModels.swift */,
 				A1000029294A0000000000001 /* HealthDocument.swift */,
 				A1000031294A0000000000001 /* ChatModels.swift */,
@@ -367,6 +374,7 @@
 				1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */,
 				1427C64E2E66847000EBEFB0 /* ConversationSidebarView.swift */,
 				1427C64F2E66847000EBEFB0 /* DocumentDetailView.swift */,
+					A10000R5WCN5TCBELL9IW4K5PU /* DuplicateBloodTestReviewView.swift */,
 				1427C64B02E66847000EBEFB0 /* DocumentTypeSelectorView.swift */,
 				1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */,
 				1427C6512E66847000EBEFB0 /* DocumentGridView.swift */,
@@ -444,6 +452,7 @@
 				A1000055294A0000000000001 /* FileSystemManager.swift */,
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
+				A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */,
 				CONV02002EA12E9900999004 /* ConversationExporter.swift */,
 				A1000073294A0000000000001 /* Keychain.swift */,
 				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
@@ -607,6 +616,7 @@
 				A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */,
 				A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */,
 				A1000024294A0000000000001 /* BloodTestResult.swift in Sources */,
+				A1000055YAHI7QXGF2TWBDSYSE /* DuplicateBloodTestCandidate.swift in Sources */,
 				A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */,
 				A1000028294A0000000000001 /* HealthDocument.swift in Sources */,
 				146E72A82EC2903F00D20C53 /* MedicalDocument.swift in Sources */,
@@ -632,12 +642,14 @@
 				1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */,
 				1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */,
 				1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */,
+					A10000X6PP0AIOVJSYPSP3LJFU /* DuplicateBloodTestReviewView.swift in Sources */,
 				1427C64B12E66847000EBEFB0 /* DocumentTypeSelectorView.swift in Sources */,
 				1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */,
 				14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
+				A100005GBD03QSQI2B4SK0KVT0 /* BloodTestValueValidator.swift in Sources */,
 				CONV01002EA12E9900999004 /* ConversationExporter.swift in Sources */,
 				A1000062294A0000000000001 /* OllamaClient.swift in Sources */,
 				145D8D332EA1941E000BB28A /* OllamaSettingsView.swift in Sources */,

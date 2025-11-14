@@ -20,6 +20,7 @@ class DocumentProcessor: ObservableObject {
     @Published var processingProgress: Double = 0.0
     @Published var lastProcessedDocument: HealthDocument?
     @Published var processingErrors: [ProcessingError] = []
+    @Published var pendingDuplicateReview: PendingDuplicateReview?
     
     // MARK: - Dependencies
     private let settingsManager = SettingsManager.shared
@@ -460,10 +461,12 @@ class DocumentProcessor: ObservableObject {
         print("🔍 DocumentProcessor: Is data all zeros? \(isAllZeros)")
         
         // Configure processing options based on document type
+        // IMPORTANT: Always set extractImages to false - we only want OCR text, not image data
+        // Images in documents should be OCR'd for text extraction, but image data itself should be excluded
         let options = ProcessingOptions(
             extractText: true,
             extractStructuredData: true,
-            extractImages: document.fileType.isImage,
+            extractImages: false, // Never extract images - only OCR text from them
             ocrEnabled: true,
             language: "en",
             bloodTestExtractionHints: BloodTestResult.bloodTestExtractionHint,
@@ -660,9 +663,37 @@ class DocumentProcessor: ObservableObject {
 
             print("✅ DocumentProcessor: Enhanced AI mapping completed with \(mappingResult.confidence)% confidence")
             print("🔬 DocumentProcessor: Mapped \(mappingResult.bloodTestResult.results.count) lab values")
+            
+            // Handle duplicates if any
+            var finalBloodTest = mappingResult.bloodTestResult
+            if mappingResult.hasDuplicates {
+                print("⚠️ DocumentProcessor: Found \(mappingResult.duplicateGroups.count) duplicate groups that need user review")
+                
+                // Store duplicate groups for UI review - don't save yet, wait for user selection
+                let pendingReview = PendingDuplicateReview(
+                    documentId: document.id,
+                    documentName: document.fileName,
+                    duplicateGroups: mappingResult.duplicateGroups,
+                    bloodTestResult: finalBloodTest
+                )
+                
+                // Set pending review on main thread so UI can observe it
+                await MainActor.run {
+                    self.pendingDuplicateReview = pendingReview
+                }
+                
+                print("📋 DocumentProcessor: Set pending duplicate review - UI should show review sheet")
+                
+                // Add metadata indicating duplicates need review
+                var enhancedMetadata = finalBloodTest.metadata ?? [:]
+                enhancedMetadata["has_duplicates"] = "true"
+                enhancedMetadata["duplicate_groups_count"] = String(mappingResult.duplicateGroups.count)
+                enhancedMetadata["pending_review"] = "true"
+                finalBloodTest.metadata = enhancedMetadata
+            }
 
             // Add comprehensive metadata
-            var enhancedMetadata = mappingResult.bloodTestResult.metadata ?? [:]
+            var enhancedMetadata = finalBloodTest.metadata ?? [:]
             enhancedMetadata["source_document_id"] = document.id.uuidString
             enhancedMetadata["document_filename"] = document.fileName
             enhancedMetadata["processing_method"] = "enhanced_ai_mapping"
@@ -670,10 +701,9 @@ class DocumentProcessor: ObservableObject {
             enhancedMetadata["extracted_items_count"] = String(extractedItems.count)
 
             // Create enhanced blood test result
-            var enhancedBloodTest = mappingResult.bloodTestResult
-            enhancedBloodTest.metadata = enhancedMetadata
+            finalBloodTest.metadata = enhancedMetadata
 
-            return enhancedBloodTest
+            return finalBloodTest
 
         } catch {
             print("❌ DocumentProcessor: Enhanced AI mapping failed, trying fallback with extracted items: \(error)")
@@ -881,6 +911,7 @@ class DocumentProcessor: ObservableObject {
     
     // MARK: - Markdown Cleaning Helper
     /// Removes base64-encoded images and other non-text content from markdown for AI context
+    /// IMPORTANT: This ensures only text is used - no image data is included
     private func cleanMarkdownForAIContext(_ markdown: String) -> String {
         var cleaned = markdown
         
@@ -893,12 +924,28 @@ class DocumentProcessor: ObservableObject {
             options: [.regularExpression]
         )
         
-        // Remove standalone base64 data URLs
-        let dataUrlPattern = #"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"#
+        // Remove standalone base64 data URLs (more comprehensive pattern)
+        let dataUrlPattern = #"data:image/[^;]+;base64,[A-Za-z0-9+/=\s]+"#
         cleaned = cleaned.replacingOccurrences(
             of: dataUrlPattern,
-            with: "[Image removed]",
+            with: "[Image removed - OCR text only]",
             options: [.regularExpression]
+        )
+        
+        // Remove any image file references or image tags
+        let imageFilePattern = #"!\[[^\]]*\]\([^)]*\.(jpg|jpeg|png|gif|bmp|webp|heic)[^)]*\)"#
+        cleaned = cleaned.replacingOccurrences(
+            of: imageFilePattern,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        
+        // Remove any HTML img tags that might have slipped through
+        let htmlImagePattern = #"<img[^>]*>"#
+        cleaned = cleaned.replacingOccurrences(
+            of: htmlImagePattern,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
         )
         
         // Clean up multiple consecutive newlines
@@ -1161,6 +1208,28 @@ struct ProcessingError: Identifiable {
     let documentName: String
     let error: Error
     let timestamp: Date
+}
+
+// MARK: - Pending Duplicate Review
+struct PendingDuplicateReview: Identifiable, Equatable {
+    let id = UUID()
+    let documentId: UUID
+    let documentName: String
+    let duplicateGroups: [DuplicateTestGroup]
+    let bloodTestResult: BloodTestResult
+    let timestamp: Date
+    
+    init(documentId: UUID, documentName: String, duplicateGroups: [DuplicateTestGroup], bloodTestResult: BloodTestResult) {
+        self.documentId = documentId
+        self.documentName = documentName
+        self.duplicateGroups = duplicateGroups
+        self.bloodTestResult = bloodTestResult
+        self.timestamp = Date()
+    }
+    
+    static func == (lhs: PendingDuplicateReview, rhs: PendingDuplicateReview) -> Bool {
+        return lhs.id == rhs.id
+    }
 }
 
 // MARK: - Extensions for Parsing

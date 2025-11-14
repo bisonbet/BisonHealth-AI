@@ -45,8 +45,9 @@ struct ChatDetailView: View {
         .sheet(isPresented: $showingConversationSettings) {
             ConversationSettingsView(
                 conversation: chatManager.currentConversation,
+                chatManager: chatManager,
                 onSave: { updatedConversation in
-                    // Handle conversation updates
+                    // Conversation is already updated by chatManager
                 }
             )
         }
@@ -616,12 +617,16 @@ struct EnhancedMessageInputView: View {
 // Placeholder views for sheets
 struct ConversationSettingsView: View {
     let conversation: ChatConversation?
+    let chatManager: AIChatManager
     let onSave: (ChatConversation) -> Void
     
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var settingsManager = SettingsManager.shared
+    @ObservedObject private var settingsManager = SettingsManager.shared
     @State private var useStreaming = true
     @State private var conversationTitle = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
     
     var body: some View {
         NavigationStack {
@@ -637,9 +642,16 @@ struct ConversationSettingsView: View {
                     Toggle("Streaming Responses", isOn: $useStreaming)
                     
                     HStack {
+                        Text("Provider")
+                        Spacer()
+                        Text(settingsManager.modelPreferences.aiProvider.displayName)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
                         Text("Model")
                         Spacer()
-                        Text(settingsManager.modelPreferences.chatModel)
+                        Text(currentModelDisplayName)
                             .foregroundColor(.secondary)
                     }
                     
@@ -663,13 +675,72 @@ struct ConversationSettingsView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .disabled(isSaving)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        // Save settings logic would go here
-                        dismiss()
+                        saveConversationTitle()
                     }
+                    .disabled(isSaving || conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .alert("Error", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                if let error = errorMessage {
+                    Text(error)
+                }
+            }
+        }
+    }
+    
+    private var currentModelDisplayName: String {
+        let prefs = settingsManager.modelPreferences
+        switch prefs.aiProvider {
+        case .ollama:
+            return prefs.chatModel
+        case .bedrock:
+            return prefs.bedrockModel
+        case .openAICompatible:
+            return prefs.openAICompatibleModel.isEmpty ? "Not configured" : prefs.openAICompatibleModel
+        }
+    }
+    
+    private func saveConversationTitle() {
+        guard let conversation = conversation else {
+            dismiss()
+            return
+        }
+        
+        let trimmedTitle = conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            errorMessage = "Title cannot be empty"
+            showingError = true
+            return
+        }
+        
+        // If title hasn't changed, just dismiss
+        if trimmedTitle == conversation.title {
+            dismiss()
+            return
+        }
+        
+        isSaving = true
+        
+        Task {
+            do {
+                try await chatManager.updateConversationTitle(conversation, newTitle: trimmedTitle)
+                await MainActor.run {
+                    isSaving = false
+                    onSave(conversation)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    errorMessage = "Failed to update conversation title: \(error.localizedDescription)"
+                    showingError = true
                 }
             }
         }
@@ -688,7 +759,6 @@ struct ConversationExportView: View {
     @State private var showingShareSheet = false
     @State private var errorMessage: String?
     @State private var showingError = false
-    @State private var showingPHIWarning = false
     @State private var showingShareWarning = false
 
     enum ExportFormat: String, CaseIterable {
@@ -768,7 +838,7 @@ struct ConversationExportView: View {
                 }
 
                 Section {
-                    Button(action: { showingPHIWarning = true }) {
+                    Button(action: { exportConversation() }) {
                         HStack {
                             Spacer()
                             if isExporting {
@@ -814,21 +884,22 @@ struct ConversationExportView: View {
                     Text(error)
                 }
             }
-            .alert("Protected Health Information Warning", isPresented: $showingPHIWarning) {
-                Button("Cancel", role: .cancel) { }
-                Button("I Understand, Continue") {
-                    exportConversation()
-                }
-            } message: {
-                Text("This conversation may contain Protected Health Information (PHI) and other sensitive medical data.\n\nThe exported file will be stored unencrypted on your device. Please handle it securely:\n\n• Do not share via unencrypted channels\n• Store in a secure location\n• Delete when no longer needed\n• Be mindful of who has access to your device")
-            }
             .alert("Share Health Information Warning", isPresented: $showingShareWarning) {
-                Button("Cancel", role: .cancel) { }
+                Button("Cancel", role: .cancel) {
+                    // Close export window after canceling share
+                    dismiss()
+                }
                 Button("I Understand, Share") {
                     showingShareSheet = true
                 }
             } message: {
                 Text("You are about to share a file containing Protected Health Information.\n\nBe cautious when selecting where to share:\n\n• Avoid cloud services unless HIPAA-compliant\n• Don't share via unencrypted messaging\n• Only share with trusted recipients\n• Consider the security of the destination app\n• Remember that once shared, you cannot control the data")
+            }
+            .onChange(of: showingShareSheet) { oldValue, newValue in
+                // Close export window when share sheet is dismissed (user finished sharing or cancelled)
+                if oldValue && !newValue {
+                    dismiss()
+                }
             }
         }
     }
@@ -874,18 +945,6 @@ struct ConversationExportView: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
-    }
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
-        // No updates needed
     }
 }
 

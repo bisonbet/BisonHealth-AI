@@ -439,8 +439,33 @@ class ConversationExporter: ObservableObject {
         let timestampFont = UIFont.systemFont(ofSize: 10, weight: .light)
         let contentFont = UIFont.systemFont(ofSize: 11)
 
-        let roleHeight: CGFloat = 20
-        let timestampHeight: CGFloat = 15
+        // Calculate actual role text height
+        let roleText: String
+        switch message.role {
+        case .user:
+            roleText = "👤 You"
+        case .assistant:
+            roleText = "🤖 Doctor"
+        case .system:
+            roleText = "⚙️ System"
+        }
+        let roleAttributes: [NSAttributedString.Key: Any] = [.font: roleFont]
+        let roleHeight = roleText.boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: roleAttributes,
+            context: nil
+        ).size.height
+
+        // Calculate actual timestamp height
+        let timestampText = formatDate(message.timestamp)
+        let timestampAttributes: [NSAttributedString.Key: Any] = [.font: timestampFont]
+        let timestampHeight = timestampText.boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: timestampAttributes,
+            context: nil
+        ).size.height
 
         let contentAttributes: [NSAttributedString.Key: Any] = [.font: contentFont]
         let contentSize = message.content.boundingRect(
@@ -450,7 +475,7 @@ class ConversationExporter: ObservableObject {
             context: nil
         ).size
 
-        return roleHeight + timestampHeight + contentSize.height + 20
+        return roleHeight + 5 + timestampHeight + 8 + contentSize.height + 20
     }
 
     // MARK: - Helper Methods

@@ -85,6 +85,9 @@ enum BloodTestCategory: String, CaseIterable, Codable {
     case hormones = "hormones"
     case immunology = "immunology"
     case coagulation = "coagulation"
+    case urinalysis = "urinalysis"
+    case urineChemistry = "urine_chemistry"
+    case urineMicrobiology = "urine_microbiology"
     case other = "other"
     
     var displayName: String {
@@ -117,6 +120,12 @@ enum BloodTestCategory: String, CaseIterable, Codable {
             return "Immunology"
         case .coagulation:
             return "Coagulation Studies"
+        case .urinalysis:
+            return "Urinalysis"
+        case .urineChemistry:
+            return "Urine Chemistry"
+        case .urineMicrobiology:
+            return "Urine Microbiology"
         case .other:
             return "Other Tests"
         }
@@ -150,6 +159,12 @@ enum BloodTestCategory: String, CaseIterable, Codable {
             return "shield"
         case .coagulation:
             return "timer"
+        case .urinalysis:
+            return "drop.triangle"
+        case .urineChemistry:
+            return "drop.circle.fill"
+        case .urineMicrobiology:
+            return "bacteria"
         case .other:
             return "testtube.2"
         }
@@ -367,9 +382,6 @@ extension BloodTestResult {
         "osmolal_gap": LabParameter(name: "Osmolal Gap", key: "osmolal_gap", unit: "mOsm/kg", referenceRange: "-10 to 10", category: .basicMetabolicPanel, description: "Osmolal Gap"),
         
         // Additional Kidney Function Tests
-        "urine_protein": LabParameter(name: "Urine Protein", key: "urine_protein", unit: "mg/dL", referenceRange: "<30", category: .kidneyFunction, description: "Urine Protein"),
-        "urine_creatinine": LabParameter(name: "Urine Creatinine", key: "urine_creatinine", unit: "mg/dL", referenceRange: "20-250", category: .kidneyFunction, description: "Urine Creatinine"),
-        "urine_protein_creatinine_ratio": LabParameter(name: "Urine Protein/Creatinine Ratio", key: "urine_protein_creatinine_ratio", unit: "", referenceRange: "<0.2", category: .kidneyFunction, description: "Urine Protein/Creatinine Ratio"),
         "microalbumin": LabParameter(name: "Microalbumin", key: "microalbumin", unit: "mg/L", referenceRange: "<30", category: .kidneyFunction, description: "Microalbuminuria"),
         
         // Additional Liver Function Tests
@@ -433,7 +445,53 @@ extension BloodTestResult {
         
         // Additional Metabolic Tests
         "lactate_dehydrogenase": LabParameter(name: "Lactate Dehydrogenase", key: "lactate_dehydrogenase", unit: "U/L", referenceRange: "140-280", category: .other, description: "LDH, Lactate Dehydrogenase"),
-        "alkaline_phosphatase_bone": LabParameter(name: "Alkaline Phosphatase (Bone)", key: "alkaline_phosphatase_bone", unit: "U/L", referenceRange: "44-147", category: .other, description: "Bone-specific Alkaline Phosphatase")
+        "alkaline_phosphatase_bone": LabParameter(name: "Alkaline Phosphatase (Bone)", key: "alkaline_phosphatase_bone", unit: "U/L", referenceRange: "44-147", category: .other, description: "Bone-specific Alkaline Phosphatase"),
+        
+        // Urinalysis (UA) - Physical/Chemical
+        "urine_color": LabParameter(name: "Urine Color", key: "urine_color", unit: "", referenceRange: "Yellow", category: .urinalysis, description: "Urine color"),
+        "urine_appearance": LabParameter(name: "Urine Appearance", key: "urine_appearance", unit: "", referenceRange: "Clear", category: .urinalysis, description: "Urine appearance/clarity"),
+        "urine_specific_gravity": LabParameter(name: "Urine Specific Gravity", key: "urine_specific_gravity", unit: "", referenceRange: "1.005-1.030", category: .urinalysis, description: "Urine specific gravity"),
+        "urine_ph": LabParameter(name: "Urine pH", key: "urine_ph", unit: "", referenceRange: "5.0-8.0", category: .urinalysis, description: "Urine pH"),
+        "urine_protein": LabParameter(name: "Urine Protein", key: "urine_protein", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine protein (dipstick)"),
+        "urine_glucose": LabParameter(name: "Urine Glucose", key: "urine_glucose", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine glucose (dipstick)"),
+        "urine_ketones": LabParameter(name: "Urine Ketones", key: "urine_ketones", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine ketones (dipstick)"),
+        "urine_blood": LabParameter(name: "Urine Blood", key: "urine_blood", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine blood (hematuria)"),
+        "urine_bilirubin": LabParameter(name: "Urine Bilirubin", key: "urine_bilirubin", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine bilirubin"),
+        "urine_urobilinogen": LabParameter(name: "Urine Urobilinogen", key: "urine_urobilinogen", unit: "mg/dL", referenceRange: "0.2-1.0", category: .urinalysis, description: "Urine urobilinogen"),
+        "urine_nitrite": LabParameter(name: "Urine Nitrite", key: "urine_nitrite", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine nitrite"),
+        "urine_leukocyte_esterase": LabParameter(name: "Urine Leukocyte Esterase", key: "urine_leukocyte_esterase", unit: "", referenceRange: "Negative", category: .urinalysis, description: "Urine leukocyte esterase"),
+        
+        // Urinalysis - Microscopic
+        "urine_wbc": LabParameter(name: "Urine White Blood Cells", key: "urine_wbc", unit: "/HPF", referenceRange: "0-5", category: .urinalysis, description: "Urine white blood cells per high power field"),
+        "urine_rbc": LabParameter(name: "Urine Red Blood Cells", key: "urine_rbc", unit: "/HPF", referenceRange: "0-3", category: .urinalysis, description: "Urine red blood cells per high power field"),
+        "urine_epithelial_cells": LabParameter(name: "Urine Epithelial Cells", key: "urine_epithelial_cells", unit: "/HPF", referenceRange: "0-5", category: .urinalysis, description: "Urine epithelial cells"),
+        "urine_bacteria": LabParameter(name: "Urine Bacteria", key: "urine_bacteria", unit: "", referenceRange: "None", category: .urinalysis, description: "Urine bacteria"),
+        "urine_casts": LabParameter(name: "Urine Casts", key: "urine_casts", unit: "/LPF", referenceRange: "0-2", category: .urinalysis, description: "Urine casts per low power field"),
+        "urine_crystals": LabParameter(name: "Urine Crystals", key: "urine_crystals", unit: "", referenceRange: "None", category: .urinalysis, description: "Urine crystals"),
+        "urine_mucus": LabParameter(name: "Urine Mucus", key: "urine_mucus", unit: "", referenceRange: "None", category: .urinalysis, description: "Urine mucus"),
+        "urine_yeast": LabParameter(name: "Urine Yeast", key: "urine_yeast", unit: "", referenceRange: "None", category: .urinalysis, description: "Urine yeast"),
+        
+        // Urine Chemistry
+        "urine_creatinine": LabParameter(name: "Urine Creatinine", key: "urine_creatinine", unit: "mg/dL", referenceRange: "20-320", category: .urineChemistry, description: "Urine creatinine"),
+        "urine_protein_quantitative": LabParameter(name: "Urine Protein (Quantitative)", key: "urine_protein_quantitative", unit: "mg/dL", referenceRange: "<150", category: .urineChemistry, description: "Quantitative urine protein"),
+        "urine_albumin": LabParameter(name: "Urine Albumin", key: "urine_albumin", unit: "mg/dL", referenceRange: "<30", category: .urineChemistry, description: "Urine albumin"),
+        "urine_microalbumin": LabParameter(name: "Urine Microalbumin", key: "urine_microalbumin", unit: "mg/g", referenceRange: "<30", category: .urineChemistry, description: "Urine microalbumin"),
+        "urine_protein_creatinine_ratio": LabParameter(name: "Urine Protein/Creatinine Ratio", key: "urine_protein_creatinine_ratio", unit: "mg/g", referenceRange: "<150", category: .urineChemistry, description: "Urine protein to creatinine ratio"),
+        "urine_albumin_creatinine_ratio": LabParameter(name: "Urine Albumin/Creatinine Ratio", key: "urine_albumin_creatinine_ratio", unit: "mg/g", referenceRange: "<30", category: .urineChemistry, description: "Urine albumin to creatinine ratio (ACR)"),
+        "urine_sodium": LabParameter(name: "Urine Sodium", key: "urine_sodium", unit: "mEq/L", referenceRange: "40-220", category: .urineChemistry, description: "Urine sodium"),
+        "urine_potassium": LabParameter(name: "Urine Potassium", key: "urine_potassium", unit: "mEq/L", referenceRange: "25-125", category: .urineChemistry, description: "Urine potassium"),
+        "urine_chloride": LabParameter(name: "Urine Chloride", key: "urine_chloride", unit: "mEq/L", referenceRange: "110-250", category: .urineChemistry, description: "Urine chloride"),
+        "urine_osmolality": LabParameter(name: "Urine Osmolality", key: "urine_osmolality", unit: "mOsm/kg", referenceRange: "50-1200", category: .urineChemistry, description: "Urine osmolality"),
+        "urine_urea_nitrogen": LabParameter(name: "Urine Urea Nitrogen", key: "urine_urea_nitrogen", unit: "g/24h", referenceRange: "12-20", category: .urineChemistry, description: "Urine urea nitrogen"),
+        "urine_creatinine_clearance": LabParameter(name: "Creatinine Clearance", key: "urine_creatinine_clearance", unit: "mL/min", referenceRange: "90-140", category: .urineChemistry, description: "Creatinine clearance (24-hour urine)"),
+        "urine_calcium": LabParameter(name: "Urine Calcium", key: "urine_calcium", unit: "mg/24h", referenceRange: "100-300", category: .urineChemistry, description: "24-hour urine calcium"),
+        "urine_uric_acid": LabParameter(name: "Urine Uric Acid", key: "urine_uric_acid", unit: "mg/24h", referenceRange: "250-750", category: .urineChemistry, description: "24-hour urine uric acid"),
+        "urine_phosphate": LabParameter(name: "Urine Phosphate", key: "urine_phosphate", unit: "mg/24h", referenceRange: "400-1300", category: .urineChemistry, description: "24-hour urine phosphate"),
+        "urine_magnesium": LabParameter(name: "Urine Magnesium", key: "urine_magnesium", unit: "mg/24h", referenceRange: "73-122", category: .urineChemistry, description: "24-hour urine magnesium"),
+        
+        // Urine Microbiology
+        "urine_culture": LabParameter(name: "Urine Culture", key: "urine_culture", unit: "", referenceRange: "No growth", category: .urineMicrobiology, description: "Urine culture result"),
+        "urine_bacteria_count": LabParameter(name: "Urine Bacteria Count", key: "urine_bacteria_count", unit: "CFU/mL", referenceRange: "<10,000", category: .urineMicrobiology, description: "Urine bacterial colony count")
     ]
 
     static var bloodTestExtractionHint: String {
@@ -458,18 +516,29 @@ extension BloodTestResult {
         ]
         
         return """
-        EXTRACT ALL LABORATORY VALUES FROM THIS DOCUMENT
+        EXTRACT ALL LABORATORY VALUES FROM THIS DOCUMENT (BOTH BLOOD AND URINE TESTS)
+        
+        CRITICAL: IGNORE ALL IMAGES - ONLY EXTRACT TEXT
+        - Do NOT extract, return, or include any image data
+        - Perform OCR on images to extract text, but discard the image data itself
+        - Only return text content - no image files, no base64 image data, no image references
+        - If text is embedded in images, extract it via OCR but exclude the image
         
         Instructions for Docling:
-        1. Identify ALL numerical laboratory test results in the document
+        1. Identify ALL numerical laboratory test results in the document - BOTH blood tests AND urine tests
         2. For each test, extract:
            - Test name (exactly as written, including abbreviations)
-           - Numerical value
-           - Unit of measurement (mg/dL, g/dL, %, U/L, etc.)
+           - Test type: "BLOOD" or "URINE" (determine from section header, test name, or context)
+           - Numerical value (or "Negative"/"Positive" for qualitative urine tests)
+           - Unit of measurement (mg/dL, g/dL, %, U/L, /HPF, /LPF, etc.)
            - Reference range (normal range) if provided
-           - Abnormal flag (High, Low, Critical, H, L, *, etc.) if present
+           - Abnormal flag (High, Low, Critical, H, L, *, Positive, Negative, etc.) if present
         
-        3. Common test categories to look for:
+        3. Look for sections labeled:
+           - Blood tests: "Chemistry", "Hematology", "Serum", "Plasma", "Blood"
+           - Urine tests: "Urinalysis", "UA", "Urine", "Urine Analysis", "Urine Chemistry"
+        
+        4. Common test categories to look for:
         \(categorySummaries.joined(separator: "\n"))
         
         4. Common abbreviations to recognize:

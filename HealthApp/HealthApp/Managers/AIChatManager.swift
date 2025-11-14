@@ -184,6 +184,104 @@ class AIChatManager: ObservableObject {
         }
     }
     
+    func updateConversationTitle(_ conversation: ChatConversation, newTitle: String) async throws {
+        var updatedConversation = conversation
+        updatedConversation.updateTitle(newTitle)
+        
+        try await databaseManager.updateConversation(updatedConversation)
+        
+        if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
+            conversations[index] = updatedConversation
+        }
+        
+        if currentConversation?.id == conversation.id {
+            currentConversation = updatedConversation
+        }
+    }
+    
+    // MARK: - Title Generation
+    private func generateTitleIfNeeded(for conversation: ChatConversation) async {
+        // Only generate title if:
+        // 1. Title is still the default "New Conversation"
+        // 2. We have at least 2 messages (1 user + 1 assistant) - the first exchange
+        let userMessages = conversation.messages.filter({ $0.role == .user })
+        let assistantMessages = conversation.messages.filter({ $0.role == .assistant && !$0.isError })
+        
+        guard conversation.title == "New Conversation",
+              userMessages.count >= 1,
+              assistantMessages.count >= 1 else {
+            print("🔍 Title generation skipped - title: '\(conversation.title)', user messages: \(userMessages.count), assistant messages: \(assistantMessages.count)")
+            return
+        }
+        
+        // Don't generate title if there's an error message
+        guard !conversation.messages.contains(where: { $0.isError }) else {
+            print("🔍 Title generation skipped - conversation has error messages")
+            return
+        }
+        
+        print("🔍 Generating title for conversation with \(conversation.messages.count) messages")
+        do {
+            let generatedTitle = try await generateConversationTitle(for: conversation)
+            print("🔍 Generated title: '\(generatedTitle)'")
+            if !generatedTitle.isEmpty && generatedTitle != "New Conversation" {
+                try await updateConversationTitle(conversation, newTitle: generatedTitle)
+                print("✅ Successfully updated conversation title to: '\(generatedTitle)'")
+            } else {
+                print("⚠️ Generated title was empty or unchanged")
+            }
+        } catch {
+            // Log error for debugging
+            print("⚠️ Failed to generate conversation title: \(error.localizedDescription)")
+        }
+    }
+    
+    private func generateConversationTitle(for conversation: ChatConversation) async throws -> String {
+        // Get the first user message and first assistant message
+        guard let userMessage = conversation.messages.first(where: { $0.role == .user }),
+              let assistantMessage = conversation.messages.first(where: { $0.role == .assistant }) else {
+            return "New Conversation"
+        }
+        
+        // Create a prompt for title generation
+        let titlePrompt = """
+        Based on this conversation, generate a short, descriptive title (3-5 words) that summarizes the main topic.
+        
+        User: \(userMessage.content)
+        Assistant: \(assistantMessage.content.prefix(200))
+        
+        Generate only the title, nothing else. The title should be 3-5 words and capture the essence of the conversation.
+        """
+        
+        // Use the AI client to generate the title
+        let aiClient = getAIClient()
+        let response = try await aiClient.sendMessage(titlePrompt, context: "")
+        
+        // Clean up the response - remove quotes, extra whitespace, etc.
+        var title = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove surrounding quotes if present
+        if title.hasPrefix("\"") && title.hasSuffix("\"") {
+            title = String(title.dropFirst().dropLast())
+        }
+        if title.hasPrefix("'") && title.hasSuffix("'") {
+            title = String(title.dropFirst().dropLast())
+        }
+        
+        // Limit to reasonable length and word count
+        let words = title.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        if words.count > 5 {
+            title = words.prefix(5).joined(separator: " ")
+        }
+        
+        // Ensure title is not empty and not too long
+        if title.isEmpty || title.count > 50 {
+            return "New Conversation"
+        }
+        
+        return title
+    }
+    
     func clearConversationMessages(_ conversation: ChatConversation) async throws {
         // Clear all messages from the conversation
         try await databaseManager.clearConversationMessages(conversation.id)
@@ -333,6 +431,9 @@ class AIChatManager: ObservableObject {
                            let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
                             self.conversations[conversationIndex].messages[messageIndex] = finalMessage
                             self.currentConversation = self.conversations[conversationIndex]
+                            
+                            // Generate title after first exchange if still using default title
+                            await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                         }
                     } catch {
                         self.errorMessage = "Failed to save message: \(error.localizedDescription)"
@@ -377,6 +478,9 @@ class AIChatManager: ObservableObject {
             if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
                 conversations[index].addMessage(assistantMessage)
                 currentConversation = conversations[index]
+                
+                // Generate title after first exchange if still using default title
+                await generateTitleIfNeeded(for: conversations[index])
             }
         } catch {
             // Queue for retry if network error

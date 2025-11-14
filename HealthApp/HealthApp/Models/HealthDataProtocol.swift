@@ -21,11 +21,11 @@ enum HealthDataType: String, CaseIterable, Codable {
         case .personalInfo:
             return "Personal Information"
         case .bloodTest:
-            return "Blood Test Results"
+            return "Lab Results"
         case .imagingReport:
             return "Imaging Reports"
         case .healthCheckup:
-            return "Health Checkups"
+            return "Medical Visits"
         }
     }
     
@@ -34,11 +34,11 @@ enum HealthDataType: String, CaseIterable, Codable {
         case .personalInfo:
             return "person.fill"
         case .bloodTest:
-            return "drop.fill"
+            return "testtube.2"
         case .imagingReport:
             return "camera.metering.matrix"
         case .healthCheckup:
-            return "stethoscope"
+            return "doc.text"
         }
     }
     
@@ -47,11 +47,11 @@ enum HealthDataType: String, CaseIterable, Codable {
         case .personalInfo:
             return "Personal"
         case .bloodTest:
-            return "Blood"
+            return "Lab"
         case .imagingReport:
             return "Imaging"
         case .healthCheckup:
-            return "Checkup"
+            return "Visits"
         }
     }
     

@@ -56,9 +56,9 @@ class BloodTestMappingService: ObservableObject {
 
             // Phase 3: Map to standardized parameters (80% progress)
             print("🗺️ BloodTestMappingService: Phase 3 - Mapping to standardized parameters...")
-            let mappedParameters = await mapToStandardizedParameters(extractedValues)
+            let (mappedParameters, duplicateGroups) = await mapToStandardizedParameters(extractedValues)
             processingProgress = 0.9
-            print("✅ BloodTestMappingService: Mapped \(mappedParameters.count) standardized parameters")
+            print("✅ BloodTestMappingService: Mapped \(mappedParameters.count) standardized parameters, \(duplicateGroups.count) duplicate groups found")
 
             // Phase 4: Create final BloodTestResult (100% progress)
             print("🏗️ BloodTestMappingService: Phase 4 - Creating final BloodTestResult...")
@@ -76,6 +76,7 @@ class BloodTestMappingService: ObservableObject {
                 bloodTestResult: bloodTestResult,
                 extractedRawValues: extractedValues,
                 mappedParameters: mappedParameters,
+                duplicateGroups: duplicateGroups,
                 confidence: calculateOverallConfidence(mappedParameters),
                 processingTime: Date().timeIntervalSince1970,
                 aiModel: "AI Provider"
@@ -187,9 +188,16 @@ class BloodTestMappingService: ObservableObject {
             allExtractedValues.append(contentsOf: chunkValues)
         }
         
+        // Filter out invalid values (non-numeric, out of range, etc.)
+        let validValues = BloodTestValueValidator.filterInvalidValues(
+            allExtractedValues,
+            standardParams: BloodTestResult.standardizedLabParameters
+        )
+        print("🧪 BloodTestMappingService: Filtered to \(validValues.count) valid values from \(allExtractedValues.count) extracted")
+        
         // Deduplicate values (same test name and value)
-        let deduplicatedValues = deduplicateLabValues(allExtractedValues)
-        print("🧪 BloodTestMappingService: Extracted \(allExtractedValues.count) total values, \(deduplicatedValues.count) after deduplication")
+        let deduplicatedValues = deduplicateLabValues(validValues)
+        print("🧪 BloodTestMappingService: Extracted \(allExtractedValues.count) total values, \(deduplicatedValues.count) after deduplication and validation")
         
         return deduplicatedValues
     }
@@ -237,34 +245,44 @@ class BloodTestMappingService: ObservableObject {
         _ = BloodTestResult.standardizedLabParameters.values.map { $0.name }.sorted().prefix(100).joined(separator: ", ")
         
         let prompt = """
-        You are a medical AI assistant specializing in laboratory report analysis. Analyze this lab report section\(chunkContext) and extract ALL laboratory values.
+        You are a medical AI assistant specializing in laboratory report analysis. Analyze this lab report section\(chunkContext) and extract ALL laboratory values from BOTH blood tests AND urine tests.
 
         CRITICAL INSTRUCTIONS:
-        1. Extract EVERY numerical laboratory test result you find
+        1. Extract EVERY numerical laboratory test result you find - BOTH blood tests AND urine tests
         2. Look for test results in tables, lists, and paragraph form
-        3. Pay attention to sections labeled: "Results", "Laboratory Results", "Test Results", "Lab Values", "Chemistry", "Hematology", etc.
+        3. Pay attention to sections labeled: "Results", "Laboratory Results", "Test Results", "Lab Values", "Chemistry", "Hematology", "Urinalysis", "UA", "Urine", etc.
         4. Extract both absolute values AND percentages (e.g., both "Neutrophils: 3.5 K/uL" and "Neutrophils: 55%")
+        5. IMPORTANT: Differentiate between BLOOD tests and URINE tests:
+           - Blood tests: Usually in sections labeled "Chemistry", "Hematology", "Serum", "Plasma", "Blood"
+           - Urine tests: Usually in sections labeled "Urinalysis", "UA", "Urine", "Urine Analysis", "Urine Chemistry"
+           - Look for context clues: "serum", "plasma", "blood" vs "urine", "UA", "urinalysis"
+           - If a test name starts with "Urine" or is clearly a urine parameter (e.g., "Urine Protein", "Urine pH", "Urine WBC"), it's a urine test
+           - If unclear, use the section header or context to determine
         
         Document text\(chunkContext):
         \(chunk)
 
         For each lab value you find, extract:
         1. Test name (exactly as written in the document, preserve abbreviations)
-        2. Numerical value (the actual number)
-        3. Unit (mg/dL, g/dL, %, U/L, ng/mL, pg/mL, μIU/mL, etc.)
-        4. Reference range (normal range) if provided (e.g., "70-100", "<200", ">40")
-        5. Abnormal flag if present (High, Low, Critical, H, L, *, ↑, ↓, etc. - use "Normal" if none)
+        2. Test type: "BLOOD" or "URINE" (determine from context - section header, test name, or sample type)
+        3. Numerical value (the actual number, or "Negative"/"Positive"/"None" for qualitative urine tests)
+        4. Unit (mg/dL, g/dL, %, U/L, ng/mL, pg/mL, μIU/mL, /HPF, /LPF, etc. - leave empty for qualitative results)
+        5. Reference range (normal range) if provided (e.g., "70-100", "<200", ">40", "Negative", "Clear")
+        6. Abnormal flag if present (High, Low, Critical, H, L, *, ↑, ↓, Positive, Negative, etc. - use "Normal" if none)
 
         Return ONLY lab values in this exact format, one per line:
-        TEST_NAME|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
+        TEST_NAME|TEST_TYPE|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
 
         Examples of correct format:
-        Glucose|95|mg/dL|70-100|Normal
-        Hemoglobin|14.2|g/dL|12.0-16.0|Normal
-        Total Cholesterol|220|mg/dL|<200|High
-        Hemoglobin A1c|6.2|%|<5.7|High
-        TSH|2.5|mIU/L|0.4-4.0|Normal
-        LDL Cholesterol|135|mg/dL|<100|High
+        Glucose|BLOOD|95|mg/dL|70-100|Normal
+        Hemoglobin|BLOOD|14.2|g/dL|12.0-16.0|Normal
+        Total Cholesterol|BLOOD|220|mg/dL|<200|High
+        Urine Protein|URINE|Negative||Negative|Normal
+        Urine pH|URINE|6.5||5.0-8.0|Normal
+        Urine WBC|URINE|8|/HPF|0-5|High
+        Urine Glucose|URINE|Negative||Negative|Normal
+        Creatinine|BLOOD|1.1|mg/dL|0.6-1.2|Normal
+        Urine Creatinine|URINE|120|mg/dL|20-320|Normal
         WBC|7.2|K/uL|4.5-11.0|Normal
         Neutrophils|55|%|40-60|Normal
         Absolute Neutrophils|3.96|K/uL|1.8-7.8|Normal
@@ -280,9 +298,18 @@ class BloodTestMappingService: ObservableObject {
         - Look for values in various formats: tables, lists, inline text
         - Pay attention to footnotes or flags (H, L, *, ↑, ↓) indicating abnormal values
         
+        CRITICAL: AVOID DUPLICATES
+        - If you see the same test name with the same value, extract it ONLY ONCE
+        - If a test appears in multiple sections (e.g., "Glucose" in both "Chemistry" and "Summary"), extract it only once
+        - If a test appears with slightly different formatting (e.g., "Glucose" vs "GLUCOSE"), extract it once with the most complete information
+        - If you see the same test with different values, extract both (they may be from different time points or different samples)
+        - Do NOT extract the same test multiple times just because it appears in different parts of the document
+        
         Common test categories to look for:
         - Complete Blood Count (CBC): Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, RDW, MPV, differentials
         - Metabolic Panel: Glucose, Sodium, Potassium, Chloride, CO2, BUN, Creatinine, eGFR, Calcium, Albumin, Total Protein
+        BLOOD TESTS to look for:
+        - Complete Blood Count (CBC): Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, differentials
         - Lipid Panel: Total Cholesterol, LDL, HDL, Triglycerides, Non-HDL, ratios
         - Liver Function: ALT, AST, ALP, GGT, LDH, Bilirubin (total, direct, indirect)
         - Kidney Function: BUN, Creatinine, eGFR, Cystatin C, BUN/Creatinine Ratio
@@ -295,6 +322,13 @@ class BloodTestMappingService: ObservableObject {
         - Hormones: Testosterone, Estradiol, Cortisol, PTH, Progesterone, Prolactin, LH, FSH, Growth Hormone
         - Immunology: ABO Blood Type, Rh Factor, Total IgE, IgA, IgG, IgM
         - Tumor Markers: PSA, CEA, CA 125, CA 19-9, AFP
+        
+        URINE TESTS to look for:
+        - Urinalysis (UA): Color, Appearance, Specific Gravity, pH, Protein, Glucose, Ketones, Blood, Bilirubin, Urobilinogen, Nitrite, Leukocyte Esterase
+        - Urine Microscopic: WBC, RBC, Epithelial Cells, Bacteria, Casts, Crystals, Mucus, Yeast
+        - Urine Chemistry: Creatinine, Protein (quantitative), Albumin, Microalbumin, Protein/Creatinine Ratio, Albumin/Creatinine Ratio, Sodium, Potassium, Chloride, Osmolality
+        - 24-Hour Urine: Urea Nitrogen, Creatinine Clearance, Calcium, Uric Acid, Phosphate, Magnesium
+        - Urine Microbiology: Culture results, Bacterial count (CFU/mL)
         
         Return your response now with ONLY the extracted lab values in the specified format:
         """
@@ -317,16 +351,63 @@ class BloodTestMappingService: ObservableObject {
         var deduplicated: [ExtractedLabValue] = []
         
         for value in values {
-            // Create a unique key from test name and value
-            let key = "\(value.testName.lowercased().trimmingCharacters(in: .whitespaces))|\(value.value.trimmingCharacters(in: .whitespaces))"
+            // Normalize test name for comparison (remove common prefixes/suffixes, lowercase)
+            let normalizedName = normalizeTestName(value.testName)
+            let normalizedValue = normalizeValue(value.value)
+            
+            // Create a unique key from normalized test name and value
+            let key = "\(normalizedName)|\(normalizedValue)"
             
             if !seen.contains(key) {
                 seen.insert(key)
                 deduplicated.append(value)
+            } else {
+                print("🧪 BloodTestMappingService: Skipping duplicate: '\(value.testName)' = \(value.value)")
             }
         }
         
         return deduplicated
+    }
+    
+    // MARK: - Normalize Test Name for Deduplication
+    private func normalizeTestName(_ name: String) -> String {
+        var normalized = name.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove common prefixes/suffixes that don't change the test identity
+        let prefixes = ["test:", "lab:", "laboratory:", "result:"]
+        for prefix in prefixes {
+            if normalized.hasPrefix(prefix) {
+                normalized = String(normalized.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        
+        // Remove common suffixes
+        let suffixes = [" (calculated)", " (calc)", " - calculated", " - calc"]
+        for suffix in suffixes {
+            if normalized.hasSuffix(suffix.lowercased()) {
+                normalized = String(normalized.dropLast(suffix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        
+        // Normalize whitespace
+        normalized = normalized.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        
+        return normalized
+    }
+    
+    // MARK: - Normalize Value for Deduplication
+    private func normalizeValue(_ value: String) -> String {
+        // Remove whitespace and normalize decimal separators
+        var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove common formatting characters that don't affect the numeric value
+        normalized = normalized.replacingOccurrences(of: ",", with: "") // Remove thousands separators
+        normalized = normalized.replacingOccurrences(of: " ", with: "") // Remove spaces
+        
+        return normalized
     }
 
     private func parseExtractedLabValues(from response: String) -> [ExtractedLabValue] {
@@ -339,24 +420,49 @@ class BloodTestMappingService: ObservableObject {
             guard !trimmedLine.isEmpty else { continue }
 
             let components = trimmedLine.components(separatedBy: "|")
-            guard components.count >= 5 else { continue }
-
-            let testName = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let valueString = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            let unit = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
-            let referenceRange = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            let abnormalFlag = components[4].trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Support both old format (5 components) and new format (6 components with TEST_TYPE)
+            let testName: String
+            let testType: String?
+            let valueString: String
+            let unit: String
+            let referenceRange: String
+            let abnormalFlag: String
+            
+            if components.count >= 6 {
+                // New format: TEST_NAME|TEST_TYPE|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
+                testName = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                testType = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                valueString = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
+                unit = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
+                referenceRange = components[4].trimmingCharacters(in: .whitespacesAndNewlines)
+                abnormalFlag = components[5].trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if components.count >= 5 {
+                // Old format: TEST_NAME|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG (backward compatibility)
+                testName = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                testType = nil // Will be inferred from test name
+                valueString = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                unit = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
+                referenceRange = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
+                abnormalFlag = components[4].trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                continue
+            }
 
             guard !testName.isEmpty && !valueString.isEmpty else { continue }
+            
+            // Infer test type from name if not provided
+            let inferredTestType = testType ?? inferTestType(from: testName)
 
             let extractedValue = ExtractedLabValue(
                 testName: testName,
                 value: valueString,
-                unit: unit == "unknown" ? nil : unit,
-                referenceRange: referenceRange == "unknown" ? nil : referenceRange,
+                unit: unit == "unknown" || unit.isEmpty ? nil : unit,
+                referenceRange: referenceRange == "unknown" || referenceRange.isEmpty ? nil : referenceRange,
                 isAbnormal: abnormalFlag.lowercased() != "normal",
                 abnormalFlag: abnormalFlag == "Normal" ? nil : abnormalFlag,
-                confidence: 0.8 // Could be calculated based on text clarity
+                confidence: 0.8, // Could be calculated based on text clarity
+                testType: inferredTestType
             )
 
             values.append(extractedValue)
@@ -364,13 +470,37 @@ class BloodTestMappingService: ObservableObject {
 
         return values
     }
+    
+    // MARK: - Infer Test Type
+    private func inferTestType(from testName: String) -> String {
+        let lowercased = testName.lowercased()
+        
+        // Check for urine test indicators
+        if lowercased.contains("urine") || 
+           lowercased.contains("ua ") || 
+           lowercased.hasPrefix("ua ") ||
+           lowercased.contains("urinalysis") ||
+           lowercased.contains("urine ") {
+            return "URINE"
+        }
+        
+        // Default to blood
+        return "BLOOD"
+    }
 
     // MARK: - Phase 3: Map to Standardized Parameters
-    private func mapToStandardizedParameters(_ extractedValues: [ExtractedLabValue]) async -> [StandardizedLabValue] {
+    private func mapToStandardizedParameters(_ extractedValues: [ExtractedLabValue]) async -> (
+        unique: [StandardizedLabValue],
+        duplicates: [DuplicateTestGroup]
+    ) {
         var mappedValues: [StandardizedLabValue] = []
 
         for extractedValue in extractedValues {
-            if let standardParam = findStandardizedParameter(for: extractedValue.testName) {
+            // Find standardized parameter, filtering by test type (blood vs urine)
+            if let standardParam = findStandardizedParameter(
+                for: extractedValue.testName,
+                testType: extractedValue.testType
+            ) {
                 let mappedValue = StandardizedLabValue(
                     standardKey: standardParam.key,
                     standardName: standardParam.name,
@@ -386,22 +516,182 @@ class BloodTestMappingService: ObservableObject {
                     originalTestName: extractedValue.testName
                 )
                 mappedValues.append(mappedValue)
+            } else {
+                // Log unmapped values for debugging
+                print("⚠️ BloodTestMappingService: Could not map '\(extractedValue.testName)' (type: \(extractedValue.testType)) to standardized parameter")
             }
         }
 
-        return mappedValues
+        // Deduplicate mapped values: if same standardized parameter appears multiple times,
+        // create groups for user review
+        let (unique, duplicates) = deduplicateStandardizedValues(mappedValues)
+        print("🧪 BloodTestMappingService: Deduplicated \(mappedValues.count) mapped values to \(unique.count) unique parameters, \(duplicates.count) duplicate groups need review")
+        
+        return (unique: unique, duplicates: duplicates)
+    }
+    
+    // MARK: - Deduplicate Standardized Values
+    /// Returns deduplicated values and groups of duplicates that need user review
+    private func deduplicateStandardizedValues(_ values: [StandardizedLabValue]) -> (
+        unique: [StandardizedLabValue],
+        duplicates: [DuplicateTestGroup]
+    ) {
+        // Group by standard key (the unique identifier for the test)
+        var grouped: [String: [StandardizedLabValue]] = [:]
+        
+        for value in values {
+            let key = value.standardKey
+            if grouped[key] == nil {
+                grouped[key] = []
+            }
+            grouped[key]?.append(value)
+        }
+        
+        // Separate unique values from duplicates
+        var unique: [StandardizedLabValue] = []
+        var duplicateGroups: [DuplicateTestGroup] = []
+        
+        for (key, group) in grouped {
+            // If only one value, use it
+            if group.count == 1 {
+                unique.append(group[0])
+                continue
+            }
+            
+            // Multiple values for same test - create duplicate group for user review
+            let candidates = group.map { value in
+                // Validate each candidate
+                let validation = BloodTestValueValidator.validateValue(
+                    value.value,
+                    testName: value.standardName,
+                    referenceRange: value.referenceRange,
+                    standardParam: BloodTestResult.standardizedLabParameters[key]
+                )
+                
+                let (status, reason) = validationToStatus(validation)
+                
+                return DuplicateBloodTestCandidate(
+                    testName: value.standardName,
+                    value: value.value,
+                    unit: value.unit,
+                    referenceRange: value.referenceRange,
+                    isAbnormal: value.isAbnormal,
+                    originalTestName: value.originalTestName,
+                    confidence: value.confidence,
+                    validationStatus: status,
+                    reason: reason
+                )
+            }
+            
+            // Find the recommended candidate (best valid one)
+            let recommended = selectBestCandidate(from: group)
+            
+            let duplicateGroup = DuplicateTestGroup(
+                standardTestName: group.first?.standardName ?? key,
+                standardKey: key,
+                candidates: candidates,
+                selectedCandidateId: recommended.map { candidate in
+                    candidates.first(where: { $0.value == candidate.value && $0.originalTestName == candidate.originalTestName })?.id
+                } ?? nil
+            )
+            
+            duplicateGroups.append(duplicateGroup)
+            
+            // Add the recommended value to unique list (user can override)
+            if let recommended = recommended {
+                unique.append(recommended)
+            }
+        }
+        
+        return (unique: unique, duplicates: duplicateGroups)
+    }
+    
+    // MARK: - Select Best Candidate
+    private func selectBestCandidate(from group: [StandardizedLabValue]) -> StandardizedLabValue? {
+        // Filter to only valid values first
+        let validValues = group.filter { value in
+            let validation = BloodTestValueValidator.validateValue(
+                value.value,
+                testName: value.standardName,
+                referenceRange: value.referenceRange,
+                standardParam: BloodTestResult.standardizedLabParameters[value.standardKey]
+            )
+            
+            if case .valid = validation {
+                return true
+            }
+            return false
+        }
+        
+        // If no valid values, return the first one anyway (user will see it's invalid)
+        guard !validValues.isEmpty else {
+            return group.first
+        }
+        
+        // Select best from valid values
+        // Priority: 1) Highest confidence, 2) Has unit, 3) Has reference range, 4) Most complete original name
+        return validValues.max { val1, val2 in
+            // Compare confidence first
+            if abs(val1.confidence - val2.confidence) > 0.1 {
+                return val1.confidence < val2.confidence
+            }
+            
+            // If confidence is similar, prefer value with unit
+            let val1HasUnit = val1.unit != nil && !val1.unit!.isEmpty
+            let val2HasUnit = val2.unit != nil && !val2.unit!.isEmpty
+            if val1HasUnit != val2HasUnit {
+                return !val1HasUnit
+            }
+            
+            // Prefer value with reference range
+            let val1HasRange = val1.referenceRange != nil && !val1.referenceRange!.isEmpty
+            let val2HasRange = val2.referenceRange != nil && !val2.referenceRange!.isEmpty
+            if val1HasRange != val2HasRange {
+                return !val1HasRange
+            }
+            
+            // Prefer more complete original name (longer, more descriptive)
+            return val1.originalTestName.count < val2.originalTestName.count
+        }
+    }
+    
+    // MARK: - Convert Validation Result to Status
+    private func validationToStatus(_ validation: BloodTestValueValidator.ValidationResult) -> (
+        DuplicateBloodTestCandidate.ValidationStatus,
+        String?
+    ) {
+        switch validation {
+        case .valid:
+            return (.valid, nil)
+        case .invalidType(let reason):
+            return (.invalidType, reason)
+        case .outOfRange(let reason, _):
+            return (.outOfRange, reason)
+        case .missingData(let reason):
+            return (.missingData, reason)
+        }
     }
 
-    private func findStandardizedParameter(for testName: String) -> LabParameter? {
+    private func findStandardizedParameter(for testName: String, testType: String = "BLOOD") -> LabParameter? {
         let normalizedTestName = testName.lowercased()
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: "(", with: "")
             .replacingOccurrences(of: ")", with: "")
+        
+        // Determine which categories to search based on test type
+        let isUrineTest = testType.uppercased() == "URINE"
+        let urineCategories: Set<BloodTestCategory> = [.urinalysis, .urineChemistry, .urineMicrobiology]
 
         // Direct key match
         if let parameter = BloodTestResult.standardizedLabParameters[normalizedTestName] {
-            return parameter
+            // Verify the parameter matches the test type
+            if isUrineTest && urineCategories.contains(parameter.category) {
+                return parameter
+            } else if !isUrineTest && !urineCategories.contains(parameter.category) {
+                return parameter
+            }
+            // If type mismatch, continue to fuzzy matching
         }
 
         // Fuzzy matching for common variations
@@ -507,13 +797,48 @@ class BloodTestMappingService: ObservableObject {
 
         for (standardKey, variations) in testNameVariations {
             if variations.contains(where: { normalizedTestName.contains($0) || $0.contains(normalizedTestName) }) {
-                return BloodTestResult.standardizedLabParameters[standardKey]
+                if let parameter = BloodTestResult.standardizedLabParameters[standardKey] {
+                    // Verify the parameter matches the test type
+                    if isUrineTest && urineCategories.contains(parameter.category) {
+                        return parameter
+                    } else if !isUrineTest && !urineCategories.contains(parameter.category) {
+                        return parameter
+                    }
+                    // If type mismatch, continue searching
+                }
+            }
+        }
+        
+        // Add urine test variations for fuzzy matching
+        let urineTestVariations: [(String, [String])] = [
+            ("urine_protein", ["protein", "urine_protein", "urine_prot", "protein_urine"]),
+            ("urine_glucose", ["glucose_urine", "urine_glucose", "glucose_ua"]),
+            ("urine_ph", ["ph_urine", "urine_ph", "ph_ua", "urine_p_h"]),
+            ("urine_specific_gravity", ["specific_gravity", "urine_sg", "sg_urine", "sp_gr"]),
+            ("urine_wbc", ["wbc_urine", "urine_wbc", "white_blood_cells_urine", "leukocytes_urine"]),
+            ("urine_rbc", ["rbc_urine", "urine_rbc", "red_blood_cells_urine", "erythrocytes_urine"]),
+            ("urine_creatinine", ["creatinine_urine", "urine_creatinine", "urine_creat"]),
+            ("urine_microalbumin", ["microalbumin", "urine_microalbumin", "urine_albumin_quantitative"]),
+            ("urine_albumin_creatinine_ratio", ["acr", "albumin_creatinine_ratio", "urine_acr", "urine_albumin_creat_ratio"])
+        ]
+        
+        // Try urine test variations if this is a urine test
+        if isUrineTest {
+            for (key, variations) in urineTestVariations {
+                if variations.contains(where: { normalizedTestName.contains($0) || $0.contains(normalizedTestName) }) {
+                    if let parameter = BloodTestResult.standardizedLabParameters[key] {
+                        return parameter
+                    }
+                }
             }
         }
 
-        // Partial matching
+        // Partial matching - filter by test type
         for (key, parameter) in BloodTestResult.standardizedLabParameters {
-            if normalizedTestName.contains(key) || key.contains(normalizedTestName) {
+            // Only match if the category matches the test type
+            let categoryMatches = isUrineTest ? urineCategories.contains(parameter.category) : !urineCategories.contains(parameter.category)
+            
+            if categoryMatches && (normalizedTestName.contains(key) || key.contains(normalizedTestName)) {
                 return parameter
             }
         }
@@ -628,7 +953,7 @@ struct BasicTestInfo {
     let patientName: String?
 }
 
-struct ExtractedLabValue {
+struct ExtractedLabValue: LabValueLike {
     let testName: String
     let value: String
     let unit: String?
@@ -636,9 +961,30 @@ struct ExtractedLabValue {
     let isAbnormal: Bool
     let abnormalFlag: String?
     let confidence: Double
+    let testType: String // "BLOOD" or "URINE"
+    
+    init(
+        testName: String,
+        value: String,
+        unit: String? = nil,
+        referenceRange: String? = nil,
+        isAbnormal: Bool = false,
+        abnormalFlag: String? = nil,
+        confidence: Double = 0.8,
+        testType: String = "BLOOD"
+    ) {
+        self.testName = testName
+        self.value = value
+        self.unit = unit
+        self.referenceRange = referenceRange
+        self.isAbnormal = isAbnormal
+        self.abnormalFlag = abnormalFlag
+        self.confidence = confidence
+        self.testType = testType
+    }
 }
 
-struct StandardizedLabValue {
+struct StandardizedLabValue: LabValueLike {
     let standardKey: String
     let standardName: String
     let value: String
@@ -648,18 +994,26 @@ struct StandardizedLabValue {
     let category: BloodTestCategory
     let confidence: Double
     let originalTestName: String
+    
+    // LabValueLike conformance
+    var testName: String { standardName }
 }
 
 struct BloodTestMappingResult {
     let bloodTestResult: BloodTestResult
     let extractedRawValues: [ExtractedLabValue]
     let mappedParameters: [StandardizedLabValue]
+    let duplicateGroups: [DuplicateTestGroup]
     let confidence: Double
     let processingTime: TimeInterval
     let aiModel: String
 
     var summary: String {
         return "\(bloodTestResult.results.count) tests mapped with \(String(format: "%.1f", confidence))% confidence"
+    }
+    
+    var hasDuplicates: Bool {
+        return !duplicateGroups.isEmpty
     }
 }
 

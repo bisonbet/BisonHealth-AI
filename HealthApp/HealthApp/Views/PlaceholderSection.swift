@@ -40,9 +40,9 @@ struct PlaceholderSection: View {
         )
         
         PlaceholderSection(
-            title: "Health Checkups",
-            icon: "stethoscope",
-            description: "Annual physicals and routine health examinations"
+            title: "Medical Visits",
+            icon: "doc.text",
+            description: "Doctor's notes, specialist visits, and procedure reports"
         )
     }
 }

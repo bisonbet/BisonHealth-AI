@@ -27,7 +27,7 @@ struct HealthCheckupsSection: View {
             }
         } header: {
             HStack {
-                Label("Health Checkups", systemImage: "stethoscope")
+                Label("Medical Visits", systemImage: "doc.text")
                 Spacer()
             }
         }
@@ -96,15 +96,15 @@ struct HealthCheckupRowView: View {
 struct EmptyHealthCheckupsView: View {
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "stethoscope")
+            Image(systemName: "doc.text")
                 .font(.title2)
                 .foregroundColor(.secondary)
             
-            Text("No health checkups")
+            Text("No medical visits")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
-            Text("Import doctor's notes and checkup reports from your documents")
+            Text("Import doctor's notes, specialist visits, and procedure reports from your documents")
                 .font(.caption)
                 .foregroundColor(Color(.tertiaryLabel))
                 .multilineTextAlignment(.center)
@@ -127,7 +127,7 @@ struct HealthCheckupsListView: View {
                 }
             }
         }
-        .navigationTitle("Health Checkups")
+        .navigationTitle("Medical Visits")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

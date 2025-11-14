@@ -37,7 +37,7 @@ struct BloodTestsSection: View {
             }
         } header: {
             HStack {
-                Label("Blood Test Results", systemImage: "drop.fill")
+                Label("Lab Results", systemImage: "testtube.2")
                 Spacer()
                 Button("Add") {
                     onAddNew()
@@ -138,15 +138,15 @@ struct AbnormalResultChip: View {
 struct EmptyBloodTestsView: View {
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "drop.fill")
+            Image(systemName: "testtube.2")
                 .font(.title2)
                 .foregroundColor(.secondary)
             
-            Text("No blood test results")
+            Text("No lab results")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
-            Text("Tap Add to record your blood test results")
+            Text("Tap Add to record your lab results")
                 .font(.caption)
                 .foregroundColor(Color(.tertiaryLabel))
                 .multilineTextAlignment(.center)
@@ -179,7 +179,7 @@ struct BloodTestListView: View {
                 bloodTests.remove(atOffsets: indexSet)
             }
         }
-        .navigationTitle("Blood Test Results")
+        .navigationTitle("Lab Results")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -216,7 +216,7 @@ struct BloodTestDetailView: View {
                 }
             }
         }
-        .navigationTitle("Blood Test Details")
+        .navigationTitle("Lab Results Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -230,7 +230,7 @@ struct BloodTestDetailView: View {
                 }
             }
         }
-        .alert("Delete Blood Test?", isPresented: $showingDeleteConfirm) {
+        .alert("Delete Lab Results?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 onDelete(bloodTest)
                 dismiss()

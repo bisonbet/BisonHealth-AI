@@ -104,11 +104,94 @@ class HealthDataManager: ObservableObject {
             throw HealthDataError.validationFailed("Blood test data is incomplete or invalid")
         }
         
+        // Check for potential duplicates before saving
+        if let duplicate = await findDuplicateBloodTest(newResult) {
+            print("⚠️ HealthDataManager: Potential duplicate blood test found:")
+            print("   Existing: \(duplicate.testDate.formatted()) - \(duplicate.results.count) results")
+            print("   New: \(newResult.testDate.formatted()) - \(newResult.results.count) results")
+            
+            // If it's from the same document, it's definitely a duplicate
+            if let newDocId = newResult.metadata?["source_document_id"],
+               let existingDocId = duplicate.metadata?["source_document_id"],
+               newDocId == existingDocId {
+                print("❌ HealthDataManager: Duplicate detected - same document ID, skipping save")
+                throw HealthDataError.validationFailed("This blood test has already been imported from this document")
+            }
+            
+            // If same date and very similar results, likely a duplicate
+            let dateDifference = abs(newResult.testDate.timeIntervalSince(duplicate.testDate))
+            if dateDifference < 86400 { // Within 24 hours
+                let similarity = calculateBloodTestSimilarity(newResult, duplicate)
+                if similarity > 0.8 {
+                    print("❌ HealthDataManager: Duplicate detected - same date and \(Int(similarity * 100))% similar, skipping save")
+                    throw HealthDataError.validationFailed("A very similar blood test already exists for this date")
+                }
+            }
+        }
+        
         try await databaseManager.save(newResult)
         
         // Update local array
         bloodTests.append(newResult)
         bloodTests.sort { $0.testDate > $1.testDate }
+    }
+    
+    // MARK: - Duplicate Detection
+    private func findDuplicateBloodTest(_ test: BloodTestResult) async -> BloodTestResult? {
+        // Check against existing blood tests
+        for existingTest in bloodTests {
+            // Same document source
+            if let testDocId = test.metadata?["source_document_id"],
+               let existingDocId = existingTest.metadata?["source_document_id"],
+               testDocId == existingDocId {
+                return existingTest
+            }
+            
+            // Same date and similar results
+            let dateDifference = abs(test.testDate.timeIntervalSince(existingTest.testDate))
+            if dateDifference < 86400 { // Within 24 hours
+                let similarity = calculateBloodTestSimilarity(test, existingTest)
+                if similarity > 0.8 {
+                    return existingTest
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func calculateBloodTestSimilarity(_ test1: BloodTestResult, _ test2: BloodTestResult) -> Double {
+        // Compare number of results
+        let countDiff = abs(test1.results.count - test2.results.count)
+        let maxCount = max(test1.results.count, test2.results.count)
+        if maxCount == 0 { return 0.0 }
+        
+        let countSimilarity = 1.0 - (Double(countDiff) / Double(maxCount))
+        
+        // Compare test names (normalized)
+        var matchingTests = 0
+        let test1Names = Set(test1.results.map { normalizeTestNameForComparison($0.name) })
+        let test2Names = Set(test2.results.map { normalizeTestNameForComparison($0.name) })
+        
+        for name1 in test1Names {
+            if test2Names.contains(name1) {
+                matchingTests += 1
+            }
+        }
+        
+        let nameSimilarity = maxCount > 0 ? Double(matchingTests) / Double(max(test1Names.count, test2Names.count)) : 0.0
+        
+        // Weighted average: 40% count similarity, 60% name similarity
+        return (countSimilarity * 0.4) + (nameSimilarity * 0.6)
+    }
+    
+    private func normalizeTestNameForComparison(_ name: String) -> String {
+        return name.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
     }
     
     func updateBloodTest(_ result: BloodTestResult) async throws {
@@ -188,6 +271,13 @@ class HealthDataManager: ObservableObject {
                 
             case .bloodTest:
                 if let extractedBloodTest = try? anyHealthData.decode(as: BloodTestResult.self) {
+                    // Check if this blood test has pending duplicate review
+                    // If so, don't save it yet - wait for user to review duplicates
+                    if extractedBloodTest.metadata?["pending_review"] == "true" {
+                        print("⏸️ HealthDataManager: Blood test has pending duplicate review - skipping save until user reviews")
+                        // The blood test will be saved after user reviews duplicates in the UI
+                        return
+                    }
                     try await addBloodTest(extractedBloodTest)
                 }
                 

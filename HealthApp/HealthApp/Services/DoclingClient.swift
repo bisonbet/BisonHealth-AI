@@ -459,6 +459,19 @@ class DoclingClient: ObservableObject {
             appendString(crlf)
             appendString("true\(crlf)")
         }
+        
+        // IMPORTANT: Explicitly exclude images from output - we only want OCR text
+        // Set image export mode to placeholder so images are OCR'd but not included in response
+        appendString("--\(boundary)\(crlf)")
+        appendString("Content-Disposition: form-data; name=\"image_export_mode\"\(crlf)")
+        appendString(crlf)
+        appendString("placeholder\(crlf)")
+        
+        // Explicitly tell Docling not to extract or return image data
+        appendString("--\(boundary)\(crlf)")
+        appendString("Content-Disposition: form-data; name=\"extract_images\"\(crlf)")
+        appendString(crlf)
+        appendString("false\(crlf)")
 
         if let hints = options.bloodTestExtractionHints, !hints.isEmpty {
             appendString("--\(boundary)\(crlf)")

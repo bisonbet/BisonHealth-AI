@@ -13,6 +13,7 @@ struct DocumentDetailView: View {
     @State private var showingDeleteAlert = false
     @State private var showingTagEditor = false
     @State private var showingNotesEditor = false
+    @State private var showingDuplicateReview = false
     @State private var newTag = ""
     @State private var editedNotes = ""
     
@@ -94,6 +95,31 @@ struct DocumentDetailView: View {
                 documentManager: documentManager,
                 isPresented: $showingNotesEditor
             )
+        }
+        .sheet(isPresented: $showingDuplicateReview) {
+            if let review = documentProcessor.pendingDuplicateReview,
+               review.documentId == document.id {
+                DuplicateBloodTestReviewView(
+                    duplicateGroups: Binding(
+                        get: { review.duplicateGroups },
+                        set: { _ in }
+                    ),
+                    onComplete: { selectedGroups in
+                        Task {
+                            await handleDuplicateReviewComplete(review: review, selectedGroups: selectedGroups)
+                            showingDuplicateReview = false
+                        }
+                    }
+                )
+            }
+        }
+        .onChange(of: documentProcessor.pendingDuplicateReview) { oldValue, newValue in
+            // Show review sheet when pending review is set for this document
+            if let review = newValue, review.documentId == document.id {
+                showingDuplicateReview = true
+            } else if newValue == nil {
+                showingDuplicateReview = false
+            }
         }
         .alert("Delete Document", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
@@ -361,6 +387,128 @@ struct DocumentDetailView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+    }
+    
+    // MARK: - Duplicate Review Handler
+    private func handleDuplicateReviewComplete(review: PendingDuplicateReview, selectedGroups: [DuplicateTestGroup]) async {
+        print("✅ DocumentDetailView: User completed duplicate review for \(selectedGroups.count) groups")
+        
+        // Update the blood test result with user's selections
+        var updatedBloodTest = review.bloodTestResult
+        
+        // Create a map of selected candidates by standard key
+        var selectedCandidatesByKey: [String: DuplicateBloodTestCandidate] = [:]
+        for group in selectedGroups {
+            if let selectedId = group.selectedCandidateId,
+               let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
+                selectedCandidatesByKey[group.standardKey] = selectedCandidate
+                print("📋 DocumentDetailView: User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
+            }
+        }
+        
+        // Update blood test items - replace items that match duplicate groups
+        var updatedResults: [BloodTestItem] = []
+        var processedKeys: Set<String> = []
+        
+        for item in updatedBloodTest.results {
+            // Try to find matching duplicate group by standard key
+            if let standardKey = findStandardKey(for: item.name),
+               let selectedCandidate = selectedCandidatesByKey[standardKey],
+               !processedKeys.contains(standardKey) {
+                // Replace with user's selected value
+                var updatedItem = item
+                updatedItem.value = selectedCandidate.value
+                updatedItem.unit = selectedCandidate.unit ?? item.unit
+                updatedItem.referenceRange = selectedCandidate.referenceRange ?? item.referenceRange
+                updatedItem.isAbnormal = selectedCandidate.isAbnormal
+                if selectedCandidate.originalTestName != item.name {
+                    updatedItem.notes = (updatedItem.notes ?? "") + (updatedItem.notes != nil ? "\n" : "") + "Original: \(selectedCandidate.originalTestName)"
+                }
+                updatedResults.append(updatedItem)
+                processedKeys.insert(standardKey)
+                print("✅ DocumentDetailView: Updated '\(item.name)' with selected value: \(selectedCandidate.value) \(selectedCandidate.unit ?? "")")
+            } else {
+                // Keep original value (not in duplicate groups or already processed)
+                updatedResults.append(item)
+            }
+        }
+        
+        // Add any selected candidates that weren't in the original results
+        for (standardKey, selectedCandidate) in selectedCandidatesByKey {
+            if !processedKeys.contains(standardKey) {
+                // This is a new item from duplicates
+                if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
+                    let newItem = BloodTestItem(
+                        name: standardParam.name,
+                        value: selectedCandidate.value,
+                        unit: selectedCandidate.unit ?? standardParam.unit,
+                        referenceRange: selectedCandidate.referenceRange ?? standardParam.referenceRange,
+                        isAbnormal: selectedCandidate.isAbnormal,
+                        category: standardParam.category,
+                        notes: "Original: \(selectedCandidate.originalTestName)"
+                    )
+                    updatedResults.append(newItem)
+                    print("✅ DocumentDetailView: Added new item '\(standardParam.name)' = \(selectedCandidate.value)")
+                }
+            }
+        }
+        
+        updatedBloodTest.results = updatedResults
+        
+        // Remove pending review flag
+        var metadata = updatedBloodTest.metadata ?? [:]
+        metadata.removeValue(forKey: "pending_review")
+        metadata["duplicate_review_completed"] = "true"
+        metadata["reviewed_groups_count"] = String(selectedGroups.count)
+        updatedBloodTest.metadata = metadata
+        
+        // Save the updated blood test
+        do {
+            try await healthDataManager.addBloodTest(updatedBloodTest)
+            print("✅ DocumentDetailView: Saved blood test after duplicate review with \(updatedResults.count) results")
+            
+            // Clear pending review
+            await MainActor.run {
+                documentProcessor.pendingDuplicateReview = nil
+            }
+        } catch {
+            print("❌ DocumentDetailView: Failed to save blood test after review: \(error)")
+        }
+    }
+    
+    private func findStandardKey(for testName: String) -> String? {
+        // Try to find the standard key for this test name
+        let normalized = testName.lowercased()
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+        
+        // Direct match
+        if BloodTestResult.standardizedLabParameters[normalized] != nil {
+            return normalized
+        }
+        
+        // Check if it matches any standard parameter name
+        for (key, param) in BloodTestResult.standardizedLabParameters {
+            if param.name.lowercased() == testName.lowercased() {
+                return key
+            }
+        }
+        
+        // Partial match
+        for (key, param) in BloodTestResult.standardizedLabParameters {
+            let paramNameNormalized = param.name.lowercased().replacingOccurrences(of: " ", with: "_")
+            if normalized.contains(paramNameNormalized) || paramNameNormalized.contains(normalized) {
+                return key
+            }
+        }
+        
+        return nil
+    }
+    
+    private var healthDataManager: HealthDataManager {
+        HealthDataManager.shared
     }
 }
 

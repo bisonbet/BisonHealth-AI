@@ -420,7 +420,7 @@ extension SupplementTemplate {
         SupplementTemplate(name: "Garlic Extract", category: .herb, defaultDosage: Dosage(value: 600, unit: .mg), commonUses: "Heart health, immune support"),
         SupplementTemplate(name: "Milk Thistle", category: .herb, defaultDosage: Dosage(value: 150, unit: .mg), commonUses: "Liver health"),
         SupplementTemplate(name: "Saw Palmetto", category: .herb, defaultDosage: Dosage(value: 320, unit: .mg), commonUses: "Prostate health"),
-        SupplementTemplate(name: "St. John's Wort", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), frequency: .threeTimesDaily, commonUses: "Mood support"),
+        SupplementTemplate(name: "St. John's Wort", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), defaultFrequency: .threeTimesDaily, commonUses: "Mood support"),
         SupplementTemplate(name: "Valerian Root", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), commonUses: "Sleep support, relaxation"),
         SupplementTemplate(name: "Ashwagandha", category: .herb, defaultDosage: Dosage(value: 300, unit: .mg), commonUses: "Stress relief, adaptogen"),
         SupplementTemplate(name: "Rhodiola", category: .herb, defaultDosage: Dosage(value: 200, unit: .mg), commonUses: "Energy, stress adaptation"),
@@ -458,7 +458,7 @@ extension SupplementTemplate {
         SupplementTemplate(name: "Zeaxanthin", category: .other, defaultDosage: Dosage(value: 2, unit: .mg), commonUses: "Eye health, macular protection"),
         SupplementTemplate(name: "SAMe (S-Adenosyl Methionine)", category: .other, defaultDosage: Dosage(value: 400, unit: .mg), commonUses: "Mood support, joint health"),
         SupplementTemplate(name: "5-HTP", category: .other, defaultDosage: Dosage(value: 100, unit: .mg), commonUses: "Mood support, sleep"),
-        SupplementTemplate(name: "Berberine", category: .other, defaultDosage: Dosage(value: 500, unit: .mg), frequency: .twiceDaily, commonUses: "Blood sugar support, metabolic health"),
+        SupplementTemplate(name: "Berberine", category: .other, defaultDosage: Dosage(value: 500, unit: .mg), defaultFrequency: .twiceDaily, commonUses: "Blood sugar support, metabolic health"),
     ]
 }
 
