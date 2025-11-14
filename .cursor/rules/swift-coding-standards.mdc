@@ -22,6 +22,11 @@ description: Swift coding standards and conventions for BisonHealth AI
 ### Files
 - **File Names**: Match primary type name (e.g., `HealthDataManager.swift`, `PersonalHealthInfo.swift`)
 - **Extensions**: `PrimaryType+ExtensionName.swift` (e.g., `DatabaseManager+Chat.swift`)
+- **Xcode Project**: **CRITICAL** - When creating new Swift files, they MUST be added to the Xcode project (`HealthApp.xcodeproj/project.pbxproj`). Use a script or manually add:
+  - PBXBuildFile entry
+  - PBXFileReference entry
+  - Add to appropriate group (Utils, Models, Views, etc.)
+  - Add to Sources build phase for the correct target (HealthApp or HealthAppTests)
 
 ## Code Organization
 

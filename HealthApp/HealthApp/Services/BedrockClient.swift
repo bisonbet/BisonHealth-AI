@@ -390,7 +390,7 @@ class AWSBedrockModelFactory {
         temperature: Double
     ) -> any BedrockModelRequest {
         switch model {
-        case .claudeSonnet45, .amazonNovaPremier:
+        case .claudeSonnet45:
             var messages = [Claude35Message]()
             messages.append(Claude35Message(role: "user", text: prompt))
             return Claude35Request(
@@ -398,6 +398,14 @@ class AWSBedrockModelFactory {
                 maxTokens: maxTokens,
                 temperature: temperature,
                 system: systemPrompt
+            )
+
+        case .amazonNovaPremier:
+            return NovaRequest(
+                prompt: prompt,
+                systemPrompt: systemPrompt,
+                maxTokens: maxTokens,
+                temperature: temperature
             )
 
         case .llama4Maverick:
@@ -417,8 +425,11 @@ class AWSBedrockModelFactory {
         let decoder = JSONDecoder()
 
         switch model {
-        case .claudeSonnet45, .amazonNovaPremier:
+        case .claudeSonnet45:
             return try decoder.decode(Claude35Response.self, from: data)
+
+        case .amazonNovaPremier:
+            return try decoder.decode(NovaResponse.self, from: data)
 
         case .llama4Maverick:
             return try decoder.decode(LlamaResponse.self, from: data)
@@ -528,6 +539,88 @@ struct Claude35Usage: Codable {
     enum CodingKeys: String, CodingKey {
         case inputTokens = "input_tokens"
         case outputTokens = "output_tokens"
+    }
+}
+
+// MARK: - Amazon Nova Model Structures
+struct NovaRequest: BedrockModelRequest {
+    let messages: [NovaMessage]
+    let system: [NovaSystemMessage]?
+    let inferenceConfig: NovaInferenceConfig
+    let schemaVersion: String
+
+    enum CodingKeys: String, CodingKey {
+        case messages
+        case system
+        case inferenceConfig
+        case schemaVersion
+    }
+
+    init(prompt: String, systemPrompt: String?, maxTokens: Int, temperature: Double) {
+        self.messages = [NovaMessage(role: "user", content: [NovaContent(text: prompt)])]
+        if let system = systemPrompt {
+            self.system = [NovaSystemMessage(text: system)]
+        } else {
+            self.system = nil
+        }
+        self.inferenceConfig = NovaInferenceConfig(
+            maxTokens: maxTokens,
+            temperature: temperature
+        )
+        self.schemaVersion = "messages-v1"
+    }
+}
+
+struct NovaMessage: Codable {
+    let role: String
+    let content: [NovaContent]
+}
+
+struct NovaContent: Codable {
+    let text: String
+}
+
+struct NovaSystemMessage: Codable {
+    let text: String
+}
+
+struct NovaInferenceConfig: Codable {
+    let maxTokens: Int
+    let temperature: Double
+
+    enum CodingKeys: String, CodingKey {
+        case maxTokens = "max_new_tokens"
+        case temperature
+    }
+}
+
+struct NovaResponse: BedrockModelResponse {
+    let output: NovaOutput
+    let stopReason: String?
+    let usage: NovaUsage?
+
+    var content: String {
+        return output.message.content.first?.text ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case output
+        case stopReason
+        case usage
+    }
+}
+
+struct NovaOutput: Codable {
+    let message: NovaMessage
+}
+
+struct NovaUsage: Codable {
+    let inputTokens: Int?
+    let outputTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "inputTokens"
+        case outputTokens = "outputTokens"
     }
 }
 

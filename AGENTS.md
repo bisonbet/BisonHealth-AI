@@ -30,11 +30,20 @@ Note: Our default Simulator target is `iPhone 16 Pro`. If that runtime isn't ins
 - For checking code correctness, prefer static analysis tools (linter) over building
 
 ## Coding Style & Naming Conventions
-- Swift: follow Apple’s Swift API Design Guidelines; 4‑space indentation; no force‑unwraps.
+- Swift: follow Apple's Swift API Design Guidelines; 4‑space indentation; no force‑unwraps.
 - Naming: `PascalCase` types, `lowerCamelCase` vars/functions; files match primary type (e.g., `DocumentProcessor.swift`).
 - Structure Swift files with `// MARK:` for Properties, Init, Public/Private methods.
 - SwiftUI: Views end with `View` (e.g., `DocumentListView`); keep subviews as private computed properties.
 - Legacy web-app: TypeScript + ESLint (see `legacy/web-app/eslint.config.mjs`).
+
+### Adding New Files to Xcode Project
+- **CRITICAL**: When creating new Swift files, they MUST be added to the Xcode project (`HealthApp/HealthApp.xcodeproj/project.pbxproj`).
+- Required steps:
+  1. Add PBXBuildFile entry in the PBXBuildFile section
+  2. Add PBXFileReference entry in the PBXFileReference section
+  3. Add file reference to the appropriate group (Utils, Models, Views, Managers, Services, etc.)
+  4. Add build file to Sources build phase for the correct target (HealthApp for app files, HealthAppTests for test files)
+- Use a script or Xcode's "Add Files" feature to ensure proper integration.
 
 ## Testing Guidelines
 - Framework: XCTest for unit and UI tests.

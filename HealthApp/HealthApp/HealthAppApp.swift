@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 @main
 struct HealthAppApp: App {
@@ -26,6 +27,7 @@ class AppState: ObservableObject {
     @Published var colorScheme: ColorScheme? = nil
     
     private let settingsManager = SettingsManager.shared
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         // Initialize app state
@@ -39,8 +41,10 @@ class AppState: ObservableObject {
     }
     
     private func observeSettingsChanges() {
-        // Observe settings changes to update app state
-        // This would typically use Combine in a more complex app
-        colorScheme = settingsManager.appPreferences.theme.colorScheme
+        // Observe settings changes to update app state using Combine
+        settingsManager.$appPreferences
+            .map { $0.theme.colorScheme }
+            .removeDuplicates()
+            .assign(to: &$colorScheme)
     }
 }

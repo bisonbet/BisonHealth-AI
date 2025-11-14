@@ -8,6 +8,11 @@ import PhotosUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -15,26 +20,34 @@ struct ContentView: View {
                 HealthDataView()
                     .tabItem {
                         Image(systemName: "heart.fill")
+                            .accessibilityLabel("Health Data")
                         Text("Health Data")
                     }
+                    .accessibilityIdentifier("tab.healthData")
 
                 DocumentsView()
                     .tabItem {
                         Image(systemName: "doc.fill")
+                            .accessibilityLabel("Documents")
                         Text("Documents")
                     }
+                    .accessibilityIdentifier("tab.documents")
 
                 ChatView()
                     .tabItem {
                         Image(systemName: "message.fill")
+                            .accessibilityLabel("AI Chat")
                         Text("AI Chat")
                     }
+                    .accessibilityIdentifier("tab.chat")
 
                 SettingsView()
                     .tabItem {
                         Image(systemName: "gear")
+                            .accessibilityLabel("Settings")
                         Text("Settings")
                     }
+                    .accessibilityIdentifier("tab.settings")
             }
             .accentColor(.blue)
             .withErrorHandling() // Add global error handling
@@ -59,17 +72,29 @@ struct HealthDataView: View {
     @State private var showingBloodTestEntry = false
     @State private var editingBloodTest: BloodTestResult?
     
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
+    
     var body: some View {
         NavigationStack {
             List {
                 PersonalInfoSection(
                     personalInfo: healthDataManager.personalInfo,
-                    onEdit: { showingPersonalInfoEditor = true }
+                    onEdit: { 
+                        HapticFeedbackManager.shared.impact()
+                        showingPersonalInfoEditor = true 
+                    }
                 )
                 
                 BloodTestsSection(
                     bloodTests: $healthDataManager.bloodTests,
-                    onAddNew: { showingBloodTestEntry = true },
+                    onAddNew: { 
+                        HapticFeedbackManager.shared.impact()
+                        showingBloodTestEntry = true 
+                    },
                     onEdit: { editingBloodTest = $0 },
                     onDelete: { bloodTest in
                         Task {
@@ -91,27 +116,52 @@ struct HealthDataView: View {
                 )
             }
             .navigationTitle("Health Data")
+            .dynamicType(.body, isIPad: isIPad)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button("Personal Info") {
+                            HapticFeedbackManager.shared.impact()
                             showingPersonalInfoEditor = true
                         }
+                        .voiceOverLabel(
+                            "Add Personal Information",
+                            hint: "Opens form to edit personal health information"
+                        )
                         Button("Lab Results") {
+                            HapticFeedbackManager.shared.impact()
                             showingBloodTestEntry = true
                         }
+                        .voiceOverLabel(
+                            "Add Lab Results",
+                            hint: "Opens form to add new blood test results"
+                        )
                         Divider()
                         Button("Imaging Report") {
                             // Placeholder for future implementation
                         }
                         .disabled(true)
+                        .voiceOverLabel(
+                            "Add Imaging Report",
+                            hint: "Feature coming soon"
+                        )
                         Button("Medical Visit") {
                             // Placeholder for future implementation
                         }
                         .disabled(true)
+                        .voiceOverLabel(
+                            "Add Medical Visit",
+                            hint: "Feature coming soon"
+                        )
                     } label: {
                         Image(systemName: "plus")
+                            .touchTarget()
                     }
+                    .voiceOverLabel(
+                        "Add Health Data",
+                        hint: "Menu to add new health data entries",
+                        traits: [.button]
+                    )
                 }
             }
             .refreshable {
@@ -121,6 +171,7 @@ struct HealthDataView: View {
                 PersonalInfoEditorView(
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { info in
+                        HapticFeedbackManager.shared.success()
                         Task {
                             try await healthDataManager.savePersonalInfo(info)
                         }
@@ -130,6 +181,7 @@ struct HealthDataView: View {
             .sheet(isPresented: $showingBloodTestEntry) {
                 BloodTestEntryView(
                     onSave: { bloodTest in
+                        HapticFeedbackManager.shared.success()
                         Task {
                             try await healthDataManager.addBloodTest(bloodTest)
                         }
@@ -138,11 +190,13 @@ struct HealthDataView: View {
             }
             .sheet(item: $editingBloodTest) { bloodTest in
                 BloodTestEntryView(bloodTest: bloodTest) { updated in
+                    HapticFeedbackManager.shared.success()
                     Task {
                         try await healthDataManager.updateBloodTest(updated)
                     }
                 }
             }
+            .keyboardNavigable()
         }
     }
 }
@@ -216,17 +270,30 @@ struct DocumentsView: View {
                 }
             }
             .navigationTitle("Documents")
+            .dynamicType(.body, isIPad: isIPad)
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     if !documentManager.documents.isEmpty {
                         HStack {
                             EditButton()
+                                .voiceOverLabel(
+                                    "Edit Documents",
+                                    hint: "Toggle edit mode to select documents",
+                                    traits: [.button]
+                                )
                             
                             if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
                                 Button("Batch") {
+                                    HapticFeedbackManager.shared.impact()
                                     showingBatchProcessing = true
                                 }
                                 .font(.caption)
+                                .touchTarget()
+                                .voiceOverLabel(
+                                    "Batch Process",
+                                    hint: "Process selected documents together",
+                                    traits: [.button]
+                                )
                             }
                         }
                     }
@@ -237,49 +304,95 @@ struct DocumentsView: View {
                         // View mode toggle (iPad only)
                         if isIPad {
                             Picker("View Mode", selection: $viewMode) {
-                                Image(systemName: "list.bullet").tag(DocumentViewMode.list)
-                                Image(systemName: "square.grid.2x2").tag(DocumentViewMode.grid)
+                                Image(systemName: "list.bullet")
+                                    .accessibilityLabel("List View")
+                                    .tag(DocumentViewMode.list)
+                                Image(systemName: "square.grid.2x2")
+                                    .accessibilityLabel("Grid View")
+                                    .tag(DocumentViewMode.grid)
                             }
                             .pickerStyle(.segmented)
                             .frame(width: 100)
+                            .voiceOverLabel(
+                                "View Mode",
+                                hint: "Switch between list and grid view",
+                                traits: [.button]
+                            )
                         }
                     }
                     
                     Menu {
                         Button("Scan Document", systemImage: "camera.viewfinder") {
+                            HapticFeedbackManager.shared.impact()
                             showingCamera = true
                         }
+                        .voiceOverLabel(
+                            "Scan Document",
+                            hint: "Use camera to scan a document",
+                            traits: [.button]
+                        )
                         Button("Import File", systemImage: "folder") {
+                            HapticFeedbackManager.shared.impact()
                             print("📁 ContentView: Import File button tapped (LaunchServices console errors are normal)")
                             showingDocumentPicker = true
                         }
+                        .voiceOverLabel(
+                            "Import File",
+                            hint: "Import document from Files app",
+                            traits: [.button]
+                        )
                         Button("Import Photos", systemImage: "photo.on.rectangle") {
+                            HapticFeedbackManager.shared.impact()
                             showingPhotosPicker = true
                         }
+                        .voiceOverLabel(
+                            "Import Photos",
+                            hint: "Import photos from Photos app",
+                            traits: [.button]
+                        )
                         
                         if !documentManager.documents.isEmpty {
                             Divider()
                             
                             Button("Process All Pending", systemImage: "gearshape.2") {
+                                HapticFeedbackManager.shared.impact()
                                 Task {
                                     await documentManager.processAllPendingDocuments()
                                 }
                             }
+                            .voiceOverLabel(
+                                "Process All Pending",
+                                hint: "Process all documents waiting to be analyzed",
+                                traits: [.button]
+                            )
                             
                             Button("Retry Failed", systemImage: "arrow.clockwise") {
+                                HapticFeedbackManager.shared.impact()
                                 Task {
                                     await documentManager.retryFailedDocuments()
                                 }
                             }
+                            .voiceOverLabel(
+                                "Retry Failed",
+                                hint: "Retry processing documents that failed",
+                                traits: [.button]
+                            )
                         }
                     } label: {
                         Image(systemName: "plus")
+                            .touchTarget()
                     }
+                    .voiceOverLabel(
+                        "Add Document",
+                        hint: "Menu to add new documents",
+                        traits: [.button]
+                    )
                 }
             }
             .refreshable {
                 await documentManager.refreshDocuments()
             }
+            .keyboardNavigable()
         }
         .fullScreenCover(isPresented: $showingCamera) {
             DocumentCameraView { scan in
@@ -555,38 +668,60 @@ struct DocumentsView: View {
     private var searchAndFilterBar: some View {
         VStack(spacing: 8) {
             HStack {
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    
-                    TextField("Search documents...", text: $documentManager.searchText)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .autocorrectionDisabled(true)
-                        .textInputAutocapitalization(.never)
-                        .submitLabel(.done)
-                    
-                    if !documentManager.searchText.isEmpty {
-                        Button("Clear") {
-                            documentManager.searchText = ""
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(AccessibilityColors.secondaryText)
+                            .accessibilityHidden(true)
+                        
+                        TextField("Search documents...", text: $documentManager.searchText)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .autocorrectionDisabled(true)
+                            .textInputAutocapitalization(.never)
+                            .submitLabel(.done)
+                            .voiceOverLabel(
+                                "Search Documents",
+                                hint: "Type to search for documents",
+                                traits: [.searchField]
+                            )
+                            .accessibilityIdentifier("documents.searchField")
+                        
+                        if !documentManager.searchText.isEmpty {
+                            Button("Clear") {
+                                HapticFeedbackManager.shared.selection()
+                                documentManager.searchText = ""
+                            }
+                            .font(.caption)
+                            .foregroundColor(AccessibilityColors.info)
+                            .touchTarget()
+                            .voiceOverLabel(
+                                "Clear Search",
+                                hint: "Clears the search text",
+                                traits: [.button]
+                            )
                         }
-                        .font(.caption)
-                        .foregroundColor(.blue)
                     }
-                }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(.systemGray6))
                 .cornerRadius(8)
                 
                 Button("Filter") {
+                    HapticFeedbackManager.shared.impact()
                     showingFilterView = true
                 }
                 .font(.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(hasActiveFilters ? Color.blue : Color(.systemGray6))
-                .foregroundColor(hasActiveFilters ? .white : .blue)
+                .background(hasActiveFilters ? AccessibilityColors.info : AccessibilityColors.tertiaryBackground)
+                .foregroundColor(hasActiveFilters ? AccessibilityColors.buttonText : AccessibilityColors.info)
                 .cornerRadius(8)
+                .touchTarget()
+                .voiceOverLabel(
+                    "Filter Documents",
+                    hint: "Open filter options to refine document list",
+                    value: hasActiveFilters ? "Filters active" : nil,
+                    traits: [.button]
+                )
             }
             
             // Active filters display

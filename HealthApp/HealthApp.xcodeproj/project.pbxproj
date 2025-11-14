@@ -126,7 +126,12 @@
 		SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUP004002EA12E9900999002 /* SupplementEditorView.swift */; };
 		SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUP006002EA12E9900999003 /* SupplementSelectorView.swift */; };
 		CONV01002EA12E9900999004 /* ConversationExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CONV02002EA12E9900999004 /* ConversationExporter.swift */; };
-/* End PBXBuildFile section */
+		463346414531383846334544 /* AccessibilityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303242343446444138303338 /* AccessibilityManager.swift */; };
+		373331303130383939373544 /* AccessibilityColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304643454332314443313245 /* AccessibilityColors.swift */; };
+		333132453133363839344239 /* AccessibilityModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303741434636463836313336 /* AccessibilityModifiers.swift */; };
+		313646423741443531333141 /* AccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363235363030414442423836 /* AccessibilityTests.swift */; };
+		354439384443443241413039 /* AccessibilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344433363046343643354239 /* AccessibilityUITests.swift */; };
+		/* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		A1000077294A0000000000001 /* PBXContainerItemProxy */ = {
@@ -255,7 +260,12 @@
 		SUP004002EA12E9900999002 /* SupplementEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementEditorView.swift; sourceTree = "<group>"; };
 		SUP006002EA12E9900999003 /* SupplementSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementSelectorView.swift; sourceTree = "<group>"; };
 		CONV02002EA12E9900999004 /* ConversationExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExporter.swift; sourceTree = "<group>"; };
-/* End PBXFileReference section */
+		303242343446444138303338 /* AccessibilityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityManager.swift; sourceTree = "<group>"; };
+		304643454332314443313245 /* AccessibilityColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityColors.swift; sourceTree = "<group>"; };
+		303741434636463836313336 /* AccessibilityModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityModifiers.swift; sourceTree = "<group>"; };
+		363235363030414442423836 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };
+		344433363046343643354239 /* AccessibilityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityUITests.swift; sourceTree = "<group>"; };
+		/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A1000000294A0000000000000 /* Frameworks */ = {
@@ -462,7 +472,10 @@
 				A1000073294A0000000000001 /* Keychain.swift */,
 				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
 				HIPAA004 /* UserDefaults+FirstLaunch.swift */,
-			);
+							303242343446444138303338 /* AccessibilityManager.swift */,
+				304643454332314443313245 /* AccessibilityColors.swift */,
+				303741434636463836313336 /* AccessibilityModifiers.swift */,
+);
 			path = Utils;
 			sourceTree = "<group>";
 		};
@@ -479,7 +492,9 @@
 				HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */,
 				X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */,
 				DEF123456789BACKUP00003 /* iCloudBackupTests.swift */,
-			);
+							363235363030414442423836 /* AccessibilityTests.swift */,
+				344433363046343643354239 /* AccessibilityUITests.swift */,
+);
 			path = HealthAppTests;
 			sourceTree = "<group>";
 		};
@@ -710,6 +725,9 @@
 				HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */,
 				146E72AE2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift in Sources */,
 				HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */,
+				463346414531383846334544 /* AccessibilityManager.swift in Sources */,
+				373331303130383939373544 /* AccessibilityColors.swift in Sources */,
+				333132453133363839344239 /* AccessibilityModifiers.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -727,6 +745,8 @@
 				71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */,
 				2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */,
 				ABC123456789BACKUP00003 /* iCloudBackupTests.swift in Sources */,
+				313646423741443531333141 /* AccessibilityTests.swift in Sources */,
+				354439384443443241413039 /* AccessibilityUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
