@@ -9,7 +9,7 @@ import SwiftUI
 
 struct AWSBedrockSettingsView: View {
     @ObservedObject private var credentialsManager = AWSCredentialsManager.shared
-    @AppStorage("awsBedrockModel") private var selectedModel: String = AWSBedrockModel.claudeSonnet4.rawValue
+    @AppStorage("awsBedrockModel") private var selectedModel: String = AWSBedrockModel.claudeSonnet45.rawValue
     @AppStorage("awsBedrockTemperature") private var temperature: Double = 0.1
     @AppStorage("awsBedrockMaxTokens") private var maxTokens: Int = 4096
     @AppStorage("enableAWSBedrock") private var enableAWSBedrock: Bool = false
@@ -32,7 +32,7 @@ struct AWSBedrockSettingsView: View {
     ]
 
     private var selectedModelEnum: AWSBedrockModel {
-        return AWSBedrockModel(rawValue: selectedModel) ?? .claudeSonnet4
+        return AWSBedrockModel(rawValue: selectedModel) ?? .claudeSonnet45
     }
 
     var body: some View {
@@ -60,7 +60,7 @@ struct AWSBedrockSettingsView: View {
             // Validate and fix invalid stored model selection
             if AWSBedrockModel(rawValue: selectedModel) == nil {
                 print("⚠️ Invalid stored model '\(selectedModel)', resetting to default")
-                selectedModel = AWSBedrockModel.claudeSonnet4.rawValue
+                selectedModel = AWSBedrockModel.claudeSonnet45.rawValue
             }
         }
     }
@@ -71,7 +71,7 @@ struct AWSBedrockSettingsView: View {
 
             if enableAWSBedrock {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("AWS Bedrock provides access to Claude Sonnet 4 and Llama 4 Maverick models for high-quality AI analysis of health data and documents.")
+                    Text("AWS Bedrock provides access to Claude Sonnet 4.5, Amazon Nova Premier, and Llama 4 Maverick models for high-quality AI analysis of health data and documents.")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -351,7 +351,7 @@ struct AWSBedrockSettingsView: View {
                 InstructionRow(
                     number: "2",
                     title: "Enable Bedrock Access",
-                    description: "Request access to Claude Sonnet 4 and Llama 4 Maverick models in the AWS Bedrock console"
+                    description: "Request access to Claude Sonnet 4.5, Amazon Nova Premier, and Llama 4 Maverick models in the AWS Bedrock console"
                 )
 
                 InstructionRow(

@@ -12,6 +12,10 @@ class AIChatManager: ObservableObject {
     @Published var currentConversation: ChatConversation? = nil
     @Published var isConnected: Bool = false
     @Published var isLoading: Bool = false
+    @Published var isLoadingConversations: Bool = false
+    @Published var isBuildingContext: Bool = false
+    @Published var isGeneratingTitle: Bool = false
+    @Published var isSendingMessage: Bool = false
     @Published var errorMessage: String? = nil
     @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo, .bloodTest]
     @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Family Medicine" })
@@ -24,6 +28,9 @@ class AIChatManager: ObservableObject {
     private let settingsManager = SettingsManager.shared
     private let networkManager = NetworkManager.shared
     private let pendingOperationsManager = PendingOperationsManager.shared
+    private let errorHandler = ErrorHandler.shared
+    private let logger = Logger.shared
+    private let retryManager = NetworkRetryManager.shared
     
     // MARK: - Computed Properties
     /// Get context size limit from settings (defaults to 16k for Ollama)
@@ -131,10 +138,16 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Conversation Management
     func loadConversations() async {
+        isLoadingConversations = true
+        defer { isLoadingConversations = false }
+
         do {
             conversations = try await databaseManager.fetchConversations()
+            logger.info("Loaded \(conversations.count) conversations")
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
+            errorHandler.handle(error, context: "Load Conversations")
+            logger.error("Failed to load conversations", error: error)
         }
     }
     
@@ -206,33 +219,36 @@ class AIChatManager: ObservableObject {
         // 2. We have at least 2 messages (1 user + 1 assistant) - the first exchange
         let userMessages = conversation.messages.filter({ $0.role == .user })
         let assistantMessages = conversation.messages.filter({ $0.role == .assistant && !$0.isError })
-        
+
         guard conversation.title == "New Conversation",
               userMessages.count >= 1,
               assistantMessages.count >= 1 else {
-            print("🔍 Title generation skipped - title: '\(conversation.title)', user messages: \(userMessages.count), assistant messages: \(assistantMessages.count)")
+            logger.debug("Title generation skipped - title: '\(conversation.title)', user messages: \(userMessages.count), assistant messages: \(assistantMessages.count)")
             return
         }
-        
+
         // Don't generate title if there's an error message
         guard !conversation.messages.contains(where: { $0.isError }) else {
-            print("🔍 Title generation skipped - conversation has error messages")
+            logger.debug("Title generation skipped - conversation has error messages")
             return
         }
-        
-        print("🔍 Generating title for conversation with \(conversation.messages.count) messages")
+
+        isGeneratingTitle = true
+        defer { isGeneratingTitle = false }
+
+        logger.info("Generating title for conversation with \(conversation.messages.count) messages")
         do {
             let generatedTitle = try await generateConversationTitle(for: conversation)
-            print("🔍 Generated title: '\(generatedTitle)'")
+            logger.info("Generated title: '\(generatedTitle)'")
             if !generatedTitle.isEmpty && generatedTitle != "New Conversation" {
                 try await updateConversationTitle(conversation, newTitle: generatedTitle)
-                print("✅ Successfully updated conversation title to: '\(generatedTitle)'")
+                logger.info("Successfully updated conversation title to: '\(generatedTitle)'")
             } else {
-                print("⚠️ Generated title was empty or unchanged")
+                logger.warning("Generated title was empty or unchanged")
             }
         } catch {
-            // Log error for debugging
-            print("⚠️ Failed to generate conversation title: \(error.localizedDescription)")
+            // Log error for debugging - don't show to user (not critical)
+            logger.warning("Failed to generate conversation title: \(error.localizedDescription)")
         }
     }
     
@@ -350,24 +366,88 @@ class AIChatManager: ObservableObject {
             }
             
         } catch {
-            // Create error message
-            let errorMessage = ChatMessage(
-                content: "Sorry, I encountered an error: \(error.localizedDescription)",
-                role: .assistant,
-                isError: true
-            )
-            
-            try await databaseManager.addMessage(to: conversation.id, message: errorMessage)
-            
-            if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
-                conversations[index].addMessage(errorMessage)
+            // Mark user message as failed
+            if let index = conversations.firstIndex(where: { $0.id == conversation.id }),
+               let messageIndex = conversations[index].messages.firstIndex(where: { $0.id == userMessage.id }) {
+                conversations[index].messages[messageIndex].markFailed(error: error.localizedDescription)
                 currentConversation = conversations[index]
             }
-            
+
+            // Handle error with global error handler
+            errorHandler.handle(
+                error,
+                context: "Send Message",
+                retryAction: {
+                    Task {
+                        await self.retryFailedMessage(userMessage, conversationId: conversation.id)
+                    }
+                }
+            )
+
+            logger.error("Failed to send message", error: error)
+
             throw error
         }
-        
+
         isLoading = false
+    }
+
+    /// Retry a failed message
+    func retryFailedMessage(_ message: ChatMessage, conversationId: UUID) async {
+        guard message.canRetry else {
+            logger.warning("Cannot retry message: not a failed user message")
+            return
+        }
+
+        logger.info("Retrying failed message: \(message.id)")
+
+        // Mark message as retrying
+        if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
+           let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
+            conversations[convIndex].messages[msgIndex].markRetrying()
+            currentConversation = conversations[convIndex]
+        }
+
+        // Use RetryManager to retry sending the message
+        let result = await retryManager.retryNetworkOperation {
+            // Build health data context
+            let healthContext = await self.buildHealthDataContext()
+
+            // Send via non-streaming (simpler for retries)
+            try await self.sendNonStreamingMessage(
+                message.content,
+                context: healthContext,
+                conversationId: conversationId
+            )
+        } onRetry: { attempt, error, delay in
+            self.logger.info("Retry attempt \(attempt) for message \(message.id), waiting \(delay)s")
+        }
+
+        switch result {
+        case .success:
+            // Mark message as sent
+            if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
+               let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
+                conversations[convIndex].messages[msgIndex].markSent()
+                currentConversation = conversations[convIndex]
+            }
+            logger.info("Successfully retried message \(message.id)")
+
+        case .failure(let error, let attempts):
+            // Mark as failed again
+            if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
+               let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
+                conversations[convIndex].messages[msgIndex].markFailed(error: "Failed after \(attempts) attempts: \(error.localizedDescription)")
+                currentConversation = conversations[convIndex]
+            }
+            logger.error("Failed to retry message after \(attempts) attempts", error: error)
+
+            // Show error to user
+            errorHandler.handle(error, context: "Retry Message")
+
+        case .cancelled:
+            logger.info("Message retry was cancelled")
+        }
     }
     
     private func sendStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {

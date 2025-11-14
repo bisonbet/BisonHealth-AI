@@ -24,6 +24,9 @@ class HealthDataManager: ObservableObject {
     // MARK: - Dependencies
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
+    private let errorHandler = ErrorHandler.shared
+    private let logger = Logger.shared
+    private let retryManager = NetworkRetryManager.shared
     
     // MARK: - Initialization
     init(databaseManager: DatabaseManager, fileSystemManager: FileSystemManager) {
@@ -39,42 +42,75 @@ class HealthDataManager: ObservableObject {
     func loadHealthData() async {
         isLoading = true
         errorMessage = nil
-        
-        do {
-            // Load personal info
-            personalInfo = try await databaseManager.fetchPersonalHealthInfo()
-            
-            // Load blood test results (only from lab reports or manually entered)
-            // Filter out any blood tests that came from non-lab-report documents
-            let allBloodTests = try await databaseManager.fetchBloodTestResults()
-            bloodTests = await filterValidBloodTests(allBloodTests)
-            
-            // Load documents
-            documents = try await databaseManager.fetchDocuments()
-            
-            // Load imaging reports
-            imagingReports = try await databaseManager.fetchMedicalDocuments(category: .imagingReport)
-            imagingReports.sort { doc1, doc2 in
-                let date1 = doc1.documentDate ?? doc1.importedAt
-                let date2 = doc2.documentDate ?? doc2.importedAt
-                return date1 > date2
-            }
-            
-            // Load health checkups (doctors notes and consultations)
-            let doctorsNotes = try await databaseManager.fetchMedicalDocuments(category: .doctorsNote)
-            let consultations = try await databaseManager.fetchMedicalDocuments(category: .consultation)
-            healthCheckups = doctorsNotes + consultations
-            healthCheckups.sort { doc1, doc2 in
-                let date1 = doc1.documentDate ?? doc1.importedAt
-                let date2 = doc2.documentDate ?? doc2.importedAt
-                return date1 > date2
-            }
-            
-        } catch {
-            errorMessage = "Failed to load health data: \(error.localizedDescription)"
+
+        logger.info("Starting health data load")
+
+        // Use retry manager for loading health data
+        let result = await retryManager.retryNetworkOperation {
+            try await self.loadHealthDataInternal()
+        } onRetry: { attempt, error, delay in
+            self.logger.info("Retrying health data load, attempt \(attempt), delay \(delay)s")
         }
-        
+
+        switch result {
+        case .success:
+            logger.info("Successfully loaded health data")
+            errorMessage = nil
+
+        case .failure(let error, let attempts):
+            let message = "Failed to load health data after \(attempts) attempts"
+            errorMessage = message
+            logger.error(message, error: error)
+
+            // Handle error with global error handler
+            errorHandler.handle(
+                error,
+                context: "Load Health Data",
+                retryAction: {
+                    Task {
+                        await self.loadHealthData()
+                    }
+                }
+            )
+
+        case .cancelled:
+            logger.info("Health data load cancelled")
+            errorMessage = "Load cancelled"
+        }
+
         isLoading = false
+    }
+
+    /// Internal method for loading health data (used by retry logic)
+    private func loadHealthDataInternal() async throws {
+        // Load personal info
+        personalInfo = try await databaseManager.fetchPersonalHealthInfo()
+
+        // Load blood test results (only from lab reports or manually entered)
+        // Filter out any blood tests that came from non-lab-report documents
+        let allBloodTests = try await databaseManager.fetchBloodTestResults()
+        bloodTests = await filterValidBloodTests(allBloodTests)
+
+        // Load documents
+        documents = try await databaseManager.fetchDocuments()
+
+        // Load imaging reports
+        imagingReports = try await databaseManager.fetchMedicalDocuments(category: .imagingReport)
+        imagingReports.sort { doc1, doc2 in
+            let date1 = doc1.documentDate ?? doc1.importedAt
+            let date2 = doc2.documentDate ?? doc2.importedAt
+            return date1 > date2
+        }
+
+        // Load health checkups (doctors notes and consultations)
+        let doctorsNotes = try await databaseManager.fetchMedicalDocuments(category: .doctorsNote)
+        let consultations = try await databaseManager.fetchMedicalDocuments(category: .consultation)
+        healthCheckups = doctorsNotes + consultations
+        healthCheckups.sort { doc1, doc2 in
+            let date1 = doc1.documentDate ?? doc1.importedAt
+            let date2 = doc2.documentDate ?? doc2.importedAt
+            return date1 > date2
+        }
     }
     
     // MARK: - Personal Health Info Management

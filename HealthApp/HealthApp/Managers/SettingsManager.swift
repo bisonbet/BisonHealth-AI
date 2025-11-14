@@ -97,7 +97,7 @@ struct ModelPreferences: Equatable {
     var visionModel: String = "llava"      // Default vision model for image processing
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
-    var bedrockModel: String = AWSBedrockModel.claudeSonnet4.rawValue // Default AWS Bedrock model
+    var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
     var contextSizeLimit: Int = 16384      // Default context size: 16k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
@@ -407,7 +407,7 @@ class SettingsManager: ObservableObject {
             accessKeyId: sharedCredentials.accessKeyId,
             secretAccessKey: sharedCredentials.secretAccessKey,
             sessionToken: nil,
-            model: AWSBedrockModel(rawValue: modelPreferences.bedrockModel) ?? .claudeSonnet4,
+            model: AWSBedrockModel(rawValue: modelPreferences.bedrockModel) ?? .claudeSonnet45,
             temperature: 0.1,
             maxTokens: 4096,
             timeout: 60.0,
@@ -772,7 +772,7 @@ extension ModelPreferences: Codable {
         self.visionModel = try container.decode(String.self, forKey: .visionModel)
         self.documentModel = try container.decode(String.self, forKey: .documentModel)
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
-        self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet4.rawValue
+        self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
 

@@ -65,9 +65,22 @@ This iOS app is based on a legacy Next.js web application (see [Legacy Reference
 
 ### Build Commands
 
-⚠️ **IMPORTANT**: Do NOT run `xcodebuild` commands unless the user expressly asks you to build the project.
+⚠️ **CRITICAL RULE**: **NEVER** run `xcodebuild` or any build commands unless the user **EXPRESSLY** asks you to build the project.
 
-Available build commands (use only when requested):
+❌ **DO NOT**:
+- Run builds after making changes
+- Run builds to "verify" or "test" code
+- Run builds proactively
+- Run builds to check for errors
+- Run any `xcodebuild` commands without explicit user request
+
+✅ **ONLY build when user explicitly says**:
+- "build the project"
+- "run a build"
+- "compile the app"
+- "test the build"
+
+Available build commands (use only when explicitly requested):
 ```bash
 # iPhone build command
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.6' clean build
@@ -438,13 +451,15 @@ HealthAppTests/
 ## Build & Test Guidelines
 
 ### Before Committing
-⚠️ **Note**: Only run build commands when the user expressly requests it.
+⚠️ **CRITICAL**: **NEVER** run build commands unless the user **EXPLICITLY** requests it with words like "build", "compile", or "test the build".
 
-Pre-commit checklist (run when requested):
+Pre-commit checklist (when explicitly requested by user):
 1. Clean build: `xcodebuild clean build`
 2. Run tests: `xcodebuild test`
 3. Verify all imports resolve correctly
 4. Check for compilation warnings
+
+**Default behavior**: Make code changes and commit without building. Let the user decide when to build.
 
 ### Simulator Configuration
 - **Primary Target**: iPhone 16, iOS 18.6

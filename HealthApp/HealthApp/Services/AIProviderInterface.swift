@@ -163,7 +163,7 @@ class AIProviderFactory {
                 accessKeyId: sharedCredentials.accessKeyId,
                 secretAccessKey: sharedCredentials.secretAccessKey,
                 sessionToken: nil,
-                model: .claudeSonnet4,  // Default model
+                model: .claudeSonnet45,  // Default model
                 temperature: 0.1,
                 maxTokens: 4096,
                 timeout: 60.0,

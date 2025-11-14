@@ -96,6 +96,9 @@
 		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
 		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
 		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
+		B057FA8E00D31E05DA99C601 /* ErrorHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E116E0E8FDE1B6568C46022 /* ErrorHandler.swift */; };
+		3472925DE4F3A645FEBE6C53 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3EA1C9995061054A565167 /* Logger.swift */; };
+		2B6FA40C09E729A5527BDCEB /* NetworkRetryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B3C606DD5E2444E3A41AEF /* NetworkRetryManager.swift */; };
 		ABC123456789BACKUP00001 /* iCloudBackupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF123456789BACKUP00001 /* iCloudBackupManager.swift */; };
 		ABC123456789BACKUP00002 /* BackupManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF123456789BACKUP00002 /* BackupManagementView.swift */; };
 		ABC123456789BACKUP00003 /* iCloudBackupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF123456789BACKUP00003 /* iCloudBackupTests.swift */; };
@@ -218,6 +221,9 @@
 		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
 		AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
 		ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
+		1E116E0E8FDE1B6568C46022 /* ErrorHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorHandler.swift; sourceTree = "<group>"; };
+		6D3EA1C9995061054A565167 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
+		F8B3C606DD5E2444E3A41AEF /* NetworkRetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkRetryManager.swift; sourceTree = "<group>"; };
 		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageInputView.swift; sourceTree = "<group>"; };
 		B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
@@ -330,8 +336,7 @@
 		A1000009294A0000000000002 /* Preview Content */ = {
 			isa = PBXGroup;
 			children = (
-				A1000008294A0000000000001 /* Preview Assets.xcassets */,
-			);
+				A1000008294A0000000000001 /* Preview Assets.xcassets */,);
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
@@ -487,6 +492,9 @@
 				50F48E6CF308D42C7D377B84 /* SettingsManager.swift */,
 				DEF123456789BACKUP00001 /* iCloudBackupManager.swift */,
 				HIPAA001 /* AppSettingsManager.swift */,
+				1E116E0E8FDE1B6568C46022 /* ErrorHandler.swift */,
+				6D3EA1C9995061054A565167 /* Logger.swift */,
+				F8B3C606DD5E2444E3A41AEF /* NetworkRetryManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -657,6 +665,9 @@
 				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
 				A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
 				A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */,
+				B057FA8E00D31E05DA99C601 /* ErrorHandler.swift in Sources */,
+				3472925DE4F3A645FEBE6C53 /* Logger.swift in Sources */,
+				2B6FA40C09E729A5527BDCEB /* NetworkRetryManager.swift in Sources */,
 				143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */,
 				A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */,
 				A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */,

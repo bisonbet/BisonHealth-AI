@@ -32,6 +32,35 @@ struct ChatConversation: Identifiable, Codable {
     }
 }
 
+// MARK: - Message Status
+enum MessageStatus: String, Codable {
+    case sent           // Successfully sent and received response
+    case pending        // Waiting to be sent
+    case sending        // Currently being sent
+    case failed         // Failed to send
+    case retrying       // Retrying after failure
+
+    var icon: String {
+        switch self {
+        case .sent: return "checkmark.circle.fill"
+        case .pending: return "clock.fill"
+        case .sending: return "arrow.up.circle.fill"
+        case .failed: return "exclamationmark.circle.fill"
+        case .retrying: return "arrow.clockwise.circle.fill"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .sent: return "green"
+        case .pending: return "gray"
+        case .sending: return "blue"
+        case .failed: return "red"
+        case .retrying: return "orange"
+        }
+    }
+}
+
 // MARK: - Chat Message
 struct ChatMessage: Identifiable, Codable {
     let id: UUID
@@ -42,7 +71,10 @@ struct ChatMessage: Identifiable, Codable {
     var isError: Bool
     var tokens: Int?
     var processingTime: TimeInterval?
-    
+    var status: MessageStatus?         // Status for tracking message delivery
+    var retryCount: Int                // Number of retry attempts
+    var lastError: String?             // Last error message if failed
+
     init(
         id: UUID = UUID(),
         content: String,
@@ -51,7 +83,10 @@ struct ChatMessage: Identifiable, Codable {
         metadata: [String: String]? = nil,
         isError: Bool = false,
         tokens: Int? = nil,
-        processingTime: TimeInterval? = nil
+        processingTime: TimeInterval? = nil,
+        status: MessageStatus? = nil,
+        retryCount: Int = 0,
+        lastError: String? = nil
     ) {
         self.id = id
         self.content = content
@@ -61,6 +96,34 @@ struct ChatMessage: Identifiable, Codable {
         self.isError = isError
         self.tokens = tokens
         self.processingTime = processingTime
+        self.status = status
+        self.retryCount = retryCount
+        self.lastError = lastError
+    }
+
+    /// Check if message can be retried
+    var canRetry: Bool {
+        return (status == .failed || isError) && role == .user
+    }
+
+    /// Mark message as failed with error
+    mutating func markFailed(error: String) {
+        self.status = .failed
+        self.isError = true
+        self.lastError = error
+    }
+
+    /// Mark message as retrying
+    mutating func markRetrying() {
+        self.status = .retrying
+        self.retryCount += 1
+    }
+
+    /// Mark message as sent successfully
+    mutating func markSent() {
+        self.status = .sent
+        self.isError = false
+        self.lastError = nil
     }
 }
 

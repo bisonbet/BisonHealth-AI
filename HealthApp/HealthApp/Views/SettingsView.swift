@@ -212,7 +212,7 @@ struct SettingsView: View {
                 .buttonStyle(.bordered)
             }
 
-            Text("Claude Sonnet 4 and Llama 4 Maverick models for advanced health data analysis")
+            Text("Claude Sonnet 4.5, Amazon Nova Premier, and Llama 4 Maverick models for advanced health data analysis")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }

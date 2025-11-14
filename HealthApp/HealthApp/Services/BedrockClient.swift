@@ -4,60 +4,73 @@ import AWSClientRuntime
 
 // MARK: - AWS Bedrock Models for Health App
 enum AWSBedrockModel: String, CaseIterable {
-    case claudeSonnet4 = "global.anthropic.claude-sonnet-4-20250514-v1:0"
+    case claudeSonnet45 = "global.anthropic.claude-sonnet-4.5-20250929-v1:0"
     case llama4Maverick = "us.meta.llama4-maverick-17b-instruct-v1:0"
+    case amazonNovaPremier = "us.amazon.nova-premier-v1:0"
 
     var displayName: String {
         switch self {
-        case .claudeSonnet4:
-            return "Claude Sonnet 4"
+        case .claudeSonnet45:
+            return "Claude Sonnet 4.5"
         case .llama4Maverick:
             return "Llama 4 Maverick"
+        case .amazonNovaPremier:
+            return "Amazon Nova Premier"
         }
     }
 
     var description: String {
         switch self {
-        case .claudeSonnet4:
-            return "Latest Claude Sonnet 4 with advanced reasoning and analysis capabilities"
+        case .claudeSonnet45:
+            return "Latest Claude Sonnet 4.5 with advanced reasoning and analysis capabilities"
         case .llama4Maverick:
             return "Meta's Llama 4 Maverick 17B with strong instruction-following"
+        case .amazonNovaPremier:
+            return "Amazon's Nova Premier model with high-performance AI capabilities"
         }
     }
 
     var maxTokens: Int {
         switch self {
-        case .claudeSonnet4:
+        case .claudeSonnet45:
             return 8192
         case .llama4Maverick:
             return 4096
+        case .amazonNovaPremier:
+            return 8192
         }
     }
 
     var contextWindow: Int {
         switch self {
-        case .claudeSonnet4:
+        case .claudeSonnet45:
             return 200000
         case .llama4Maverick:
             return 128000
+        case .amazonNovaPremier:
+            return 200000
         }
     }
 
     var provider: String {
         switch self {
-        case .claudeSonnet4:
+        case .claudeSonnet45:
             return "Anthropic"
         case .llama4Maverick:
             return "Meta"
+        case .amazonNovaPremier:
+            return "Amazon"
         }
     }
 
     var supportsStructuredOutput: Bool {
         switch self {
-        case .claudeSonnet4:
+        case .claudeSonnet45:
             return true
         case .llama4Maverick:
             return false
+        case .amazonNovaPremier:
+            return true
         }
     }
 }
@@ -80,7 +93,7 @@ struct AWSBedrockConfig: Equatable {
         accessKeyId: "",
         secretAccessKey: "",
         sessionToken: nil,
-        model: .claudeSonnet4,
+        model: .claudeSonnet45,
         temperature: 0.1,
         maxTokens: 4096,
         timeout: 60.0,
@@ -377,7 +390,7 @@ class AWSBedrockModelFactory {
         temperature: Double
     ) -> any BedrockModelRequest {
         switch model {
-        case .claudeSonnet4:
+        case .claudeSonnet45, .amazonNovaPremier:
             var messages = [Claude35Message]()
             messages.append(Claude35Message(role: "user", text: prompt))
             return Claude35Request(
@@ -404,7 +417,7 @@ class AWSBedrockModelFactory {
         let decoder = JSONDecoder()
 
         switch model {
-        case .claudeSonnet4:
+        case .claudeSonnet45, .amazonNovaPremier:
             return try decoder.decode(Claude35Response.self, from: data)
 
         case .llama4Maverick:
@@ -623,14 +636,14 @@ extension BedrockClient {
         accessKey: String,
         secretKey: String,
         region: String = "us-east-1",
-        model: String = AWSBedrockModel.claudeSonnet4.rawValue
+        model: String = AWSBedrockModel.claudeSonnet45.rawValue
     ) -> BedrockClient {
         let config = AWSBedrockConfig(
             region: region,
             accessKeyId: accessKey,
             secretAccessKey: secretKey,
             sessionToken: nil,
-            model: AWSBedrockModel(rawValue: model) ?? .claudeSonnet4,
+            model: AWSBedrockModel(rawValue: model) ?? .claudeSonnet45,
             temperature: 0.1,
             maxTokens: 4096,
             timeout: 60.0,

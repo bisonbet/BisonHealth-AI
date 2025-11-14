@@ -127,7 +127,9 @@ struct ChatDetailView: View {
         EnhancedMessageListView(
             messages: conversation.messages,
             isLoading: chatManager.isLoading,
-            isIPad: isIPad
+            isIPad: isIPad,
+            chatManager: chatManager,
+            conversationId: conversation.id
         )
         
         // Keyboard accessory to dismiss keyboard
@@ -317,6 +319,8 @@ struct EnhancedMessageListView: View {
     let messages: [ChatMessage]
     let isLoading: Bool
     let isIPad: Bool
+    var chatManager: AIChatManager?
+    var conversationId: UUID?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -325,7 +329,9 @@ struct EnhancedMessageListView: View {
                     ForEach(messages.filter { !$0.content.isEmpty }) { message in
                         EnhancedMessageBubbleView(
                             message: message,
-                            isIPad: isIPad
+                            isIPad: isIPad,
+                            chatManager: chatManager,
+                            conversationId: conversationId
                         )
                         .id(message.id)
                     }
@@ -359,11 +365,49 @@ struct EnhancedMessageListView: View {
 struct EnhancedMessageBubbleView: View {
     let message: ChatMessage
     let isIPad: Bool
-    
+    var chatManager: AIChatManager?
+    var conversationId: UUID?
+
     @State private var showingCopyConfirmation = false
-    
+    @State private var isRetrying = false
+
     private var markdownContentView: some View {
         buildMarkdownView()
+    }
+
+    private var messageBackground: Color {
+        if message.status == .failed || message.isError {
+            return Color.red.opacity(0.8)
+        } else if message.status == .retrying {
+            return Color.orange
+        } else if message.status == .sending {
+            return Color.blue.opacity(0.7)
+        }
+        return Color.blue
+    }
+
+    private func statusColor(for status: MessageStatus) -> Color {
+        switch status {
+        case .sent: return .green
+        case .pending: return .gray
+        case .sending: return .blue
+        case .failed: return .red
+        case .retrying: return .orange
+        }
+    }
+
+    private func retryMessage() {
+        guard let chatManager = chatManager,
+              let conversationId = conversationId else {
+            return
+        }
+
+        isRetrying = true
+
+        Task {
+            await chatManager.retryFailedMessage(message, conversationId: conversationId)
+            isRetrying = false
+        }
     }
     
     private func buildMarkdownView() -> some View {
@@ -460,19 +504,59 @@ struct EnhancedMessageBubbleView: View {
         HStack {
             if message.isFromUser {
                 Spacer(minLength: isIPad ? 100 : 50)
-                
+
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(message.content)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(18)
-                        .textSelection(.enabled) // Enable text selection on iPad
-                    
-                    Text(message.formattedTimestamp)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 8) {
+                        // Show retry button for failed messages
+                        if message.canRetry && !isRetrying {
+                            Button {
+                                retryMessage()
+                            } label: {
+                                Label("Retry", systemImage: "arrow.clockwise")
+                                    .font(.caption)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.orange)
+                                    .cornerRadius(12)
+                            }
+                        }
+
+                        // Show status indicator
+                        if let status = message.status {
+                            Image(systemName: status.icon)
+                                .font(.caption2)
+                                .foregroundColor(statusColor(for: status))
+                        }
+
+                        Text(message.content)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(messageBackground)
+                            .foregroundColor(.white)
+                            .cornerRadius(18)
+                            .textSelection(.enabled) // Enable text selection on iPad
+                    }
+
+                    // Show error message if failed
+                    if let lastError = message.lastError {
+                        Text(lastError)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 4)
+                    }
+
+                    HStack(spacing: 4) {
+                        if message.retryCount > 0 {
+                            Text("Retried \(message.retryCount)x")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+
+                        Text(message.formattedTimestamp)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {

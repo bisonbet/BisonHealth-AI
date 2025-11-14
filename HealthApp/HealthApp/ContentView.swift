@@ -37,6 +37,7 @@ struct ContentView: View {
                     }
             }
             .accentColor(.blue)
+            .withErrorHandling() // Add global error handling
 
             // Global offline indicator
             VStack {
