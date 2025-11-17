@@ -628,7 +628,17 @@ class HealthDataManager: ObservableObject {
         var merged = manual.filter { $0.source == .manual }
 
         // Add HealthKit entries that don't conflict with manual entries (by date)
-        for hkReading in healthKit {
++        private let manualEntryConflictInterval: TimeInterval = 300 // 5 minutes
+
+         // Add HealthKit entries that don't conflict with manual entries (by date)
+         for hkReading in healthKit {
+             // Check if there's a manual entry within 5 minutes
+             let hasManualConflict = merged.contains { manualReading in
+-                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < 300 // 5 minutes
++                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < manualEntryConflictInterval
+             }
+ 
+             if !hasManualConflict {
             // Check if there's a manual entry within 5 minutes
             let hasManualConflict = merged.contains { manualReading in
                 abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < 300 // 5 minutes
