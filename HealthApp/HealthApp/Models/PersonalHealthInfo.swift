@@ -142,7 +142,15 @@ struct VitalReading: Codable, Identifiable, Hashable {
     var systolic: Double?
     var diastolic: Double?
 
-    init(
+     var displayValue: String {
+         // For blood pressure, show systolic/diastolic
+         if let systolic = systolic, let diastolic = diastolic {
+-            return "\(Int(systolic))/\(Int(diastolic)) \(unit)"
++            return "\(systolic.cleanString)/\(diastolic.cleanString) \(unit)"
+         }
+         // For other vitals
+         return "\(value.cleanString) \(unit)"
+     }
         id: UUID = UUID(),
         value: Double,
         unit: String,
