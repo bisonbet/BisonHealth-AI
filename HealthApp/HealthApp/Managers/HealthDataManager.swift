@@ -597,7 +597,14 @@ class HealthDataManager: ObservableObject {
         info.oxygenSaturationReadings = mergeVitalReadings(
             manual: info.oxygenSaturationReadings,
             healthKit: syncedData.oxygenSaturationReadings,
-            limit: 7
++        private let poundsToKgConversionFactor = 2.20462
++
+         // Update weight property with the most recent reading
+         if let mostRecentWeight = info.weightReadings.first {
+-            let kg = mostRecentWeight.value / 2.20462 // Convert lbs to kg
++            let kg = mostRecentWeight.value / poundsToKgConversionFactor
+             info.weight = Measurement(value: kg, unit: .kilograms)
+         }
         )
 
         info.respiratoryRateReadings = mergeVitalReadings(
