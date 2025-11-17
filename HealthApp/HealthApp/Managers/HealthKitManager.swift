@@ -14,6 +14,7 @@ class HealthKitManager: ObservableObject {
     @Published var isSyncing = false
     @Published var lastSyncDate: Date?
     @Published var syncError: Error?
+    @Published var lastSyncStats: SyncStatistics?
 
     // MARK: - Dependencies
     private let healthStore = HKHealthStore()
@@ -138,6 +139,8 @@ class HealthKitManager: ObservableObject {
         isSyncing = true
         syncError = nil
 
+        let startTime = Date()
+        var stats = SyncStatistics()
         logger.info("Starting HealthKit sync")
 
         do {
@@ -146,26 +149,42 @@ class HealthKitManager: ObservableObject {
             // Sync characteristics (one-time values)
             do {
                 syncedData.dateOfBirth = try readDateOfBirth()
+                if syncedData.dateOfBirth != nil {
+                    stats.successfulDataTypes += 1
+                }
             } catch {
                 logger.warning("Failed to read date of birth from HealthKit: \(error.localizedDescription)")
+                stats.failedDataTypes.append("Date of Birth")
             }
 
             do {
                 syncedData.biologicalSex = try readBiologicalSex()
+                if syncedData.biologicalSex != nil {
+                    stats.successfulDataTypes += 1
+                }
             } catch {
                 logger.warning("Failed to read biological sex from HealthKit: \(error.localizedDescription)")
+                stats.failedDataTypes.append("Biological Sex")
             }
 
             do {
                 syncedData.bloodType = try readBloodType()
+                if syncedData.bloodType != nil {
+                    stats.successfulDataTypes += 1
+                }
             } catch {
                 logger.warning("Failed to read blood type from HealthKit: \(error.localizedDescription)")
+                stats.failedDataTypes.append("Blood Type")
             }
 
             do {
                 syncedData.height = try await readLatestHeight()
+                if syncedData.height != nil {
+                    stats.successfulDataTypes += 1
+                }
             } catch {
                 logger.warning("Failed to read height from HealthKit: \(error.localizedDescription)")
+                stats.failedDataTypes.append("Height")
             }
 
             // Sync vitals and sleep in parallel for better performance
@@ -177,19 +196,42 @@ class HealthKitManager: ObservableObject {
             async let weight = readWeight(limit: 7)
             async let sleep = readSleepAnalysis(limit: 7)
 
-            // Await all results
+            // Await all results and track statistics
             syncedData.bloodPressureReadings = try await bloodPressure
-            syncedData.heartRateReadings = try await heartRate
-            syncedData.bodyTemperatureReadings = try await bodyTemp
-            syncedData.oxygenSaturationReadings = try await oxygenSat
-            syncedData.respiratoryRateReadings = try await respiratoryRate
-            syncedData.weightReadings = try await weight
-            syncedData.sleepData = try await sleep
+            stats.totalReadings += syncedData.bloodPressureReadings.count
+            if !syncedData.bloodPressureReadings.isEmpty { stats.successfulDataTypes += 1 }
 
+            syncedData.heartRateReadings = try await heartRate
+            stats.totalReadings += syncedData.heartRateReadings.count
+            if !syncedData.heartRateReadings.isEmpty { stats.successfulDataTypes += 1 }
+
+            syncedData.bodyTemperatureReadings = try await bodyTemp
+            stats.totalReadings += syncedData.bodyTemperatureReadings.count
+            if !syncedData.bodyTemperatureReadings.isEmpty { stats.successfulDataTypes += 1 }
+
+            syncedData.oxygenSaturationReadings = try await oxygenSat
+            stats.totalReadings += syncedData.oxygenSaturationReadings.count
+            if !syncedData.oxygenSaturationReadings.isEmpty { stats.successfulDataTypes += 1 }
+
+            syncedData.respiratoryRateReadings = try await respiratoryRate
+            stats.totalReadings += syncedData.respiratoryRateReadings.count
+            if !syncedData.respiratoryRateReadings.isEmpty { stats.successfulDataTypes += 1 }
+
+            syncedData.weightReadings = try await weight
+            stats.totalReadings += syncedData.weightReadings.count
+            if !syncedData.weightReadings.isEmpty { stats.successfulDataTypes += 1 }
+
+            syncedData.sleepData = try await sleep
+            stats.totalReadings += syncedData.sleepData.count
+            if !syncedData.sleepData.isEmpty { stats.successfulDataTypes += 1 }
+
+            stats.syncDuration = Date().timeIntervalSince(startTime)
+            stats.timestamp = Date()
+            lastSyncStats = stats
             lastSyncDate = Date()
             isSyncing = false
 
-            logger.info("HealthKit sync completed successfully")
+            logger.info("HealthKit sync completed: \(stats.summary)")
 
             return syncedData
 
@@ -273,23 +315,35 @@ class HealthKitManager: ObservableObject {
 
         // Match systolic and diastolic readings by timestamp (within 1 minute)
         var readings: [VitalReading] = []
+        var usedDiastolicSamples = Set<HKQuantitySample>()
 
         for systolicSample in systolicSamples {
-            // Find matching diastolic reading within the matching window
+            // Find matching diastolic reading within the matching window that hasn't been used
             if let diastolicSample = diastolicSamples.first(where: { diastolic in
+                !usedDiastolicSamples.contains(diastolic) &&
                 abs(diastolic.startDate.timeIntervalSince(systolicSample.startDate)) < bloodPressureMatchingWindow
             }) {
                 let systolic = systolicSample.quantity.doubleValue(for: .millimeterOfMercury())
                 let diastolic = diastolicSample.quantity.doubleValue(for: .millimeterOfMercury())
 
-                readings.append(VitalReading(
+                let reading = VitalReading(
                     value: systolic,
                     unit: "mmHg",
                     timestamp: systolicSample.startDate,
                     source: .appleHealth,
                     systolic: systolic,
                     diastolic: diastolic
-                ))
+                )
+
+                // Only add if valid
+                if reading.isValid() {
+                    readings.append(reading)
+                } else {
+                    logger.warning("Skipping invalid blood pressure reading: \(systolic)/\(diastolic) mmHg")
+                }
+
+                // Mark this diastolic sample as used
+                usedDiastolicSamples.insert(diastolicSample)
             }
         }
 
@@ -303,14 +357,20 @@ class HealthKitManager: ObservableObject {
 
         let samples = try await fetchQuantitySamples(for: heartRateType, limit: limit)
 
-        return samples.map { sample in
+        return samples.compactMap { sample in
             let bpm = sample.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
-            return VitalReading(
+            let reading = VitalReading(
                 value: bpm,
                 unit: "bpm",
                 timestamp: sample.startDate,
                 source: .appleHealth
             )
+            if reading.isValid() {
+                return reading
+            } else {
+                logger.warning("Skipping invalid heart rate reading: \(bpm) bpm")
+                return nil
+            }
         }
     }
 
@@ -321,14 +381,20 @@ class HealthKitManager: ObservableObject {
 
         let samples = try await fetchQuantitySamples(for: bodyTempType, limit: limit)
 
-        return samples.map { sample in
+        return samples.compactMap { sample in
             let fahrenheit = sample.quantity.doubleValue(for: .degreeFahrenheit())
-            return VitalReading(
+            let reading = VitalReading(
                 value: fahrenheit,
                 unit: "°F",
                 timestamp: sample.startDate,
                 source: .appleHealth
             )
+            if reading.isValid() {
+                return reading
+            } else {
+                logger.warning("Skipping invalid body temperature reading: \(fahrenheit) °F")
+                return nil
+            }
         }
     }
 
@@ -339,14 +405,20 @@ class HealthKitManager: ObservableObject {
 
         let samples = try await fetchQuantitySamples(for: oxygenType, limit: limit)
 
-        return samples.map { sample in
+        return samples.compactMap { sample in
             let percentage = sample.quantity.doubleValue(for: .percent()) * 100
-            return VitalReading(
+            let reading = VitalReading(
                 value: percentage,
                 unit: "%",
                 timestamp: sample.startDate,
                 source: .appleHealth
             )
+            if reading.isValid() {
+                return reading
+            } else {
+                logger.warning("Skipping invalid oxygen saturation reading: \(percentage) %")
+                return nil
+            }
         }
     }
 
@@ -357,14 +429,20 @@ class HealthKitManager: ObservableObject {
 
         let samples = try await fetchQuantitySamples(for: respRateType, limit: limit)
 
-        return samples.map { sample in
+        return samples.compactMap { sample in
             let breathsPerMin = sample.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
-            return VitalReading(
+            let reading = VitalReading(
                 value: breathsPerMin,
                 unit: "br/min",
                 timestamp: sample.startDate,
                 source: .appleHealth
             )
+            if reading.isValid() {
+                return reading
+            } else {
+                logger.warning("Skipping invalid respiratory rate reading: \(breathsPerMin) br/min")
+                return nil
+            }
         }
     }
 
@@ -375,14 +453,20 @@ class HealthKitManager: ObservableObject {
 
         let samples = try await fetchQuantitySamples(for: weightType, limit: limit)
 
-        return samples.map { sample in
+        return samples.compactMap { sample in
             let pounds = sample.quantity.doubleValue(for: .pound())
-            return VitalReading(
+            let reading = VitalReading(
                 value: pounds,
                 unit: "lbs",
                 timestamp: sample.startDate,
                 source: .appleHealth
             )
+            if reading.isValid() {
+                return reading
+            } else {
+                logger.warning("Skipping invalid weight reading: \(pounds) lbs")
+                return nil
+            }
         }
     }
 
@@ -563,6 +647,23 @@ struct SyncedHealthData {
     var weightReadings: [VitalReading] = []
 
     var sleepData: [SleepData] = []
+}
+
+struct SyncStatistics {
+    var successfulDataTypes: Int = 0
+    var failedDataTypes: [String] = []
+    var totalReadings: Int = 0
+    var invalidReadingsSkipped: Int = 0
+    var syncDuration: TimeInterval = 0
+    var timestamp: Date = Date()
+
+    var summary: String {
+        if failedDataTypes.isEmpty {
+            return "Synced \(totalReadings) readings from \(successfulDataTypes) data types"
+        } else {
+            return "Synced \(totalReadings) readings. Failed: \(failedDataTypes.joined(separator: ", "))"
+        }
+    }
 }
 
 enum HealthKitError: Error, LocalizedError {

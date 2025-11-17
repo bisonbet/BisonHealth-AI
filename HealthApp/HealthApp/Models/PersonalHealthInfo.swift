@@ -145,12 +145,13 @@ struct VitalReading: Codable, Identifiable, Hashable {
      var displayValue: String {
          // For blood pressure, show systolic/diastolic
          if let systolic = systolic, let diastolic = diastolic {
--            return "\(Int(systolic))/\(Int(diastolic)) \(unit)"
-+            return "\(systolic.cleanString)/\(diastolic.cleanString) \(unit)"
+             return "\(systolic.cleanString)/\(diastolic.cleanString) \(unit)"
          }
          // For other vitals
          return "\(value.cleanString) \(unit)"
      }
+
+    init(
         id: UUID = UUID(),
         value: Double,
         unit: String,
@@ -167,15 +168,6 @@ struct VitalReading: Codable, Identifiable, Hashable {
         self.systolic = systolic
         self.diastolic = diastolic
     }
-
-    var displayValue: String {
-        // For blood pressure, show systolic/diastolic
-        if let systolic = systolic, let diastolic = diastolic {
-            return "\(Int(systolic))/\(Int(diastolic)) \(unit)"
-        }
-        // For other vitals
-        return "\(value.cleanString) \(unit)"
-    }
 }
 
 enum VitalSource: String, Codable, Hashable {
@@ -189,6 +181,49 @@ enum VitalSource: String, Codable, Hashable {
         case .appleHealth: return "Apple Health"
         case .device: return "Device"
         }
+    }
+}
+
+// MARK: - Vital Reading Validation
+extension VitalReading {
+    /// Validates that vital reading values are within realistic ranges
+    func isValid() -> Bool {
+        // Blood pressure validation (mmHg)
+        if let systolic = systolic, let diastolic = diastolic {
+            // Systolic: 50-250 mmHg, Diastolic: 30-150 mmHg
+            guard systolic >= 50 && systolic <= 250 else { return false }
+            guard diastolic >= 30 && diastolic <= 150 else { return false }
+            guard systolic > diastolic else { return false } // Systolic must be higher
+            return true
+        }
+
+        // Heart rate validation (bpm)
+        if unit == "bpm" {
+            return value >= 20 && value <= 300
+        }
+
+        // Body temperature validation (°F)
+        if unit == "°F" {
+            return value >= 90 && value <= 110
+        }
+
+        // Oxygen saturation validation (%)
+        if unit == "%" {
+            return value >= 70 && value <= 100
+        }
+
+        // Respiratory rate validation (br/min)
+        if unit == "br/min" {
+            return value >= 5 && value <= 60
+        }
+
+        // Weight validation (lbs)
+        if unit == "lbs" {
+            return value >= 20 && value <= 1500
+        }
+
+        // Unknown unit - allow by default
+        return true
     }
 }
 

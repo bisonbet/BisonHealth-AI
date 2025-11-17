@@ -32,6 +32,9 @@ class HealthDataManager: ObservableObject {
     // MARK: - Constants
     private let poundsToKgConversionFactor = 2.20462
     private let manualEntryConflictInterval: TimeInterval = 300 // 5 minutes
+
+    // MARK: - Thread Safety
+    private let syncLock = NSLock()
     
     // MARK: - Initialization
     init(databaseManager: DatabaseManager, fileSystemManager: FileSystemManager) {
@@ -546,6 +549,10 @@ class HealthDataManager: ObservableObject {
 
     /// Merge HealthKit data with existing personal info (prioritizing manual entries)
     private func mergeHealthKitData(_ syncedData: SyncedHealthData) async throws {
+        // Use lock to prevent race conditions during sync
+        syncLock.lock()
+        defer { syncLock.unlock() }
+
         var info = personalInfo ?? PersonalHealthInfo()
 
         // Update characteristics only if not manually set

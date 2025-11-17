@@ -39,11 +39,24 @@ class AppState: ObservableObject {
     }
 
     private func syncHealthKitOnLaunch() {
-        // Sync from Apple Health on app launch
+        // Sync from Apple Health on app launch with throttling
         Task {
             do {
+                // Check if we should sync (throttle to once every 4 hours)
+                if let lastSync = UserDefaults.standard.object(forKey: "lastHealthKitSyncDate") as? Date {
+                    let hoursSinceLastSync = Date().timeIntervalSince(lastSync) / 3600
+                    if hoursSinceLastSync < 4 {
+                        logger.info("App launch: Skipping HealthKit sync (last sync was \(String(format: "%.1f", hoursSinceLastSync)) hours ago)")
+                        return
+                    }
+                }
+
                 logger.info("App launch: Attempting HealthKit sync")
                 try await healthDataManager.syncFromAppleHealth()
+
+                // Save sync timestamp
+                UserDefaults.standard.set(Date(), forKey: "lastHealthKitSyncDate")
+
                 logger.info("App launch: HealthKit sync completed successfully")
             } catch {
                 // Silently fail if HealthKit is not available or authorized
