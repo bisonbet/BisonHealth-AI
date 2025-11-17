@@ -19,6 +19,11 @@ class HealthKitManager: ObservableObject {
     private let healthStore = HKHealthStore()
     private let logger = Logger.shared
 
+    // MARK: - Constants
+    private let bloodPressureMatchingWindow: TimeInterval = 60 // 1 minute
+    private let sleepQueryDateRange: Int = -30 // Last 30 days
+    private let secondsPerMinute: Double = 60
+
     // MARK: - HealthKit Data Types
     private let readTypes: Set<HKSampleType> = {
         var types = Set<HKSampleType>()
@@ -139,21 +144,47 @@ class HealthKitManager: ObservableObject {
             var syncedData = SyncedHealthData()
 
             // Sync characteristics (one-time values)
-            syncedData.dateOfBirth = try? readDateOfBirth()
-            syncedData.biologicalSex = try? readBiologicalSex()
-            syncedData.bloodType = try? readBloodType()
-            syncedData.height = try? await readLatestHeight()
+            do {
+                syncedData.dateOfBirth = try readDateOfBirth()
+            } catch {
+                logger.warning("Failed to read date of birth from HealthKit: \(error.localizedDescription)")
+            }
 
-            // Sync vitals (last 7 readings)
-            syncedData.bloodPressureReadings = try await readBloodPressure(limit: 7)
-            syncedData.heartRateReadings = try await readHeartRate(limit: 7)
-            syncedData.bodyTemperatureReadings = try await readBodyTemperature(limit: 7)
-            syncedData.oxygenSaturationReadings = try await readOxygenSaturation(limit: 7)
-            syncedData.respiratoryRateReadings = try await readRespiratoryRate(limit: 7)
-            syncedData.weightReadings = try await readWeight(limit: 7)
+            do {
+                syncedData.biologicalSex = try readBiologicalSex()
+            } catch {
+                logger.warning("Failed to read biological sex from HealthKit: \(error.localizedDescription)")
+            }
 
-            // Sync sleep (last 7 nights)
-            syncedData.sleepData = try await readSleepAnalysis(limit: 7)
+            do {
+                syncedData.bloodType = try readBloodType()
+            } catch {
+                logger.warning("Failed to read blood type from HealthKit: \(error.localizedDescription)")
+            }
+
+            do {
+                syncedData.height = try await readLatestHeight()
+            } catch {
+                logger.warning("Failed to read height from HealthKit: \(error.localizedDescription)")
+            }
+
+            // Sync vitals and sleep in parallel for better performance
+            async let bloodPressure = readBloodPressure(limit: 7)
+            async let heartRate = readHeartRate(limit: 7)
+            async let bodyTemp = readBodyTemperature(limit: 7)
+            async let oxygenSat = readOxygenSaturation(limit: 7)
+            async let respiratoryRate = readRespiratoryRate(limit: 7)
+            async let weight = readWeight(limit: 7)
+            async let sleep = readSleepAnalysis(limit: 7)
+
+            // Await all results
+            syncedData.bloodPressureReadings = try await bloodPressure
+            syncedData.heartRateReadings = try await heartRate
+            syncedData.bodyTemperatureReadings = try await bodyTemp
+            syncedData.oxygenSaturationReadings = try await oxygenSat
+            syncedData.respiratoryRateReadings = try await respiratoryRate
+            syncedData.weightReadings = try await weight
+            syncedData.sleepData = try await sleep
 
             lastSyncDate = Date()
             isSyncing = false
@@ -244,9 +275,9 @@ class HealthKitManager: ObservableObject {
         var readings: [VitalReading] = []
 
         for systolicSample in systolicSamples {
-            // Find matching diastolic reading within 1 minute
+            // Find matching diastolic reading within the matching window
             if let diastolicSample = diastolicSamples.first(where: { diastolic in
-                abs(diastolic.startDate.timeIntervalSince(systolicSample.startDate)) < 60
+                abs(diastolic.startDate.timeIntervalSince(systolicSample.startDate)) < bloodPressureMatchingWindow
             }) {
                 let systolic = systolicSample.quantity.doubleValue(for: .millimeterOfMercury())
                 let diastolic = diastolicSample.quantity.doubleValue(for: .millimeterOfMercury())
@@ -362,9 +393,9 @@ class HealthKitManager: ObservableObject {
             return []
         }
 
-        // Query for sleep samples in the last 30 days (to ensure we get 7 complete nights)
+        // Query for sleep samples (to ensure we get 7 complete nights)
         let endDate = Date()
-        let startDate = Calendar.current.date(byAdding: .day, value: -30, to: endDate) ?? endDate
+        let startDate = Calendar.current.date(byAdding: .day, value: sleepQueryDateRange, to: endDate) ?? endDate
 
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
@@ -413,7 +444,7 @@ class HealthKitManager: ObservableObject {
             let totalSleepSeconds = sleepSamples.reduce(0) { total, sample in
                 total + sample.endDate.timeIntervalSince(sample.startDate)
             }
-            let totalSleepMinutes = Int(totalSleepSeconds / 60)
+            let totalSleepMinutes = Int(totalSleepSeconds / secondsPerMinute)
 
             // Get start and end times
             let startTime = sleepSamples.map { $0.startDate }.min() ?? date
@@ -463,7 +494,7 @@ class HealthKitManager: ObservableObject {
             let inBedSeconds = inBedSamples.reduce(0) { total, sample in
                 total + sample.endDate.timeIntervalSince(sample.startDate)
             }
-            let inBedMinutes = Int(inBedSeconds / 60)
+            let inBedMinutes = Int(inBedSeconds / secondsPerMinute)
 
             sleepDataArray.append(SleepData(
                 date: date,
@@ -490,7 +521,7 @@ class HealthKitManager: ObservableObject {
         let totalSeconds = stageSamples.reduce(0) { total, sample in
             total + sample.endDate.timeIntervalSince(sample.startDate)
         }
-        return Int(totalSeconds / 60)
+        return Int(totalSeconds / secondsPerMinute)
     }
 
     // MARK: - Helper Methods

@@ -28,6 +28,10 @@ class HealthDataManager: ObservableObject {
     private let errorHandler = ErrorHandler.shared
     private let logger = Logger.shared
     private let retryManager = NetworkRetryManager.shared
+
+    // MARK: - Constants
+    private let poundsToKgConversionFactor = 2.20462
+    private let manualEntryConflictInterval: TimeInterval = 300 // 5 minutes
     
     // MARK: - Initialization
     init(databaseManager: DatabaseManager, fileSystemManager: FileSystemManager) {
@@ -571,7 +575,7 @@ class HealthDataManager: ObservableObject {
 
         // Update weight property with the most recent reading
         if let mostRecentWeight = info.weightReadings.first {
-            let kg = mostRecentWeight.value / 2.20462 // Convert lbs to kg
+            let kg = mostRecentWeight.value / poundsToKgConversionFactor
             info.weight = Measurement(value: kg, unit: .kilograms)
         }
 
@@ -597,14 +601,7 @@ class HealthDataManager: ObservableObject {
         info.oxygenSaturationReadings = mergeVitalReadings(
             manual: info.oxygenSaturationReadings,
             healthKit: syncedData.oxygenSaturationReadings,
-+        private let poundsToKgConversionFactor = 2.20462
-+
-         // Update weight property with the most recent reading
-         if let mostRecentWeight = info.weightReadings.first {
--            let kg = mostRecentWeight.value / 2.20462 // Convert lbs to kg
-+            let kg = mostRecentWeight.value / poundsToKgConversionFactor
-             info.weight = Measurement(value: kg, unit: .kilograms)
-         }
+            limit: 7
         )
 
         info.respiratoryRateReadings = mergeVitalReadings(
@@ -635,20 +632,10 @@ class HealthDataManager: ObservableObject {
         var merged = manual.filter { $0.source == .manual }
 
         // Add HealthKit entries that don't conflict with manual entries (by date)
-+        private let manualEntryConflictInterval: TimeInterval = 300 // 5 minutes
-
-         // Add HealthKit entries that don't conflict with manual entries (by date)
-         for hkReading in healthKit {
-             // Check if there's a manual entry within 5 minutes
-             let hasManualConflict = merged.contains { manualReading in
--                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < 300 // 5 minutes
-+                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < manualEntryConflictInterval
-             }
- 
-             if !hasManualConflict {
-            // Check if there's a manual entry within 5 minutes
+        for hkReading in healthKit {
+            // Check if there's a manual entry within the conflict window
             let hasManualConflict = merged.contains { manualReading in
-                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < 300 // 5 minutes
+                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < manualEntryConflictInterval
             }
 
             if !hasManualConflict {

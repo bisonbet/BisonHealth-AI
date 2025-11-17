@@ -206,15 +206,6 @@ struct SleepSummaryRow: View {
     }
 }
 
-// MARK: - Date Formatter Extension
-extension DateFormatter {
-    static let shortDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        return formatter
-    }()
-}
-
 // MARK: - Preview
 #Preview {
     List {
