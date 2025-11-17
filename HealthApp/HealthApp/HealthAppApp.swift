@@ -25,14 +25,32 @@ struct HealthAppApp: App {
 @MainActor
 class AppState: ObservableObject {
     @Published var colorScheme: ColorScheme? = nil
-    
+
     private let settingsManager = SettingsManager.shared
+    private let healthDataManager = HealthDataManager.shared
+    private let logger = Logger.shared
     private var cancellables = Set<AnyCancellable>()
-    
+
     init() {
         // Initialize app state
         setupColorScheme()
         observeSettingsChanges()
+        syncHealthKitOnLaunch()
+    }
+
+    private func syncHealthKitOnLaunch() {
+        // Sync from Apple Health on app launch
+        Task {
+            do {
+                logger.info("App launch: Attempting HealthKit sync")
+                try await healthDataManager.syncFromAppleHealth()
+                logger.info("App launch: HealthKit sync completed successfully")
+            } catch {
+                // Silently fail if HealthKit is not available or authorized
+                // The user can manually trigger sync from settings if needed
+                logger.warning("App launch: HealthKit sync failed (this is normal if not authorized): \(error.localizedDescription)")
+            }
+        }
     }
     
     private func setupColorScheme() {

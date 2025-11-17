@@ -24,6 +24,7 @@ class HealthDataManager: ObservableObject {
     // MARK: - Dependencies
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
+    private let healthKitManager = HealthKitManager.shared
     private let errorHandler = ErrorHandler.shared
     private let logger = Logger.shared
     private let retryManager = NetworkRetryManager.shared
@@ -500,19 +501,172 @@ class HealthDataManager: ObservableObject {
         let reportContent = """
         Health Data Report
         Generated: \(Date().formatted())
-        
+
         Personal Information:
         \(personalInfo?.name ?? "Not provided")
-        
+
         Blood Test Results: \(bloodTests.count) tests
         Documents: \(documents.count) documents
         """
-        
+
         guard let data = reportContent.data(using: .utf8) else {
             throw HealthDataError.exportFailed("Failed to generate PDF report")
         }
-        
+
         return data
+    }
+
+    // MARK: - HealthKit Sync
+
+    /// Sync health data from Apple Health
+    func syncFromAppleHealth() async throws {
+        guard healthKitManager.isHealthKitAvailable() else {
+            throw HealthDataError.processingFailed("HealthKit is not available on this device")
+        }
+
+        logger.info("Starting Apple Health sync")
+
+        // Request authorization if needed
+        if !healthKitManager.isAuthorized {
+            try await healthKitManager.requestAuthorization()
+        }
+
+        // Sync data from HealthKit
+        let syncedData = try await healthKitManager.syncAllHealthData()
+
+        // Merge with existing personal info
+        try await mergeHealthKitData(syncedData)
+
+        logger.info("Apple Health sync completed successfully")
+    }
+
+    /// Merge HealthKit data with existing personal info (prioritizing manual entries)
+    private func mergeHealthKitData(_ syncedData: SyncedHealthData) async throws {
+        var info = personalInfo ?? PersonalHealthInfo()
+
+        // Update characteristics only if not manually set
+        if info.dateOfBirth == nil, let dob = syncedData.dateOfBirth {
+            info.dateOfBirth = dob
+        }
+
+        if info.gender == nil, let gender = syncedData.biologicalSex {
+            info.gender = gender
+        }
+
+        if info.bloodType == nil, let bloodType = syncedData.bloodType {
+            info.bloodType = bloodType
+        }
+
+        if info.height == nil, let height = syncedData.height {
+            info.height = height
+        }
+
+        // For weight, prefer the most recent manual entry, but merge HealthKit readings
+        // Keep manual entries and add HealthKit entries, limiting to 7 most recent
+        info.weightReadings = mergeVitalReadings(
+            manual: info.weightReadings,
+            healthKit: syncedData.weightReadings,
+            limit: 7
+        )
+
+        // Update weight property with the most recent reading
+        if let mostRecentWeight = info.weightReadings.first {
+            let kg = mostRecentWeight.value / 2.20462 // Convert lbs to kg
+            info.weight = Measurement(value: kg, unit: .kilograms)
+        }
+
+        // Merge vitals (prioritize manual, then fill with HealthKit data)
+        info.bloodPressureReadings = mergeVitalReadings(
+            manual: info.bloodPressureReadings,
+            healthKit: syncedData.bloodPressureReadings,
+            limit: 7
+        )
+
+        info.heartRateReadings = mergeVitalReadings(
+            manual: info.heartRateReadings,
+            healthKit: syncedData.heartRateReadings,
+            limit: 7
+        )
+
+        info.bodyTemperatureReadings = mergeVitalReadings(
+            manual: info.bodyTemperatureReadings,
+            healthKit: syncedData.bodyTemperatureReadings,
+            limit: 7
+        )
+
+        info.oxygenSaturationReadings = mergeVitalReadings(
+            manual: info.oxygenSaturationReadings,
+            healthKit: syncedData.oxygenSaturationReadings,
+            limit: 7
+        )
+
+        info.respiratoryRateReadings = mergeVitalReadings(
+            manual: info.respiratoryRateReadings,
+            healthKit: syncedData.respiratoryRateReadings,
+            limit: 7
+        )
+
+        // Merge sleep data (prioritize manual, then fill with HealthKit data)
+        info.sleepData = mergeSleepData(
+            manual: info.sleepData,
+            healthKit: syncedData.sleepData,
+            limit: 7
+        )
+
+        // Save merged info
+        try await savePersonalInfo(info)
+    }
+
+    /// Merge vital readings, prioritizing manual entries over HealthKit
+    /// Returns the most recent 'limit' readings
+    private func mergeVitalReadings(
+        manual: [VitalReading],
+        healthKit: [VitalReading],
+        limit: Int
+    ) -> [VitalReading] {
+        // Start with manual entries
+        var merged = manual.filter { $0.source == .manual }
+
+        // Add HealthKit entries that don't conflict with manual entries (by date)
+        for hkReading in healthKit {
+            // Check if there's a manual entry within 5 minutes
+            let hasManualConflict = merged.contains { manualReading in
+                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < 300 // 5 minutes
+            }
+
+            if !hasManualConflict {
+                merged.append(hkReading)
+            }
+        }
+
+        // Sort by timestamp (most recent first) and limit to 'limit' readings
+        return Array(merged.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
+    }
+
+    /// Merge sleep data, prioritizing manual entries over HealthKit
+    /// Returns the most recent 'limit' nights
+    private func mergeSleepData(
+        manual: [SleepData],
+        healthKit: [SleepData],
+        limit: Int
+    ) -> [SleepData] {
+        // Start with manual entries
+        var merged = manual.filter { $0.source == .manual }
+
+        // Add HealthKit entries that don't conflict with manual entries (by date)
+        for hkSleep in healthKit {
+            // Check if there's a manual entry for the same date
+            let hasManualConflict = merged.contains { manualSleep in
+                Calendar.current.isDate(manualSleep.date, inSameDayAs: hkSleep.date)
+            }
+
+            if !hasManualConflict {
+                merged.append(hkSleep)
+            }
+        }
+
+        // Sort by date (most recent first) and limit to 'limit' nights
+        return Array(merged.sorted { $0.date > $1.date }.prefix(limit))
     }
 }
 
