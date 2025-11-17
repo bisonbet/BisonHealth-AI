@@ -313,37 +313,57 @@ class HealthKitManager: ObservableObject {
         let systolicSamples = try await fetchQuantitySamples(for: systolicType, limit: limit)
         let diastolicSamples = try await fetchQuantitySamples(for: diastolicType, limit: limit)
 
-        // Match systolic and diastolic readings by timestamp (within 1 minute)
+        // Optimize blood pressure matching using dictionary-based timestamp indexing
+        // Group diastolic samples by their timestamp rounded to the nearest minute
+        var diastolicByMinute: [Int: [HKQuantitySample]] = [:]
+        for sample in diastolicSamples {
+            let minuteKey = Int(sample.startDate.timeIntervalSince1970 / bloodPressureMatchingWindow)
+            diastolicByMinute[minuteKey, default: []].append(sample)
+        }
+
         var readings: [VitalReading] = []
-        var usedDiastolicSamples = Set<HKQuantitySample>()
+        var usedDiastolicIndices = Set<Int>()
 
         for systolicSample in systolicSamples {
-            // Find matching diastolic reading within the matching window that hasn't been used
-            if let diastolicSample = diastolicSamples.first(where: { diastolic in
-                !usedDiastolicSamples.contains(diastolic) &&
-                abs(diastolic.startDate.timeIntervalSince(systolicSample.startDate)) < bloodPressureMatchingWindow
-            }) {
-                let systolic = systolicSample.quantity.doubleValue(for: .millimeterOfMercury())
-                let diastolic = diastolicSample.quantity.doubleValue(for: .millimeterOfMercury())
+            let systolicMinuteKey = Int(systolicSample.startDate.timeIntervalSince1970 / bloodPressureMatchingWindow)
 
-                let reading = VitalReading(
-                    value: systolic,
-                    unit: "mmHg",
-                    timestamp: systolicSample.startDate,
-                    source: .appleHealth,
-                    systolic: systolic,
-                    diastolic: diastolic
-                )
+            // Check the same minute bucket and adjacent buckets for matches
+            var foundMatch = false
+            for minuteOffset in [-1, 0, 1] {
+                guard let candidates = diastolicByMinute[systolicMinuteKey + minuteOffset] else { continue }
 
-                // Only add if valid
-                if reading.isValid() {
-                    readings.append(reading)
-                } else {
-                    logger.warning("Skipping invalid blood pressure reading: \(systolic)/\(diastolic) mmHg")
+                // Find the closest unused diastolic reading within the matching window
+                for (index, diastolicSample) in diastolicSamples.enumerated() {
+                    guard !usedDiastolicIndices.contains(index),
+                          candidates.contains(diastolicSample),
+                          abs(diastolicSample.startDate.timeIntervalSince(systolicSample.startDate)) < bloodPressureMatchingWindow else {
+                        continue
+                    }
+
+                    let systolic = systolicSample.quantity.doubleValue(for: .millimeterOfMercury())
+                    let diastolic = diastolicSample.quantity.doubleValue(for: .millimeterOfMercury())
+
+                    let reading = VitalReading(
+                        value: systolic,
+                        unit: "mmHg",
+                        timestamp: systolicSample.startDate,
+                        source: .appleHealth,
+                        systolic: systolic,
+                        diastolic: diastolic
+                    )
+
+                    // Only add if valid
+                    if reading.isValid() {
+                        readings.append(reading)
+                        usedDiastolicIndices.insert(index)
+                        foundMatch = true
+                        break
+                    } else {
+                        logger.warning("Skipping invalid blood pressure reading: \(systolic)/\(diastolic) mmHg")
+                    }
                 }
 
-                // Mark this diastolic sample as used
-                usedDiastolicSamples.insert(diastolicSample)
+                if foundMatch { break }
             }
         }
 

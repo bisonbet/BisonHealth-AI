@@ -187,6 +187,15 @@ enum VitalSource: String, Codable, Hashable {
 // MARK: - Vital Reading Validation
 extension VitalReading {
     /// Validates that vital reading values are within realistic ranges
+    ///
+    /// Validation ranges are based on medically realistic values:
+    /// - Blood Pressure: Systolic 50-250 mmHg (covers hypotension to hypertensive crisis)
+    ///                   Diastolic 30-150 mmHg (covers severe hypotension to crisis)
+    /// - Heart Rate: 40-250 bpm (covers bradycardia to extreme tachycardia)
+    /// - Body Temperature: 95-108°F (covers hypothermia warning to hyperthermia danger)
+    /// - Oxygen Saturation: 70-100% (covers severe hypoxia to normal)
+    /// - Respiratory Rate: 5-60 br/min (covers extreme bradypnea to tachypnea)
+    /// - Weight: 50-1000 lbs (realistic adult range with safety margins)
     func isValid() -> Bool {
         // Blood pressure validation (mmHg)
         if let systolic = systolic, let diastolic = diastolic {
@@ -198,13 +207,15 @@ extension VitalReading {
         }
 
         // Heart rate validation (bpm)
+        // Tightened from 20-300 to 40-250 (more realistic for adults)
         if unit == "bpm" {
-            return value >= 20 && value <= 300
+            return value >= 40 && value <= 250
         }
 
         // Body temperature validation (°F)
+        // Tightened from 90-110 to 95-108 (realistic danger thresholds)
         if unit == "°F" {
-            return value >= 90 && value <= 110
+            return value >= 95 && value <= 108
         }
 
         // Oxygen saturation validation (%)
@@ -218,8 +229,9 @@ extension VitalReading {
         }
 
         // Weight validation (lbs)
+        // Tightened from 20-1500 to 50-1000 (realistic adult range)
         if unit == "lbs" {
-            return value >= 20 && value <= 1500
+            return value >= 50 && value <= 1000
         }
 
         // Unknown unit - allow by default
