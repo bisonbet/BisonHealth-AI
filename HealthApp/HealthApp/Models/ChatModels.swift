@@ -462,6 +462,106 @@ extension ChatContext {
                     }
                 }
 
+                // Vitals
+                if !personalInfo.bloodPressureReadings.isEmpty ||
+                   !personalInfo.heartRateReadings.isEmpty ||
+                   !personalInfo.bodyTemperatureReadings.isEmpty ||
+                   !personalInfo.oxygenSaturationReadings.isEmpty ||
+                   !personalInfo.respiratoryRateReadings.isEmpty ||
+                   !personalInfo.weightReadings.isEmpty {
+                    personalContext += "\n- Recent Vitals:\n"
+
+                    if !personalInfo.bloodPressureReadings.isEmpty {
+                        let recent = personalInfo.bloodPressureReadings.prefix(3)
+                        personalContext += "  • Blood Pressure (last \(recent.count) readings):\n"
+                        for reading in recent {
+                            let dateStr = DateFormatter.mediumDate.string(from: reading.timestamp)
+                            personalContext += "    - \(reading.displayValue) on \(dateStr) (\(reading.source.displayName))\n"
+                        }
+                    }
+
+                    if !personalInfo.heartRateReadings.isEmpty {
+                        let recent = personalInfo.heartRateReadings.prefix(3)
+                        let avgBPM = recent.reduce(0.0) { $0 + $1.value } / Double(recent.count)
+                        personalContext += "  • Heart Rate (last \(recent.count) readings):\n"
+                        personalContext += "    - Average: \(Int(avgBPM)) bpm\n"
+                        for reading in recent {
+                            let dateStr = DateFormatter.mediumDate.string(from: reading.timestamp)
+                            personalContext += "    - \(reading.displayValue) on \(dateStr) (\(reading.source.displayName))\n"
+                        }
+                    }
+
+                    if !personalInfo.bodyTemperatureReadings.isEmpty {
+                        let recent = personalInfo.bodyTemperatureReadings.prefix(3)
+                        personalContext += "  • Body Temperature (last \(recent.count) readings):\n"
+                        for reading in recent {
+                            let dateStr = DateFormatter.mediumDate.string(from: reading.timestamp)
+                            personalContext += "    - \(reading.displayValue) on \(dateStr) (\(reading.source.displayName))\n"
+                        }
+                    }
+
+                    if !personalInfo.oxygenSaturationReadings.isEmpty {
+                        let recent = personalInfo.oxygenSaturationReadings.prefix(3)
+                        let avgO2 = recent.reduce(0.0) { $0 + $1.value } / Double(recent.count)
+                        personalContext += "  • Oxygen Saturation (last \(recent.count) readings):\n"
+                        personalContext += "    - Average: \(Int(avgO2))%\n"
+                        for reading in recent {
+                            let dateStr = DateFormatter.mediumDate.string(from: reading.timestamp)
+                            personalContext += "    - \(reading.displayValue) on \(dateStr) (\(reading.source.displayName))\n"
+                        }
+                    }
+
+                    if !personalInfo.respiratoryRateReadings.isEmpty {
+                        let recent = personalInfo.respiratoryRateReadings.prefix(3)
+                        personalContext += "  • Respiratory Rate (last \(recent.count) readings):\n"
+                        for reading in recent {
+                            let dateStr = DateFormatter.mediumDate.string(from: reading.timestamp)
+                            personalContext += "    - \(reading.displayValue) on \(dateStr) (\(reading.source.displayName))\n"
+                        }
+                    }
+
+                    if !personalInfo.weightReadings.isEmpty {
+                        let recent = personalInfo.weightReadings.prefix(5)
+                        personalContext += "  • Weight (last \(recent.count) readings):\n"
+                        for reading in recent {
+                            let dateStr = DateFormatter.mediumDate.string(from: reading.timestamp)
+                            personalContext += "    - \(reading.displayValue) on \(dateStr) (\(reading.source.displayName))\n"
+                        }
+                    }
+                }
+
+                // Sleep Data
+                if !personalInfo.sleepData.isEmpty {
+                    let recentSleep = personalInfo.sleepData.prefix(7)
+                    let totalSleepMinutes = recentSleep.reduce(0) { $0 + $1.totalSleepMinutes }
+                    let avgSleepHours = Double(totalSleepMinutes) / Double(recentSleep.count) / 60.0
+
+                    personalContext += "\n- Sleep Data (last \(recentSleep.count) nights):\n"
+                    personalContext += "  • Average: \(String(format: "%.1f", avgSleepHours)) hours per night\n"
+
+                    for sleep in recentSleep {
+                        let dateStr = DateFormatter.mediumDate.string(from: sleep.date)
+                        personalContext += "  • \(dateStr): \(sleep.displayDuration)"
+
+                        // Add sleep stages if available
+                        var stageInfo: [String] = []
+                        if let deep = sleep.deepSleepMinutes {
+                            stageInfo.append("Deep: \(deep)m")
+                        }
+                        if let rem = sleep.remSleepMinutes {
+                            stageInfo.append("REM: \(rem)m")
+                        }
+                        if let core = sleep.coreSleepMinutes {
+                            stageInfo.append("Core: \(core)m")
+                        }
+                        if !stageInfo.isEmpty {
+                            personalContext += " [\(stageInfo.joined(separator: ", "))]"
+                        }
+
+                        personalContext += " (\(sleep.source.displayName))\n"
+                    }
+                }
+
                 contextParts.append(personalContext)
             } else {
                 contextParts.append("Personal Information: No data available yet\n")

@@ -26,46 +26,38 @@ struct PersonalInfoSection: View {
 
 struct PersonalInfoRowView: View {
     let personalInfo: PersonalHealthInfo
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Summary Info (Limited Display)
             Group {
                 if let name = personalInfo.name {
                     InfoRow(label: "Name", value: name, icon: "person")
                 }
-                
+
                 if let dateOfBirth = personalInfo.dateOfBirth {
+                    let age = calculateAge(from: dateOfBirth)
                     InfoRow(
-                        label: "Date of Birth",
-                        value: DateFormatter.mediumDate.string(from: dateOfBirth),
+                        label: "Age",
+                        value: "\(age) years",
                         icon: "calendar"
                     )
                 }
-                
-                if let gender = personalInfo.gender {
-                    InfoRow(label: "Sex", value: gender.displayName, icon: "figure.dress.line.vertical.figure")
-                }
-                
-                if let bloodType = personalInfo.bloodType {
-                    InfoRow(label: "Blood Type", value: bloodType.displayName, icon: "drop.fill")
-                }
-            }
-            
-            Group {
-                if let height = personalInfo.height {
-                    InfoRow(
-                        label: "Height",
-                        value: formatHeight(height),
-                        icon: "ruler"
-                    )
-                }
-                
+
                 if let weight = personalInfo.weight {
                     InfoRow(
                         label: "Weight",
                         value: formatWeight(weight),
                         icon: "scalemass"
                     )
+                }
+
+                if let gender = personalInfo.gender {
+                    InfoRow(label: "Sex", value: gender.displayName, icon: "figure.dress.line.vertical.figure")
+                }
+
+                if let bloodType = personalInfo.bloodType {
+                    InfoRow(label: "Blood Type", value: bloodType.displayName, icon: "drop.fill")
                 }
             }
             
@@ -108,12 +100,36 @@ struct PersonalInfoRowView: View {
                     }
                 }
             }
+
+            // Vitals and Sleep Data
+            if hasVitalsOrSleep {
+                Divider()
+                    .padding(.vertical, 4)
+
+                VitalsAndSleepSection(personalInfo: personalInfo)
+            }
         }
         .padding(.vertical, 8)
     }
-    
+
+    private var hasVitalsOrSleep: Bool {
+        !personalInfo.bloodPressureReadings.isEmpty ||
+        !personalInfo.heartRateReadings.isEmpty ||
+        !personalInfo.bodyTemperatureReadings.isEmpty ||
+        !personalInfo.oxygenSaturationReadings.isEmpty ||
+        !personalInfo.respiratoryRateReadings.isEmpty ||
+        !personalInfo.weightReadings.isEmpty ||
+        !personalInfo.sleepData.isEmpty
+    }
+
     // MARK: - Helper Functions
-    
+
+    private func calculateAge(from dateOfBirth: Date) -> Int {
+        let calendar = Calendar.current
+        let ageComponents = calendar.dateComponents([.year], from: dateOfBirth, to: Date())
+        return ageComponents.year ?? 0
+    }
+
     private func isFamilyHistoryEmpty(_ history: FamilyMedicalHistory) -> Bool {
         return (history.mother?.isEmpty ?? true) &&
                (history.father?.isEmpty ?? true) &&
@@ -124,7 +140,7 @@ struct PersonalInfoRowView: View {
                (history.siblings?.isEmpty ?? true) &&
                (history.other?.isEmpty ?? true)
     }
-    
+
     private func formatHeight(_ height: Measurement<UnitLength>) -> String {
         if UserDefaults.standard.bool(forKey: "useImperialUnits") {
             let totalInches = height.converted(to: .inches).value

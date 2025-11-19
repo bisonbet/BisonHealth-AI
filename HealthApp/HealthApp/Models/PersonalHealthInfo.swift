@@ -5,7 +5,7 @@ import SwiftUI
 struct PersonalHealthInfo: HealthDataProtocol {
     let id: UUID
     var type: HealthDataType { .personalInfo }
-    
+
     // Basic Information
     var name: String?
     var dateOfBirth: Date?
@@ -13,14 +13,25 @@ struct PersonalHealthInfo: HealthDataProtocol {
     var height: Measurement<UnitLength>?
     var weight: Measurement<UnitMass>?
     var bloodType: BloodType?
-    
+
     // Medical Information
     var allergies: [String]
     var medications: [Medication]
     var supplements: [Supplement] = []
     var personalMedicalHistory: [MedicalCondition]
     var familyHistory: FamilyMedicalHistory
-    
+
+    // Vitals - Keep last 7 readings from Apple Health
+    var bloodPressureReadings: [VitalReading] = []
+    var heartRateReadings: [VitalReading] = []
+    var bodyTemperatureReadings: [VitalReading] = []
+    var oxygenSaturationReadings: [VitalReading] = []
+    var respiratoryRateReadings: [VitalReading] = []
+    var weightReadings: [VitalReading] = []
+
+    // Sleep Data - Keep last 7 nights
+    var sleepData: [SleepData] = []
+
     // Protocol Requirements
     let createdAt: Date
     var updatedAt: Date
@@ -39,6 +50,13 @@ struct PersonalHealthInfo: HealthDataProtocol {
         supplements: [Supplement] = [],
         personalMedicalHistory: [MedicalCondition] = [],
         familyHistory: FamilyMedicalHistory = FamilyMedicalHistory(),
+        bloodPressureReadings: [VitalReading] = [],
+        heartRateReadings: [VitalReading] = [],
+        bodyTemperatureReadings: [VitalReading] = [],
+        oxygenSaturationReadings: [VitalReading] = [],
+        respiratoryRateReadings: [VitalReading] = [],
+        weightReadings: [VitalReading] = [],
+        sleepData: [SleepData] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         metadata: [String: String]? = nil
@@ -55,6 +73,13 @@ struct PersonalHealthInfo: HealthDataProtocol {
         self.supplements = supplements
         self.personalMedicalHistory = personalMedicalHistory
         self.familyHistory = familyHistory
+        self.bloodPressureReadings = bloodPressureReadings
+        self.heartRateReadings = heartRateReadings
+        self.bodyTemperatureReadings = bodyTemperatureReadings
+        self.oxygenSaturationReadings = oxygenSaturationReadings
+        self.respiratoryRateReadings = respiratoryRateReadings
+        self.weightReadings = weightReadings
+        self.sleepData = sleepData
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.metadata = metadata
@@ -65,6 +90,9 @@ struct PersonalHealthInfo: HealthDataProtocol {
         case id, name, dateOfBirth, gender, height, weight, bloodType
         case allergies, medications, supplements
         case personalMedicalHistory, familyHistory
+        case bloodPressureReadings, heartRateReadings, bodyTemperatureReadings
+        case oxygenSaturationReadings, respiratoryRateReadings, weightReadings
+        case sleepData
         case createdAt, updatedAt, metadata
     }
 
@@ -86,9 +114,199 @@ struct PersonalHealthInfo: HealthDataProtocol {
         personalMedicalHistory = try container.decode([MedicalCondition].self, forKey: .personalMedicalHistory)
         familyHistory = try container.decode(FamilyMedicalHistory.self, forKey: .familyHistory)
 
+        // Vitals - Use decodeIfPresent for backward compatibility
+        bloodPressureReadings = try container.decodeIfPresent([VitalReading].self, forKey: .bloodPressureReadings) ?? []
+        heartRateReadings = try container.decodeIfPresent([VitalReading].self, forKey: .heartRateReadings) ?? []
+        bodyTemperatureReadings = try container.decodeIfPresent([VitalReading].self, forKey: .bodyTemperatureReadings) ?? []
+        oxygenSaturationReadings = try container.decodeIfPresent([VitalReading].self, forKey: .oxygenSaturationReadings) ?? []
+        respiratoryRateReadings = try container.decodeIfPresent([VitalReading].self, forKey: .respiratoryRateReadings) ?? []
+        weightReadings = try container.decodeIfPresent([VitalReading].self, forKey: .weightReadings) ?? []
+        sleepData = try container.decodeIfPresent([SleepData].self, forKey: .sleepData) ?? []
+
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
+    }
+}
+
+// MARK: - Vital Reading Structures
+
+struct VitalReading: Codable, Identifiable, Hashable {
+    let id: UUID
+    var value: Double
+    var unit: String
+    var timestamp: Date
+    var source: VitalSource
+
+    // For blood pressure (stores both systolic and diastolic)
+    var systolic: Double?
+    var diastolic: Double?
+
+     var displayValue: String {
+         // For blood pressure, show systolic/diastolic
+         if let systolic = systolic, let diastolic = diastolic {
+             return "\(systolic.cleanString)/\(diastolic.cleanString) \(unit)"
+         }
+         // For other vitals
+         return "\(value.cleanString) \(unit)"
+     }
+
+    init(
+        id: UUID = UUID(),
+        value: Double,
+        unit: String,
+        timestamp: Date = Date(),
+        source: VitalSource = .manual,
+        systolic: Double? = nil,
+        diastolic: Double? = nil
+    ) {
+        self.id = id
+        self.value = value
+        self.unit = unit
+        self.timestamp = timestamp
+        self.source = source
+        self.systolic = systolic
+        self.diastolic = diastolic
+    }
+}
+
+enum VitalSource: String, Codable, Hashable {
+    case manual = "manual"
+    case appleHealth = "apple_health"
+    case device = "device"
+
+    var displayName: String {
+        switch self {
+        case .manual: return "Manual Entry"
+        case .appleHealth: return "Apple Health"
+        case .device: return "Device"
+        }
+    }
+}
+
+// MARK: - Vital Reading Validation
+extension VitalReading {
+    /// Validates that vital reading values are within realistic ranges
+    ///
+    /// Validation ranges are based on medically realistic values:
+    /// - Blood Pressure: Systolic 50-250 mmHg (covers hypotension to hypertensive crisis)
+    ///                   Diastolic 30-150 mmHg (covers severe hypotension to crisis)
+    /// - Heart Rate: 40-250 bpm (covers bradycardia to extreme tachycardia)
+    /// - Body Temperature: 95-108°F (covers hypothermia warning to hyperthermia danger)
+    /// - Oxygen Saturation: 70-100% (covers severe hypoxia to normal)
+    /// - Respiratory Rate: 5-60 br/min (covers extreme bradypnea to tachypnea)
+    /// - Weight: 50-1000 lbs (realistic adult range with safety margins)
+    func isValid() -> Bool {
+        // Blood pressure validation (mmHg)
+        if let systolic = systolic, let diastolic = diastolic {
+            // Systolic: 50-250 mmHg, Diastolic: 30-150 mmHg
+            guard systolic >= 50 && systolic <= 250 else { return false }
+            guard diastolic >= 30 && diastolic <= 150 else { return false }
+            guard systolic > diastolic else { return false } // Systolic must be higher
+            return true
+        }
+
+        // Heart rate validation (bpm)
+        // Tightened from 20-300 to 40-250 (more realistic for adults)
+        if unit == "bpm" {
+            return value >= 40 && value <= 250
+        }
+
+        // Body temperature validation (°F)
+        // Tightened from 90-110 to 95-108 (realistic danger thresholds)
+        if unit == "°F" {
+            return value >= 95 && value <= 108
+        }
+
+        // Oxygen saturation validation (%)
+        if unit == "%" {
+            return value >= 70 && value <= 100
+        }
+
+        // Respiratory rate validation (br/min)
+        if unit == "br/min" {
+            return value >= 5 && value <= 60
+        }
+
+        // Weight validation (lbs)
+        // Tightened from 20-1500 to 50-1000 (realistic adult range)
+        if unit == "lbs" {
+            return value >= 50 && value <= 1000
+        }
+
+        // Unknown unit - allow by default
+        return true
+    }
+}
+
+// MARK: - Sleep Data Structures
+
+struct SleepData: Codable, Identifiable, Hashable {
+    let id: UUID
+    var date: Date // The date of the sleep session (night of)
+    var startTime: Date
+    var endTime: Date
+    var totalSleepMinutes: Int
+    var source: VitalSource
+
+    // Optional detailed sleep stages (if available from Apple Health)
+    var deepSleepMinutes: Int?
+    var remSleepMinutes: Int?
+    var coreSleepMinutes: Int?
+    var awakeMinutes: Int?
+    var inBedMinutes: Int?
+
+    init(
+        id: UUID = UUID(),
+        date: Date,
+        startTime: Date,
+        endTime: Date,
+        totalSleepMinutes: Int,
+        source: VitalSource = .manual,
+        deepSleepMinutes: Int? = nil,
+        remSleepMinutes: Int? = nil,
+        coreSleepMinutes: Int? = nil,
+        awakeMinutes: Int? = nil,
+        inBedMinutes: Int? = nil
+    ) {
+        self.id = id
+        self.date = date
+        self.startTime = startTime
+        self.endTime = endTime
+        self.totalSleepMinutes = totalSleepMinutes
+        self.source = source
+        self.deepSleepMinutes = deepSleepMinutes
+        self.remSleepMinutes = remSleepMinutes
+        self.coreSleepMinutes = coreSleepMinutes
+        self.awakeMinutes = awakeMinutes
+        self.inBedMinutes = inBedMinutes
+    }
+
+    var totalSleepHours: Double {
+        Double(totalSleepMinutes) / 60.0
+    }
+
+    var displayDuration: String {
+        let hours = totalSleepMinutes / 60
+        let minutes = totalSleepMinutes % 60
+        if minutes == 0 {
+            return "\(hours)h"
+        }
+        return "\(hours)h \(minutes)m"
+    }
+
+    var displaySummary: String {
+        var summary = displayDuration
+        if let inBedMinutes = inBedMinutes {
+            let inBedHours = inBedMinutes / 60
+            let inBedMins = inBedMinutes % 60
+            if inBedMins == 0 {
+                summary += " (in bed: \(inBedHours)h)"
+            } else {
+                summary += " (in bed: \(inBedHours)h \(inBedMins)m)"
+            }
+        }
+        return summary
     }
 }
 
