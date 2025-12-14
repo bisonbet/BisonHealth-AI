@@ -6,6 +6,7 @@ struct SettingsView: View {
         case ollamaSettings
         case awsBedrockSettings
         case openAICompatibleSettings
+        case localLLMSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
@@ -150,6 +151,12 @@ struct SettingsView: View {
                 .onAppear {
                     print("🟢 Navigated to OpenAI Compatible Settings")
                 }
+        case .localLLMSettings:
+            let _ = print("📍 Creating OnDeviceLLMSettingsView")
+            OnDeviceLLMSettingsView()
+                .onAppear {
+                    print("🔐 Navigated to On-Device LLM Settings")
+                }
         }
     }
     
@@ -245,6 +252,47 @@ struct SettingsView: View {
         .cornerRadius(10)
     }
 
+    private var localLLMCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("On-Device AI", systemImage: "lock.shield.fill")
+                    .font(.headline)
+                    .foregroundColor(.blue)
+
+                Spacer()
+
+                Button("Configure") {
+                    print("🔐 Local LLM Configure button tapped")
+                    navigationPath.append(SettingsRoute.localLLMSettings)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.shield.fill")
+                    .foregroundColor(.green)
+                    .font(.caption)
+
+                Text("Complete privacy: All AI processing happens on your device")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "wifi.slash")
+                    .foregroundColor(.blue)
+                    .font(.caption)
+
+                Text("Works offline: No internet connection required")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
     // MARK: - AI Provider Section
 
     private var aiProviderSection: some View {
@@ -269,6 +317,8 @@ struct SettingsView: View {
                     awsBedrockCard
                 case .openAICompatible:
                     openAICompatibleCard
+                case .localLLM:
+                    localLLMCard
                 }
             }
             .padding(.vertical, 8)

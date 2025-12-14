@@ -25,7 +25,8 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 17+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally with optional iCloud backup
-- 🤖 **Multiple AI Providers** - Support for Ollama, AWS Bedrock, and OpenAI-compatible servers
+- 🤖 **Multiple AI Providers** - Support for Ollama, AWS Bedrock, OpenAI-compatible servers, and on-device AI
+- 🔐 **On-Device AI** - Run medical AI models locally with complete privacy, no internet required
 - 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Family Medicine, Chronic Health AI, and more)
 - 📄 **Smart Document Processing** - Automatic OCR and extraction of health data from documents using Docling
 - 🏥 **Medical Document Management** - Support for 11 document types including imaging reports, lab reports, prescriptions, discharge summaries, and more
@@ -76,9 +77,13 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 ├─────────────────────────────────────────────────────────────┤
 │  External Service Layer                                     │
 │  ├── AI Provider Interface (Protocol)                       │
+│  │   ├── On-Device LLM Provider (LocalLLMClient)           │
 │  │   ├── Ollama Client                                      │
 │  │   ├── AWS Bedrock Client                                 │
 │  │   └── OpenAI-Compatible Client                           │
+│  ├── On-Device LLM Manager                                  │
+│  │   ├── Model Download Manager                             │
+│  │   └── LLM Service (Inference Engine)                     │
 │  ├── Docling Client (Document Processing)                   │
 │  └── Medical Document Extractor (AI-Enhanced)             │
 └─────────────────────────────────────────────────────────────┘
@@ -159,19 +164,39 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 
 BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 
-1. **Ollama** (Default) - Local AI server for maximum privacy
+1. **On-Device AI** - Privacy-first local models (NEW!)
+   - **Complete Privacy**: All AI processing happens directly on your device
+   - **No Internet Required**: Works completely offline
+   - **Medical-Specialized Models**:
+     - **MedGemma 4B**: Medical domain model trained on clinical literature
+     - **Qwen3-VL 4B**: Vision-language model for analyzing medical images and documents
+   - **Features**:
+     - Download models directly within the app
+     - Multiple quantization levels (Q4_K_M, Q5_K_M, Q8_0) to balance quality and storage
+     - Streaming responses for real-time chat
+     - Vision model support for document import and medical image analysis
+     - Configurable temperature and max token settings
+   - **Requirements**:
+     - iPhone 12 or newer, iPad with A14 Bionic or later
+     - 2-4 GB free storage per model
+     - iOS 17.0+
+   - **Models Hosted on HuggingFace**:
+     - [MedGemma-4B-IT-GGUF](https://huggingface.co/unsloth/medgemma-4b-it-GGUF)
+     - [Qwen3-VL-4B-Instruct-GGUF](https://huggingface.co/unsloth/Qwen3-VL-4B-Instruct-GGUF)
+
+2. **Ollama** - Local AI server for network-based privacy
    - Install and run Ollama on your local network or remote server
    - Configure hostname and port in app settings
    - Supports any Ollama-compatible models (llama3.2, mistral, etc.)
    - Supports streaming responses for real-time chat
 
-2. **AWS Bedrock** - Cloud AI service
+3. **AWS Bedrock** - Cloud AI service
    - Configure AWS credentials (access key, secret key, region)
    - Supports Claude Sonnet 4 and Llama 4 Maverick models
    - Large context windows (200k tokens for Claude Sonnet 4)
    - Requires AWS account and Bedrock access
 
-3. **OpenAI-Compatible Servers** - For LiteLLM, LocalAI, vLLM, etc.
+4. **OpenAI-Compatible Servers** - For LiteLLM, LocalAI, vLLM, etc.
    - Configure base URL and optional API key
    - Supports any OpenAI-compatible API endpoint
    - Flexible deployment options
@@ -229,11 +254,17 @@ HealthApp/
 │   │   ├── AIChatManager.swift
 │   │   └── SettingsManager.swift
 │   ├── Services/            # External service clients
+│   │   ├── LocalLLMProvider.swift
 │   │   ├── OllamaClient.swift
 │   │   ├── BedrockClient.swift
 │   │   ├── OpenAICompatibleClient.swift
 │   │   ├── DoclingClient.swift
 │   │   └── MedicalDocumentExtractor.swift
+│   ├── OnDeviceLLM/         # On-device AI models
+│   │   ├── OnDeviceLLMModels.swift
+│   │   ├── OnDeviceLLMService.swift
+│   │   ├── ModelDownloadManager.swift
+│   │   └── OnDeviceLLMSettingsView.swift
 │   ├── Database/            # SQLite database management
 │   │   ├── DatabaseManager.swift
 │   │   ├── DatabaseManager+HealthData.swift
@@ -256,6 +287,7 @@ HealthApp/
 - **VisionKit** - Document scanning capabilities
 - **Combine** - Reactive programming framework for state management
 - **MarkdownUI** - Rich text rendering for AI responses
+- **LocalLLMClient** - On-device LLM inference via llama.cpp
 - **AWS SDK** - AWS Bedrock integration for cloud AI
 - **Network Framework** - Network monitoring and offline support
 
@@ -326,6 +358,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Phase 2.9** - Offline functionality and network handling
 - [x] **Phase 2.10** - Streaming AI responses
 - [x] **Phase 2.11** - Current date/time injection for temporal awareness
+- [x] **Phase 2.12** - On-device AI with medical-specialized models (MedGemma, Qwen3-VL)
 
 ### 🚧 In Progress / Planned
 - [ ] **Phase 3** - Wearable device integration and Apple Health sync
