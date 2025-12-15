@@ -34,7 +34,17 @@ class ModelDownloadManager: NSObject, ObservableObject {
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
 
         setupNetworkMonitoring()
-        loadDownloadedModels()
+
+        // Load downloaded models asynchronously to avoid blocking main thread
+        Task {
+            await loadDownloadedModels()
+        }
+    }
+
+    deinit {
+        // Stop network monitoring to conserve battery
+        pathMonitor.cancel()
+        logger.info("ModelDownloadManager deinitialized, network monitor stopped")
     }
 
     // MARK: - Network Monitoring
@@ -86,23 +96,34 @@ class ModelDownloadManager: NSObject, ObservableObject {
         "\(model.id)-\(quantization.rawValue)"
     }
 
-    private func loadDownloadedModels() {
+    private func loadDownloadedModels() async {
         let downloadedModels = OnDeviceLLMConfig.loadDownloadedModels()
 
-        for downloadedModel in downloadedModels {
-            let key = "\(downloadedModel.modelID)-\(downloadedModel.quantization.rawValue)"
-            if FileManager.default.fileExists(atPath: downloadedModel.filePath) {
+        // Perform file system checks off main thread
+        let validModels = await Task.detached {
+            downloadedModels.filter { FileManager.default.fileExists(atPath: $0.filePath) }
+        }.value
+
+        // Update state on main actor
+        await MainActor.run {
+            for downloadedModel in validModels {
+                let key = "\(downloadedModel.modelID)-\(downloadedModel.quantization.rawValue)"
                 downloadStates[key] = .downloaded(model: downloadedModel)
-            } else {
-                // File missing, remove from downloaded list
-                logger.warning("Downloaded model file missing: \(downloadedModel.filePath)")
             }
+            logger.info("Loaded \(downloadStates.count) downloaded models")
+        }
+
+        // Log missing files
+        let missingModels = downloadedModels.filter { model in
+            !validModels.contains(where: { $0.id == model.id })
+        }
+        for model in missingModels {
+            logger.warning("Downloaded model file missing: \(model.filePath)")
         }
 
         // Clean up any orphaned entries
-        var validModels = downloadedModels.filter { FileManager.default.fileExists(atPath: $0.filePath) }
         if validModels.count != downloadedModels.count {
-            OnDeviceLLMConfig.saveDownloadedModels(validModels)
+            OnDeviceLLMConfig.saveDownloadedModels(Array(validModels))
         }
     }
 

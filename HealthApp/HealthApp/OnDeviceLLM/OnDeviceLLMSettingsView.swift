@@ -20,6 +20,10 @@ struct OnDeviceLLMSettingsView: View {
     /// Step value for max tokens slider
     private static let maxTokensStep = 256
 
+    // MARK: - Environment
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     // MARK: - State Properties
 
     @StateObject private var downloadManager = ModelDownloadManager.shared
@@ -37,6 +41,13 @@ struct OnDeviceLLMSettingsView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var showRAMWarning = false
+
+    // MARK: - Computed Properties
+
+    /// Check if running on iPad or in regular horizontal size class
+    private var isIPadLayout: Bool {
+        horizontalSizeClass == .regular
+    }
 
     init() {
         let config = OnDeviceLLMConfig.load()
@@ -80,7 +91,8 @@ struct OnDeviceLLMSettingsView: View {
             }
         }
         .navigationTitle("On-Device AI")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(isIPadLayout ? .large : .inline)
+        .listStyle(isIPadLayout ? .insetGrouped : .insetGrouped)
         .alert("Delete Model", isPresented: $showDeleteConfirmation, presenting: modelToDelete) { modelInfo in
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -251,13 +263,13 @@ struct OnDeviceLLMSettingsView: View {
                     config.modelID = model.id
                     config.contextWindow = model.contextWindow
                 } label: {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: isIPadLayout ? 16 : 12) {
                         // Header
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(model.displayName)
-                                        .font(.headline)
+                                        .font(isIPadLayout ? .title3 : .headline)
 
                                     if model.isVisionModel {
                                         Image(systemName: "eye.fill")
@@ -269,7 +281,7 @@ struct OnDeviceLLMSettingsView: View {
                                 }
 
                                 Text("\(model.parameters) • \(model.quantizations.first?.estimatedSize ?? "")")
-                                    .font(.subheadline)
+                                    .font(isIPadLayout ? .body : .subheadline)
                                     .foregroundColor(.secondary)
                             }
 
@@ -278,20 +290,20 @@ struct OnDeviceLLMSettingsView: View {
                             if selectedModel?.id == model.id {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.blue)
-                                    .font(.title3)
+                                    .font(isIPadLayout ? .title2 : .title3)
                             }
                         }
 
                         // Description
                         Text(model.description)
-                            .font(.caption)
+                            .font(isIPadLayout ? .body : .caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Divider()
 
                         // Performance Metrics
-                        VStack(spacing: 8) {
+                        VStack(spacing: isIPadLayout ? 12 : 8) {
                             modelMetricRow(
                                 icon: "gauge.with.dots.needle.67percent",
                                 label: "Speed",
@@ -328,7 +340,8 @@ struct OnDeviceLLMSettingsView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, isIPadLayout ? 12 : 8)
+                    .padding(.horizontal, isIPadLayout ? 4 : 0)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(model.displayName) model")

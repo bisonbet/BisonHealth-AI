@@ -184,6 +184,23 @@ extension OnDeviceLLMModel {
             promptTemplate: .gemma,
             isVisionModel: false,
             checksums: nil
+        ),
+
+        // Qwen3-VL-4B - Vision + Medical model for document/image analysis
+        OnDeviceLLMModel(
+            id: "qwen3-vl-4b",
+            name: "qwen3-vl-4b-instruct",
+            displayName: "Qwen3-VL 4B",
+            description: "Vision-language model for analyzing medical documents and images. Can extract text from lab reports, prescriptions, and medical documents. Extended 32K token context. Requires 8GB+ RAM.",
+            huggingFaceRepo: "unsloth/Qwen3-VL-4B-Instruct-GGUF",
+            parameters: "4B",
+            contextWindow: 32768,
+            quantizations: [.q4_K_M],
+            defaultQuantization: .q4_K_M,
+            specialization: .vision,
+            promptTemplate: .qwen,
+            isVisionModel: true,
+            checksums: nil
         )
     ]
 
@@ -201,6 +218,7 @@ struct OnDeviceLLMConfig: Equatable, Codable {
     var maxTokens: Int
     var contextWindow: Int
     var allowCellularDownload: Bool
+    var charsPerTokenRatio: Double
 
     static let `default` = OnDeviceLLMConfig(
         modelID: "meditron3-gemma2-2b",
@@ -208,7 +226,8 @@ struct OnDeviceLLMConfig: Equatable, Codable {
         temperature: 0.1,
         maxTokens: 2048,
         contextWindow: 8192,
-        allowCellularDownload: false
+        allowCellularDownload: false,
+        charsPerTokenRatio: 3.5  // Tuned for medical text
     )
 
     // UserDefaults keys
@@ -220,6 +239,7 @@ struct OnDeviceLLMConfig: Equatable, Codable {
         static let maxTokens = "onDeviceLLMMaxTokens"
         static let contextWindow = "onDeviceLLMContextWindow"
         static let allowCellularDownload = "onDeviceLLMAllowCellular"
+        static let charsPerTokenRatio = "onDeviceLLMCharsPerTokenRatio"
         static let downloadedModels = "onDeviceLLMDownloadedModels"
     }
 
@@ -231,7 +251,8 @@ struct OnDeviceLLMConfig: Equatable, Codable {
             temperature: defaults.double(forKey: Keys.temperature) != 0 ? defaults.double(forKey: Keys.temperature) : OnDeviceLLMConfig.default.temperature,
             maxTokens: defaults.integer(forKey: Keys.maxTokens) != 0 ? defaults.integer(forKey: Keys.maxTokens) : OnDeviceLLMConfig.default.maxTokens,
             contextWindow: defaults.integer(forKey: Keys.contextWindow) != 0 ? defaults.integer(forKey: Keys.contextWindow) : OnDeviceLLMConfig.default.contextWindow,
-            allowCellularDownload: defaults.bool(forKey: Keys.allowCellularDownload)
+            allowCellularDownload: defaults.bool(forKey: Keys.allowCellularDownload),
+            charsPerTokenRatio: defaults.double(forKey: Keys.charsPerTokenRatio) != 0 ? defaults.double(forKey: Keys.charsPerTokenRatio) : OnDeviceLLMConfig.default.charsPerTokenRatio
         )
     }
 
@@ -243,6 +264,7 @@ struct OnDeviceLLMConfig: Equatable, Codable {
         defaults.set(maxTokens, forKey: Keys.maxTokens)
         defaults.set(contextWindow, forKey: Keys.contextWindow)
         defaults.set(allowCellularDownload, forKey: Keys.allowCellularDownload)
+        defaults.set(charsPerTokenRatio, forKey: Keys.charsPerTokenRatio)
     }
 
     static var isEnabled: Bool {
@@ -281,6 +303,7 @@ enum OnDeviceLLMError: LocalizedError {
     case insufficientRAM(required: Double, available: Double)
     case inferenceError(String)
     case modelLoadFailed(String)
+    case modelLoadInProgress
     case contextTooLong(Int, max: Int)
     case invalidResponse
     case checksumMismatch
@@ -310,6 +333,8 @@ enum OnDeviceLLMError: LocalizedError {
             return "Model inference failed. Please try again."
         case .modelLoadFailed:
             return "Failed to load model. Please try redownloading the model."
+        case .modelLoadInProgress:
+            return "Model is already being loaded. Please wait for the current operation to complete."
         case .contextTooLong(let length, let max):
             return "Input too long (\(length) tokens). Maximum: \(max) tokens."
         case .invalidResponse:

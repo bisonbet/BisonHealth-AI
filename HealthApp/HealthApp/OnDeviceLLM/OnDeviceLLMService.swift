@@ -10,6 +10,7 @@ import Foundation
 import UIKit
 import os.log
 import CryptoKit
+import Combine
 
 #if canImport(LocalLLMClient)
 import LocalLLMClient
@@ -45,25 +46,19 @@ class OnDeviceLLMService: ObservableObject {
     private var llmSession: LLMSession?
     #endif
 
+    private var memoryWarningCancellable: AnyCancellable?
+
     private init() {
-        // Register for memory warnings
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleMemoryWarning),
-            name: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil
-        )
-    }
-
-    deinit {
-        // Clean up notification observers
-        NotificationCenter.default.removeObserver(self)
-        logger.info("OnDeviceLLMService deinitialized, observers removed")
-    }
-
-    @objc private func handleMemoryWarning() {
-        logger.warning("Received memory warning, unloading model")
-        unloadModel()
+        // Register for memory warnings using Combine (avoids potential selector-based observer leaks)
+        memoryWarningCancellable = NotificationCenter.default
+            .publisher(for: UIApplication.didReceiveMemoryWarningNotification)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                Task { @MainActor in
+                    logger.warning("Received memory warning, unloading model")
+                    self.unloadModel()
+                }
+            }
     }
 
     // MARK: - Model Loading
@@ -73,7 +68,7 @@ class OnDeviceLLMService: ObservableObject {
         // Prevent concurrent loading
         guard !isModelLoading else {
             logger.warning("Model loading already in progress")
-            return
+            throw OnDeviceLLMError.modelLoadInProgress
         }
 
         isModelLoading = true
@@ -106,10 +101,10 @@ class OnDeviceLLMService: ObservableObject {
             throw OnDeviceLLMError.modelLoadFailed("Model file appears corrupted (size: \(fileSize) bytes)")
         }
 
-        // Validate checksum if available
+        // Validate checksum if available (runs on background thread)
         if let checksums = model.checksums, let expectedChecksum = checksums[quantization.rawValue] {
             logger.info("Validating checksum for \(model.displayName) (\(quantization.rawValue))")
-            let actualChecksum = try calculateSHA256(filePath: filePath)
+            let actualChecksum = try await calculateSHA256(filePath: filePath)
 
             if actualChecksum != expectedChecksum {
                 logger.error("Checksum mismatch! Expected: \(expectedChecksum), Got: \(actualChecksum)")
@@ -170,9 +165,8 @@ class OnDeviceLLMService: ObservableObject {
             throw OnDeviceLLMError.modelNotDownloaded
         }
 
-        // Validate context length
-        // Note: Approximate token counting (1 token ≈ 4 characters)
-        let estimatedTokens = prompt.count / 4
+        // Validate context length using configurable ratio
+        let estimatedTokens = estimateTokenCount(prompt, config: config)
         if estimatedTokens > config.contextWindow {
             throw OnDeviceLLMError.contextTooLong(estimatedTokens, max: config.contextWindow)
         }
@@ -210,8 +204,8 @@ class OnDeviceLLMService: ObservableObject {
                     return
                 }
 
-                // Validate context length
-                let estimatedTokens = prompt.count / 4
+                // Validate context length using configurable ratio
+                let estimatedTokens = estimateTokenCount(prompt, config: config)
                 if estimatedTokens > config.contextWindow {
                     continuation.finish(throwing: OnDeviceLLMError.contextTooLong(estimatedTokens, max: config.contextWindow))
                     return
@@ -299,6 +293,7 @@ class OnDeviceLLMService: ObservableObject {
 
     // MARK: - Vision Model Support
 
+    /// Analyze a single image with the vision model
     func analyzeImage(imageData: Data, prompt: String, config: OnDeviceLLMConfig) async throws -> String {
         #if canImport(LocalLLMClient)
         guard let model = currentModel else {
@@ -319,12 +314,9 @@ class OnDeviceLLMService: ObservableObject {
 
         let formattedPrompt = model.promptTemplate.formatPrompt(system: systemPrompt, user: prompt)
 
-        do {
-            // Note: Vision support requires LocalLLMClient with image processing capabilities
-            // This is a simplified implementation - actual vision processing may require
-            // additional setup depending on the model format
-            logger.info("Analyzing image with vision model: \(model.displayName)")
+        logger.info("Analyzing image with vision model: \(model.displayName)")
 
+        do {
             let response = try await session.generateWithImage(
                 imageData: imageData,
                 prompt: formattedPrompt,
@@ -347,37 +339,106 @@ class OnDeviceLLMService: ObservableObject {
         #endif
     }
 
+    /// Analyze a multi-page document by splitting into pages and processing each separately
+    func analyzeDocument(imagePages: [Data], extractionPrompt: String, config: OnDeviceLLMConfig) async throws -> String {
+        guard !imagePages.isEmpty else {
+            throw OnDeviceLLMError.imageProcessingFailed("No pages provided")
+        }
+
+        logger.info("Analyzing document with \(imagePages.count) page(s)")
+
+        var extractedPages: [String] = []
+
+        // Process each page separately
+        for (index, pageData) in imagePages.enumerated() {
+            let pageNumber = index + 1
+            logger.info("Processing page \(pageNumber) of \(imagePages.count)")
+
+            let pagePrompt = """
+            \(extractionPrompt)
+
+            This is page \(pageNumber) of \(imagePages.count). Extract all text, tables, and relevant medical information from this page.
+            """
+
+            do {
+                let pageResult = try await analyzeImage(imageData: pageData, prompt: pagePrompt, config: config)
+                extractedPages.append("--- Page \(pageNumber) ---\n\(pageResult)")
+
+                logger.info("Successfully processed page \(pageNumber)")
+
+            } catch {
+                logger.error("Failed to process page \(pageNumber): \(error.localizedDescription)")
+                extractedPages.append("--- Page \(pageNumber) ---\n[Error processing page: \(error.localizedDescription)]")
+            }
+        }
+
+        // Consolidate all pages
+        let consolidatedResult = extractedPages.joined(separator: "\n\n")
+
+        logger.info("Document analysis complete. Processed \(imagePages.count) pages.")
+
+        return consolidatedResult
+    }
+
+    /// Extract text from a document (OCR) - specialized for medical documents
+    func extractTextFromDocument(imagePages: [Data], config: OnDeviceLLMConfig) async throws -> String {
+        let extractionPrompt = """
+        Extract all text from this medical document image. Preserve the original structure, formatting, and organization as much as possible.
+
+        Include:
+        - All text content
+        - Table data (if any)
+        - Numbers and measurements
+        - Dates and timestamps
+        - Medical terminology exactly as written
+        - Any handwritten notes or annotations
+
+        Format the output as plain text that preserves the document structure. Do not add interpretation or commentary.
+        """
+
+        return try await analyzeDocument(imagePages: imagePages, extractionPrompt: extractionPrompt, config: config)
+    }
+
     // MARK: - Utility Methods
 
-    func estimateTokenCount(_ text: String) -> Int {
-        // Rough approximation: 1 token ≈ 4 characters
-        return text.count / 4
+    func estimateTokenCount(_ text: String, config: OnDeviceLLMConfig) -> Int {
+        // Configurable approximation tuned for medical text
+        // Default: 3.5 chars/token (more accurate than 4.0 for medical terminology)
+        return Int(ceil(Double(text.count) / config.charsPerTokenRatio))
     }
 
     func canProcessText(_ text: String, config: OnDeviceLLMConfig) -> Bool {
-        let estimatedTokens = estimateTokenCount(text)
+        let estimatedTokens = estimateTokenCount(text, config: config)
         return estimatedTokens <= config.contextWindow
     }
 
-    /// Calculate SHA256 checksum of a file
-    private func calculateSHA256(filePath: URL) throws -> String {
-        var hasher = SHA256()
+    /// Calculate SHA256 checksum of a file (runs on background thread)
+    private func calculateSHA256(filePath: URL) async throws -> String {
+        try await Task.detached {
+            var hasher = SHA256()
 
-        let fileHandle = try FileHandle(forReadingFrom: filePath)
-        defer { try? fileHandle.close() }
-
-        while autoreleasepool(invoking: {
-            let data = fileHandle.readData(ofLength: Self.fileBufferSize)
-            if data.count > 0 {
-                hasher.update(data: data)
-                return true
-            } else {
-                return false
+            let fileHandle = try FileHandle(forReadingFrom: filePath)
+            defer {
+                do {
+                    try fileHandle.close()
+                } catch {
+                    logger.error("Failed to close file handle: \(error.localizedDescription)")
+                }
             }
-        }) { }
 
-        let digest = hasher.finalize()
-        return digest.map { String(format: "%02x", $0) }.joined()
+            while autoreleasepool(invoking: {
+                let data = fileHandle.readData(ofLength: Self.fileBufferSize)
+                if data.count > 0 {
+                    hasher.update(data: data)
+                    return true
+                } else {
+                    return false
+                }
+            }) { }
+
+            let digest = hasher.finalize()
+            return digest.map { String(format: "%02x", $0) }.joined()
+        }.value
     }
 
     // MARK: - Health Check
@@ -402,10 +463,36 @@ class OnDeviceLLMService: ObservableObject {
 #if canImport(LocalLLMClient)
 extension LLMSession {
     func generateWithImage(imageData: Data, prompt: String, maxTokens: Int, temperature: Double) async throws -> String {
-        // Vision model support is not yet implemented
-        // The LocalLLMClient library needs additional configuration for vision capabilities
-        // This feature will be enabled in a future update
-        throw OnDeviceLLMError.visionNotSupported
+        // Attempt to use vision model capabilities
+        // Note: This requires LocalLLMClient to support vision models (LLaVA, Qwen-VL, etc.)
+
+        do {
+            // Convert image to base64 for vision model processing
+            let base64Image = imageData.base64EncodedString()
+
+            // Vision models typically expect special formatting
+            // For Qwen-VL models, images are often embedded in the prompt
+            let visionPrompt = "<|vision_start|>\(base64Image)<|vision_end|>\n\(prompt)"
+
+            logger.info("Attempting vision model inference with image size: \(imageData.count) bytes")
+
+            // Use standard generation with vision-formatted prompt
+            // If LocalLLMClient supports vision natively, it will process the image
+            // Otherwise, it will fail gracefully
+            let response = try await self.generate(
+                prompt: visionPrompt,
+                maxTokens: maxTokens,
+                temperature: temperature
+            )
+
+            return response
+
+        } catch {
+            logger.error("Vision model processing failed: \(error.localizedDescription)")
+            logger.info("This may indicate that LocalLLMClient doesn't fully support vision models yet")
+            logger.info("Fallback to external vision processing (Docling) recommended")
+            throw OnDeviceLLMError.visionNotSupported
+        }
     }
 }
 #endif

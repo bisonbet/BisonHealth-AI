@@ -20,11 +20,14 @@ struct DeviceCapability {
     /// Recommended RAM for optimal performance (8GB)
     private static let recommendedRAMForLLM: Double = 8.0
 
+    /// Binary GB conversion factor (1024³)
+    private static let bytesToGB: Double = 1_073_741_824
+
     // MARK: - Memory Detection
 
-    /// Get total physical memory in GB
+    /// Get total physical memory in GB (binary GB, not decimal)
     static var physicalMemoryGB: Double {
-        Double(ProcessInfo.processInfo.physicalMemory) / 1_000_000_000
+        Double(ProcessInfo.processInfo.physicalMemory) / bytesToGB
     }
 
     /// Get total physical memory in bytes
@@ -52,7 +55,7 @@ struct DeviceCapability {
             return false
         }
 
-        let modelSizeGB = Double(sizeBytes) / 1_000_000_000
+        let modelSizeGB = Double(sizeBytes) / bytesToGB
 
         // Q4_K_M models need ~1.5x their file size in RAM (file + runtime overhead)
         let requiredMemoryGB = modelSizeGB * 1.5
