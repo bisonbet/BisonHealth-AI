@@ -140,6 +140,7 @@ class AIProviderFactory {
         case openai
         case anthropic
         case bedrock
+        case localLLM
         case custom(String)
     }
 
@@ -171,6 +172,8 @@ class AIProviderFactory {
                 profileName: nil
             )
             return BedrockClient(config: bedrockConfig)
+        case .localLLM:
+            return LocalLLMProvider()
         case .custom(let providerName):
             // TODO: Implement custom provider loading
             fatalError("Custom provider \(providerName) not implemented")
