@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import os.log
+import CryptoKit
 
 #if canImport(LocalLLMClient)
 import LocalLLMClient
@@ -21,6 +22,19 @@ private let logger = Logger(subsystem: "com.bisonhealth.ai", category: "OnDevice
 class OnDeviceLLMService: ObservableObject {
     static let shared = OnDeviceLLMService()
 
+    // MARK: - Constants
+
+    /// Maximum allowed model file size (5GB)
+    private static let maxModelFileSizeBytes: Int64 = 5_000_000_000
+
+    /// Minimum expected model file size (500MB) - files smaller than this are likely corrupted
+    private static let minModelFileSizeBytes: Int64 = 500_000_000
+
+    /// Buffer size for file operations (1MB) - balances memory usage and performance
+    private static let fileBufferSize: Int = 1024 * 1024
+
+    // MARK: - Published Properties
+
     @Published var isModelLoaded: Bool = false
     @Published var isModelLoading: Bool = false
     @Published var currentModel: OnDeviceLLMModel?
@@ -31,8 +45,6 @@ class OnDeviceLLMService: ObservableObject {
     private var llmSession: LLMSession?
     #endif
 
-    private let maxFileSizeBytes: Int64 = 5_000_000_000  // 5GB max model size
-
     private init() {
         // Register for memory warnings
         NotificationCenter.default.addObserver(
@@ -41,6 +53,12 @@ class OnDeviceLLMService: ObservableObject {
             name: UIApplication.didReceiveMemoryWarningNotification,
             object: nil
         )
+    }
+
+    deinit {
+        // Clean up notification observers
+        NotificationCenter.default.removeObserver(self)
+        logger.info("OnDeviceLLMService deinitialized, observers removed")
     }
 
     @objc private func handleMemoryWarning() {
@@ -80,12 +98,27 @@ class OnDeviceLLMService: ObservableObject {
         let attributes = try FileManager.default.attributesOfItem(atPath: filePath.path)
         let fileSize = attributes[.size] as? Int64 ?? 0
 
-        if fileSize > maxFileSizeBytes {
+        if fileSize > Self.maxModelFileSizeBytes {
             throw OnDeviceLLMError.modelTooLarge(fileSize)
         }
 
-        if fileSize < 500_000_000 {  // Less than 500MB suggests corruption
+        if fileSize < Self.minModelFileSizeBytes {
             throw OnDeviceLLMError.modelLoadFailed("Model file appears corrupted (size: \(fileSize) bytes)")
+        }
+
+        // Validate checksum if available
+        if let checksums = model.checksums, let expectedChecksum = checksums[quantization.rawValue] {
+            logger.info("Validating checksum for \(model.displayName) (\(quantization.rawValue))")
+            let actualChecksum = try calculateSHA256(filePath: filePath)
+
+            if actualChecksum != expectedChecksum {
+                logger.error("Checksum mismatch! Expected: \(expectedChecksum), Got: \(actualChecksum)")
+                throw OnDeviceLLMError.modelLoadFailed("Model file checksum validation failed. File may be corrupted. Please delete and redownload.")
+            }
+
+            logger.info("Checksum validation passed")
+        } else {
+            logger.info("No checksum available for validation (model will load without verification)")
         }
 
         logger.info("Loading model: \(model.displayName) (\(quantization.rawValue)) from \(filePath.path)")
@@ -326,6 +359,27 @@ class OnDeviceLLMService: ObservableObject {
         return estimatedTokens <= config.contextWindow
     }
 
+    /// Calculate SHA256 checksum of a file
+    private func calculateSHA256(filePath: URL) throws -> String {
+        var hasher = SHA256()
+
+        let fileHandle = try FileHandle(forReadingFrom: filePath)
+        defer { try? fileHandle.close() }
+
+        while autoreleasepool(invoking: {
+            let data = fileHandle.readData(ofLength: Self.fileBufferSize)
+            if data.count > 0 {
+                hasher.update(data: data)
+                return true
+            } else {
+                return false
+            }
+        }) { }
+
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     // MARK: - Health Check
 
     func testModel() async -> Bool {
@@ -348,11 +402,10 @@ class OnDeviceLLMService: ObservableObject {
 #if canImport(LocalLLMClient)
 extension LLMSession {
     func generateWithImage(imageData: Data, prompt: String, maxTokens: Int, temperature: Double) async throws -> String {
-        // This is a placeholder for vision model support
-        // Actual implementation depends on LocalLLMClient's vision capabilities
-        // For now, we'll just generate text without image context
-        logger.warning("Vision support not fully implemented, processing as text-only")
-        return try await generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature)
+        // Vision model support is not yet implemented
+        // The LocalLLMClient library needs additional configuration for vision capabilities
+        // This feature will be enabled in a future update
+        throw OnDeviceLLMError.visionNotSupported
     }
 }
 #endif

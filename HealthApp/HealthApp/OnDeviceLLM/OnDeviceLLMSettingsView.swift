@@ -9,6 +9,19 @@
 import SwiftUI
 
 struct OnDeviceLLMSettingsView: View {
+    // MARK: - Constants
+
+    /// Minimum value for max tokens slider
+    private static let minMaxTokens = 256
+
+    /// Maximum value for max tokens slider
+    private static let maxMaxTokens = 8192
+
+    /// Step value for max tokens slider
+    private static let maxTokensStep = 256
+
+    // MARK: - State Properties
+
     @StateObject private var downloadManager = ModelDownloadManager.shared
     @StateObject private var llmService = OnDeviceLLMService.shared
 
@@ -21,6 +34,8 @@ struct OnDeviceLLMSettingsView: View {
     @State private var showCellularWarning = false
     @State private var pendingDownload: (OnDeviceLLMModel, OnDeviceLLMQuantization)?
     @State private var showDeleteAllConfirmation = false
+    @State private var showError = false
+    @State private var errorMessage = ""
 
     init() {
         let config = OnDeviceLLMConfig.load()
@@ -39,6 +54,11 @@ struct OnDeviceLLMSettingsView: View {
             if isEnabled {
                 // Model Selection
                 modelSelectionSection
+
+                // Model Loading Status
+                if llmService.isModelLoading {
+                    modelLoadingSection
+                }
 
                 // Download Section
                 if let model = selectedModel {
@@ -88,6 +108,11 @@ struct OnDeviceLLMSettingsView: View {
         } message: {
             Text("Are you sure you want to delete all downloaded models? This will free up \(downloadManager.totalStorageUsedFormatted) of storage.")
         }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
         .onChange(of: config) { _, newConfig in
             newConfig.save()
         }
@@ -119,9 +144,41 @@ struct OnDeviceLLMSettingsView: View {
         Section {
             Toggle("Enable On-Device AI", isOn: $isEnabled)
                 .font(.headline)
+                .accessibilityLabel("Enable on-device AI")
+                .accessibilityHint("Toggle to enable or disable local AI processing on your device")
         } footer: {
             Text("When enabled, you can use local AI models for complete privacy. Requires downloading models to your device.")
         }
+    }
+
+    // MARK: - Model Loading Section
+
+    private var modelLoadingSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                    Text("Loading Model...")
+                        .font(.headline)
+                }
+
+                if let modelName = llmService.currentModel?.displayName {
+                    Text("Loading \(modelName)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                if let error = llmService.loadError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .accessibilityLabel("Model loading")
+        .accessibilityHint("Model is currently being loaded into memory")
     }
 
     // MARK: - Model Selection
@@ -172,6 +229,9 @@ struct OnDeviceLLMSettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("\(model.displayName) model")
+                .accessibilityHint("Select this model for on-device AI. \(model.description)")
+                .accessibilityAddTraits(selectedModel?.id == model.id ? .isSelected : [])
             }
         } footer: {
             if let model = selectedModel {
@@ -198,6 +258,8 @@ struct OnDeviceLLMSettingsView: View {
                     .tag(quant)
                 }
             }
+            .accessibilityLabel("Model quality level")
+            .accessibilityHint("Select the quality level for the model. Higher quality requires more storage")
             .onChange(of: selectedQuantization) { _, newValue in
                 config.quantization = newValue
             }
@@ -224,6 +286,8 @@ struct OnDeviceLLMSettingsView: View {
                             downloadManager.cancelDownload(for: model, quantization: selectedQuantization)
                         }
                         .foregroundColor(.red)
+                        .accessibilityLabel("Cancel download")
+                        .accessibilityHint("Cancel the current model download")
                     }
 
                 case .downloaded(let downloadedModel):
@@ -242,6 +306,8 @@ struct OnDeviceLLMSettingsView: View {
                             showDeleteConfirmation = true
                         }
                         .foregroundColor(.red)
+                        .accessibilityLabel("Delete model")
+                        .accessibilityHint("Delete the downloaded model to free up storage space")
                     }
 
                 case .failed(let error):
@@ -286,6 +352,8 @@ struct OnDeviceLLMSettingsView: View {
         } label: {
             Label("Download Model (\(quantization.estimatedSize))", systemImage: "arrow.down.circle")
         }
+        .accessibilityLabel("Download \(model.displayName) model")
+        .accessibilityHint("Download this model with \(quantization.displayName) quality, approximately \(quantization.estimatedSize)")
     }
 
     // MARK: - Storage Section
@@ -326,6 +394,8 @@ struct OnDeviceLLMSettingsView: View {
                         showDeleteAllConfirmation = true
                     }
                     .foregroundColor(.red)
+                    .accessibilityLabel("Delete all models")
+                    .accessibilityHint("Delete all downloaded models to free up \(downloadManager.totalStorageUsedFormatted) of storage")
                 }
             } else {
                 Text("No models downloaded")
@@ -347,6 +417,8 @@ struct OnDeviceLLMSettingsView: View {
                 }
 
                 Slider(value: $config.temperature, in: 0.0...1.0, step: 0.05)
+                    .accessibilityLabel("Temperature: \(String(format: "%.2f", config.temperature))")
+                    .accessibilityHint("Adjust response creativity. Lower values are more focused, higher values are more creative")
 
                 Text("Lower = more focused, higher = more creative")
                     .font(.caption)
@@ -364,7 +436,9 @@ struct OnDeviceLLMSettingsView: View {
                 Slider(value: Binding(
                     get: { Double(config.maxTokens) },
                     set: { config.maxTokens = Int($0) }
-                ), in: 256...8192, step: 256)
+                ), in: Double(Self.minMaxTokens)...Double(Self.maxMaxTokens), step: Double(Self.maxTokensStep))
+                    .accessibilityLabel("Maximum response length: \(config.maxTokens) tokens")
+                    .accessibilityHint("Adjust the maximum length of AI responses")
 
                 Text("Maximum length of generated responses")
                     .font(.caption)
@@ -372,6 +446,8 @@ struct OnDeviceLLMSettingsView: View {
             }
 
             Toggle("Allow Cellular Download", isOn: $config.allowCellularDownload)
+                .accessibilityLabel("Allow cellular download")
+                .accessibilityHint("Toggle to allow model downloads over cellular data")
         } footer: {
             Text("Cellular downloads can use significant data. Models range from 2-4 GB depending on quality level.")
         }
@@ -420,7 +496,8 @@ struct OnDeviceLLMSettingsView: View {
             do {
                 try await downloadManager.downloadModel(model, quantization: quantization, allowCellular: config.allowCellularDownload)
             } catch {
-                print("Download error: \(error)")
+                errorMessage = "Failed to download model: \(error.localizedDescription)"
+                showError = true
             }
         }
     }
@@ -434,7 +511,8 @@ struct OnDeviceLLMSettingsView: View {
                 llmService.unloadModel()
             }
         } catch {
-            print("Delete error: \(error)")
+            errorMessage = "Failed to delete model: \(error.localizedDescription)"
+            showError = true
         }
     }
 
@@ -443,7 +521,8 @@ struct OnDeviceLLMSettingsView: View {
             try downloadManager.deleteAllModels()
             llmService.unloadModel()
         } catch {
-            print("Delete all error: \(error)")
+            errorMessage = "Failed to delete all models: \(error.localizedDescription)"
+            showError = true
         }
     }
 }

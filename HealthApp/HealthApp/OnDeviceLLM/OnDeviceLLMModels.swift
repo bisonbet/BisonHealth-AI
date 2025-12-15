@@ -189,7 +189,7 @@ extension OnDeviceLLMModel {
             id: "qwen3-vl-4b",
             name: "qwen3-vl-4b-instruct",
             displayName: "Qwen3-VL 4B",
-            description: "Vision-language model capable of analyzing medical images, lab reports, and documents. Supports document import with OCR and image understanding for medical imaging analysis.",
+            description: "Vision-language model with extended context window (32K tokens). Note: Vision capabilities for image analysis are planned for a future update. Currently optimized for text-based medical conversations.",
             huggingFaceRepo: "unsloth/Qwen3-VL-4B-Instruct-GGUF",
             parameters: "4B",
             contextWindow: 32768,
@@ -197,7 +197,7 @@ extension OnDeviceLLMModel {
             defaultQuantization: .q4_K_M,
             specialization: .vision,
             promptTemplate: .qwen,
-            isVisionModel: true,
+            isVisionModel: false,
             checksums: nil
         )
     ]

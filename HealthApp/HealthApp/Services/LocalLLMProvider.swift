@@ -126,7 +126,11 @@ class LocalLLMProvider: AIProviderInterface {
         Use this context to provide accurate, personalized health insights. Always recommend consulting healthcare professionals for medical decisions.
         """
 
-        let fullPrompt = model!.promptTemplate.formatPrompt(system: systemPrompt, user: message)
+        guard let currentModel = model else {
+            throw OnDeviceLLMError.modelNotDownloaded
+        }
+
+        let fullPrompt = currentModel.promptTemplate.formatPrompt(system: systemPrompt, user: message)
 
         // Generate response
         do {
@@ -139,7 +143,7 @@ class LocalLLMProvider: AIProviderInterface {
                 responseTime: responseTime,
                 tokenCount: tokenCount,
                 metadata: [
-                    "model": model!.displayName,
+                    "model": currentModel.displayName,
                     "quantization": config.quantization.rawValue,
                     "temperature": config.temperature,
                     "maxTokens": config.maxTokens

@@ -18,6 +18,8 @@
 		142348262EA07F5D00059087 /* AIContextSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348252EA07F5D00059087 /* AIContextSelectorView.swift */; };
 		1427C64B12E66847000EBEFB0 /* DocumentTypeSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64B02E66847000EBEFB0 /* DocumentTypeSelectorView.swift */; };
 		1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */ = {isa = PBXBuildFile; productRef = 1427C64A2E667B2500EBEFB0 /* Ollama */; };
+		LLMC0002294A0000000000001 /* LocalLLMClient in Frameworks */ = {isa = PBXBuildFile; productRef = LLMC0003294A0000000000001 /* LocalLLMClient */; };
+		LLMC0004294A0000000000001 /* LocalLLMClientLlama in Frameworks */ = {isa = PBXBuildFile; productRef = LLMC0005294A0000000000001 /* LocalLLMClientLlama */; };
 		1427C6532E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */; };
 		1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */; };
 		1427C6552E66847000EBEFB0 /* DocumentFilterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */; };
@@ -278,6 +280,8 @@
 				146E72AD2EC2BD8D00D20C53 /* MarkdownUI in Frameworks */,
 				143446A02E78E36D00961754 /* AWSBedrockRuntime in Frameworks */,
 				1434469E2E78E36D00961754 /* AWSBedrock in Frameworks */,
+				LLMC0002294A0000000000001 /* LocalLLMClient in Frameworks */,
+				LLMC0004294A0000000000001 /* LocalLLMClientLlama in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -537,6 +541,8 @@
 				1434469F2E78E36D00961754 /* AWSBedrockRuntime */,
 				143446A12E78E36D00961754 /* AWSClientRuntime */,
 				146E72AC2EC2BD8D00D20C53 /* MarkdownUI */,
+				LLMC0003294A0000000000001 /* LocalLLMClient */,
+				LLMC0005294A0000000000001 /* LocalLLMClientLlama */,
 			);
 			productName = HealthApp;
 			productReference = A1000001294A0000000000000 /* HealthApp.app */;
@@ -589,6 +595,7 @@
 				1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */,
 				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				LLMC0001294A0000000000001 /* XCRemoteSwiftPackageReference "LocalLLMClient" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
 			projectDirPath = "";
@@ -1067,6 +1074,14 @@
 				minimumVersion = 0.15.3;
 			};
 		};
+		LLMC0001294A0000000000001 /* XCRemoteSwiftPackageReference "LocalLLMClient" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tattn/LocalLLMClient.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.4.6;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1099,6 +1114,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
+		};
+		LLMC0003294A0000000000001 /* LocalLLMClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = LLMC0001294A0000000000001 /* XCRemoteSwiftPackageReference "LocalLLMClient" */;
+			productName = LocalLLMClient;
+		};
+		LLMC0005294A0000000000001 /* LocalLLMClientLlama */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = LLMC0001294A0000000000001 /* XCRemoteSwiftPackageReference "LocalLLMClient" */;
+			productName = LocalLLMClientLlama;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
