@@ -2,8 +2,6 @@ import Foundation
 import Combine
 import UserNotifications
 import CryptoKit
-import PDFKit
-import UIKit
 
 // MARK: - Document Processor
 @MainActor
@@ -462,14 +460,6 @@ class DocumentProcessor: ObservableObject {
         let isAllZeros = documentData.allSatisfy { $0 == 0 }
         print("🔍 DocumentProcessor: Is data all zeros? \(isAllZeros)")
         
-        // Try local vision model first if available
-        if let visionResult = try await tryLocalVisionProcessing(documentData: documentData, document: document) {
-            print("✅ DocumentProcessor: Successfully processed with local vision model")
-            return visionResult
-        }
-
-        print("⏭️  DocumentProcessor: Local vision model not available or failed, falling back to Docling")
-
         // Configure processing options based on document type
         // IMPORTANT: Always set extractImages to false - we only want OCR text, not image data
         // Images in documents should be OCR'd for text extraction, but image data itself should be excluded
@@ -483,7 +473,7 @@ class DocumentProcessor: ObservableObject {
             targetedLabKeys: Array(BloodTestResult.standardizedLabParameters.keys).sorted()
         )
         print("⚙️ DocumentProcessor: Processing options configured for \(document.fileType.displayName)")
-
+        
         // Check Docling client connection
         print("🔌 DocumentProcessor: Checking Docling client connection...")
         print("🔌 DocumentProcessor: Docling client URL: \(doclingClient.baseURL)")
@@ -1172,121 +1162,6 @@ class DocumentProcessor: ObservableObject {
                 print("Failed to load pending documents: \(error)")
             }
         }
-    }
-
-    // MARK: - Local Vision Model Processing
-    private func tryLocalVisionProcessing(documentData: Data, document: HealthDocument) async throws -> ProcessedDocumentResult? {
-        // Check if local vision model is available
-        let visionService = OnDeviceLLMService.shared
-        let config = OnDeviceLLMConfig.load()
-
-        // Only try if on-device LLM is enabled
-        guard OnDeviceLLMConfig.isEnabled else {
-            print("⏭️  DocumentProcessor: On-device LLM not enabled, skipping vision model")
-            return nil
-        }
-
-        // Check if a vision model is loaded
-        guard visionService.isModelLoaded,
-              let currentModel = visionService.currentModel,
-              currentModel.isVisionModel else {
-            print("⏭️  DocumentProcessor: No vision model loaded, skipping vision processing")
-            return nil
-        }
-
-        print("🔍 DocumentProcessor: Vision model available, attempting local processing")
-        print("🔍 DocumentProcessor: Using model: \(currentModel.displayName)")
-
-        do {
-            // Convert document to images (handle PDFs by splitting into pages)
-            let imagePages = try await convertDocumentToImages(documentData: documentData, fileType: document.fileType)
-
-            print("📄 DocumentProcessor: Converted document to \(imagePages.count) page(s)")
-
-            // Process with vision model
-            let extractedText = try await visionService.extractTextFromDocument(
-                imagePages: imagePages,
-                config: config
-            )
-
-            print("✅ DocumentProcessor: Vision model extraction successful, extracted \(extractedText.count) characters")
-
-            // Return result in same format as Docling
-            return ProcessedDocumentResult(
-                extractedText: extractedText,
-                extractedItems: [],  // Vision model provides text only
-                structuredData: [:],
-                processingMetadata: ProcessingMetadata(
-                    processingTime: 0,  // Not tracking for now
-                    ocrPerformed: true,
-                    processingMethod: "vision-model-\(currentModel.id)"
-                )
-            )
-
-        } catch OnDeviceLLMError.visionNotSupported {
-            print("⏭️  DocumentProcessor: Vision model doesn't support this operation, falling back to Docling")
-            return nil
-        } catch {
-            print("⚠️  DocumentProcessor: Vision model processing failed: \(error.localizedDescription)")
-            print("⏭️  DocumentProcessor: Falling back to Docling")
-            return nil
-        }
-    }
-
-    private func convertDocumentToImages(documentData: Data, fileType: FileType) async throws -> [Data] {
-        // For now, treat the entire document as a single image
-        // TODO: Implement PDF page splitting using PDFKit
-        switch fileType {
-        case .image:
-            // Image files can be processed directly
-            return [documentData]
-
-        case .pdf:
-            // For PDFs, we need to split into pages
-            // This requires PDFKit integration
-            return try await splitPDFIntoPages(pdfData: documentData)
-
-        default:
-            // Other file types not supported by vision model
-            throw DocumentProcessingError.unsupportedFileType
-        }
-    }
-
-    private func splitPDFIntoPages(pdfData: Data) async throws -> [Data] {
-        guard let pdfDocument = PDFDocument(data: pdfData) else {
-            throw DocumentProcessingError.fileReadError
-        }
-
-        var pageImages: [Data] = []
-        let pageCount = pdfDocument.pageCount
-
-        print("📄 DocumentProcessor: Splitting PDF into \(pageCount) pages")
-
-        for pageIndex in 0..<pageCount {
-            guard let page = pdfDocument.page(at: pageIndex) else {
-                continue
-            }
-
-            // Render PDF page to image
-            let pageRect = page.bounds(for: .mediaBox)
-            let renderer = UIGraphicsImageRenderer(size: pageRect.size)
-
-            let pageImage = renderer.image { context in
-                UIColor.white.set()
-                context.fill(pageRect)
-                context.cgContext.translateBy(x: 0, y: pageRect.size.height)
-                context.cgContext.scaleBy(x: 1.0, y: -1.0)
-                page.draw(with: .mediaBox, to: context.cgContext)
-            }
-
-            // Convert to JPEG data
-            if let imageData = pageImage.jpegData(compressionQuality: 0.9) {
-                pageImages.append(imageData)
-            }
-        }
-
-        print("✅ DocumentProcessor: Successfully converted PDF to \(pageImages.count) page images")
-        return pageImages
     }
 }
 

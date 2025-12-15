@@ -70,14 +70,12 @@ enum AIProvider: String, CaseIterable {
     case ollama = "ollama"
     case bedrock = "bedrock"
     case openAICompatible = "openai_compatible"
-    case localLLM = "local_llm"
 
     var displayName: String {
         switch self {
         case .ollama: return "Ollama"
         case .bedrock: return "AWS Bedrock"
         case .openAICompatible: return "OpenAI Compatible"
-        case .localLLM: return "On-Device AI"
         }
     }
 
@@ -89,8 +87,6 @@ enum AIProvider: String, CaseIterable {
             return "AWS Bedrock cloud AI service"
         case .openAICompatible:
             return "OpenAI-compatible servers (LiteLLM, LocalAI, vLLM, etc.)"
-        case .localLLM:
-            return "Privacy-first on-device AI models. Runs completely offline with no data leaving your device."
         }
     }
 }
@@ -189,7 +185,6 @@ class SettingsManager: ObservableObject {
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
-    private var localLLMProvider: LocalLLMProvider?
 
     // iCloud backup manager
     @Published var backupManager: iCloudBackupManager?
@@ -370,18 +365,7 @@ class SettingsManager: ObservableObject {
             return getBedrockClient()
         case .openAICompatible:
             return getOpenAICompatibleClient()
-        case .localLLM:
-            return getLocalLLMProvider()
         }
-    }
-
-    private func getLocalLLMProvider() -> LocalLLMProvider {
-        if let provider = localLLMProvider {
-            return provider
-        }
-        let provider = LocalLLMProvider()
-        localLLMProvider = provider
-        return provider
     }
 
     private func getOpenAICompatibleClient() -> OpenAICompatibleClient {
