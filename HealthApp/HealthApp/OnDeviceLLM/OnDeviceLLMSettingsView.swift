@@ -36,6 +36,7 @@ struct OnDeviceLLMSettingsView: View {
     @State private var showDeleteAllConfirmation = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var showRAMWarning = false
 
     init() {
         let config = OnDeviceLLMConfig.load()
@@ -47,6 +48,9 @@ struct OnDeviceLLMSettingsView: View {
         List {
             // Header Section
             headerSection
+
+            // Device Capability Section
+            deviceCapabilitySection
 
             // Enable Toggle
             enableSection
@@ -113,10 +117,21 @@ struct OnDeviceLLMSettingsView: View {
         } message: {
             Text(errorMessage)
         }
+        .alert("Insufficient RAM", isPresented: $showRAMWarning) {
+            Button("OK", role: .cancel) {
+                isEnabled = false
+            }
+        } message: {
+            Text(DeviceCapability.capabilityStatusMessage)
+        }
         .onChange(of: config) { _, newConfig in
             newConfig.save()
         }
         .onChange(of: isEnabled) { _, newValue in
+            if newValue && !DeviceCapability.meetsMinimumRAMRequirement {
+                showRAMWarning = true
+                return
+            }
             OnDeviceLLMConfig.isEnabled = newValue
         }
     }
@@ -136,6 +151,51 @@ struct OnDeviceLLMSettingsView: View {
             }
             .padding(.vertical, 8)
         }
+    }
+
+    // MARK: - Device Capability Section
+
+    private var deviceCapabilitySection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: DeviceCapability.meetsMinimumRAMRequirement ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(DeviceCapability.meetsMinimumRAMRequirement ? .green : .orange)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Device Memory: \(DeviceCapability.ramDescription)")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        Text(DeviceCapability.meetsMinimumRAMRequirement ? "Compatible with on-device AI" : "Requires 6GB+ RAM")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let recommendedModelID = DeviceCapability.recommendedModelID(),
+                   let recommendedModel = OnDeviceLLMModel.model(withID: recommendedModelID) {
+                    Divider()
+
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Recommended Model")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(recommendedModel.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                    } icon: {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .accessibilityLabel("Device capability information")
+        .accessibilityHint("Shows your device's RAM and compatibility status")
     }
 
     // MARK: - Enable Section
@@ -184,62 +244,227 @@ struct OnDeviceLLMSettingsView: View {
     // MARK: - Model Selection
 
     private var modelSelectionSection: some View {
-        Section("Available Models") {
+        Section {
             ForEach(OnDeviceLLMModel.availableModels) { model in
                 Button {
                     selectedModel = model
                     config.modelID = model.id
                     config.contextWindow = model.contextWindow
                 } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(model.displayName)
-                                    .font(.headline)
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Header
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(model.displayName)
+                                        .font(.headline)
 
-                                if model.isVisionModel {
-                                    Image(systemName: "eye.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.blue)
+                                    if model.isVisionModel {
+                                        Image(systemName: "eye.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.blue)
+                                    }
+
+                                    Badge(text: model.specialization.displayName)
                                 }
 
-                                Badge(text: model.specialization.displayName)
+                                Text("\(model.parameters) • \(model.quantizations.first?.estimatedSize ?? "")")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
                             }
 
-                            Text(model.description)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
+                            Spacer()
 
-                            HStack {
-                                Label("\(model.parameters) parameters", systemImage: "cpu")
-                                Spacer()
-                                Label("\(model.contextWindow) tokens", systemImage: "doc.text")
+                            if selectedModel?.id == model.id {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.title3)
                             }
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
                         }
 
-                        Spacer()
+                        // Description
+                        Text(model.description)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                        if selectedModel?.id == model.id {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.blue)
+                        Divider()
+
+                        // Performance Metrics
+                        VStack(spacing: 8) {
+                            modelMetricRow(
+                                icon: "gauge.with.dots.needle.67percent",
+                                label: "Speed",
+                                value: modelSpeedRating(for: model),
+                                color: modelSpeedColor(for: model)
+                            )
+
+                            modelMetricRow(
+                                icon: "chart.line.uptrend.xyaxis",
+                                label: "Accuracy",
+                                value: modelAccuracyRating(for: model),
+                                color: modelAccuracyColor(for: model)
+                            )
+
+                            modelMetricRow(
+                                icon: "memorychip",
+                                label: "Memory",
+                                value: modelMemoryRating(for: model),
+                                color: modelMemoryColor(for: model)
+                            )
+                        }
+
+                        // Device Recommendation
+                        if let recommendation = modelDeviceRecommendation(for: model) {
+                            Divider()
+
+                            HStack(spacing: 8) {
+                                Image(systemName: recommendation.icon)
+                                    .font(.caption)
+                                    .foregroundColor(recommendation.color)
+                                Text(recommendation.text)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
+                    .padding(.vertical, 8)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(model.displayName) model")
                 .accessibilityHint("Select this model for on-device AI. \(model.description)")
                 .accessibilityAddTraits(selectedModel?.id == model.id ? .isSelected : [])
             }
+        } header: {
+            Text("Available Models")
         } footer: {
-            if let model = selectedModel {
-                if model.isVisionModel {
-                    Text("Vision models can analyze images, lab reports, and medical documents.")
+            Text("Models are downloaded only when you explicitly tap the download button. No automatic downloads occur.")
+        }
+    }
+
+    // MARK: - Model Metric Helpers
+
+    private func modelMetricRow(icon: String, label: String, value: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundColor(color)
+                .frame(width: 16)
+
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 60, alignment: .leading)
+
+            // Progress bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.secondary.opacity(0.2))
+                        .frame(height: 4)
+
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color)
+                        .frame(width: geometry.size.width * metricValueToProgress(value), height: 4)
                 }
             }
+            .frame(height: 4)
+
+            Text(value)
+                .font(.caption)
+                .foregroundColor(color)
+                .fontWeight(.medium)
+                .frame(width: 50, alignment: .trailing)
         }
+    }
+
+    private func metricValueToProgress(_ value: String) -> CGFloat {
+        switch value {
+        case "Fast": return 0.85
+        case "Good": return 0.70
+        case "Moderate": return 0.50
+        case "Excellent": return 0.95
+        case "Very Good": return 0.85
+        case "Low": return 0.30
+        case "Medium": return 0.60
+        case "High": return 0.90
+        default: return 0.5
+        }
+    }
+
+    // Speed Ratings
+    private func modelSpeedRating(for model: OnDeviceLLMModel) -> String {
+        switch model.parameters {
+        case "2B": return "Fast"
+        case "4B": return "Good"
+        default: return "Moderate"
+        }
+    }
+
+    private func modelSpeedColor(for model: OnDeviceLLMModel) -> Color {
+        switch model.parameters {
+        case "2B": return .green
+        case "4B": return .blue
+        default: return .orange
+        }
+    }
+
+    // Accuracy Ratings
+    private func modelAccuracyRating(for model: OnDeviceLLMModel) -> String {
+        switch model.parameters {
+        case "2B": return "Very Good"
+        case "4B": return "Excellent"
+        default: return "Good"
+        }
+    }
+
+    private func modelAccuracyColor(for model: OnDeviceLLMModel) -> Color {
+        switch model.parameters {
+        case "2B": return .blue
+        case "4B": return .green
+        default: return .orange
+        }
+    }
+
+    // Memory Ratings
+    private func modelMemoryRating(for model: OnDeviceLLMModel) -> String {
+        switch model.parameters {
+        case "2B": return "Low"
+        case "4B": return "Medium"
+        default: return "High"
+        }
+    }
+
+    private func modelMemoryColor(for model: OnDeviceLLMModel) -> Color {
+        switch model.parameters {
+        case "2B": return .green
+        case "4B": return .orange
+        default: return .red
+        }
+    }
+
+    // Device Recommendations
+    private func modelDeviceRecommendation(for model: OnDeviceLLMModel) -> (icon: String, text: String, color: Color)? {
+        let deviceRAM = DeviceCapability.physicalMemoryGB
+
+        switch model.parameters {
+        case "2B":
+            if deviceRAM >= 8.0 {
+                return ("info.circle", "Recommended for your device (will run faster)", .blue)
+            } else if deviceRAM >= 6.0 {
+                return ("checkmark.circle", "Best choice for your device", .green)
+            }
+        case "4B":
+            if deviceRAM >= 8.0 {
+                return ("checkmark.circle", "Optimal for your device", .green)
+            } else if deviceRAM >= 6.0 {
+                return ("exclamationmark.triangle", "May be slower on your device", .orange)
+            }
+        default:
+            break
+        }
+
+        return nil
     }
 
     // MARK: - Download Section

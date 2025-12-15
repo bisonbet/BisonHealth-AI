@@ -15,35 +15,20 @@ import LocalLLMClient
 // MARK: - Model Quantization
 
 /// Quantization levels for on-device LLM models
-/// Lower quantization = smaller file size but lower quality
-/// Higher quantization = larger file size but better quality
+/// Q4_K_M provides the best balance of quality and memory usage for iOS devices
 enum OnDeviceLLMQuantization: String, CaseIterable, Codable {
-    case q4_K_M = "Q4_K_M"    // ~2.0-2.5 GB - Recommended for iPhone
-    case q5_K_M = "Q5_K_M"    // ~2.5-3.0 GB - Higher quality
-    case q8_0 = "Q8_0"        // ~3.5-4.0 GB - Best quality
+    case q4_K_M = "Q4_K_M"    // ~1.5-2.5 GB - Optimized for iOS devices with 6GB+ RAM
 
     var displayName: String {
-        switch self {
-        case .q4_K_M: return "Q4_K_M (Recommended)"
-        case .q5_K_M: return "Q5_K_M (High Quality)"
-        case .q8_0: return "Q8_0 (Best Quality)"
-        }
+        return "Q4_K_M"
     }
 
     var estimatedSize: String {
-        switch self {
-        case .q4_K_M: return "~2.0-2.5 GB"
-        case .q5_K_M: return "~2.5-3.0 GB"
-        case .q8_0: return "~3.5-4.0 GB"
-        }
+        return "~1.5-2.5 GB"
     }
 
     var description: String {
-        switch self {
-        case .q4_K_M: return "Balanced performance and size, ideal for most devices"
-        case .q5_K_M: return "Higher quality responses with moderate size increase"
-        case .q8_0: return "Maximum quality, requires significant storage and memory"
-        }
+        return "Optimized quantization for iOS devices, balances quality and memory usage"
     }
 }
 
@@ -167,16 +152,16 @@ struct DownloadedModel: Codable, Identifiable {
 
 extension OnDeviceLLMModel {
     static let availableModels: [OnDeviceLLMModel] = [
-        // MedGemma-4B - Medical specialized model
+        // Meditron3-Gemma2-2B - Compact medical model for devices with 6GB+ RAM
         OnDeviceLLMModel(
-            id: "medgemma-4b",
-            name: "medgemma-4b-it",
-            displayName: "MedGemma 4B",
-            description: "Medical domain specialized model based on Google's Gemma, trained on medical literature and clinical notes. Optimized for health data analysis, medical terminology, and clinical reasoning.",
-            huggingFaceRepo: "unsloth/medgemma-4b-it-GGUF",
-            parameters: "4B",
+            id: "meditron3-gemma2-2b",
+            name: "meditron3-gemma2-2b",
+            displayName: "Meditron3 Gemma2 2B",
+            description: "Compact medical model optimized for devices with 6-8GB RAM. Based on Gemma2 architecture, fine-tuned on medical literature. Provides excellent medical knowledge with lower memory requirements.",
+            huggingFaceRepo: "mradermacher/Meditron3-Gemma2-2B-GGUF",
+            parameters: "2B",
             contextWindow: 8192,
-            quantizations: [.q4_K_M, .q5_K_M, .q8_0],
+            quantizations: [.q4_K_M],
             defaultQuantization: .q4_K_M,
             specialization: .medical,
             promptTemplate: .gemma,
@@ -184,19 +169,19 @@ extension OnDeviceLLMModel {
             checksums: nil
         ),
 
-        // Qwen3-VL-4B - Vision + Medical model
+        // MedGemma-4B - Medical specialized model for devices with 8GB+ RAM
         OnDeviceLLMModel(
-            id: "qwen3-vl-4b",
-            name: "qwen3-vl-4b-instruct",
-            displayName: "Qwen3-VL 4B",
-            description: "Vision-language model with extended context window (32K tokens). Note: Vision capabilities for image analysis are planned for a future update. Currently optimized for text-based medical conversations.",
-            huggingFaceRepo: "unsloth/Qwen3-VL-4B-Instruct-GGUF",
+            id: "medgemma-4b",
+            name: "medgemma-4b-it",
+            displayName: "MedGemma 4B",
+            description: "Advanced medical model for devices with 8GB+ RAM. Based on Google's Gemma, trained on extensive medical literature and clinical notes. Provides superior medical reasoning and health data analysis.",
+            huggingFaceRepo: "unsloth/medgemma-4b-it-GGUF",
             parameters: "4B",
-            contextWindow: 32768,
-            quantizations: [.q4_K_M, .q5_K_M, .q8_0],
+            contextWindow: 8192,
+            quantizations: [.q4_K_M],
             defaultQuantization: .q4_K_M,
-            specialization: .vision,
-            promptTemplate: .qwen,
+            specialization: .medical,
+            promptTemplate: .gemma,
             isVisionModel: false,
             checksums: nil
         )
@@ -218,7 +203,7 @@ struct OnDeviceLLMConfig: Equatable, Codable {
     var allowCellularDownload: Bool
 
     static let `default` = OnDeviceLLMConfig(
-        modelID: "medgemma-4b",
+        modelID: "meditron3-gemma2-2b",
         quantization: .q4_K_M,
         temperature: 0.1,
         maxTokens: 2048,
@@ -293,6 +278,7 @@ enum OnDeviceLLMError: LocalizedError {
     case downloadCancelled
     case cellularNotAllowed
     case insufficientStorage(required: Int64, available: Int64)
+    case insufficientRAM(required: Double, available: Double)
     case inferenceError(String)
     case modelLoadFailed(String)
     case contextTooLong(Int, max: Int)
@@ -318,6 +304,8 @@ enum OnDeviceLLMError: LocalizedError {
             let requiredGB = Double(required) / 1_000_000_000
             let availableGB = Double(available) / 1_000_000_000
             return String(format: "Insufficient storage. Required: %.1f GB, Available: %.1f GB", requiredGB, availableGB)
+        case .insufficientRAM(let required, let available):
+            return String(format: "Your device has %.1f GB RAM but requires at least %.1f GB for on-device LLM. Please use a newer device with more memory.", available, required)
         case .inferenceError:
             return "Model inference failed. Please try again."
         case .modelLoadFailed:

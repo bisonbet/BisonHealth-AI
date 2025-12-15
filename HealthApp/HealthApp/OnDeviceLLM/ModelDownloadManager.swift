@@ -119,6 +119,15 @@ class ModelDownloadManager: NSObject, ObservableObject {
     func downloadModel(_ model: OnDeviceLLMModel, quantization: OnDeviceLLMQuantization, allowCellular: Bool = false) async throws {
         let key = downloadKey(for: model, quantization: quantization)
 
+        // Check device RAM requirements
+        if !DeviceCapability.meetsMinimumRAMRequirement {
+            logger.error("Device does not meet minimum RAM requirement for on-device LLM")
+            throw OnDeviceLLMError.insufficientRAM(
+                required: 6.0,
+                available: DeviceCapability.physicalMemoryGB
+            )
+        }
+
         // Check network type
         if !allowCellular && isOnCellular {
             throw OnDeviceLLMError.cellularNotAllowed
@@ -159,13 +168,10 @@ class ModelDownloadManager: NSObject, ObservableObject {
     }
 
     private func checkStorageSpace(for quantization: OnDeviceLLMQuantization) throws {
-        // Estimate required space based on quantization
-        let estimatedSize: Int64
-        switch quantization {
-        case .q4_K_M: estimatedSize = 2_500_000_000  // 2.5 GB
-        case .q5_K_M: estimatedSize = 3_000_000_000  // 3.0 GB
-        case .q8_0: estimatedSize = 4_000_000_000    // 4.0 GB
-        }
+        // Estimate required space for Q4_K_M quantization
+        // 2B models: ~1.5 GB, 4B models: ~2.5 GB
+        // Using conservative estimate of 3 GB to account for larger models
+        let estimatedSize: Int64 = 3_000_000_000  // 3.0 GB
 
         // Get available storage
         if let attributes = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
