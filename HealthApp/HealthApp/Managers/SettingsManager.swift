@@ -376,10 +376,12 @@ class SettingsManager: ObservableObject {
     }
 
     private func getLocalLLMProvider() -> LocalLLMProvider {
-        if localLLMProvider == nil {
-            localLLMProvider = LocalLLMProvider()
+        if let provider = localLLMProvider {
+            return provider
         }
-        return localLLMProvider!
+        let provider = LocalLLMProvider()
+        localLLMProvider = provider
+        return provider
     }
 
     private func getOpenAICompatibleClient() -> OpenAICompatibleClient {
