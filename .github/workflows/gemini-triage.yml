@@ -55,6 +55,11 @@ jobs:
             core.info(`Found ${labelNames.length} labels: ${labelNames.join(', ')}`);
             return labelNames;
 
+      - name: 'Setup Node.js'
+        uses: 'actions/setup-node@v4'
+        with:
+          node-version: '20'
+
       - name: 'Run Gemini issue analysis'
         id: 'gemini_analysis'
         if: |-
