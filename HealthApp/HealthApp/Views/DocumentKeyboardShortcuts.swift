@@ -78,7 +78,7 @@ extension View {
 
 // MARK: - Document Accessibility
 struct DocumentAccessibilityModifier: ViewModifier {
-    let document: HealthDocument
+    let document: MedicalDocument
     let isSelected: Bool
     
     func body(content: Content) -> some View {
@@ -128,7 +128,7 @@ struct DocumentAccessibilityModifier: ViewModifier {
 }
 
 extension View {
-    func documentAccessibility(document: HealthDocument, isSelected: Bool) -> some View {
+    func documentAccessibility(document: MedicalDocument, isSelected: Bool) -> some View {
         modifier(DocumentAccessibilityModifier(document: document, isSelected: isSelected))
     }
 }

@@ -123,7 +123,7 @@ final class DatabaseTests: XCTestCase {
     
     // MARK: - Document Tests
     func testSaveAndFetchDocument() async throws {
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf"),
@@ -143,7 +143,7 @@ final class DatabaseTests: XCTestCase {
     }
     
     func testUpdateDocumentStatus() async throws {
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf")
@@ -162,14 +162,14 @@ final class DatabaseTests: XCTestCase {
     }
     
     func testFetchDocumentsByStatus() async throws {
-        let pendingDoc = HealthDocument(
+        let pendingDoc = MedicalDocument(
             fileName: "pending.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/pending.pdf"),
             processingStatus: .pending
         )
         
-        let completedDoc = HealthDocument(
+        let completedDoc = MedicalDocument(
             fileName: "completed.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/completed.pdf"),
@@ -191,13 +191,13 @@ final class DatabaseTests: XCTestCase {
     }
     
     func testSearchDocuments() async throws {
-        let doc1 = HealthDocument(
+        let doc1 = MedicalDocument(
             fileName: "blood_test_results.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/blood_test.pdf")
         )
         
-        let doc2 = HealthDocument(
+        let doc2 = MedicalDocument(
             fileName: "xray_report.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/xray.pdf")

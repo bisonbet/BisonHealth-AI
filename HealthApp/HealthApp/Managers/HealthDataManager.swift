@@ -15,7 +15,6 @@ class HealthDataManager: ObservableObject {
     // MARK: - Published Properties
     @Published var personalInfo: PersonalHealthInfo?
     @Published var bloodTests: [BloodTestResult] = []
-    @Published var documents: [HealthDocument] = []
     @Published var imagingReports: [MedicalDocument] = []
     @Published var healthCheckups: [MedicalDocument] = []
     @Published var isLoading = false
@@ -99,9 +98,6 @@ class HealthDataManager: ObservableObject {
         // Filter out any blood tests that came from non-lab-report documents
         let allBloodTests = try await databaseManager.fetchBloodTestResults()
         bloodTests = await filterValidBloodTests(allBloodTests)
-
-        // Load documents
-        documents = try await databaseManager.fetchDocuments()
 
         // Load imaging reports
         imagingReports = try await databaseManager.fetchMedicalDocuments(category: .imagingReport)
@@ -263,42 +259,11 @@ class HealthDataManager: ObservableObject {
     }
     
     // MARK: - Document Management (Simplified - DocumentManager handles most operations)
-    func refreshDocuments() async {
-        do {
-            documents = try await databaseManager.fetchDocuments()
-        } catch {
-            errorMessage = "Failed to refresh documents: \(error.localizedDescription)"
-        }
-    }
+    // Note: Document management moved to DocumentManager - this class only handles imaging reports and health checkups
     
     func linkExtractedDataToDocument(_ documentId: UUID, extractedData: [AnyHealthData]) async throws {
-        // Find document in our local array first
-        if let index = documents.firstIndex(where: { $0.id == documentId }) {
-            // Update document with extracted data
-            documents[index].extractedData = extractedData
-            documents[index].processingStatus = .completed
-            documents[index].processedAt = Date()
-
-            // Save updated document to database
-            try await databaseManager.saveDocument(documents[index])
-        } else {
-            // Document not in our local array, try to load from database and update
-            do {
-                if var document = try await databaseManager.fetchDocument(id: documentId) {
-                    document.extractedData = extractedData
-                    document.processingStatus = ProcessingStatus.completed
-                    document.processedAt = Date()
-                    try await databaseManager.saveDocument(document)
-
-                    // Add to our local array for future reference
-                    documents.append(document)
-                } else {
-                    print("⚠️ HealthDataManager: Document \(documentId) not found in database, proceeding with health data extraction only")
-                }
-            } catch {
-                print("⚠️ HealthDataManager: Error fetching document \(documentId) from database: \(error), proceeding with health data extraction only")
-            }
-        }
+        // Note: Document updating is handled by DocumentManager
+        // This method now only processes and saves the extracted health data
 
         // Process extracted health data and save to appropriate collections
         for anyHealthData in extractedData {
@@ -313,7 +278,7 @@ class HealthDataManager: ObservableObject {
                         try await savePersonalInfo(extractedPersonalInfo)
                     }
                 }
-                
+
             case .bloodTest:
                 if let extractedBloodTest = try? anyHealthData.decode(as: BloodTestResult.self) {
                     // Check if this blood test has pending duplicate review
@@ -325,7 +290,7 @@ class HealthDataManager: ObservableObject {
                     }
                     try await addBloodTest(extractedBloodTest)
                 }
-                
+
             case .imagingReport, .healthCheckup:
                 // Placeholder for future implementation
                 break
@@ -338,7 +303,8 @@ class HealthDataManager: ObservableObject {
         let exportData = HealthDataExport(
             personalInfo: personalInfo,
             bloodTests: bloodTests,
-            documents: documents.map { DocumentExport(from: $0) },
+            imagingReports: imagingReports,
+            healthCheckups: healthCheckups,
             exportedAt: Date(),
             version: "1.0"
         )
@@ -442,8 +408,8 @@ class HealthDataManager: ObservableObject {
                let documentId = UUID(uuidString: documentIdString) {
                 // Check the document's category
                 if let document = try? await databaseManager.fetchDocument(id: documentId) {
-                    // Only include if document is a lab report or has no category (manually entered)
-                    if document.documentCategory == .labReport || document.documentCategory == nil {
+                    // Only include if document is a lab report or uncategorized (backward compatibility)
+                    if document.documentCategory == .labReport || document.documentCategory == .other {
                         validTests.append(test)
                     }
                     // Skip if document is an imaging report or other non-lab category
@@ -506,6 +472,7 @@ class HealthDataManager: ObservableObject {
     private func generatePDFReport() async throws -> Data {
         // This is a placeholder implementation
         // In a real app, you would use a PDF generation library
+        let totalDocuments = imagingReports.count + healthCheckups.count
         let reportContent = """
         Health Data Report
         Generated: \(Date().formatted())
@@ -514,7 +481,7 @@ class HealthDataManager: ObservableObject {
         \(personalInfo?.name ?? "Not provided")
 
         Blood Test Results: \(bloodTests.count) tests
-        Documents: \(documents.count) documents
+        Medical Documents: \(totalDocuments) documents
         """
 
         guard let data = reportContent.data(using: .utf8) else {
@@ -743,35 +710,10 @@ struct ValidationResult {
 struct HealthDataExport: Codable {
     let personalInfo: PersonalHealthInfo?
     let bloodTests: [BloodTestResult]
-    let documents: [DocumentExport]
+    let imagingReports: [MedicalDocument]
+    let healthCheckups: [MedicalDocument]
     let exportedAt: Date
     let version: String
-}
-
-struct DocumentExport: Codable {
-    let id: UUID
-    let fileName: String
-    let fileType: DocumentType
-    let processingStatus: ProcessingStatus
-    let importedAt: Date
-    let processedAt: Date?
-    let fileSize: Int64
-    let tags: [String]
-    let notes: String?
-    let extractedDataSummary: String
-    
-    init(from document: HealthDocument) {
-        self.id = document.id
-        self.fileName = document.fileName
-        self.fileType = document.fileType
-        self.processingStatus = document.processingStatus
-        self.importedAt = document.importedAt
-        self.processedAt = document.processedAt
-        self.fileSize = document.fileSize
-        self.tags = document.tags
-        self.notes = document.notes
-        self.extractedDataSummary = document.extractedDataSummary
-    }
 }
 
 // MARK: - Health Data Errors

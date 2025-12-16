@@ -18,7 +18,7 @@ class DocumentProcessor: ObservableObject {
     @Published var processingQueue: [ProcessingQueueItem] = []
     @Published var isProcessing = false
     @Published var processingProgress: Double = 0.0
-    @Published var lastProcessedDocument: HealthDocument?
+    @Published var lastProcessedDocument: MedicalDocument?
     @Published var processingErrors: [ProcessingError] = []
     @Published var pendingDuplicateReview: PendingDuplicateReview?
     
@@ -57,7 +57,7 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - Queue Management
-    func addToQueue(_ document: HealthDocument, priority: ProcessingPriority = .normal) async {
+    func addToQueue(_ document: MedicalDocument, priority: ProcessingPriority = .normal) async {
         print("📥 DocumentProcessor: Adding document '\(document.fileName)' to queue with priority \(priority.displayName)")
         
         let queueItem = ProcessingQueueItem(
@@ -105,12 +105,12 @@ class DocumentProcessor: ObservableObject {
         try? await databaseManager.updateDocumentStatus(documentId, status: .pending)
     }
     
-    func processDocumentImmediately(_ document: HealthDocument) async throws -> ProcessedDocumentResult {
+    func processDocumentImmediately(_ document: MedicalDocument) async throws -> ProcessedDocumentResult {
         // Process document synchronously without adding to queue
         return try await processDocument(document)
     }
     
-    func processBatch(_ documents: [HealthDocument], priority: ProcessingPriority = .normal) async {
+    func processBatch(_ documents: [MedicalDocument], priority: ProcessingPriority = .normal) async {
         for document in documents {
             await addToQueue(document, priority: priority)
         }
@@ -212,9 +212,11 @@ class DocumentProcessor: ObservableObject {
                         aiClient: aiClient
                     )
                     
-                    // Convert HealthDocument to MedicalDocument with extracted information
-                    // Use document category from HealthDocument if set, otherwise use extracted category
-                    let finalCategory = currentItem.document.documentCategory ?? extractionResult.documentCategory
+                    // Update MedicalDocument with extracted information
+                    // Use document category from existing document if set, otherwise use extracted category
+                    let finalCategory = currentItem.document.documentCategory != .other
+                        ? currentItem.document.documentCategory
+                        : extractionResult.documentCategory
                     
                     // Use extracted text from extractionResult, or fallback to markdown text from Docling
                     // Clean markdown to remove base64 image data which is not useful for AI context
@@ -271,7 +273,7 @@ class DocumentProcessor: ObservableObject {
                     // Fallback: Still create a MedicalDocument with at least the markdown text
                     // This ensures the document can be enabled for AI context later
                     do {
-                        let finalCategory = currentItem.document.documentCategory ?? .other
+                        let finalCategory = currentItem.document.documentCategory
                         let cleanedText = cleanMarkdownForAIContext(result.extractedText)
                         let fallbackDocument = MedicalDocument(
                             id: currentItem.document.id,
@@ -409,7 +411,7 @@ class DocumentProcessor: ObservableObject {
         updateProcessingProgress()
     }
     
-    private func processDocument(_ document: HealthDocument) async throws -> ProcessedDocumentResult {
+    private func processDocument(_ document: MedicalDocument) async throws -> ProcessedDocumentResult {
         print("📄 DocumentProcessor: Reading document data from \(document.filePath)")
         
         // Debug: Check file accessibility
@@ -524,15 +526,15 @@ class DocumentProcessor: ObservableObject {
         return result
     }
     
-    private func extractHealthData(from result: ProcessedDocumentResult, document: HealthDocument) async throws -> [AnyHealthData] {
+    private func extractHealthData(from result: ProcessedDocumentResult, document: MedicalDocument) async throws -> [AnyHealthData] {
         var extractedData: [AnyHealthData] = []
 
         print("📄 DocumentProcessor: Starting health data extraction from document")
         print("📄 DocumentProcessor: Extracted text length: \(result.extractedText.count) characters")
-        print("📄 DocumentProcessor: Document category: \(document.documentCategory?.displayName ?? "none")")
+        print("📄 DocumentProcessor: Document category: \(document.documentCategory.displayName)")
 
-        // Only extract blood tests for lab reports
-        let isLabReport = document.documentCategory == .labReport || document.documentCategory == nil
+        // Only extract blood tests for lab reports (or uncategorized documents for backward compatibility)
+        let isLabReport = document.documentCategory == .labReport || document.documentCategory == .other
         
         // Primary approach: Use full document text for AI-powered blood test extraction (only for lab reports)
         if isLabReport && !result.extractedText.isEmpty {
@@ -550,7 +552,7 @@ class DocumentProcessor: ObservableObject {
                 // Continue with fallback approaches
             }
         } else if !isLabReport {
-            print("ℹ️ DocumentProcessor: Skipping blood test extraction for \(document.documentCategory?.displayName ?? "non-lab") document")
+            print("ℹ️ DocumentProcessor: Skipping blood test extraction for \(document.documentCategory.displayName) document")
         }
 
         // Fallback approach: Parse structured data if available (for other data types)
@@ -586,13 +588,13 @@ class DocumentProcessor: ObservableObject {
             }
         }
 
-        // Only create basic blood test fallback for lab reports (or if category is nil for backward compatibility)
+        // Only create basic blood test fallback for lab reports (or uncategorized for backward compatibility)
         if isLabReport && extractedData.isEmpty && !result.extractedText.isEmpty {
             print("⚠️ DocumentProcessor: No specific data extracted, creating basic blood test placeholder")
             let basicBloodTest = createBasicBloodTestResult(document: document)
             extractedData.append(try AnyHealthData(basicBloodTest))
         } else if !isLabReport && extractedData.isEmpty {
-            print("ℹ️ DocumentProcessor: No health data extracted for \(document.documentCategory?.displayName ?? "non-lab") document - this is expected")
+            print("ℹ️ DocumentProcessor: No health data extracted for \(document.documentCategory.displayName) document - this is expected")
         }
 
         print("📊 DocumentProcessor: Extraction complete. Found \(extractedData.count) health data items")
@@ -600,7 +602,7 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - Health Data Creation
-    private func createPersonalHealthInfo(from items: [HealthDataItem], document: HealthDocument) throws -> PersonalHealthInfo {
+    private func createPersonalHealthInfo(from items: [HealthDataItem], document: MedicalDocument) throws -> PersonalHealthInfo {
         var personalInfo = PersonalHealthInfo()
         
         for item in items {
@@ -638,7 +640,7 @@ class DocumentProcessor: ObservableObject {
     private func createBloodTestResultFromText(
         documentText: String,
         extractedItems: [HealthDataItem],
-        document: HealthDocument
+        document: MedicalDocument
     ) async throws -> BloodTestResult {
         print("🧪 DocumentProcessor: Creating blood test result using enhanced AI-powered mapping...")
         print("📄 DocumentProcessor: Full document text length: \(documentText.count) characters")
@@ -714,7 +716,7 @@ class DocumentProcessor: ObservableObject {
     }
 
     // MARK: - Blood Test Creation from Extracted Items (Fallback)
-    private func createBloodTestResultFromItems(from items: [HealthDataItem], document: HealthDocument) async throws -> BloodTestResult {
+    private func createBloodTestResultFromItems(from items: [HealthDataItem], document: MedicalDocument) async throws -> BloodTestResult {
         print("🧪 DocumentProcessor: Creating blood test result using AI-powered mapping...")
 
         // Check if we have enough data to use AI mapping
@@ -773,7 +775,7 @@ class DocumentProcessor: ObservableObject {
     }
 
     // MARK: - Legacy Blood Test Creation (Fallback)
-    private func createLegacyBloodTestResult(from items: [HealthDataItem], document: HealthDocument) -> BloodTestResult {
+    private func createLegacyBloodTestResult(from items: [HealthDataItem], document: MedicalDocument) -> BloodTestResult {
         print("🔄 DocumentProcessor: Using legacy blood test creation method")
 
         var bloodTest = BloodTestResult(testDate: document.importedAt, results: [])
@@ -805,7 +807,7 @@ class DocumentProcessor: ObservableObject {
     }
 
     // MARK: - Basic Blood Test Creation (No Data)
-    private func createBasicBloodTestResult(document: HealthDocument) -> BloodTestResult {
+    private func createBasicBloodTestResult(document: MedicalDocument) -> BloodTestResult {
         print("📝 DocumentProcessor: Creating basic blood test result placeholder")
 
         let testDate = extractTestDate(from: document.fileName) ?? document.importedAt
@@ -849,7 +851,7 @@ class DocumentProcessor: ObservableObject {
         return nil
     }
 
-    private func createHealthCheckup(from items: [HealthDataItem], document: HealthDocument) throws -> HealthCheckup {
+    private func createHealthCheckup(from items: [HealthDataItem], document: MedicalDocument) throws -> HealthCheckup {
         var checkup = HealthCheckup()
         checkup.checkupDate = document.importedAt
         
@@ -881,7 +883,7 @@ class DocumentProcessor: ObservableObject {
         return checkup
     }
     
-    private func createImagingReport(from items: [HealthDataItem], document: HealthDocument) throws -> ImagingReport {
+    private func createImagingReport(from items: [HealthDataItem], document: MedicalDocument) throws -> ImagingReport {
         var report = ImagingReport()
         report.studyDate = document.importedAt
         
@@ -1063,7 +1065,7 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - AI Provider Selection Logic
-    private func getAIClientForDocument(_ document: HealthDocument) -> any AIProviderInterface {
+    private func getAIClientForDocument(_ document: MedicalDocument) -> any AIProviderInterface {
         let aiClient = settingsManager.getAIClient()
 
         // Choose model based on file type and content
@@ -1103,7 +1105,7 @@ class DocumentProcessor: ObservableObject {
         }
     }
     
-    private func sendProcessingSuccessNotification(for document: HealthDocument) async {
+    private func sendProcessingSuccessNotification(for document: MedicalDocument) async {
         let content = UNMutableNotificationContent()
         content.title = "Document Processed"
         content.body = "Successfully processed \(document.fileName)"
@@ -1118,7 +1120,7 @@ class DocumentProcessor: ObservableObject {
         try? await UNUserNotificationCenter.current().add(request)
     }
     
-    private func sendProcessingFailureNotification(for document: HealthDocument, error: Error) async {
+    private func sendProcessingFailureNotification(for document: MedicalDocument, error: Error) async {
         let content = UNMutableNotificationContent()
         content.title = "Document Processing Failed"
         content.body = "Failed to process \(document.fileName): \(error.localizedDescription)"
@@ -1168,7 +1170,7 @@ class DocumentProcessor: ObservableObject {
 // MARK: - Supporting Types
 struct ProcessingQueueItem: Identifiable {
     let id = UUID()
-    let document: HealthDocument
+    let document: MedicalDocument
     let priority: ProcessingPriority
     let addedAt: Date
     var startedAt: Date?

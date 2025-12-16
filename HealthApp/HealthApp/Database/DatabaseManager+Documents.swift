@@ -1,45 +1,22 @@
 import Foundation
 import SQLite
 
-// MARK: - Document CRUD Operations
+// MARK: - Document CRUD Operations (MedicalDocument)
 extension DatabaseManager {
-    
+
     // MARK: - Save Document
-    func saveDocument(_ document: HealthDocument) async throws {
+    func saveDocument(_ document: MedicalDocument) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
+
         do {
             let tagsJson = try JSONEncoder().encode(document.tags)
             let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
-            
-            let extractedDataJson = try JSONEncoder().encode(document.extractedData)
-            
-            // CRITICAL: Preserve MedicalDocument fields (extractedText, sections, etc.) when saving HealthDocument
-            // Read existing values first to avoid overwriting them
-            var existingExtractedText: String? = nil
-            var existingRawDoclingOutput: Data? = nil
-            var existingExtractedSections: Data? = nil
-            var existingDocumentDate: Int64? = nil
-            var existingProviderName: String? = nil
-            var existingProviderType: String? = nil
-            var existingIncludeInAIContext: Bool = false
-            var existingContextPriority: Int = 3
-            var existingLastEditedAt: Int64? = nil
-            
-            // Try to read existing MedicalDocument fields
-            let existingQuery = documentsTable.filter(self.documentId == document.id.uuidString)
-            if let existingRow = try? db.pluck(existingQuery) {
-                existingExtractedText = try? existingRow.get(self.documentExtractedText)
-                existingRawDoclingOutput = try? existingRow.get(self.documentRawDoclingOutput)
-                existingExtractedSections = try? existingRow.get(self.documentExtractedSections)
-                existingDocumentDate = try? existingRow.get(self.documentDate)
-                existingProviderName = try? existingRow.get(self.documentProviderName)
-                existingProviderType = try? existingRow.get(self.documentProviderType)
-                existingIncludeInAIContext = (try? existingRow.get(self.documentIncludeInAIContext)) ?? false
-                existingContextPriority = (try? existingRow.get(self.documentContextPriority)) ?? 3
-                existingLastEditedAt = try? existingRow.get(self.documentLastEditedAt)
-            }
-            
+
+            let extractedHealthDataJson = try JSONEncoder().encode(document.extractedHealthData)
+
+            // Encode extracted sections
+            let sectionsJson = try JSONEncoder().encode(document.extractedSections)
+
             let insert = documentsTable.insert(or: .replace,
                 documentId <- document.id.uuidString,
                 documentFileName <- document.fileName,
@@ -52,20 +29,20 @@ extension DatabaseManager {
                 documentFileSize <- document.fileSize,
                 documentTags <- tagsString,
                 documentNotes <- document.notes,
-                documentExtractedData <- extractedDataJson,
-                documentCategory <- document.documentCategory?.rawValue ?? "other",
-                // Preserve MedicalDocument fields if they exist
-                documentExtractedText <- existingExtractedText,
-                documentRawDoclingOutput <- existingRawDoclingOutput,
-                documentExtractedSections <- existingExtractedSections,
-                documentDate <- existingDocumentDate,
-                documentProviderName <- existingProviderName,
-                documentProviderType <- existingProviderType,
-                documentIncludeInAIContext <- existingIncludeInAIContext,
-                documentContextPriority <- existingContextPriority,
-                documentLastEditedAt <- existingLastEditedAt
+                documentExtractedData <- extractedHealthDataJson,
+                documentCategory <- document.documentCategory.rawValue,
+                // MedicalDocument-specific fields
+                documentExtractedText <- document.extractedText,
+                documentRawDoclingOutput <- document.rawDoclingOutput,
+                documentExtractedSections <- sectionsJson,
+                documentDate <- document.documentDate.map { Int64($0.timeIntervalSince1970) },
+                documentProviderName <- document.providerName,
+                documentProviderType <- document.providerType?.rawValue,
+                documentIncludeInAIContext <- document.includeInAIContext,
+                documentContextPriority <- document.contextPriority,
+                documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
             )
-            
+
             try db.run(insert)
         } catch {
             throw DatabaseError.encryptionFailed
@@ -73,36 +50,36 @@ extension DatabaseManager {
     }
     
     // MARK: - Fetch Documents
-    func fetchDocuments() async throws -> [HealthDocument] {
+    func fetchDocuments() async throws -> [MedicalDocument] {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        var results: [HealthDocument] = []
-        
+
+        var results: [MedicalDocument] = []
+
         do {
             let query = documentsTable.order(documentImportedAt.desc)
-            
+
             for row in try db.prepare(query) {
-                let document = try buildHealthDocument(from: row)
+                let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
         } catch {
             throw DatabaseError.decryptionFailed
         }
-        
+
         return results
     }
-    
+
     // MARK: - Fetch Single Document
-    func fetchDocument(id: UUID) async throws -> HealthDocument? {
+    func fetchDocument(id: UUID) async throws -> MedicalDocument? {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
+
         do {
             let query = documentsTable.filter(documentId == id.uuidString)
-            
+
             if let row = try db.pluck(query) {
-                return try buildHealthDocument(from: row)
+                return try buildMedicalDocument(from: row)
             }
-            
+
             return nil
         } catch {
             throw DatabaseError.decryptionFailed
@@ -162,53 +139,17 @@ extension DatabaseManager {
     // MARK: - Update Document Extracted Data
     func updateDocumentExtractedData(_ documentId: UUID, extractedData: [AnyHealthData]) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
+
         do {
             let extractedDataJson = try JSONEncoder().encode(extractedData)
-            
-            // CRITICAL: Preserve MedicalDocument fields when updating extracted data
-            // Read existing values first to avoid overwriting them
-            var existingExtractedText: String? = nil
-            var existingRawDoclingOutput: Data? = nil
-            var existingExtractedSections: Data? = nil
-            var existingDocumentDate: Int64? = nil
-            var existingProviderName: String? = nil
-            var existingProviderType: String? = nil
-            var existingIncludeInAIContext: Bool = false
-            var existingContextPriority: Int = 3
-            var existingLastEditedAt: Int64? = nil
-            
-            // Try to read existing MedicalDocument fields
-            let existingQuery = documentsTable.filter(self.documentId == documentId.uuidString)
-            if let existingRow = try? db.pluck(existingQuery) {
-                existingExtractedText = try? existingRow.get(self.documentExtractedText)
-                existingRawDoclingOutput = try? existingRow.get(self.documentRawDoclingOutput)
-                existingExtractedSections = try? existingRow.get(self.documentExtractedSections)
-                existingDocumentDate = try? existingRow.get(self.documentDate)
-                existingProviderName = try? existingRow.get(self.documentProviderName)
-                existingProviderType = try? existingRow.get(self.documentProviderType)
-                existingIncludeInAIContext = (try? existingRow.get(self.documentIncludeInAIContext)) ?? false
-                existingContextPriority = (try? existingRow.get(self.documentContextPriority)) ?? 3
-                existingLastEditedAt = try? existingRow.get(self.documentLastEditedAt)
-            }
-            
+
             let query = documentsTable.filter(self.documentId == documentId.uuidString)
             let update = query.update(
                 documentExtractedData <- extractedDataJson,
                 documentProcessingStatus <- ProcessingStatus.completed.rawValue,
-                documentProcessedAt <- Int64(Date().timeIntervalSince1970),
-                // Preserve MedicalDocument fields
-                documentExtractedText <- existingExtractedText,
-                documentRawDoclingOutput <- existingRawDoclingOutput,
-                documentExtractedSections <- existingExtractedSections,
-                documentDate <- existingDocumentDate,
-                documentProviderName <- existingProviderName,
-                documentProviderType <- existingProviderType,
-                documentIncludeInAIContext <- existingIncludeInAIContext,
-                documentContextPriority <- existingContextPriority,
-                documentLastEditedAt <- existingLastEditedAt
+                documentProcessedAt <- Int64(Date().timeIntervalSince1970)
             )
-            
+
             let rowsUpdated = try db.run(update)
             if rowsUpdated == 0 {
                 throw DatabaseError.notFound
@@ -217,9 +158,9 @@ extension DatabaseManager {
             throw DatabaseError.encryptionFailed
         }
     }
-    
+
     // MARK: - Delete Document
-    func deleteDocument(_ document: HealthDocument) async throws {
+    func deleteDocument(_ document: MedicalDocument) async throws {
         try await deleteDocument(id: document.id)
     }
     
@@ -235,69 +176,69 @@ extension DatabaseManager {
     }
     
     // MARK: - Fetch Documents by Status
-    func fetchDocuments(with status: ProcessingStatus) async throws -> [HealthDocument] {
+    func fetchDocuments(with status: ProcessingStatus) async throws -> [MedicalDocument] {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        var results: [HealthDocument] = []
-        
+
+        var results: [MedicalDocument] = []
+
         do {
             let query = documentsTable
                 .filter(documentProcessingStatus == status.rawValue)
                 .order(documentImportedAt.desc)
-            
+
             for row in try db.prepare(query) {
-                let document = try buildHealthDocument(from: row)
+                let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
         } catch {
             throw DatabaseError.decryptionFailed
         }
-        
+
         return results
     }
-    
+
     // MARK: - Fetch Documents by Type
-    func fetchDocuments(ofType type: DocumentType) async throws -> [HealthDocument] {
+    func fetchDocuments(ofType type: DocumentType) async throws -> [MedicalDocument] {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        var results: [HealthDocument] = []
-        
+
+        var results: [MedicalDocument] = []
+
         do {
             let query = documentsTable
                 .filter(documentFileType == type.rawValue)
                 .order(documentImportedAt.desc)
-            
+
             for row in try db.prepare(query) {
-                let document = try buildHealthDocument(from: row)
+                let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
         } catch {
             throw DatabaseError.decryptionFailed
         }
-        
+
         return results
     }
-    
+
     // MARK: - Search Documents
-    func searchDocuments(query: String) async throws -> [HealthDocument] {
+    func searchDocuments(query: String) async throws -> [MedicalDocument] {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        var results: [HealthDocument] = []
+
+        var results: [MedicalDocument] = []
         let searchTerm = "%\(query.lowercased())%"
-        
+
         do {
             let sqlQuery = documentsTable
                 .filter(documentFileName.like(searchTerm))
                 .order(documentImportedAt.desc)
-            
+
             for row in try db.prepare(sqlQuery) {
-                let document = try buildHealthDocument(from: row)
+                let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
         } catch {
             throw DatabaseError.decryptionFailed
         }
-        
+
         return results
     }
     
@@ -323,46 +264,74 @@ extension DatabaseManager {
     }
     
     // MARK: - Helper Methods
-    private func buildHealthDocument(from row: Row) throws -> HealthDocument {
+    private func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
         let id = UUID(uuidString: row[documentId]) ?? UUID()
         let fileName = row[documentFileName]
         let fileType = DocumentType(rawValue: row[documentFileType]) ?? .other
         let filePath = URL(string: row[documentFilePath]) ?? URL(fileURLWithPath: "")
-        let thumbnailPath = row[documentThumbnailPath].map { URL(string: $0) } ?? nil
+        let thumbnailPath = row[documentThumbnailPath].flatMap { URL(string: $0) }
         let processingStatus = ProcessingStatus(rawValue: row[documentProcessingStatus]) ?? .pending
         let importedAt = Date(timeIntervalSince1970: TimeInterval(row[documentImportedAt]))
         let processedAt = row[documentProcessedAt].map { Date(timeIntervalSince1970: TimeInterval($0)) }
         let fileSize = row[documentFileSize]
         let notes = row[documentNotes]
-        
+
         // Decode tags
         let tagsString = row[documentTags]
         let tagsData = tagsString.data(using: .utf8) ?? Data()
         let tags = (try? JSONDecoder().decode([String].self, from: tagsData)) ?? []
-        
-        // Decode extracted data
-        let extractedData: [AnyHealthData]
+
+        // Decode extracted health data
+        let extractedHealthData: [AnyHealthData]
         if let extractedDataBlob = row[documentExtractedData] {
-            extractedData = (try? JSONDecoder().decode([AnyHealthData].self, from: extractedDataBlob)) ?? []
+            extractedHealthData = (try? JSONDecoder().decode([AnyHealthData].self, from: extractedDataBlob)) ?? []
         } else {
-            extractedData = []
+            extractedHealthData = []
         }
-        
+
         // Decode document category
         let categoryRaw = (try? row.get(self.documentCategory)) ?? "other"
-        let documentCategory = DocumentCategory(rawValue: categoryRaw)
-        
-        return HealthDocument(
+        let documentCategory = DocumentCategory(rawValue: categoryRaw) ?? .other
+
+        // Decode MedicalDocument-specific fields
+        let documentDate = (try? row.get(self.documentDate)).map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let providerName = try? row.get(self.documentProviderName)
+        let providerTypeRaw = try? row.get(self.documentProviderType)
+        let providerType = providerTypeRaw.flatMap { ProviderType(rawValue: $0) }
+        let extractedText = try? row.get(self.documentExtractedText)
+        let rawDoclingOutput = try? row.get(self.documentRawDoclingOutput)
+        let includeInAIContext = (try? row.get(self.documentIncludeInAIContext)) ?? false
+        let contextPriority = (try? row.get(self.documentContextPriority)) ?? 3
+        let lastEditedAt = (try? row.get(self.documentLastEditedAt)).map { Date(timeIntervalSince1970: TimeInterval($0)) }
+
+        // Decode extracted sections
+        let extractedSections: [DocumentSection]
+        if let sectionsBlob = try? row.get(self.documentExtractedSections) {
+            extractedSections = (try? JSONDecoder().decode([DocumentSection].self, from: sectionsBlob)) ?? []
+        } else {
+            extractedSections = []
+        }
+
+        return MedicalDocument(
             id: id,
             fileName: fileName,
             fileType: fileType,
             filePath: filePath,
             thumbnailPath: thumbnailPath,
             processingStatus: processingStatus,
-            extractedData: extractedData,
+            documentDate: documentDate,
+            providerName: providerName,
+            providerType: providerType,
             documentCategory: documentCategory,
+            extractedText: extractedText,
+            rawDoclingOutput: rawDoclingOutput,
+            extractedSections: extractedSections,
+            includeInAIContext: includeInAIContext,
+            contextPriority: contextPriority,
+            extractedHealthData: extractedHealthData,
             importedAt: importedAt,
             processedAt: processedAt,
+            lastEditedAt: lastEditedAt,
             fileSize: fileSize,
             tags: tags,
             notes: notes

@@ -472,14 +472,14 @@ class MockHealthDataManager: HealthDataManager {
         set { _bloodTests = newValue }
     }
     
-    override var documents: [HealthDocument] {
+    override var documents: [MedicalDocument] {
         get { _documents }
         set { _documents = newValue }
     }
     
     private var _personalInfo: PersonalHealthInfo?
     private var _bloodTests: [BloodTestResult] = []
-    private var _documents: [HealthDocument] = []
+    private var _documents: [MedicalDocument] = []
     
     init() {
         // Create mock dependencies

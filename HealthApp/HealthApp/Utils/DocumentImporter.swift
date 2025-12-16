@@ -29,7 +29,7 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     // MARK: - Document Import from Files
-    func importDocument(from url: URL) async throws -> HealthDocument {
+    func importDocument(from url: URL) async throws -> MedicalDocument {
         print("📁 DocumentImporter: Starting import from URL: \(url)")
         
         isImporting = true
@@ -123,10 +123,12 @@ class DocumentImporter: NSObject, ObservableObject {
             
             // Create document record
             print("📝 DocumentImporter: Creating document record...")
-            let document = HealthDocument(
+            let document = MedicalDocument(
                 fileName: fileName,
                 fileType: fileType,
                 filePath: storedURL,
+                documentCategory: .other,  // Default category - user will set later
+                includeInAIContext: false, // Default to false until categorized
                 fileSize: fileSize
             )
             
@@ -171,7 +173,7 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     // MARK: - Document Import from Camera/Scanner
-    func importScannedDocument(_ scannedDocument: VNDocumentCameraScan) async throws -> HealthDocument {
+    func importScannedDocument(_ scannedDocument: VNDocumentCameraScan) async throws -> MedicalDocument {
         isImporting = true
         importProgress = 0.0
         
@@ -201,10 +203,12 @@ class DocumentImporter: NSObject, ObservableObject {
             importProgress = 0.8
             
             // Create document record
-            let document = HealthDocument(
+            let document = MedicalDocument(
                 fileName: fileName,
                 fileType: .pdf,
                 filePath: storedURL,
+                documentCategory: .other,
+                includeInAIContext: false,
                 fileSize: Int64(pdfData.count),
                 tags: ["scanned"]
             )
@@ -239,7 +243,7 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     // MARK: - Image Import
-    func importImage(_ image: UIImage, fileName: String? = nil) async throws -> HealthDocument {
+    func importImage(_ image: UIImage, fileName: String? = nil) async throws -> MedicalDocument {
         isImporting = true
         importProgress = 0.0
         
@@ -271,10 +275,12 @@ class DocumentImporter: NSObject, ObservableObject {
             importProgress = 0.8
             
             // Create document record
-            let document = HealthDocument(
+            let document = MedicalDocument(
                 fileName: finalFileName,
                 fileType: .jpeg,
                 filePath: storedURL,
+                documentCategory: .other,
+                includeInAIContext: false,
                 fileSize: Int64(imageData.count),
                 tags: ["photo"]
             )
@@ -309,8 +315,8 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     // MARK: - Batch Import
-    func importMultipleDocuments(from urls: [URL]) async throws -> [HealthDocument] {
-        var importedDocuments: [HealthDocument] = []
+    func importMultipleDocuments(from urls: [URL]) async throws -> [MedicalDocument] {
+        var importedDocuments: [MedicalDocument] = []
         let totalFiles = urls.count
         
         for (index, url) in urls.enumerated() {
@@ -397,8 +403,8 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     // MARK: - Photo Picker Integration
-    func importFromPhotoLibrary(_ results: [PHPickerResult]) async throws -> [HealthDocument] {
-        var importedDocuments: [HealthDocument] = []
+    func importFromPhotoLibrary(_ results: [PHPickerResult]) async throws -> [MedicalDocument] {
+        var importedDocuments: [MedicalDocument] = []
         
         for result in results {
             do {
@@ -413,7 +419,7 @@ class DocumentImporter: NSObject, ObservableObject {
         return importedDocuments
     }
     
-    private func importFromPhotoPickerResult(_ result: PHPickerResult) async throws -> HealthDocument {
+    private func importFromPhotoPickerResult(_ result: PHPickerResult) async throws -> MedicalDocument {
         return try await withCheckedThrowingContinuation { continuation in
             if result.itemProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, error in

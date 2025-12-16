@@ -3,7 +3,7 @@ import QuickLook
 import UniformTypeIdentifiers
 
 struct DocumentDetailView: View {
-    let document: HealthDocument
+    let document: MedicalDocument
     @ObservedObject var documentManager: DocumentManager
     @ObservedObject var documentProcessor: DocumentProcessor
     
@@ -35,9 +35,9 @@ struct DocumentDetailView: View {
                     
                     // Notes Section
                     notesSection
-                    
+
                     // Extracted Data Section
-                    if !document.extractedData.isEmpty {
+                    if !document.extractedHealthData.isEmpty {
                         extractedDataSection
                     }
                     
@@ -353,9 +353,9 @@ struct DocumentDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Extracted Health Data")
                 .font(.headline)
-            
+
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(document.extractedData.enumerated()), id: \.offset) { index, data in
+                ForEach(Array(document.extractedHealthData.enumerated()), id: \.element.id) { index, data in
                     ExtractedDataRow(data: data, index: index)
                 }
             }
@@ -726,7 +726,7 @@ struct DocumentShareSheet: UIViewControllerRepresentable {
 }
 
 struct TagEditorSheet: View {
-    let document: HealthDocument
+    let document: MedicalDocument
     let documentManager: DocumentManager
     @Binding var isPresented: Bool
     
@@ -806,7 +806,7 @@ struct TagEditorSheet: View {
 }
 
 struct NotesEditorSheet: View {
-    let document: HealthDocument
+    let document: MedicalDocument
     let documentManager: DocumentManager
     @Binding var isPresented: Bool
     
@@ -853,7 +853,7 @@ struct NotesEditorSheet: View {
 
 #Preview {
     DocumentDetailView(
-        document: HealthDocument(
+        document: MedicalDocument(
             fileName: "Blood Test Results - January 2024.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf"),

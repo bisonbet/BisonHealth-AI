@@ -874,7 +874,7 @@ private struct ChatDataBackup: Codable {
 }
 
 private struct DocumentBackup: Codable {
-    let metadata: HealthDocument
+    let metadata: MedicalDocument
     let fileData: Data
     let thumbnailData: Data?
 }

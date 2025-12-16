@@ -112,10 +112,10 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(categorized[.completeBloodCount]?.count, 1)
     }
     
-    // MARK: - HealthDocument Tests
-    func testHealthDocumentInitialization() {
+    // MARK: - MedicalDocument Tests
+    func testMedicalDocumentInitialization() {
         let url = URL(fileURLWithPath: "/tmp/test.pdf")
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: url,
@@ -144,8 +144,8 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(DocumentType.pdf.isImage)
     }
     
-    func testHealthDocumentTags() {
-        var document = HealthDocument(
+    func testMedicalDocumentTags() {
+        var document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf")

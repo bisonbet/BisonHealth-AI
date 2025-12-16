@@ -1,51 +1,7 @@
 import Foundation
 
-// MARK: - Health Document Model
-struct HealthDocument: Identifiable, Codable {
-    let id: UUID
-    var fileName: String
-    var fileType: DocumentType
-    var filePath: URL
-    var thumbnailPath: URL?
-    var processingStatus: ProcessingStatus
-    var extractedData: [AnyHealthData]
-    var documentCategory: DocumentCategory? // Optional category for medical documents
-    let importedAt: Date
-    var processedAt: Date?
-    var fileSize: Int64
-    var tags: [String]
-    var notes: String?
-    
-    init(
-        id: UUID = UUID(),
-        fileName: String,
-        fileType: DocumentType,
-        filePath: URL,
-        thumbnailPath: URL? = nil,
-        processingStatus: ProcessingStatus = .pending,
-        extractedData: [AnyHealthData] = [],
-        documentCategory: DocumentCategory? = nil,
-        importedAt: Date = Date(),
-        processedAt: Date? = nil,
-        fileSize: Int64 = 0,
-        tags: [String] = [],
-        notes: String? = nil
-    ) {
-        self.id = id
-        self.fileName = fileName
-        self.fileType = fileType
-        self.filePath = filePath
-        self.thumbnailPath = thumbnailPath
-        self.processingStatus = processingStatus
-        self.extractedData = extractedData
-        self.documentCategory = documentCategory
-        self.importedAt = importedAt
-        self.processedAt = processedAt
-        self.fileSize = fileSize
-        self.tags = tags
-        self.notes = notes
-    }
-}
+// MARK: - DEPRECATED: HealthDocument has been replaced by MedicalDocument
+// This file now only contains shared types used by MedicalDocument and other components
 
 // MARK: - Document Type
 enum DocumentType: String, CaseIterable, Codable {
@@ -171,44 +127,5 @@ struct AnyHealthData: Codable {
     }
 }
 
-// MARK: - Document Extensions
-extension HealthDocument {
-    var isProcessed: Bool {
-        return processingStatus == .completed
-    }
-    
-    var canBeProcessed: Bool {
-        return processingStatus == .pending || processingStatus == .failed
-    }
-    
-    var formattedFileSize: String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: fileSize)
-    }
-    
-    var extractedDataSummary: String {
-        if extractedData.isEmpty {
-            return "No data extracted"
-        }
-        
-        let groupedData = Dictionary(grouping: extractedData) { $0.type }
-        let summary = groupedData.map { type, items in
-            "\(items.count) \(type.displayName.lowercased())"
-        }.joined(separator: ", ")
-        
-        return summary
-    }
-    
-    mutating func addTag(_ tag: String) {
-        let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTag.isEmpty && !tags.contains(trimmedTag) {
-            tags.append(trimmedTag)
-        }
-    }
-    
-    mutating func removeTag(_ tag: String) {
-        tags.removeAll { $0 == tag }
-    }
-}
+// MARK: - End of shared types
+// HealthDocument struct and extensions have been removed - use MedicalDocument instead
