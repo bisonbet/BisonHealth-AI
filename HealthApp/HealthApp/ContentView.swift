@@ -64,31 +64,32 @@ struct ContentView: View {
 
 // MARK: - Health Data View
 struct HealthDataView: View {
-    @StateObject private var healthDataManager = HealthDataManager(
-        databaseManager: DatabaseManager.shared,
-        fileSystemManager: FileSystemManager.shared
-    )
+    @StateObject private var healthDataManager = HealthDataManager.shared
     @State private var showingPersonalInfoEditor = false
     @State private var showingBloodTestEntry = false
     @State private var editingBloodTest: BloodTestResult?
-    
+    @State private var showingVitalEntry: VitalType?
+    @State private var editingVital: (type: VitalType, index: Int)?
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    
+
     private var isIPad: Bool {
         horizontalSizeClass == .regular
     }
-    
+
     var body: some View {
         NavigationStack {
             List {
                 PersonalInfoSection(
                     personalInfo: healthDataManager.personalInfo,
-                    onEdit: { 
+                    onEdit: {
                         HapticFeedbackManager.shared.impact()
-                        showingPersonalInfoEditor = true 
+                        showingPersonalInfoEditor = true
                     }
                 )
-                
+
+                VitalsSummarySection(personalInfo: healthDataManager.personalInfo)
+
                 BloodTestsSection(
                     bloodTests: $healthDataManager.bloodTests,
                     onAddNew: { 
@@ -196,7 +197,100 @@ struct HealthDataView: View {
                     }
                 }
             }
+            .sheet(item: $showingVitalEntry) { vitalType in
+                VitalEntryView(
+                    vitalType: vitalType,
+                    existingReading: nil,
+                    personalInfo: healthDataManager.personalInfo,
+                    onSave: { updatedInfo in
+                        HapticFeedbackManager.shared.success()
+                        Task {
+                            try await healthDataManager.savePersonalInfo(updatedInfo)
+                        }
+                    }
+                )
+            }
+            .sheet(item: Binding(
+                get: { editingVital.map { EditingVitalWrapper(type: $0.type, index: $0.index) } },
+                set: { editingVital = $0.map { ($0.type, $0.index) } }
+            )) { wrapper in
+                VitalEntryView(
+                    vitalType: wrapper.type,
+                    existingReading: (wrapper.type, wrapper.index),
+                    personalInfo: healthDataManager.personalInfo,
+                    onSave: { updatedInfo in
+                        HapticFeedbackManager.shared.success()
+                        Task {
+                            try await healthDataManager.savePersonalInfo(updatedInfo)
+                        }
+                    }
+                )
+            }
             .keyboardNavigable()
+        }
+    }
+
+    // MARK: - Vital Management Helpers
+    private func deleteVitalReading(type: VitalType, index: Int) async {
+        guard var info = healthDataManager.personalInfo else { return }
+
+        switch type {
+        case .bloodPressure:
+            if index < info.bloodPressureReadings.count {
+                info.bloodPressureReadings.remove(at: index)
+            }
+        case .heartRate:
+            if index < info.heartRateReadings.count {
+                info.heartRateReadings.remove(at: index)
+            }
+        case .weight:
+            if index < info.weightReadings.count {
+                info.weightReadings.remove(at: index)
+            }
+        case .bodyTemperature:
+            if index < info.bodyTemperatureReadings.count {
+                info.bodyTemperatureReadings.remove(at: index)
+            }
+        case .oxygenSaturation:
+            if index < info.oxygenSaturationReadings.count {
+                info.oxygenSaturationReadings.remove(at: index)
+            }
+        case .respiratoryRate:
+            if index < info.respiratoryRateReadings.count {
+                info.respiratoryRateReadings.remove(at: index)
+            }
+        case .sleep:
+            if index < info.sleepData.count {
+                info.sleepData.remove(at: index)
+            }
+        }
+
+        do {
+            try await healthDataManager.savePersonalInfo(info)
+        } catch {
+            print("Failed to delete vital reading: \(error)")
+        }
+    }
+}
+
+// MARK: - Editing Vital Wrapper
+struct EditingVitalWrapper: Identifiable {
+    let id = UUID()
+    let type: VitalType
+    let index: Int
+}
+
+// MARK: - VitalType Identifiable Extension
+extension VitalType: Identifiable {
+    var id: String {
+        switch self {
+        case .bloodPressure: return "bloodPressure"
+        case .heartRate: return "heartRate"
+        case .weight: return "weight"
+        case .bodyTemperature: return "bodyTemperature"
+        case .oxygenSaturation: return "oxygenSaturation"
+        case .respiratoryRate: return "respiratoryRate"
+        case .sleep: return "sleep"
         }
     }
 }
@@ -1041,6 +1135,54 @@ struct ChatView: View {
     }
 }
 
+
+// MARK: - Vitals Summary Section
+struct VitalsSummarySection: View {
+    let personalInfo: PersonalHealthInfo?
+
+    private var vitalsCount: Int {
+        guard let info = personalInfo else { return 0 }
+        var count = 0
+        if !info.bloodPressureReadings.isEmpty { count += 1 }
+        if !info.heartRateReadings.isEmpty { count += 1 }
+        if !info.weightReadings.isEmpty { count += 1 }
+        if !info.bodyTemperatureReadings.isEmpty { count += 1 }
+        if !info.oxygenSaturationReadings.isEmpty { count += 1 }
+        if !info.respiratoryRateReadings.isEmpty { count += 1 }
+        if !info.sleepData.isEmpty { count += 1 }
+        return count
+    }
+
+    var body: some View {
+        Section {
+            NavigationLink(destination: VitalsListView()) {
+                HStack {
+                    Image(systemName: "heart.text.square")
+                        .foregroundColor(.pink)
+                        .font(.title3)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Recent Vitals")
+                            .font(.headline)
+
+                        if vitalsCount > 0 {
+                            Text("\(vitalsCount) categories tracked")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("No vitals data yet")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Spacer()
+                }
+            }
+        }
+    }
+}
 
 #Preview {
     ContentView()

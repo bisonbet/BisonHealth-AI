@@ -165,8 +165,12 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 if let content = choice.primaryContent {
                     let processingTime = Date().timeIntervalSince(startTime)
                     let resolvedModel = chatResponse.model ?? choice.model ?? defaultModel
+
+                    // Clean the response to remove special tokens and unwanted text
+                    let cleanedContent = AIResponseCleaner.cleanConversational(content)
+
                     return OpenAICompatibleChatResponse(
-                        content: content,
+                        content: cleanedContent,
                         model: resolvedModel,
                         processingTime: processingTime,
                         totalTokens: chatResponse.usage?.totalTokens
@@ -177,8 +181,12 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             // Attempt to extract content using a flexible fallback parser
             if let fallbackContent = try? parseFlexibleChatContent(from: data) {
                 let processingTime = Date().timeIntervalSince(startTime)
+
+                // Clean the response to remove special tokens and unwanted text
+                let cleanedContent = AIResponseCleaner.cleanConversational(fallbackContent.content)
+
                 return OpenAICompatibleChatResponse(
-                    content: fallbackContent.content,
+                    content: cleanedContent,
                     model: fallbackContent.model ?? defaultModel,
                     processingTime: processingTime,
                     totalTokens: fallbackContent.totalTokens

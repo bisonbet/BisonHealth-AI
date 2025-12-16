@@ -10,7 +10,7 @@ struct SettingsView: View {
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
     @State private var navigationPath = NavigationPath()
-    
+
     @State private var showingResetAlert = false
     @State private var resetType: ResetType?
     @State private var showingValidationError = false
@@ -19,8 +19,12 @@ struct SettingsView: View {
     @State private var connectionError = ""
     @State private var showingSuccessMessage = false
     @State private var successMessage = ""
-    
+    @State private var isSyncingAppleHealth = false
+    @State private var lastSyncDate: Date?
+
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var healthDataManager = HealthDataManager.shared
+    @StateObject private var healthKitManager = HealthKitManager.shared
     
     enum ResetType {
         case servers, backup, preferences, all, database, disclaimer
@@ -53,6 +57,7 @@ struct SettingsView: View {
             settingsForm
                 .navigationTitle("Settings")
                 .toolbar { toolbarContent }
+                .scrollDismissesKeyboard(.interactively)
                 .modifier(AlertsModifier(
                     resetType: resetType,
                     showingResetAlert: $showingResetAlert,
@@ -83,6 +88,7 @@ struct SettingsView: View {
             disclaimerSection
             aiProviderSection
             documentProcessingSection
+            appleHealthSection
             backupSection
             appPreferencesSection
             dataManagementSection
@@ -125,6 +131,16 @@ struct SettingsView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
+        }
+
+        // Keyboard toolbar - shows "Done" button above keyboard
+        ToolbarItemGroup(placement: .keyboard) {
+            Spacer()
+            Button("Done") {
+                // Dismiss keyboard
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+            .font(.headline)
         }
     }
 
@@ -193,6 +209,8 @@ struct SettingsView: View {
             onConfigChange: { newConfig in
                 settingsManager.doclingConfig = newConfig
                 settingsManager.saveSettings()
+                // Reset status when configuration changes since it may no longer be valid
+                settingsManager.doclingStatus = .unknown
             }
         )
     }
@@ -283,7 +301,89 @@ struct SettingsView: View {
         }
     }
 
-    
+    // MARK: - Apple Health Section
+
+    private var appleHealthSection: some View {
+        Section("Apple Health Sync") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "heart.text.square.fill")
+                        .foregroundColor(.pink)
+                        .font(.title3)
+
+                    Text("Sync with Apple Health")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+
+                    Spacer()
+                }
+
+                Text("Automatically sync vitals (blood pressure, heart rate, weight), sleep data, and personal information from the Health app.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                // Sync status
+                if healthKitManager.isHealthKitAvailable() {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Image(systemName: healthKitManager.isAuthorized ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                .foregroundColor(healthKitManager.isAuthorized ? .green : .orange)
+
+                            Text(healthKitManager.isAuthorized ? "Connected to Apple Health" : "Not Authorized")
+                                .font(.caption)
+                                .foregroundColor(healthKitManager.isAuthorized ? .green : .orange)
+
+                            Spacer()
+                        }
+
+                        if let lastSync = healthKitManager.lastSyncDate {
+                            HStack {
+                                Image(systemName: "clock")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+
+                                Text("Last synced: \(lastSync.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                Spacer()
+                            }
+                        }
+
+                        // Sync button
+                        Button(action: { syncAppleHealth() }) {
+                            HStack {
+                                if isSyncingAppleHealth {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                }
+
+                                Text(isSyncingAppleHealth ? "Syncing..." : "Sync Now")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isSyncingAppleHealth)
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+
+                        Text("Apple Health is not available on this device")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+
+                        Spacer()
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+
     // MARK: - Backup Section
 
     private var backupSection: some View {
@@ -744,20 +844,19 @@ struct SettingsView: View {
         Task {
             settingsManager.saveSettings()
         }
-        
-        // Reset connection status when configuration changes
-        settingsManager.ollamaStatus = .unknown
-        settingsManager.doclingStatus = .unknown
+
+        // Note: Connection status is now reset only when hostname/port actually change
+        // (handled in the TextField onChange handlers in serverConfigCard)
+        // This prevents the status from being reset after a successful connection test
     }
     
     private func validateConfiguration() {
         // Validation is now handled inline in the UI, so this function
         // can be simplified or used for other validation logic
         // The real-time validation happens in the UI components themselves
-        
-        // Reset connection status when configuration changes since it may no longer be valid
-        settingsManager.ollamaStatus = .unknown
-        settingsManager.doclingStatus = .unknown
+
+        // Note: Connection status is now reset only when hostname/port actually change
+        // (handled in the TextField onChange handlers in serverConfigCard)
     }
     
     private func performReset() {
@@ -868,7 +967,7 @@ struct SettingsView: View {
             do {
                 let fileManager = FileSystemManager.shared
                 try await fileManager.clearCache()
-                
+
                 // Show success message
                 await MainActor.run {
                     successMessage = "Cache cleared successfully"
@@ -882,7 +981,32 @@ struct SettingsView: View {
             }
         }
     }
-    
+
+    // MARK: - Apple Health Sync
+
+    private func syncAppleHealth() {
+        isSyncingAppleHealth = true
+
+        Task {
+            do {
+                try await healthDataManager.syncFromAppleHealth()
+
+                await MainActor.run {
+                    isSyncingAppleHealth = false
+                    lastSyncDate = Date()
+                    successMessage = "Successfully synced data from Apple Health"
+                    showingSuccessMessage = true
+                }
+            } catch {
+                await MainActor.run {
+                    isSyncingAppleHealth = false
+                    validationError = "Failed to sync from Apple Health: \(error.localizedDescription)"
+                    showingValidationError = true
+                }
+            }
+        }
+    }
+
 }
 
 // MARK: - View Modifiers

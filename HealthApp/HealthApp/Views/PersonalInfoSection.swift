@@ -26,40 +26,24 @@ struct PersonalInfoSection: View {
 
 struct PersonalInfoRowView: View {
     let personalInfo: PersonalHealthInfo
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Basic Info Only: Name, Age, Weight, Sex
             Group {
                 if let name = personalInfo.name {
                     InfoRow(label: "Name", value: name, icon: "person")
                 }
-                
+
                 if let dateOfBirth = personalInfo.dateOfBirth {
+                    let age = calculateAge(from: dateOfBirth)
                     InfoRow(
-                        label: "Date of Birth",
-                        value: DateFormatter.mediumDate.string(from: dateOfBirth),
+                        label: "Age",
+                        value: "\(age) years",
                         icon: "calendar"
                     )
                 }
-                
-                if let gender = personalInfo.gender {
-                    InfoRow(label: "Sex", value: gender.displayName, icon: "figure.dress.line.vertical.figure")
-                }
-                
-                if let bloodType = personalInfo.bloodType {
-                    InfoRow(label: "Blood Type", value: bloodType.displayName, icon: "drop.fill")
-                }
-            }
-            
-            Group {
-                if let height = personalInfo.height {
-                    InfoRow(
-                        label: "Height",
-                        value: formatHeight(height),
-                        icon: "ruler"
-                    )
-                }
-                
+
                 if let weight = personalInfo.weight {
                     InfoRow(
                         label: "Weight",
@@ -67,53 +51,50 @@ struct PersonalInfoRowView: View {
                         icon: "scalemass"
                     )
                 }
-            }
-            
-            // Medical Information with checkmarks
-            VStack(alignment: .leading, spacing: 8) {
-                InfoRowHeader(label: "Medical Information", icon: "heart.text.square")
 
-                HStack {
-                    Spacer().frame(width: 28) // Indent to align with InfoRow
-                    VStack(alignment: .leading, spacing: 4) {
-                        CheckmarkInfoRow(
-                            label: "Allergies",
-                            hasData: !personalInfo.allergies.isEmpty,
-                            icon: "exclamationmark.triangle"
-                        )
-
-                        CheckmarkInfoRow(
-                            label: "Medications",
-                            hasData: !personalInfo.medications.isEmpty,
-                            icon: "pills"
-                        )
-
-                        CheckmarkInfoRow(
-                            label: "Supplements",
-                            hasData: !personalInfo.supplements.isEmpty,
-                            icon: "leaf"
-                        )
-
-                        CheckmarkInfoRow(
-                            label: "Personal Medical History",
-                            hasData: !personalInfo.personalMedicalHistory.isEmpty,
-                            icon: "doc.text"
-                        )
-
-                        CheckmarkInfoRow(
-                            label: "Family Medical History",
-                            hasData: !isFamilyHistoryEmpty(personalInfo.familyHistory),
-                            icon: "person.3"
-                        )
-                    }
+                if let gender = personalInfo.gender {
+                    InfoRow(label: "Sex", value: gender.displayName, icon: "figure.dress.line.vertical.figure")
                 }
             }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            // Medical Information Status
+            MedicalInfoStatusRow(personalInfo: personalInfo)
         }
         .padding(.vertical, 8)
     }
-    
+
+    private var medicalInfoStatus: MedicalInfoStatus {
+        let filledCount = medicalInfoFilledCount
+        if filledCount == 0 {
+            return .empty
+        } else if filledCount == 5 {
+            return .complete
+        } else {
+            return .partial
+        }
+    }
+
+    private var medicalInfoFilledCount: Int {
+        var count = 0
+        if !personalInfo.allergies.isEmpty { count += 1 }
+        if !personalInfo.medications.isEmpty { count += 1 }
+        if !personalInfo.supplements.isEmpty { count += 1 }
+        if !personalInfo.personalMedicalHistory.isEmpty { count += 1 }
+        if !isFamilyHistoryEmpty(personalInfo.familyHistory) { count += 1 }
+        return count
+    }
+
     // MARK: - Helper Functions
-    
+
+    private func calculateAge(from dateOfBirth: Date) -> Int {
+        let calendar = Calendar.current
+        let ageComponents = calendar.dateComponents([.year], from: dateOfBirth, to: Date())
+        return ageComponents.year ?? 0
+    }
+
     private func isFamilyHistoryEmpty(_ history: FamilyMedicalHistory) -> Bool {
         return (history.mother?.isEmpty ?? true) &&
                (history.father?.isEmpty ?? true) &&
@@ -124,7 +105,7 @@ struct PersonalInfoRowView: View {
                (history.siblings?.isEmpty ?? true) &&
                (history.other?.isEmpty ?? true)
     }
-    
+
     private func formatHeight(_ height: Measurement<UnitLength>) -> String {
         if UserDefaults.standard.bool(forKey: "useImperialUnits") {
             let totalInches = height.converted(to: .inches).value
@@ -270,6 +251,95 @@ struct CheckmarkInfoRow: View {
                     .foregroundColor(.green)
                     .font(.caption)
             }
+        }
+    }
+}
+
+// MARK: - Medical Info Status Row
+struct MedicalInfoStatusRow: View {
+    let personalInfo: PersonalHealthInfo
+
+    private var status: MedicalInfoStatus {
+        let count = filledCount
+        if count == 0 {
+            return .empty
+        } else if count == 5 {
+            return .complete
+        } else {
+            return .partial
+        }
+    }
+
+    private var filledCount: Int {
+        var count = 0
+        if !personalInfo.allergies.isEmpty { count += 1 }
+        if !personalInfo.medications.isEmpty { count += 1 }
+        if !personalInfo.supplements.isEmpty { count += 1 }
+        if !personalInfo.personalMedicalHistory.isEmpty { count += 1 }
+        if !isFamilyHistoryEmpty(personalInfo.familyHistory) { count += 1 }
+        return count
+    }
+
+    private func isFamilyHistoryEmpty(_ history: FamilyMedicalHistory) -> Bool {
+        return (history.mother?.isEmpty ?? true) &&
+               (history.father?.isEmpty ?? true) &&
+               (history.maternalGrandmother?.isEmpty ?? true) &&
+               (history.maternalGrandfather?.isEmpty ?? true) &&
+               (history.paternalGrandmother?.isEmpty ?? true) &&
+               (history.paternalGrandfather?.isEmpty ?? true) &&
+               (history.siblings?.isEmpty ?? true) &&
+               (history.other?.isEmpty ?? true)
+    }
+
+    var body: some View {
+        HStack {
+            Image(systemName: "heart.text.square")
+                .foregroundColor(.blue)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Medical Information")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(status.description)
+                    .font(.body)
+            }
+
+            Spacer()
+
+            Image(systemName: status.icon)
+                .foregroundColor(status.color)
+                .font(.title3)
+        }
+    }
+}
+
+enum MedicalInfoStatus {
+    case empty
+    case partial
+    case complete
+
+    var icon: String {
+        switch self {
+        case .empty: return "xmark.circle.fill"
+        case .partial: return "exclamationmark.triangle.fill"
+        case .complete: return "checkmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .empty: return .red
+        case .partial: return .orange
+        case .complete: return .green
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .empty: return "No data"
+        case .partial: return "Partially filled"
+        case .complete: return "Complete"
         }
     }
 }

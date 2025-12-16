@@ -19,7 +19,7 @@ class DatabaseManager: ObservableObject {
     private let databaseURL: URL
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 5 // Increment when making schema changes
+    private static let currentDatabaseVersion = 6 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
@@ -368,6 +368,15 @@ class DatabaseManager: ObservableObject {
             // and the supplements property has a default value of [] in the model.
             // The Codable decoder will automatically use the default for existing records.
             print("   ✓ Added support for supplements in personal health info")
+
+        case 6:
+            // Migration for version 6: Added Apple Health sync with vitals and sleep data
+            // This migration is data-safe since PersonalHealthInfo is stored as encrypted JSON
+            // and all new properties (bloodPressureReadings, heartRateReadings, bodyTemperatureReadings,
+            // oxygenSaturationReadings, respiratoryRateReadings, weightReadings, sleepData) have
+            // default values of [] in the model. The Codable decoder will automatically use the
+            // defaults for existing records via decodeIfPresent.
+            print("   ✓ Added support for Apple Health sync (vitals and sleep data)")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")

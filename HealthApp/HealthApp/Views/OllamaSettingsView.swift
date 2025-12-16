@@ -19,6 +19,16 @@ struct OllamaSettingsView: View {
         }
         .navigationTitle("Ollama Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .font(.headline)
+            }
+        }
         .onAppear {
             loadSettings()
         }
@@ -123,6 +133,12 @@ struct OllamaSettingsView: View {
                                 Text(model.displayName)
                                     .tag(model.name)
                             }
+                            // Add currently selected model if it's not in the available list
+                            if !chatModels.contains(where: { $0.name == settingsManager.modelPreferences.chatModel }) &&
+                               !settingsManager.modelPreferences.chatModel.isEmpty {
+                                Text("\(settingsManager.modelPreferences.chatModel) (not available)")
+                                    .tag(settingsManager.modelPreferences.chatModel)
+                            }
                         }
                         .pickerStyle(.menu)
                     }
@@ -141,7 +157,7 @@ struct OllamaSettingsView: View {
                         .foregroundColor(.primary)
 
                     if documentModels.isEmpty && !settingsManager.modelSelection.isLoading {
-                        Text("No text models available. Connect to Ollama server and refresh models.")
+                        Text("No vision models available. Connect to Ollama server and refresh models.")
                             .font(.caption)
                             .foregroundColor(.orange)
                             .padding(.vertical, 8)
@@ -151,11 +167,17 @@ struct OllamaSettingsView: View {
                                 Text(model.displayName)
                                     .tag(model.name)
                             }
+                            // Add currently selected model if it's not in the available list
+                            if !documentModels.contains(where: { $0.name == settingsManager.modelPreferences.documentModel }) &&
+                               !settingsManager.modelPreferences.documentModel.isEmpty {
+                                Text("\(settingsManager.modelPreferences.documentModel) (not available)")
+                                    .tag(settingsManager.modelPreferences.documentModel)
+                            }
                         }
                         .pickerStyle(.menu)
                     }
 
-                    Text("Used for processing PDF and document text. More efficient than vision models for text-only documents.")
+                    Text("Used for processing medical documents with OCR and image analysis. Requires vision-capable models.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -178,6 +200,12 @@ struct OllamaSettingsView: View {
                             ForEach(visionModels, id: \.id) { model in
                                 Text(model.displayName)
                                     .tag(model.name)
+                            }
+                            // Add currently selected model if it's not in the available list
+                            if !visionModels.contains(where: { $0.name == settingsManager.modelPreferences.visionModel }) &&
+                               !settingsManager.modelPreferences.visionModel.isEmpty {
+                                Text("\(settingsManager.modelPreferences.visionModel) (not available)")
+                                    .tag(settingsManager.modelPreferences.visionModel)
                             }
                         }
                         .pickerStyle(.menu)
@@ -280,9 +308,8 @@ struct OllamaSettingsView: View {
     }
 
     private var documentModels: [OllamaModel] {
-        let textModels = settingsManager.modelSelection.availableModels.filter { !$0.supportsVision }
-        let visionModels = settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
-        return textModels + visionModels
+        // Document processing requires vision models for OCR and image analysis
+        settingsManager.modelSelection.availableModels.filter { $0.supportsVision }
     }
 
     // MARK: - Helper Functions

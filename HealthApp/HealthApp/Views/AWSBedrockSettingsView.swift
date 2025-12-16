@@ -50,6 +50,16 @@ struct AWSBedrockSettingsView: View {
         }
         .navigationTitle("AWS Bedrock Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .font(.headline)
+            }
+        }
         .onAppear {
             print("🔵 AWSBedrockSettingsView.onAppear called")
             // Initialize editing states with current credentials
