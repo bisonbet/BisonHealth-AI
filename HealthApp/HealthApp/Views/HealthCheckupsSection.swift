@@ -9,20 +9,28 @@ struct HealthCheckupsSection: View {
             if healthCheckups.isEmpty {
                 EmptyHealthCheckupsView()
             } else {
-                ForEach(healthCheckups.prefix(3)) { checkup in
+                ForEach(healthCheckups.prefix(2)) { checkup in
                     NavigationLink {
                         MedicalDocumentDetailView(document: checkup)
                     } label: {
                         HealthCheckupRowView(checkup: checkup)
                     }
                 }
-                
-                if healthCheckups.count > 3 {
-                    NavigationLink("View All (\(healthCheckups.count))") {
+
+                if healthCheckups.count > 2 {
+                    NavigationLink {
                         HealthCheckupsListView(checkups: $healthCheckups, onDocumentTap: onDocumentTap)
+                    } label: {
+                        HStack {
+                            Text("More")
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                            Spacer()
+                            Text("\(healthCheckups.count) total")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
-                    .font(.caption)
-                    .foregroundColor(.blue)
                 }
             }
         } header: {

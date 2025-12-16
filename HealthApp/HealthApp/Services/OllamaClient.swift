@@ -82,8 +82,11 @@ class OllamaClient: ObservableObject, AIProviderInterface {
 
             let processingTime = Date().timeIntervalSince(startTime)
 
+            // Clean the response to remove special tokens and unwanted text
+            let cleanedContent = AIResponseCleaner.cleanConversational(response.message.content)
+
             return OllamaChatResponse(
-                content: response.message.content,
+                content: cleanedContent,
                 model: model,
                 processingTime: processingTime,
                 totalTokens: response.promptEvalCount
@@ -150,14 +153,17 @@ class OllamaClient: ObservableObject, AIProviderInterface {
             }
             
             let processingTime = Date().timeIntervalSince(startTime)
-            
+
+            // Clean the accumulated content to remove special tokens and unwanted text
+            let cleanedContent = AIResponseCleaner.cleanConversational(accumulatedContent)
+
             let finalResponse = OllamaChatResponse(
-                content: accumulatedContent,
+                content: cleanedContent,
                 model: model,
                 processingTime: processingTime,
                 totalTokens: totalTokens
             )
-            
+
             await MainActor.run {
                 isStreaming = false
                 onComplete(finalResponse)
@@ -340,13 +346,11 @@ struct OllamaModel: Codable, Identifiable, Equatable {
     // Vision capability detection based on model name patterns
     var supportsVision: Bool {
         let visionModels = [
-            "llava", "bakllava", "moondream", "minicpm-v", "llava-llama3", 
-            "llava-phi3", "llama3.2-vision", "llama4", "qwen2.5vl", "qwen-vl",
-            "granite3.2-vision", "mistral-small3.1", "mistral-small3.2",
-            "gemma3", "cogvlm", "yi-vl", "internvl", "deepseek-vl", 
-            "cambrian", "molmo"
+            "llava", "llama3.2-vision", "llama4", "qwen2.5vl", "qwen3-vl",
+            "granite3.2-vision", "mistral-small3.1", "mistral-small3.2", "ministral-3",
+            "gemma3","deepseek-ocr"
         ]
-        
+
         let modelNameLower = name.lowercased()
         return visionModels.contains { visionModel in
             modelNameLower.contains(visionModel)

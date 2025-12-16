@@ -562,83 +562,84 @@ class HealthDataManager: ObservableObject {
 
     /// Merge HealthKit data with existing personal info (prioritizing manual entries)
     private func mergeHealthKitData(_ syncedData: SyncedHealthData) async throws {
-        // Use lock to prevent race conditions during sync
-        syncLock.lock()
-        defer { syncLock.unlock() }
+        // Use async-safe scoped locking to prevent race conditions during sync
+        let info = syncLock.withLock { () -> PersonalHealthInfo in
+            var info = personalInfo ?? PersonalHealthInfo()
 
-        var info = personalInfo ?? PersonalHealthInfo()
+            // Update characteristics only if not manually set
+            if info.dateOfBirth == nil, let dob = syncedData.dateOfBirth {
+                info.dateOfBirth = dob
+            }
 
-        // Update characteristics only if not manually set
-        if info.dateOfBirth == nil, let dob = syncedData.dateOfBirth {
-            info.dateOfBirth = dob
+            if info.gender == nil, let gender = syncedData.biologicalSex {
+                info.gender = gender
+            }
+
+            if info.bloodType == nil, let bloodType = syncedData.bloodType {
+                info.bloodType = bloodType
+            }
+
+            if info.height == nil, let height = syncedData.height {
+                info.height = height
+            }
+
+            // For weight, prefer the most recent manual entry, but merge HealthKit readings
+            // Keep manual entries and add HealthKit entries, limiting to 7 most recent
+            info.weightReadings = mergeVitalReadings(
+                manual: info.weightReadings,
+                healthKit: syncedData.weightReadings,
+                limit: 7
+            )
+
+            // Update weight property with the most recent reading using Measurement API
+            if let mostRecentWeight = info.weightReadings.first {
+                // Use Foundation's Measurement API for accurate unit conversion
+                let weightInPounds = Measurement(value: mostRecentWeight.value, unit: UnitMass.pounds)
+                info.weight = weightInPounds.converted(to: .kilograms)
+            }
+
+            // Merge vitals (prioritize manual, then fill with HealthKit data)
+            info.bloodPressureReadings = mergeVitalReadings(
+                manual: info.bloodPressureReadings,
+                healthKit: syncedData.bloodPressureReadings,
+                limit: 7
+            )
+
+            info.heartRateReadings = mergeVitalReadings(
+                manual: info.heartRateReadings,
+                healthKit: syncedData.heartRateReadings,
+                limit: 7
+            )
+
+            info.bodyTemperatureReadings = mergeVitalReadings(
+                manual: info.bodyTemperatureReadings,
+                healthKit: syncedData.bodyTemperatureReadings,
+                limit: 7
+            )
+
+            info.oxygenSaturationReadings = mergeVitalReadings(
+                manual: info.oxygenSaturationReadings,
+                healthKit: syncedData.oxygenSaturationReadings,
+                limit: 7
+            )
+
+            info.respiratoryRateReadings = mergeVitalReadings(
+                manual: info.respiratoryRateReadings,
+                healthKit: syncedData.respiratoryRateReadings,
+                limit: 7
+            )
+
+            // Merge sleep data (prioritize manual, then fill with HealthKit data)
+            info.sleepData = mergeSleepData(
+                manual: info.sleepData,
+                healthKit: syncedData.sleepData,
+                limit: 7
+            )
+
+            return info
         }
 
-        if info.gender == nil, let gender = syncedData.biologicalSex {
-            info.gender = gender
-        }
-
-        if info.bloodType == nil, let bloodType = syncedData.bloodType {
-            info.bloodType = bloodType
-        }
-
-        if info.height == nil, let height = syncedData.height {
-            info.height = height
-        }
-
-        // For weight, prefer the most recent manual entry, but merge HealthKit readings
-        // Keep manual entries and add HealthKit entries, limiting to 7 most recent
-        info.weightReadings = mergeVitalReadings(
-            manual: info.weightReadings,
-            healthKit: syncedData.weightReadings,
-            limit: 7
-        )
-
-        // Update weight property with the most recent reading using Measurement API
-        if let mostRecentWeight = info.weightReadings.first {
-            // Use Foundation's Measurement API for accurate unit conversion
-            let weightInPounds = Measurement(value: mostRecentWeight.value, unit: UnitMass.pounds)
-            info.weight = weightInPounds.converted(to: .kilograms)
-        }
-
-        // Merge vitals (prioritize manual, then fill with HealthKit data)
-        info.bloodPressureReadings = mergeVitalReadings(
-            manual: info.bloodPressureReadings,
-            healthKit: syncedData.bloodPressureReadings,
-            limit: 7
-        )
-
-        info.heartRateReadings = mergeVitalReadings(
-            manual: info.heartRateReadings,
-            healthKit: syncedData.heartRateReadings,
-            limit: 7
-        )
-
-        info.bodyTemperatureReadings = mergeVitalReadings(
-            manual: info.bodyTemperatureReadings,
-            healthKit: syncedData.bodyTemperatureReadings,
-            limit: 7
-        )
-
-        info.oxygenSaturationReadings = mergeVitalReadings(
-            manual: info.oxygenSaturationReadings,
-            healthKit: syncedData.oxygenSaturationReadings,
-            limit: 7
-        )
-
-        info.respiratoryRateReadings = mergeVitalReadings(
-            manual: info.respiratoryRateReadings,
-            healthKit: syncedData.respiratoryRateReadings,
-            limit: 7
-        )
-
-        // Merge sleep data (prioritize manual, then fill with HealthKit data)
-        info.sleepData = mergeSleepData(
-            manual: info.sleepData,
-            healthKit: syncedData.sleepData,
-            limit: 7
-        )
-
-        // Save merged info
+        // Save merged info (outside lock to avoid holding lock during async operation)
         try await savePersonalInfo(info)
     }
 

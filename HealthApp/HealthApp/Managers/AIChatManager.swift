@@ -661,14 +661,23 @@ class AIChatManager: ObservableObject {
             medicalDocuments = []
         }
 
+        // Legacy documents (HealthDocument) are being phased out in favor of the new
+        // MedicalDocument system with category-based filtering.
+        // Only include legacy documents if:
+        // 1. No specific data types are selected (backward compatibility), OR
+        // 2. We're specifically using data types that don't map to categories (just personalInfo)
+        //    AND there are no new-style medical documents
+        let hasDocumentCategories = !documentCategories.isEmpty
+        let includeLegacyDocuments = !hasDocumentCategories && medicalDocuments.isEmpty
+
         currentContext = ChatContext(
             personalInfo: selectedHealthDataTypes.contains(.personalInfo) ? healthDataManager.personalInfo : nil,
             bloodTests: selectedHealthDataTypes.contains(.bloodTest) ? healthDataManager.bloodTests : [],
-            documents: healthDataManager.documents.filter {
+            documents: includeLegacyDocuments ? healthDataManager.documents.filter {
                 $0.extractedData.contains { data in
                     selectedHealthDataTypes.contains(data.type)
                 }
-            },
+            } : [],
             medicalDocuments: medicalDocuments,
             selectedDataTypes: selectedHealthDataTypes,
             maxTokens: contextSizeLimit

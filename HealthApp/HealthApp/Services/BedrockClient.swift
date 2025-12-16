@@ -226,9 +226,11 @@ class BedrockClient: ObservableObject, AIProviderInterface {
 
             let responseTime = Date().timeIntervalSince(startTime)
 
+            // Clean the response to remove special tokens and unwanted text
+            let cleanedResponse = AIResponseCleaner.cleanConversational(response)
 
             return BedrockAIResponse(
-                content: response,
+                content: cleanedResponse,
                 responseTime: responseTime,
                 tokenCount: nil, // Token count not available from direct invoke
                 metadata: [

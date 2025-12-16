@@ -11,7 +11,7 @@ struct BloodTestsSection: View {
             if bloodTests.isEmpty {
                 EmptyBloodTestsView()
             } else {
-                ForEach(bloodTests.prefix(3)) { bloodTest in
+                ForEach(bloodTests.prefix(2)) { bloodTest in
                     NavigationLink {
                         BloodTestDetailView(
                             bloodTest: bloodTest,
@@ -22,17 +22,25 @@ struct BloodTestsSection: View {
                         BloodTestRowView(bloodTest: bloodTest)
                     }
                 }
-                
-                if bloodTests.count > 3 {
-                    NavigationLink("View All (\(bloodTests.count))") {
+
+                if bloodTests.count > 2 {
+                    NavigationLink {
                         BloodTestListView(
                             bloodTests: $bloodTests,
                             onEdit: onEdit,
                             onDelete: onDelete
                         )
+                    } label: {
+                        HStack {
+                            Text("More")
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                            Spacer()
+                            Text("\(bloodTests.count) total")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
-                    .font(.caption)
-                    .foregroundColor(.blue)
                 }
             }
         } header: {

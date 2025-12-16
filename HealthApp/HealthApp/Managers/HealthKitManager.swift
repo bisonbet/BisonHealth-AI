@@ -231,6 +231,13 @@ class HealthKitManager: ObservableObject {
             lastSyncDate = Date()
             isSyncing = false
 
+            // Update authorization status after successful sync
+            // If we successfully synced data, we must be authorized
+            if stats.totalReadings > 0 {
+                isAuthorized = true
+                authorizationStatus = .sharingAuthorized
+            }
+
             logger.info("HealthKit sync completed: \(stats.summary)")
 
             return syncedData
@@ -569,20 +576,7 @@ class HealthKitManager: ObservableObject {
 
             // Calculate in bed time (includes all sleep + awake in bed)
             let inBedSamples = samplesForDate.filter { sample in
-+    private let sleepQueryDateRange: Int = -30
-+
-     private func readSleepAnalysis(limit: Int) async throws -> [SleepData] {
-         guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
-             return []
-         }
- 
-         // Query for sleep samples in the last 30 days (to ensure we get 7 complete nights)
-         let endDate = Date()
--        let startDate = Calendar.current.date(byAdding: .day, value: -30, to: endDate) ?? endDate
-+        let startDate = Calendar.current.date(byAdding: .day, value: sleepQueryDateRange, to: endDate) ?? endDate
- 
-         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+                if #available(iOS 16.0, *) {
                     return sample.value == HKCategoryValueSleepAnalysis.inBed.rawValue ||
                            sample.value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue ||
                            sample.value == HKCategoryValueSleepAnalysis.asleepCore.rawValue ||

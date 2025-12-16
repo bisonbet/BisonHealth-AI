@@ -10,7 +10,7 @@ struct SettingsView: View {
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
     @State private var navigationPath = NavigationPath()
-    
+
     @State private var showingResetAlert = false
     @State private var resetType: ResetType?
     @State private var showingValidationError = false
@@ -57,6 +57,7 @@ struct SettingsView: View {
             settingsForm
                 .navigationTitle("Settings")
                 .toolbar { toolbarContent }
+                .scrollDismissesKeyboard(.interactively)
                 .modifier(AlertsModifier(
                     resetType: resetType,
                     showingResetAlert: $showingResetAlert,
@@ -131,6 +132,16 @@ struct SettingsView: View {
                 Image(systemName: "arrow.clockwise")
             }
         }
+
+        // Keyboard toolbar - shows "Done" button above keyboard
+        ToolbarItemGroup(placement: .keyboard) {
+            Spacer()
+            Button("Done") {
+                // Dismiss keyboard
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+            .font(.headline)
+        }
     }
 
     @ViewBuilder
@@ -198,6 +209,8 @@ struct SettingsView: View {
             onConfigChange: { newConfig in
                 settingsManager.doclingConfig = newConfig
                 settingsManager.saveSettings()
+                // Reset status when configuration changes since it may no longer be valid
+                settingsManager.doclingStatus = .unknown
             }
         )
     }
@@ -831,20 +844,19 @@ struct SettingsView: View {
         Task {
             settingsManager.saveSettings()
         }
-        
-        // Reset connection status when configuration changes
-        settingsManager.ollamaStatus = .unknown
-        settingsManager.doclingStatus = .unknown
+
+        // Note: Connection status is now reset only when hostname/port actually change
+        // (handled in the TextField onChange handlers in serverConfigCard)
+        // This prevents the status from being reset after a successful connection test
     }
     
     private func validateConfiguration() {
         // Validation is now handled inline in the UI, so this function
         // can be simplified or used for other validation logic
         // The real-time validation happens in the UI components themselves
-        
-        // Reset connection status when configuration changes since it may no longer be valid
-        settingsManager.ollamaStatus = .unknown
-        settingsManager.doclingStatus = .unknown
+
+        // Note: Connection status is now reset only when hostname/port actually change
+        // (handled in the TextField onChange handlers in serverConfigCard)
     }
     
     private func performReset() {

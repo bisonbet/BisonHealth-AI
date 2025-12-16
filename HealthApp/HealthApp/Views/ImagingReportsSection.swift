@@ -9,20 +9,28 @@ struct ImagingReportsSection: View {
             if imagingReports.isEmpty {
                 EmptyImagingReportsView()
             } else {
-                ForEach(imagingReports.prefix(3)) { report in
+                ForEach(imagingReports.prefix(2)) { report in
                     NavigationLink {
                         MedicalDocumentDetailView(document: report)
                     } label: {
                         ImagingReportRowView(report: report)
                     }
                 }
-                
-                if imagingReports.count > 3 {
-                    NavigationLink("View All (\(imagingReports.count))") {
+
+                if imagingReports.count > 2 {
+                    NavigationLink {
                         ImagingReportsListView(reports: $imagingReports, onDocumentTap: onDocumentTap)
+                    } label: {
+                        HStack {
+                            Text("More")
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                            Spacer()
+                            Text("\(imagingReports.count) total")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
-                    .font(.caption)
-                    .foregroundColor(.blue)
                 }
             }
         } header: {
