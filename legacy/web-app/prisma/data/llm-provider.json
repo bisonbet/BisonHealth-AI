@@ -1,9 +1,0 @@
-[
-  {
-    "providerId": "ollama",
-    "name": "Ollama",
-    "apiKey": "",
-    "apiURL": "${NEXT_PUBLIC_OLLAMA_URL}",
-    "order": 3
-  }
-]
