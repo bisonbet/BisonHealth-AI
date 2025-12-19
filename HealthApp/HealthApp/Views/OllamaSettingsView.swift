@@ -229,13 +229,14 @@ struct OllamaSettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                // Context size options: 4k, 8k, 16k, 32k, 64k
+                // Context size options: 4k, 8k, 16k, 32k, 64k, 128k
                 let contextSizes: [(value: Int, label: String)] = [
                     (4096, "4k"),
                     (8192, "8k"),
                     (16384, "16k"),
                     (32768, "32k"),
-                    (65536, "64k")
+                    (65536, "64k"),
+                    (131072, "128k")
                 ]
                 
                 Picker("Context Size", selection: Binding(

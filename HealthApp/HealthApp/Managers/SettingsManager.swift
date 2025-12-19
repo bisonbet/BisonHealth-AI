@@ -98,7 +98,7 @@ struct ModelPreferences: Equatable {
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
-    var contextSizeLimit: Int = 16384      // Default context size: 16k tokens (for Ollama)
+    var contextSizeLimit: Int = 32768      // Default context size: 32k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
 
@@ -163,6 +163,7 @@ class SettingsManager: ObservableObject {
     @Published var doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
     @Published var openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
     @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
+    @Published var openAICompatibleContextSize: Int = 32768  // Default: 32k tokens
 
     // Connection statuses
     @Published var ollamaStatus: ConnectionStatus = .unknown
@@ -241,7 +242,10 @@ class SettingsManager: ObservableObject {
             // Legacy fallback from older builds
             openAICompatibleAPIKey = legacyAPIKey
         }
-        
+        if let storedContextSize = userDefaults.object(forKey: "openAICompatibleContextSize") as? Int {
+            openAICompatibleContextSize = storedContextSize
+        }
+
         // Load backup settings
         if let backupData = userDefaults.data(forKey: "backupSettings"),
            let decoded = try? JSONDecoder().decode(BackupSettings.self, from: backupData) {
@@ -289,7 +293,8 @@ class SettingsManager: ObservableObject {
         } else {
             _ = try? keychain.store(string: openAICompatibleAPIKey, for: kcOpenAICompatibleKey)
         }
-        
+        userDefaults.set(openAICompatibleContextSize, forKey: "openAICompatibleContextSize")
+
         // Save backup settings
         if let encoded = try? JSONEncoder().encode(backupSettings) {
             userDefaults.set(encoded, forKey: "backupSettings")
@@ -368,7 +373,7 @@ class SettingsManager: ObservableObject {
         }
     }
 
-    private func getOpenAICompatibleClient() -> OpenAICompatibleClient {
+    func getOpenAICompatibleClient() -> OpenAICompatibleClient {
         if openAICompatibleClient == nil {
             let temperature = UserDefaults.standard.double(forKey: "openAICompatibleTemperature")
             let maxTokens = UserDefaults.standard.integer(forKey: "openAICompatibleMaxTokens")
@@ -383,14 +388,16 @@ class SettingsManager: ObservableObject {
             print("   model: '\(modelPreferences.openAICompatibleModel)'")
             print("   temperature: \(finalTemperature)")
             print("   maxTokens: \(finalMaxTokens)")
+            print("   contextSize: \(openAICompatibleContextSize)")
 
             openAICompatibleClient = OpenAICompatibleClient(
                 baseURL: openAICompatibleBaseURL,
                 apiKey: openAICompatibleAPIKey.isEmpty ? nil : openAICompatibleAPIKey,
-                timeout: 60.0,
+                timeout: 300.0,
                 defaultModel: modelPreferences.openAICompatibleModel,
                 temperature: finalTemperature,
-                maxTokens: finalMaxTokens
+                maxTokens: finalMaxTokens,
+                contextSize: openAICompatibleContextSize
             )
         } else {
             print("🔧 Reusing existing OpenAICompatibleClient, updating model to: '\(modelPreferences.openAICompatibleModel)'")
@@ -399,7 +406,7 @@ class SettingsManager: ObservableObject {
         return openAICompatibleClient!
     }
 
-    private func getBedrockClient() -> BedrockClient {
+    func getBedrockClient() -> BedrockClient {
         // Use shared credentials and selected model (matches working pattern)
         let sharedCredentials = AWSCredentialsManager.shared.credentials
         let config = AWSBedrockConfig(
@@ -410,7 +417,7 @@ class SettingsManager: ObservableObject {
             model: AWSBedrockModel(rawValue: modelPreferences.bedrockModel) ?? .claudeSonnet45,
             temperature: 0.1,
             maxTokens: 4096,
-            timeout: 60.0,
+            timeout: 300.0,
             useProfile: false,
             profileName: nil
         )
@@ -546,6 +553,7 @@ class SettingsManager: ObservableObject {
         doclingStatus = .unknown
         openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
         openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
+        openAICompatibleContextSize = 32768  // Reset to 32k default
         openAICompatibleStatus = .unknown
         modelPreferences.openAICompatibleModel = ""
         _ = try? keychain.delete(for: kcOpenAICompatibleKey)

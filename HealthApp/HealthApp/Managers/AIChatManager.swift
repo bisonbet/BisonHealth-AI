@@ -318,51 +318,82 @@ class AIChatManager: ObservableObject {
         guard let conversation = currentConversation else {
             throw AIChatError.noActiveConversation
         }
-        
+
         guard !isOffline else {
             throw AIChatError.notConnected
         }
-        
+
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIChatError.emptyMessage
         }
-        
+
         isLoading = true
         errorMessage = nil
-        
+
         // Create user message
         let userMessage = ChatMessage(
             content: content,
             role: .user
         )
-        
+
         do {
             // Add user message to conversation
             try await databaseManager.addMessage(to: conversation.id, message: userMessage)
-            
+
             // Update local conversation
             if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
                 conversations[index].addMessage(userMessage)
                 currentConversation = conversations[index]
             }
-            
+
             // Build health data context
             let healthContext = await buildHealthDataContext()
-            
-            // Debug: Log what context is being sent
-            print("🔍 AIChatManager: Sending message with context length: \(healthContext.count) chars")
-            if !healthContext.isEmpty {
-                print("🔍 AIChatManager: Context preview (first 1000 chars): \(String(healthContext.prefix(1000)))")
-            } else {
-                print("⚠️ AIChatManager: WARNING - Context is empty!")
+
+            // Check if this is the first user message and if current model requires instruction injection
+            let currentModel = settingsManager.modelPreferences.chatModel
+            let isFirstUserMessage = conversation.messages.filter({ $0.role == .user }).count == 1
+            let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
+
+            // Prepare the message content (potentially formatted for exception models)
+            var messageContent = content
+            if isFirstUserMessage && requiresInjection {
+                // Format with INSTRUCTIONS/CONTEXT/QUESTION for models that need it
+                print("📝 AIChatManager: Model '\(currentModel)' requires instruction injection - formatting first message")
+                messageContent = SystemPromptExceptionList.shared.formatFirstUserMessage(
+                    userMessage: content,
+                    systemPrompt: selectedDoctor?.systemPrompt,
+                    context: healthContext
+                )
+                // For exception models, we don't send context separately since it's embedded in the message
+                print("📝 AIChatManager: Formatted message length: \(messageContent.count) chars")
             }
-            
+
+            // Debug: Log what context is being sent
+            if !requiresInjection || !isFirstUserMessage {
+                print("🔍 AIChatManager: Sending message with context length: \(healthContext.count) chars")
+                if !healthContext.isEmpty {
+                    print("🔍 AIChatManager: Context preview (first 1000 chars): \(String(healthContext.prefix(1000)))")
+                } else {
+                    print("⚠️ AIChatManager: WARNING - Context is empty!")
+                }
+            }
+
             if useStreaming {
                 // Use streaming for real-time response
-                try await sendStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+                if isFirstUserMessage && requiresInjection {
+                    // For exception models, send formatted message with empty context
+                    try await sendStreamingMessage(messageContent, context: "", conversationId: conversation.id)
+                } else {
+                    try await sendStreamingMessage(messageContent, context: healthContext, conversationId: conversation.id)
+                }
             } else {
                 // Use non-streaming for complete response
-                try await sendNonStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+                if isFirstUserMessage && requiresInjection {
+                    // For exception models, send formatted message with empty context
+                    try await sendNonStreamingMessage(messageContent, context: "", conversationId: conversation.id)
+                } else {
+                    try await sendNonStreamingMessage(messageContent, context: healthContext, conversationId: conversation.id)
+                }
             }
             
         } catch {
@@ -458,14 +489,18 @@ class AIChatManager: ObservableObject {
             content: "",
             role: .assistant
         )
-        
+
         // Add placeholder message to conversation
         if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
             conversations[index].addMessage(streamingMessage)
             currentConversation = conversations[index]
         }
-        
-        // Use the selected AI provider (Ollama or AWS Bedrock)
+
+        // Determine if we should send systemPrompt separately
+        // For exception models, context is empty and instructions are embedded in content
+        let shouldSendSystemPrompt = !context.isEmpty
+
+        // Use the selected AI provider with streaming support
         switch settingsManager.modelPreferences.aiProvider {
         case .ollama:
             let ollamaClient = getOllamaClient()
@@ -473,58 +508,163 @@ class AIChatManager: ObservableObject {
                 content,
                 context: context,
                 model: settingsManager.modelPreferences.chatModel,
-                systemPrompt: selectedDoctor?.systemPrompt,
-            onUpdate: { [weak self] partialContent in
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    
-                    // Update the streaming message content
-                    streamingMessage.content = partialContent
-                    
-                    // Update in conversation
-                    if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                       let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                        self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
-                        self.currentConversation = self.conversations[conversationIndex]
-                    }
-                }
-            },
-            onComplete: { [weak self] finalResponse in
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    
-                    // Create final message with complete content and metadata
-                    let finalMessage = ChatMessage(
-                        id: streamingMessageId,
-                        content: finalResponse.content,
-                        role: .assistant,
-                        tokens: finalResponse.tokenCount,
-                        processingTime: finalResponse.responseTime
-                    )
-                    
-                    // Save final message to database
-                    do {
-                        try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
-                        
-                        // Update local conversation with final message
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                onUpdate: { [weak self] partialContent in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Update the streaming message content
+                        streamingMessage.content = partialContent
+
+                        // Update in conversation
                         if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
                            let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                            self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
                             self.currentConversation = self.conversations[conversationIndex]
-                            
-                            // Generate title after first exchange if still using default title
-                            await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                         }
-                    } catch {
-                        self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                    }
+                },
+                onComplete: { [weak self] finalResponse in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Create final message with complete content and metadata
+                        let finalMessage = ChatMessage(
+                            id: streamingMessageId,
+                            content: finalResponse.content,
+                            role: .assistant,
+                            tokens: finalResponse.tokenCount,
+                            processingTime: finalResponse.responseTime
+                        )
+
+                        // Save final message to database
+                        do {
+                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
+
+                            // Update local conversation with final message
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+                                self.currentConversation = self.conversations[conversationIndex]
+
+                                // Generate title after first exchange if still using default title
+                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
+                            }
+                        } catch {
+                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                        }
                     }
                 }
-            }
-        )
-        case .bedrock, .openAICompatible:
-            // AWS Bedrock and OpenAI-compatible servers don't support streaming in this implementation
-            // Use non-streaming method
-            try await sendNonStreamingMessage(content, context: context, conversationId: conversationId)
+            )
+
+        case .bedrock:
+            let bedrockClient = settingsManager.getBedrockClient()
+            try await bedrockClient.sendStreamingMessage(
+                content,
+                context: context,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                onUpdate: { [weak self] partialContent in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Update the streaming message content
+                        streamingMessage.content = partialContent
+
+                        // Update in conversation
+                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
+                            self.currentConversation = self.conversations[conversationIndex]
+                        }
+                    }
+                },
+                onComplete: { [weak self] finalResponse in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Create final message with complete content and metadata
+                        let finalMessage = ChatMessage(
+                            id: streamingMessageId,
+                            content: finalResponse.content,
+                            role: .assistant,
+                            tokens: finalResponse.tokenCount,
+                            processingTime: finalResponse.responseTime
+                        )
+
+                        // Save final message to database
+                        do {
+                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
+
+                            // Update local conversation with final message
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+                                self.currentConversation = self.conversations[conversationIndex]
+
+                                // Generate title after first exchange if still using default title
+                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
+                            }
+                        } catch {
+                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            )
+
+        case .openAICompatible:
+            let openAIClient = settingsManager.getOpenAICompatibleClient()
+            try await openAIClient.sendStreamingChatMessage(
+                content,
+                context: context,
+                model: settingsManager.modelPreferences.openAICompatibleModel,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                onUpdate: { [weak self] partialContent in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Update the streaming message content
+                        streamingMessage.content = partialContent
+
+                        // Update in conversation
+                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
+                            self.currentConversation = self.conversations[conversationIndex]
+                        }
+                    }
+                },
+                onComplete: { [weak self] finalResponse in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Create final message with complete content and metadata
+                        let finalMessage = ChatMessage(
+                            id: streamingMessageId,
+                            content: finalResponse.content,
+                            role: .assistant,
+                            tokens: finalResponse.tokenCount,
+                            processingTime: finalResponse.responseTime
+                        )
+
+                        // Save final message to database
+                        do {
+                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
+
+                            // Update local conversation with final message
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+                                self.currentConversation = self.conversations[conversationIndex]
+
+                                // Generate title after first exchange if still using default title
+                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
+                            }
+                        } catch {
+                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            )
         }
     }
     
@@ -535,10 +675,14 @@ class AIChatManager: ObservableObject {
             let aiClient = getAIClient()
 
             // Prepare context with doctor's system prompt if available
+            // For exception models (empty context), instructions are already embedded in content
             var fullContext = context
-            if let doctorPrompt = selectedDoctor?.systemPrompt {
+            if !context.isEmpty, let doctorPrompt = selectedDoctor?.systemPrompt {
+                // Normal case: prepend doctor's system prompt to context
                 fullContext = "System: \(doctorPrompt)\n\nContext: \(context)"
             }
+            // If context is empty, it means we're using an exception model with embedded instructions
+            // In this case, don't modify anything - content already has everything formatted
 
             let response = try await aiClient.sendMessage(content, context: fullContext)
             let processingTime = Date().timeIntervalSince(startTime)

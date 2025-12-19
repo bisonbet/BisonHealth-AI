@@ -186,6 +186,30 @@ struct OpenAICompatibleSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
+                        Text("Context Size")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(settingsManager.openAICompatibleContextSize / 1024)k")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Slider(value: Binding(
+                        get: { Double(settingsManager.openAICompatibleContextSize) },
+                        set: { newValue in
+                            settingsManager.openAICompatibleContextSize = Int(newValue)
+                            settingsManager.invalidateOpenAICompatibleClient()
+                            settingsManager.saveSettings()
+                        }
+                    ), in: 4096...131072, step: 4096)
+
+                    Text("Maximum context window size for conversations. Higher values allow more context but may not be supported by all models. Default: 32k tokens.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
                         Text("Temperature")
                             .font(.headline)
                         Spacer()

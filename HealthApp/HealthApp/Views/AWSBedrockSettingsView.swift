@@ -436,7 +436,7 @@ struct AWSBedrockSettingsView: View {
             model: selectedModelEnum,
             temperature: temperature,
             maxTokens: maxTokens,
-            timeout: 60.0,
+            timeout: 300.0,
             useProfile: false,
             profileName: nil
         )

@@ -166,7 +166,7 @@ class AIProviderFactory {
                 model: .claudeSonnet45,  // Default model
                 temperature: 0.1,
                 maxTokens: 4096,
-                timeout: 60.0,
+                timeout: 300.0,
                 useProfile: false,  // Use direct credentials
                 profileName: nil
             )

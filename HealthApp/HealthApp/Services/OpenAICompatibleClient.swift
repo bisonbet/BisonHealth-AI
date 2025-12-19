@@ -18,9 +18,10 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     private var defaultModel: String?
     private let temperature: Double
     private let maxTokens: Int
+    private let contextSize: Int
 
     // MARK: - Initialization
-    init(baseURL: String, apiKey: String? = nil, timeout: TimeInterval = 60.0, defaultModel: String? = nil, temperature: Double = 0.1, maxTokens: Int = 2048) {
+    init(baseURL: String, apiKey: String? = nil, timeout: TimeInterval = 300.0, defaultModel: String? = nil, temperature: Double = 0.1, maxTokens: Int = 2048, contextSize: Int = 32768) {
         guard let url = URL(string: baseURL) else {
             self.baseURL = URL(string: "http://localhost:8000")!
             self.apiKey = apiKey
@@ -28,6 +29,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             self.defaultModel = defaultModel
             self.temperature = temperature
             self.maxTokens = maxTokens
+            self.contextSize = contextSize
 
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = timeout
@@ -43,6 +45,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         self.defaultModel = defaultModel
         self.temperature = temperature
         self.maxTokens = maxTokens
+        self.contextSize = contextSize
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
@@ -110,7 +113,8 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         var requestBody: [String: Any] = [
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": maxTokens
+            "max_tokens": maxTokens,
+            "max_context_length": contextSize  // Some implementations may use this
         ]
 
         if let model = defaultModel, !model.isEmpty {
@@ -206,6 +210,162 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     func updateDefaultModel(_ model: String?) {
         defaultModel = model
+    }
+
+    // MARK: - Streaming Chat Completion
+    func sendStreamingChatMessage(
+        _ message: String,
+        context: String = "",
+        model: String? = nil,
+        systemPrompt: String? = nil,
+        onUpdate: @escaping (String) -> Void,
+        onComplete: @escaping (OpenAICompatibleChatResponse) -> Void
+    ) async throws {
+        let messagesURL = baseURL.appendingPathComponent("/v1/chat/completions")
+
+        var request = URLRequest(url: messagesURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        // Add API key if provided
+        if let apiKey = apiKey, !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        // Build messages array
+        var messages: [[String: String]] = []
+
+        // Add system prompt if provided
+        if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
+            messages.append([
+                "role": "system",
+                "content": systemPrompt
+            ])
+        }
+
+        // Add context as system message if provided (and no explicit system prompt)
+        if !context.isEmpty && systemPrompt == nil {
+            messages.append([
+                "role": "system",
+                "content": context
+            ])
+        }
+
+        // Add user message
+        messages.append([
+            "role": "user",
+            "content": message
+        ])
+
+        // Create request body with streaming enabled
+        var requestBody: [String: Any] = [
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": maxTokens,
+            "stream": true  // Enable streaming
+        ]
+
+        if let modelToUse = model ?? defaultModel, !modelToUse.isEmpty {
+            requestBody["model"] = modelToUse
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        print("📡 OpenAICompatibleClient: Starting streaming request to \(messagesURL)")
+
+        let startTime = Date()
+        var accumulatedContent = ""
+        var responseModel: String? = nil
+
+        // Use URLSession bytes for streaming
+        let (bytes, response) = try await session.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw OpenAICompatibleError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            // Try to read error message
+            var errorData = Data()
+            for try await byte in bytes {
+                errorData.append(byte)
+            }
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            print("❌ OpenAICompatibleClient: Streaming request failed (\(httpResponse.statusCode)): \(errorMessage)")
+            throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
+        }
+
+        // Parse SSE stream
+        var lineBuffer = ""
+
+        for try await byte in bytes {
+            let char = Character(UnicodeScalar(byte))
+
+            if char == "\n" {
+                // Process completed line
+                let line = lineBuffer.trimmingCharacters(in: .whitespaces)
+                lineBuffer = ""
+
+                // Skip empty lines and comments
+                if line.isEmpty || line.hasPrefix(":") {
+                    continue
+                }
+
+                // Parse SSE data field
+                if line.hasPrefix("data: ") {
+                    let dataContent = String(line.dropFirst(6))
+
+                    // Check for stream end
+                    if dataContent == "[DONE]" {
+                        print("📡 OpenAICompatibleClient: Stream completed")
+                        break
+                    }
+
+                    // Parse JSON chunk
+                    if let chunkData = dataContent.data(using: .utf8) {
+                        do {
+                            if let chunk = try JSONSerialization.jsonObject(with: chunkData) as? [String: Any] {
+                                // Extract model if present
+                                if let model = chunk["model"] as? String {
+                                    responseModel = model
+                                }
+
+                                // Extract content delta
+                                if let choices = chunk["choices"] as? [[String: Any]],
+                                   let firstChoice = choices.first,
+                                   let delta = firstChoice["delta"] as? [String: Any],
+                                   let content = delta["content"] as? String {
+                                    accumulatedContent += content
+                                    onUpdate(accumulatedContent)
+                                }
+                            }
+                        } catch {
+                            // Log but continue - some chunks might not parse
+                            print("⚠️ OpenAICompatibleClient: Failed to parse chunk: \(dataContent)")
+                        }
+                    }
+                }
+            } else {
+                lineBuffer.append(char)
+            }
+        }
+
+        let processingTime = Date().timeIntervalSince(startTime)
+
+        // Clean the final response
+        let cleanedContent = AIResponseCleaner.cleanConversational(accumulatedContent)
+
+        let finalResponse = OpenAICompatibleChatResponse(
+            content: cleanedContent,
+            model: responseModel ?? defaultModel,
+            processingTime: processingTime,
+            totalTokens: nil  // Token count not available in streaming mode
+        )
+
+        print("✅ OpenAICompatibleClient: Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", processingTime))s")
+
+        onComplete(finalResponse)
     }
 
     private func parseFlexibleChatContent(from data: Data) throws -> (content: String, model: String?, totalTokens: Int?) {

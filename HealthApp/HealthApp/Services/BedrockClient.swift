@@ -96,7 +96,7 @@ struct AWSBedrockConfig: Equatable {
         model: .claudeSonnet45,
         temperature: 0.1,
         maxTokens: 4096,
-        timeout: 60.0,
+        timeout: 300.0,
         useProfile: false,
         profileName: nil
     )
@@ -207,11 +207,30 @@ class BedrockClient: ObservableObject, AIProviderInterface {
         let startTime = Date()
 
         do {
+            // Extract system prompt from context if present (format: "System: <prompt>\n\nContext: <context>")
+            var systemPrompt = "You are a helpful AI assistant specialized in analyzing health data and providing medical insights. Focus on being accurate, helpful, and professional."
+            var actualContext = context
+
+            if context.hasPrefix("System: ") {
+                // Split on "\n\nContext: " to separate system prompt from health context
+                let components = context.components(separatedBy: "\n\nContext: ")
+                if components.count >= 2 {
+                    // Extract system prompt (remove "System: " prefix)
+                    systemPrompt = String(components[0].dropFirst(8)) // "System: ".count = 8
+                    // Remaining is the actual health context
+                    actualContext = components.dropFirst().joined(separator: "\n\nContext: ")
+                } else {
+                    // Entire context is the system prompt
+                    systemPrompt = String(context.dropFirst(8))
+                    actualContext = ""
+                }
+            }
+
             // Prepare the conversation with context if provided
             var conversationInput = message
-            if !context.isEmpty {
+            if !actualContext.isEmpty {
                 conversationInput = """
-                Context: \(context)
+                Context: \(actualContext)
 
                 User: \(message)
                 """
@@ -219,7 +238,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
 
             let response = try await invokeModel(
                 prompt: conversationInput,
-                systemPrompt: "You are a helpful AI assistant specialized in analyzing health data and providing medical insights. Focus on being accurate, helpful, and professional.",
+                systemPrompt: systemPrompt,
                 maxTokens: config.maxTokens,
                 temperature: config.temperature
             )
@@ -259,11 +278,168 @@ class BedrockClient: ObservableObject, AIProviderInterface {
         return AICapabilities(
             supportedModels: AWSBedrockModel.allCases.map { $0.rawValue },
             maxTokens: config.model.contextWindow,
-            supportsStreaming: false, // For now
+            supportsStreaming: true,
             supportsImages: false, // For now
             supportsDocuments: true,
             supportedLanguages: ["en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh"]
         )
+    }
+
+    // MARK: - Streaming Message
+    func sendStreamingMessage(
+        _ message: String,
+        context: String,
+        systemPrompt: String? = nil,
+        onUpdate: @escaping (String) -> Void,
+        onComplete: @escaping (BedrockAIResponse) -> Void
+    ) async throws {
+        let startTime = Date()
+
+        // Extract system prompt from context if present
+        var effectiveSystemPrompt = systemPrompt ?? "You are a helpful AI assistant specialized in analyzing health data and providing medical insights. Focus on being accurate, helpful, and professional."
+        var actualContext = context
+
+        if context.hasPrefix("System: ") {
+            let components = context.components(separatedBy: "\n\nContext: ")
+            if components.count >= 2 {
+                effectiveSystemPrompt = String(components[0].dropFirst(8))
+                actualContext = components.dropFirst().joined(separator: "\n\nContext: ")
+            } else {
+                effectiveSystemPrompt = String(context.dropFirst(8))
+                actualContext = ""
+            }
+        }
+
+        // Prepare the conversation with context if provided
+        var conversationInput = message
+        if !actualContext.isEmpty {
+            conversationInput = """
+            Context: \(actualContext)
+
+            User: \(message)
+            """
+        }
+
+        // Validate configuration
+        guard config.isValid else {
+            throw BedrockError.invalidCredentials
+        }
+
+        // Create the model request payload
+        let modelRequest = AWSBedrockModelFactory.createRequest(
+            for: config.model,
+            prompt: conversationInput,
+            systemPrompt: effectiveSystemPrompt,
+            maxTokens: config.maxTokens,
+            temperature: config.temperature
+        )
+
+        // Encode the request body
+        let requestBody: Data
+        do {
+            let encoder = JSONEncoder()
+            requestBody = try encoder.encode(modelRequest)
+        } catch {
+            throw BedrockError.networkError(error)
+        }
+
+        do {
+            let client = try await getBedrockClient()
+
+            let invokeRequest = InvokeModelWithResponseStreamInput(
+                body: requestBody,
+                contentType: "application/json",
+                modelId: config.model.rawValue
+            )
+
+            print("📡 BedrockClient: Starting streaming request for model \(config.model.displayName)")
+
+            let response = try await client.invokeModelWithResponseStream(input: invokeRequest)
+
+            var accumulatedContent = ""
+
+            // Process the stream
+            guard let stream = response.body else {
+                throw BedrockError.invalidResponse
+            }
+
+            for try await event in stream {
+                switch event {
+                case .chunk(let payload):
+                    if let bytes = payload.bytes {
+                        let chunkData = Data(bytes)
+
+                        // Parse the chunk based on model type
+                        if let chunkContent = parseStreamingChunk(data: chunkData, model: config.model) {
+                            accumulatedContent += chunkContent
+                            onUpdate(accumulatedContent)
+                        }
+                    }
+
+                case .sdkUnknown(let unknown):
+                    print("⚠️ BedrockClient: Unknown stream event: \(unknown)")
+                }
+            }
+
+            let responseTime = Date().timeIntervalSince(startTime)
+
+            // Clean the final response
+            let cleanedContent = AIResponseCleaner.cleanConversational(accumulatedContent)
+
+            print("✅ BedrockClient: Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", responseTime))s")
+
+            let finalResponse = BedrockAIResponse(
+                content: cleanedContent,
+                responseTime: responseTime,
+                tokenCount: nil,
+                metadata: [
+                    "model": config.model.rawValue,
+                    "region": config.region,
+                    "provider": config.model.provider
+                ]
+            )
+
+            onComplete(finalResponse)
+
+        } catch {
+            lastError = error
+            throw BedrockError.networkError(error)
+        }
+    }
+
+    // MARK: - Streaming Chunk Parser
+    private func parseStreamingChunk(data: Data, model: AWSBedrockModel) -> String? {
+        let decoder = JSONDecoder()
+
+        switch model {
+        case .claudeSonnet45:
+            // Claude streaming format: content_block_delta events
+            if let chunk = try? decoder.decode(ClaudeStreamingChunk.self, from: data) {
+                if chunk.type == "content_block_delta",
+                   let delta = chunk.delta,
+                   delta.type == "text_delta" {
+                    return delta.text
+                }
+            }
+            return nil
+
+        case .amazonNovaPremier:
+            // Nova streaming format: similar to Claude
+            if let chunk = try? decoder.decode(NovaStreamingChunk.self, from: data) {
+                if let contentBlockDelta = chunk.contentBlockDelta,
+                   let delta = contentBlockDelta.delta {
+                    return delta.text
+                }
+            }
+            return nil
+
+        case .llama4Maverick:
+            // Llama streaming format: generation field
+            if let chunk = try? decoder.decode(LlamaStreamingChunk.self, from: data) {
+                return chunk.generation
+            }
+            return nil
+        }
     }
 
     func updateConfiguration(_ config: AIProviderConfig) async throws {
@@ -664,6 +840,50 @@ struct LlamaResponse: BedrockModelResponse {
     }
 }
 
+// MARK: - Streaming Chunk Structures
+
+struct ClaudeStreamingChunk: Codable {
+    let type: String
+    let index: Int?
+    let delta: ClaudeStreamingDelta?
+
+    struct ClaudeStreamingDelta: Codable {
+        let type: String?
+        let text: String?
+    }
+}
+
+struct NovaStreamingChunk: Codable {
+    let contentBlockDelta: NovaContentBlockDelta?
+
+    enum CodingKeys: String, CodingKey {
+        case contentBlockDelta
+    }
+
+    struct NovaContentBlockDelta: Codable {
+        let contentBlockIndex: Int?
+        let delta: NovaDelta?
+
+        struct NovaDelta: Codable {
+            let text: String?
+        }
+    }
+}
+
+struct LlamaStreamingChunk: Codable {
+    let generation: String?
+    let promptTokenCount: Int?
+    let generationTokenCount: Int?
+    let stopReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case generation
+        case promptTokenCount = "prompt_token_count"
+        case generationTokenCount = "generation_token_count"
+        case stopReason = "stop_reason"
+    }
+}
+
 // MARK: - Bedrock Errors
 enum BedrockError: LocalizedError {
     case clientNotInitialized
@@ -741,7 +961,7 @@ extension BedrockClient {
             model: AWSBedrockModel(rawValue: model) ?? .claudeSonnet45,
             temperature: 0.1,
             maxTokens: 4096,
-            timeout: 60.0,
+            timeout: 300.0,
             useProfile: false,
             profileName: nil
         )
