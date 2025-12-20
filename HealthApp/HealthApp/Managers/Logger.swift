@@ -135,10 +135,9 @@ class Logger {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let formattedMessage = "\(level.icon) [\(timestamp)] [\(fileName):\(line)] \(message)"
 
-        // Log to console
-        print(formattedMessage)
-
-        // Log to OSLog
+        // Log to OSLog (this will appear in Xcode console and system logs)
+        // Note: We only use os_log to prevent duplicate console output
+        // In Xcode, os_log messages automatically appear in the console
         os_log("%{public}@", log: osLog, type: level.osLogType, formattedMessage)
 
         // Log to file (async)

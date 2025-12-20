@@ -6,6 +6,7 @@ struct SettingsView: View {
         case ollamaSettings
         case awsBedrockSettings
         case openAICompatibleSettings
+        case mlxSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
@@ -166,6 +167,12 @@ struct SettingsView: View {
                 .onAppear {
                     print("🟢 Navigated to OpenAI Compatible Settings")
                 }
+        case .mlxSettings:
+            let _ = print("📍 Creating MLXSettingsView")
+            MLXSettingsView(settingsManager: settingsManager)
+                .onAppear {
+                    print("🟣 Navigated to MLX Settings")
+                }
         }
     }
     
@@ -263,6 +270,30 @@ struct SettingsView: View {
         .cornerRadius(10)
     }
 
+    private var mlxCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("MLX (On-Device)", systemImage: "cpu")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    print("🟣 MLX Configure button tapped")
+                    navigationPath.append(SettingsRoute.mlxSettings)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("On-device AI using Apple's MLX framework - completely private, no network required")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
     // MARK: - AI Provider Section
 
     private var aiProviderSection: some View {
@@ -274,6 +305,13 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .onChange(of: settingsManager.modelPreferences.aiProvider) { oldValue, newValue in
+                    // Unload MLX model when switching away from MLX
+                    if oldValue == .mlx && newValue != .mlx {
+                        let client = settingsManager.getMLXClient()
+                        client.unloadModel()
+                    }
+                }
 
                 Text("Choose your AI service provider")
                     .font(.caption2)
@@ -287,6 +325,8 @@ struct SettingsView: View {
                     awsBedrockCard
                 case .openAICompatible:
                     openAICompatibleCard
+                case .mlx:
+                    mlxCard
                 }
             }
             .padding(.vertical, 8)

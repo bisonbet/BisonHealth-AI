@@ -24,13 +24,7 @@ class MLXModelManager: ObservableObject {
     private var downloadTasks: [String: Task<Void, Never>] = [:]
 
     /// Configured URLSession with appropriate timeouts for large file downloads
-    private lazy var downloadSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60      // 60 seconds for individual requests
-        config.timeoutIntervalForResource = 600    // 10 minutes for entire download
-        config.waitsForConnectivity = true         // Wait for network if temporarily unavailable
-        return URLSession(configuration: config)
-    }()
+    private let downloadSession: URLSession
 
     /// Directory where MLX models are stored
     private var modelsDirectory: URL {
@@ -47,6 +41,13 @@ class MLXModelManager: ObservableObject {
 
     // MARK: - Initialization
     private init() {
+        // Configure URLSession with appropriate timeouts for large file downloads
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60      // 60 seconds for individual requests
+        config.timeoutIntervalForResource = 600    // 10 minutes for entire download
+        config.waitsForConnectivity = true         // Wait for network if temporarily unavailable
+        self.downloadSession = URLSession(configuration: config)
+
         Task {
             await loadDownloadedModels()
         }
@@ -79,9 +80,17 @@ class MLXModelManager: ObservableObject {
                 if fileManager.fileExists(atPath: metadataPath.path),
                    let data = try? Data(contentsOf: metadataPath),
                    let localModel = try? JSONDecoder().decode(MLXLocalModel.self, from: data) {
-                    models.append(localModel)
-                    modelStatuses[localModel.id] = .downloaded
-                    logger.info("📁 Found model: \(localModel.config.name)")
+
+                    // Verify the model directory actually exists and has required files
+                    if localModel.isActive {
+                        models.append(localModel)
+                        modelStatuses[localModel.id] = .downloaded
+                        logger.info("📁 Found model: \(localModel.config.name)")
+                    } else {
+                        logger.warning("⚠️ Skipping model with missing files: \(localModel.config.name) at \(localModel.localPath.path)")
+                        // Clean up orphaned metadata
+                        try? fileManager.removeItem(at: modelDir)
+                    }
                 }
             }
 
@@ -116,7 +125,7 @@ class MLXModelManager: ObservableObject {
                     self.currentDownload = nil
                 }
             }
-            await MainActor.run {
+            _ = await MainActor.run {
                 self.downloadTasks.removeValue(forKey: config.id)
             }
         }
@@ -202,7 +211,7 @@ class MLXModelManager: ObservableObject {
 
         // Download required files
         for filename in requiredFiles {
-            let fileURL = try await downloadFile(
+            _ = try await downloadFile(
                 repo: config.huggingFaceRepo,
                 filename: filename,
                 to: modelDir
@@ -258,8 +267,11 @@ class MLXModelManager: ObservableObject {
                 logger.info("📥 Downloading \(filename) (attempt \(attempt + 1)/\(maxRetries))")
 
                 // Create download task with progress tracking using configured session
-                let (tempURL, response) = try await withCheckedThrowingContinuation { continuation in
+                // IMPORTANT: Move file inside completion handler to prevent iOS from deleting temp file
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     let task = downloadSession.downloadTask(with: url) { localURL, response, error in
+
+                        // Handle download errors
                         if let error = error {
                             continuation.resume(throwing: error)
                             return
@@ -275,28 +287,50 @@ class MLXModelManager: ObservableObject {
                             return
                         }
 
-                        continuation.resume(returning: (localURL, response))
+                        // Validate HTTP response
+                        guard let httpResponse = response as? HTTPURLResponse else {
+                            continuation.resume(throwing: MLXError.downloadFailed(filename: "Invalid HTTP response"))
+                            return
+                        }
+
+                        guard (200...299).contains(httpResponse.statusCode) else {
+                            continuation.resume(throwing: MLXError.downloadFailed(filename: "\(filename) (HTTP \(httpResponse.statusCode))"))
+                            return
+                        }
+
+                        // Move file INSIDE completion handler before temp file is deleted
+                        do {
+                            // Use FileManager.default directly (thread-safe for these operations)
+                            let fm = FileManager.default
+                            let destinationDir = destinationURL.deletingLastPathComponent()
+
+                            // Ensure destination directory exists
+                            if !fm.fileExists(atPath: destinationDir.path) {
+                                try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+                            }
+
+                            // Verify temp file exists
+                            guard fm.fileExists(atPath: localURL.path) else {
+                                continuation.resume(throwing: MLXError.downloadFailed(filename: "Temp file doesn't exist at \(localURL.path)"))
+                                return
+                            }
+
+                            // Move to final location (remove existing file if present)
+                            if fm.fileExists(atPath: destinationURL.path) {
+                                try fm.removeItem(at: destinationURL)
+                            }
+
+                            try fm.moveItem(at: localURL, to: destinationURL)
+
+                            continuation.resume()
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
                     }
 
                     task.resume()
                 }
 
-                // Validate HTTP response
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw MLXError.downloadFailed(filename: "Invalid HTTP response")
-                }
-
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    throw MLXError.downloadFailed(filename: "\(filename) (HTTP \(httpResponse.statusCode))")
-                }
-
-                // Move to final location
-                if fileManager.fileExists(atPath: destinationURL.path) {
-                    try fileManager.removeItem(at: destinationURL)
-                }
-                try fileManager.moveItem(at: tempURL, to: destinationURL)
-
-                logger.info("✅ Downloaded \(filename)")
                 return destinationURL
 
             } catch {
@@ -323,7 +357,7 @@ class MLXModelManager: ObservableObject {
     }
 
     /// Get available disk space in bytes
-    private func getAvailableDiskSpace() -> Int64? {
+    func getAvailableDiskSpace() -> Int64? {
         do {
             let attributes = try fileManager.attributesOfFileSystem(forPath: NSHomeDirectory())
             if let freeSize = attributes[.systemFreeSize] as? NSNumber {
@@ -345,17 +379,53 @@ class MLXModelManager: ObservableObject {
         logger.info("🗑️ Deleting model: \(modelId)")
 
         guard let localModel = getLocalModel(modelId) else {
+            logger.error("❌ Model not found: \(modelId)")
             throw MLXError.modelNotFound
         }
 
-        // Delete from disk
-        try fileManager.removeItem(at: localModel.localPath)
+        // Delete from disk - try both the stored path and the expected path
+        let storedPath = localModel.localPath
+        let expectedPath = modelsDirectory.appendingPathComponent(modelId)
 
-        // Remove from state
+        var deletedSomething = false
+
+        // Try deleting from stored path
+        do {
+            logger.info("📁 Attempting to delete from stored path: \(storedPath.path)")
+            if fileManager.fileExists(atPath: storedPath.path) {
+                try fileManager.removeItem(at: storedPath)
+                logger.info("✅ Deleted from stored path")
+                deletedSomething = true
+            } else {
+                logger.warning("⚠️ Stored path doesn't exist: \(storedPath.path)")
+            }
+        } catch {
+            logger.error("❌ Failed to delete from stored path", error: error)
+        }
+
+        // Also try expected path (in case metadata path is stale)
+        do {
+            logger.info("📁 Attempting to delete from expected path: \(expectedPath.path)")
+            if fileManager.fileExists(atPath: expectedPath.path) {
+                try fileManager.removeItem(at: expectedPath)
+                logger.info("✅ Deleted from expected path")
+                deletedSomething = true
+            } else {
+                logger.info("ℹ️ Expected path doesn't exist (OK if already deleted)")
+            }
+        } catch {
+            logger.error("❌ Failed to delete from expected path", error: error)
+        }
+
+        // Remove from state regardless of disk deletion success
         downloadedModels.removeAll { $0.id == modelId }
         modelStatuses.removeValue(forKey: modelId)
 
-        logger.info("✅ Deleted model: \(modelId)")
+        if deletedSomething {
+            logger.info("✅ Successfully deleted model: \(modelId)")
+        } else {
+            logger.warning("⚠️ Model files not found but removed from state: \(modelId)")
+        }
     }
 
     /// Update last used timestamp
@@ -423,15 +493,6 @@ class MLXModelManager: ObservableObject {
     /// Get total storage used by all models
     func getTotalStorageUsed() -> Int64 {
         downloadedModels.reduce(0) { $0 + $1.fileSize }
-    }
-
-    /// Get available disk space
-    func getAvailableDiskSpace() -> Int64? {
-        if let systemAttributes = try? fileManager.attributesOfFileSystem(forPath: NSHomeDirectory()),
-           let freeSpace = systemAttributes[.systemFreeSize] as? Int64 {
-            return freeSpace
-        }
-        return nil
     }
 }
 

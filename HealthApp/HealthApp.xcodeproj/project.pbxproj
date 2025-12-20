@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */; };
+		1419E6312EF6EFB2009BE031 /* AIConnectionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */; };
+		1419E6322EF6EFB2009BE031 /* MLXModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E6302EF6EFB2009BE031 /* MLXModels.swift */; };
+		1419E6342EF6EFBB009BE031 /* MLXSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E6332EF6EFBB009BE031 /* MLXSettingsView.swift */; };
+		1419E6362EF6EFC8009BE031 /* MLXClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E6352EF6EFC8009BE031 /* MLXClient.swift */; };
+		1419E6382EF6EFD1009BE031 /* MLXModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E6372EF6EFD1009BE031 /* MLXModelManager.swift */; };
 		1423481A2EA07B3300059087 /* NetworkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348162EA07B3300059087 /* NetworkError.swift */; };
 		1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348182EA07B3300059087 /* PendingOperationsManager.swift */; };
 		1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348172EA07B3300059087 /* NetworkManager.swift */; };
@@ -128,6 +133,11 @@
 		IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */; };
 		LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */; };
 		MEDDOCEXT001 /* MedicalDocumentExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = MEDDOCEXT002 /* MedicalDocumentExtractor.swift */; };
+		MLX00010294A0000000000001 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00003294A0000000000001 /* MLX */; };
+		MLX00011294A0000000000001 /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00004294A0000000000001 /* MLXNN */; };
+		MLX00012294A0000000000001 /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00005294A0000000000001 /* MLXRandom */; };
+		MLX00013294A0000000000001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00006294A0000000000001 /* MLXLLM */; };
+		MLX00014294A0000000000001 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00007294A0000000000001 /* MLXLMCommon */; };
 		NOGIZO9RJZY59O1P2JP03MX6 /* HealthDataContextSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */; };
 		NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */; };
 		NYKH99Y51U8QC2SPCELX794F /* MessageInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */; };
@@ -137,11 +147,6 @@
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
 		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
-		MLX00010294A0000000000001 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00003294A0000000000001 /* MLX */; };
-		MLX00011294A0000000000001 /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00004294A0000000000001 /* MLXNN */; };
-		MLX00012294A0000000000001 /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00005294A0000000000001 /* MLXRandom */; };
-		MLX00013294A0000000000001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00006294A0000000000001 /* MLXLLM */; };
-		MLX00014294A0000000000001 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00007294A0000000000001 /* MLXLMCommon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -157,6 +162,11 @@
 /* Begin PBXFileReference section */
 		0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmptyStateView.swift; sourceTree = "<group>"; };
 		0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoSection.swift; sourceTree = "<group>"; };
+		1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConnectionStatus.swift; sourceTree = "<group>"; };
+		1419E6302EF6EFB2009BE031 /* MLXModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModels.swift; sourceTree = "<group>"; };
+		1419E6332EF6EFBB009BE031 /* MLXSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXSettingsView.swift; sourceTree = "<group>"; };
+		1419E6352EF6EFC8009BE031 /* MLXClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXClient.swift; sourceTree = "<group>"; };
+		1419E6372EF6EFD1009BE031 /* MLXModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelManager.swift; sourceTree = "<group>"; };
 		142348162EA07B3300059087 /* NetworkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkError.swift; sourceTree = "<group>"; };
 		142348172EA07B3300059087 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 		142348182EA07B3300059087 /* PendingOperationsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingOperationsManager.swift; sourceTree = "<group>"; };
@@ -376,6 +386,8 @@
 		A1000011294A0000000000001 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */,
+				1419E6302EF6EFB2009BE031 /* MLXModels.swift */,
 				146E72A72EC2903F00D20C53 /* MedicalDocument.swift */,
 				1434468E2E788ED300961754 /* Doctor.swift */,
 				A1000021294A0000000000001 /* HealthDataProtocol.swift */,
@@ -393,6 +405,7 @@
 		A1000012294A0000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				1419E6332EF6EFBB009BE031 /* MLXSettingsView.swift */,
 				14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */,
 				14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */,
 				14ADE5B42EF0CFE000BB7C6C /* VitalEntryView.swift */,
@@ -461,6 +474,7 @@
 		A1000014294A0000000000001 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				1419E6352EF6EFC8009BE031 /* MLXClient.swift */,
 				143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */,
 				143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */,
 				143446A92E78E6FC00961754 /* BedrockClient.swift */,
@@ -529,6 +543,7 @@
 		A1000076294A0000000000001 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				1419E6372EF6EFD1009BE031 /* MLXModelManager.swift */,
 				14ADE5AF2EF0B90100BB7C6C /* HealthKitManager.swift */,
 				A1000071294A0000000000001 /* HealthDataManager.swift */,
 				ADE33702D7631403A9F76CF91 /* AIChatManager.swift */,
@@ -660,6 +675,7 @@
 				1434469B2E78BCAC00961754 /* MedicalConditionEditorView.swift in Sources */,
 				143446952E78B62F00961754 /* MedicationsListView.swift in Sources */,
 				SUP001002EA12E9900999001 /* SupplementsListView.swift in Sources */,
+				1419E6382EF6EFD1009BE031 /* MLXModelManager.swift in Sources */,
 				SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */,
 				SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */,
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
@@ -696,6 +712,7 @@
 				146E72B02EC2905200D20C53 /* SectionEditorView.swift in Sources */,
 				146E72AC2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift in Sources */,
 				14FFBD3B2E77894700FD9B75 /* Views/TestTypePickerView.swift in Sources */,
+				1419E6342EF6EFBB009BE031 /* MLXSettingsView.swift in Sources */,
 				1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */,
 				1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */,
 				1427C6582E66847000EBEFB0 /* DocumentDetailView.swift in Sources */,
@@ -703,6 +720,8 @@
 				14ADE5B22EF0B93F00BB7C6C /* VitalsAndSleepSection.swift in Sources */,
 				1427C64B12E66847000EBEFB0 /* DocumentTypeSelectorView.swift in Sources */,
 				1427C6592E66847000EBEFB0 /* ConversationSidebarView.swift in Sources */,
+				1419E6312EF6EFB2009BE031 /* AIConnectionStatus.swift in Sources */,
+				1419E6322EF6EFB2009BE031 /* MLXModels.swift in Sources */,
 				14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
@@ -745,6 +764,7 @@
 				NYKH99Y51U8QC2SPCELX794F /* MessageInputView.swift in Sources */,
 				IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */,
 				E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */,
+				1419E6362EF6EFC8009BE031 /* MLXClient.swift in Sources */,
 				NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */,
 				143446992E78BC8300961754 /* PersonalMedicalHistoryView.swift in Sources */,
 				1434468F2E788ED300961754 /* Doctor.swift in Sources */,

@@ -722,18 +722,11 @@ class AIChatManager: ObservableObject {
                 context: context,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
+                    guard let self = self else { return }
+                    // Use debounced update for better performance with long messages
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
                     Task { @MainActor in
-                        guard let self = self else { return }
-
-                        // Update the streaming message content
-                        streamingMessage.content = partialContent
-
-                        // Update in conversation
-                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
-                            self.currentConversation = self.conversations[conversationIndex]
-                        }
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
@@ -753,13 +746,11 @@ class AIChatManager: ObservableObject {
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
 
-                            // Update local conversation with final message
-                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
-                                self.currentConversation = self.conversations[conversationIndex]
+                            // Use finalize to bypass debouncing for immediate final update
+                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
 
-                                // Generate title after first exchange if still using default title
+                            // Generate title after first exchange if still using default title
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
                                 await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                             }
                         } catch {

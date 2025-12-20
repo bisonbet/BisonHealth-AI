@@ -392,40 +392,6 @@ enum OllamaModelType {
     }
 }
 
-// MARK: - Connection Status
-enum OllamaConnectionStatus {
-    case disconnected
-    case connecting
-    case connected
-    case error(Error)
-    
-    var displayName: String {
-        switch self {
-        case .disconnected:
-            return "Disconnected"
-        case .connecting:
-            return "Connecting..."
-        case .connected:
-            return "Connected"
-        case .error:
-            return "Error"
-        }
-    }
-    
-    var icon: String {
-        switch self {
-        case .disconnected:
-            return "wifi.slash"
-        case .connecting:
-            return "wifi.exclamationmark"
-        case .connected:
-            return "wifi"
-        case .error:
-            return "exclamationmark.triangle"
-        }
-    }
-}
-
 // MARK: - Authentication (Placeholder)
 struct AuthCredentials {
     let apiKey: String?

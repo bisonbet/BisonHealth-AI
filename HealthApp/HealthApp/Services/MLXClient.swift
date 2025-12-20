@@ -6,6 +6,7 @@ import MLXLMCommon
 // MARK: - MLX Client
 
 /// Client for running local LLMs using Apple's MLX framework
+/// All operations run on MainActor to prevent Metal background execution errors
 @MainActor
 class MLXClient: ObservableObject, AIProviderInterface {
 
@@ -14,50 +15,34 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Published Properties
     @Published var isConnected: Bool = false
-    @Published var connectionStatus: AIConnectionStatus = .disconnected
+    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
     @Published var lastError: Error?
     @Published var isLoading: Bool = false
     @Published var currentModelId: String?
 
     // MARK: - Private Properties
-    private var loadedModel: LMModelContainer?
-    private var currentModelPath: String?
+    private var chatSession: ChatSession?
     private var currentConfig: MLXGenerationConfig = .default
-    private let modelManager = MLXModelManager.shared
     private let logger = Logger.shared
 
     // MARK: - Initialization
     private init() {
-        // Check if device has sufficient memory for MLX
-        let totalMemoryGB = DeviceMemory.getTotalMemoryGB()
-        let hasSufficientMemory = DeviceMemory.hasSufficientMemory()
+        // Set GPU cache limit for MLX
+        // Increased from 512MB to 4GB to support larger models
+        // Requires increased-memory-limit entitlement in production
+        let cacheLimit = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
+        MLX.GPU.set(cacheLimit: cacheLimit)
 
-        if !hasSufficientMemory {
-            logger.warning("⚠️ Device has only \(String(format: "%.2f", totalMemoryGB))GB RAM - MLX may struggle")
-        }
-
-        // Set GPU cache based on device memory
-        let cacheLimit = DeviceMemory.getRecommendedGPUCacheLimit()
-
-        // Check if MLX is available on this device
-        if MLX.GPU.isAvailable {
-            logger.info("🔧 MLX GPU acceleration available (cache: \(cacheLimit / 1024 / 1024)MB)")
-            MLX.GPU.set(cacheLimit: cacheLimit)
-        } else {
-            logger.warning("⚠️ MLX GPU acceleration not available, will use CPU")
-            // Use half the cache for CPU mode
-            MLX.GPU.set(cacheLimit: cacheLimit / 2)
-        }
+        logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
     }
 
     // MARK: - AIProviderInterface
 
     func testConnection() async throws -> Bool {
-        // For MLX, "connection" means having a model downloaded and ready
+        // For MLX, "connection" means having a model loaded and ready
         connectionStatus = .connecting
 
-        if let modelId = currentModelId,
-           modelManager.isModelDownloaded(modelId) {
+        if chatSession != nil {
             connectionStatus = .connected
             isConnected = true
             return true
@@ -73,47 +58,31 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.invalidConfiguration
         }
 
-        guard modelManager.isModelDownloaded(modelId) else {
-            throw MLXError.modelNotFound
-        }
-
-        // Load model if not already loaded or if different model selected
-        if let currentPath = currentModelPath,
-           currentPath != modelManager.getLocalModel(modelId)?.localPath.path {
-            // Explicitly unload old model before loading new one to free memory
-            logger.info("🔄 Switching models - unloading old model first")
-            unloadModel()
-        }
-
-        if loadedModel == nil {
+        // Auto-load model if not already loaded
+        if chatSession == nil {
+            logger.info("🔄 Auto-loading model: \(modelId)")
             try await loadModel(modelId: modelId)
         }
 
-        guard let model = loadedModel else {
+        // Check if chat session is loaded
+        guard let session = chatSession else {
             throw MLXError.modelLoadFailed("Model failed to load")
         }
 
         // Build the full prompt with context
         let fullPrompt = buildPrompt(message: message, context: context)
 
-        logger.info("🤖 Generating response with MLX model: \(modelId)")
+        logger.info("🤖 Generating response with MLX model")
         let startTime = Date()
 
         do {
-            // Generate response using MLX
-            let generatedText = try await generateText(
-                model: model,
-                prompt: fullPrompt,
-                config: currentConfig
-            )
+            // Generate response using ChatSession
+            let generatedText = try await session.respond(to: fullPrompt)
 
             let processingTime = Date().timeIntervalSince(startTime)
 
             // Clean the response
             let cleanedText = AIResponseCleaner.cleanConversational(generatedText)
-
-            // Mark model as used
-            modelManager.markModelUsed(modelId)
 
             logger.info("✅ Generated response in \(String(format: "%.2f", processingTime))s")
 
@@ -122,7 +91,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 responseTime: processingTime,
                 tokenCount: estimateTokenCount(cleanedText),
                 metadata: [
-                    "model": modelId,
+                    "model": currentModelId ?? "unknown",
                     "temperature": currentConfig.temperature,
                     "maxTokens": currentConfig.maxTokens
                 ]
@@ -137,7 +106,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     func getCapabilities() async throws -> AICapabilities {
         return AICapabilities(
-            supportedModels: modelManager.downloadedModels.map { $0.id },
+            supportedModels: currentModelId.map { [$0] } ?? [],
             maxTokens: currentConfig.maxTokens,
             supportsStreaming: true,
             supportsImages: false, // Text-only for now
@@ -153,43 +122,35 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Model Management
 
-    /// Load a model into memory
+    /// Load a model into memory using MLX's built-in download/cache system
     func loadModel(modelId: String) async throws {
         logger.info("📂 Loading MLX model: \(modelId)")
         isLoading = true
         defer { isLoading = false }
 
-        guard let localModel = modelManager.getLocalModel(modelId) else {
+        // Get the HuggingFace repo ID from the model registry
+        guard let modelConfig = MLXModelRegistry.model(withId: modelId) else {
             throw MLXError.modelNotFound
         }
 
+        let huggingFaceRepo = modelConfig.huggingFaceRepo
+        logger.info("📦 Loading from HuggingFace: \(huggingFaceRepo)")
+
         do {
-            let modelPath = localModel.localPath.path
-            logger.info("📂 Model path: \(modelPath)")
+            // Use MLX's built-in loading (downloads if needed, uses cache if available)
+            let loadedModel = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
 
-            // Load the model using the correct mlx-swift-lm API
-            // The loadModel function from MLXLLM can load from a local directory path
-            logger.info("📂 Loading model from disk...")
-
-            let loadedLM = try await MLXLLM.loadModel(id: modelPath) { progress in
-                self.logger.info("📊 Loading model: \(Int(progress.fractionCompleted * 100))%")
-            }
-
-            // Wrap in container
-            let container = LMModelContainer(model: loadedLM, path: modelPath)
-
-            loadedModel = container
-            currentModelPath = modelPath
+            // Create chat session with the loaded model
+            chatSession = ChatSession(loadedModel)
             currentModelId = modelId
             isConnected = true
             connectionStatus = .connected
 
-            logger.info("✅ Model loaded successfully: \(localModel.config.name)")
+            logger.info("✅ Successfully loaded MLX model: \(modelId)")
 
         } catch {
-            logger.error("❌ Failed to load model", error: error)
-            loadedModel = nil
-            currentModelPath = nil
+            logger.error("❌ Failed to load MLX model", error: error)
+            chatSession = nil
             currentModelId = nil
             isConnected = false
             connectionStatus = .disconnected
@@ -200,8 +161,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
     /// Unload the current model from memory
     func unloadModel() {
         logger.info("🗑️ Unloading MLX model")
-        loadedModel = nil
-        currentModelPath = nil
+        chatSession = nil
         currentModelId = nil
         isConnected = false
         connectionStatus = .disconnected
@@ -227,58 +187,43 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.invalidConfiguration
         }
 
-        guard modelManager.isModelDownloaded(modelId) else {
-            throw MLXError.modelNotFound
-        }
-
-        // Load model if not already loaded or if different model selected
-        if let currentPath = currentModelPath,
-           currentPath != modelManager.getLocalModel(modelId)?.localPath.path {
-            // Explicitly unload old model before loading new one to free memory
-            logger.info("🔄 Switching models - unloading old model first")
-            unloadModel()
-        }
-
-        if loadedModel == nil {
+        // Auto-load model if not already loaded
+        if chatSession == nil {
+            logger.info("🔄 Auto-loading model for streaming: \(modelId)")
             try await loadModel(modelId: modelId)
         }
 
-        guard let model = loadedModel else {
+        guard let session = chatSession else {
             throw MLXError.modelLoadFailed("Model failed to load")
         }
 
         // Build the full prompt
         let fullPrompt = buildPrompt(message: message, context: context, systemPrompt: systemPrompt)
 
-        logger.info("🤖 Streaming response with MLX model: \(modelId)")
+        logger.info("🤖 Streaming response with MLX model")
         let startTime = Date()
 
         do {
-            var accumulatedText = ""
+            var finalText = ""
 
-            // Stream tokens using MLX
-            try await streamText(
-                model: model,
-                prompt: fullPrompt,
-                config: currentConfig,
-                onToken: { token in
-                    accumulatedText += token
-                    onUpdate(accumulatedText)
-                }
-            )
+            // Stream tokens using ChatSession
+            // Note: streamResponse yields complete accumulated text each iteration
+            for try await text in session.streamResponse(to: fullPrompt) {
+                finalText = text
+                // Update with the full accumulated text so far
+                // Already on MainActor, so just call directly
+                onUpdate(text)
+            }
 
             let processingTime = Date().timeIntervalSince(startTime)
-            let cleanedText = AIResponseCleaner.cleanConversational(accumulatedText)
-
-            // Mark model as used
-            modelManager.markModelUsed(modelId)
+            let cleanedText = AIResponseCleaner.cleanConversational(finalText)
 
             let response = MLXResponse(
                 content: cleanedText,
                 responseTime: processingTime,
                 tokenCount: estimateTokenCount(cleanedText),
                 metadata: [
-                    "model": modelId,
+                    "model": currentModelId ?? "unknown",
                     "temperature": currentConfig.temperature,
                     "streaming": true
                 ]
@@ -313,64 +258,6 @@ class MLXClient: ObservableObject, AIProviderInterface {
         return prompt
     }
 
-    /// Generate text using MLX model (non-streaming)
-    private func generateText(
-        model: LMModelContainer,
-        prompt: String,
-        config: MLXGenerationConfig
-    ) async throws -> String {
-        // Create generation parameters
-        let generateParams = GenerateParameters(
-            temperature: Float(config.temperature),
-            topP: Float(config.topP),
-            repetitionPenalty: Float(config.repetitionPenalty),
-            repetitionContextSize: config.repetitionContextSize
-        )
-
-        // Generate using MLX Swift LM
-        logger.info("🔮 Generating with temp: \(config.temperature), maxTokens: \(config.maxTokens)")
-
-        let result = try await model.perform { model in
-            try await model.generate(
-                prompt: MLXLMCommon.UserInput(prompt: prompt),
-                parameters: generateParams,
-                maxTokens: config.maxTokens
-            )
-        }
-
-        return result.output
-    }
-
-    /// Stream text generation token by token
-    private func streamText(
-        model: LMModelContainer,
-        prompt: String,
-        config: MLXGenerationConfig,
-        onToken: @escaping (String) -> Void
-    ) async throws {
-        let generateParams = GenerateParameters(
-            temperature: Float(config.temperature),
-            topP: Float(config.topP),
-            repetitionPenalty: Float(config.repetitionPenalty),
-            repetitionContextSize: config.repetitionContextSize
-        )
-
-        logger.info("🔮 Streaming with temp: \(config.temperature), maxTokens: \(config.maxTokens)")
-
-        // Use the streaming generate API
-        try await model.perform { model in
-            let stream = try await model.generateStream(
-                prompt: MLXLMCommon.UserInput(prompt: prompt),
-                parameters: generateParams,
-                maxTokens: config.maxTokens
-            )
-
-            for try await token in stream {
-                onToken(token.text)
-            }
-        }
-    }
-
     private func estimateTokenCount(_ text: String) -> Int {
         // Rough estimation: ~4 characters per token
         return text.count / 4
@@ -398,19 +285,3 @@ struct MLXResponse: AIResponse {
     }
 }
 
-// MARK: - LMModelContainer Wrapper
-
-/// Container for managing MLX model lifecycle
-class LMModelContainer {
-    private let model: any LanguageModel
-    private let modelPath: String
-
-    init(model: any LanguageModel, path: String) {
-        self.model = model
-        self.modelPath = path
-    }
-
-    func perform<T>(_ operation: (any LanguageModel) async throws -> T) async throws -> T {
-        return try await operation(model)
-    }
-}

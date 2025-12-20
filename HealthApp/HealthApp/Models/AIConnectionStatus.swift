@@ -37,7 +37,7 @@ public enum OllamaConnectionStatus: Equatable {
     case disconnected
     case connecting
     case connected
-    case failed(Error)
+    case error(Error)
 
     public static func == (lhs: OllamaConnectionStatus, rhs: OllamaConnectionStatus) -> Bool {
         switch (lhs, rhs) {
@@ -45,10 +45,36 @@ public enum OllamaConnectionStatus: Equatable {
              (.connecting, .connecting),
              (.connected, .connected):
             return true
-        case (.failed(let lhsError), .failed(let rhsError)):
+        case (.error(let lhsError), .error(let rhsError)):
             return lhsError.localizedDescription == rhsError.localizedDescription
         default:
             return false
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .disconnected:
+            return "Disconnected"
+        case .connecting:
+            return "Connecting..."
+        case .connected:
+            return "Connected"
+        case .error:
+            return "Error"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .disconnected:
+            return "wifi.slash"
+        case .connecting:
+            return "wifi.exclamationmark"
+        case .connected:
+            return "wifi"
+        case .error:
+            return "exclamationmark.triangle"
         }
     }
 
@@ -61,7 +87,7 @@ public enum OllamaConnectionStatus: Equatable {
             return .connecting
         case .connected:
             return .connected
-        case .failed(let error):
+        case .error(let error):
             return .error(error.localizedDescription)
         }
     }
@@ -76,7 +102,7 @@ public enum OllamaConnectionStatus: Equatable {
         case .connected:
             return .connected
         case .error(let message):
-            return .failed(NSError(domain: "AI", code: -1, userInfo: [NSLocalizedDescriptionKey: message]))
+            return .error(NSError(domain: "AI", code: -1, userInfo: [NSLocalizedDescriptionKey: message]))
         }
     }
 }

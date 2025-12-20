@@ -102,13 +102,15 @@ struct MLXGenerationConfig: Codable, Equatable {
     var maxTokens: Int
     var repetitionPenalty: Double
     var repetitionContextSize: Int
+    var contextWindow: Int
 
     static let `default` = MLXGenerationConfig(
         temperature: 0.7,
         topP: 0.9,
         maxTokens: 2048,
         repetitionPenalty: 1.1,
-        repetitionContextSize: 20
+        repetitionContextSize: 20,
+        contextWindow: 8192
     )
 
     static let creative = MLXGenerationConfig(
@@ -116,7 +118,8 @@ struct MLXGenerationConfig: Codable, Equatable {
         topP: 0.95,
         maxTokens: 2048,
         repetitionPenalty: 1.0,
-        repetitionContextSize: 20
+        repetitionContextSize: 20,
+        contextWindow: 8192
     )
 
     static let precise = MLXGenerationConfig(
@@ -124,7 +127,8 @@ struct MLXGenerationConfig: Codable, Equatable {
         topP: 0.8,
         maxTokens: 2048,
         repetitionPenalty: 1.2,
-        repetitionContextSize: 20
+        repetitionContextSize: 20,
+        contextWindow: 8192
     )
 }
 

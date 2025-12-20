@@ -806,6 +806,12 @@ struct ConversationSettingsView: View {
             return prefs.bedrockModel
         case .openAICompatible:
             return prefs.openAICompatibleModel.isEmpty ? "Not configured" : prefs.openAICompatibleModel
+        case .mlx:
+            if let modelId = prefs.mlxModelId,
+               let model = MLXModelRegistry.model(withId: modelId) {
+                return model.name
+            }
+            return "No model selected"
         }
     }
     
