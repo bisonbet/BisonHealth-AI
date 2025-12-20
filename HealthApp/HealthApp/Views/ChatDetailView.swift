@@ -322,6 +322,9 @@ struct EnhancedMessageListView: View {
     var chatManager: AIChatManager?
     var conversationId: UUID?
 
+    @State private var scrollTarget: String?
+    @State private var lastScrollTime: Date = .distantPast
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -333,9 +336,10 @@ struct EnhancedMessageListView: View {
                             chatManager: chatManager,
                             conversationId: conversationId
                         )
+                        .equatable()
                         .id(message.id)
                     }
-                    
+
                     if isLoading {
                         TypingIndicatorView()
                             .id("typing")
@@ -345,7 +349,9 @@ struct EnhancedMessageListView: View {
                 .padding(.vertical, 8)
             }
             .onChange(of: messages.count) {
-                withAnimation(.easeInOut(duration: 0.3)) {
+                // Only scroll when new messages are added (count changes)
+                // Use faster animation for better performance
+                withAnimation(.easeOut(duration: 0.2)) {
                     if let lastMessage = messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
@@ -353,16 +359,15 @@ struct EnhancedMessageListView: View {
             }
             .onChange(of: isLoading) {
                 if isLoading {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo("typing", anchor: .bottom)
-                    }
+                    // No animation when loading indicator appears - just show it
+                    proxy.scrollTo("typing", anchor: .bottom)
                 }
             }
         }
     }
 }
 
-struct EnhancedMessageBubbleView: View {
+struct EnhancedMessageBubbleView: View, Equatable {
     let message: ChatMessage
     let isIPad: Bool
     var chatManager: AIChatManager?
@@ -370,6 +375,17 @@ struct EnhancedMessageBubbleView: View {
 
     @State private var showingCopyConfirmation = false
     @State private var isRetrying = false
+
+    // MARK: - Equatable
+    static func == (lhs: EnhancedMessageBubbleView, rhs: EnhancedMessageBubbleView) -> Bool {
+        // Only re-render if message content, status, or error state changes
+        lhs.message.id == rhs.message.id &&
+        lhs.message.content == rhs.message.content &&
+        lhs.message.status == rhs.message.status &&
+        lhs.message.isError == rhs.message.isError &&
+        lhs.message.lastError == rhs.message.lastError &&
+        lhs.isIPad == rhs.isIPad
+    }
 
     private var markdownContentView: some View {
         buildMarkdownView()
