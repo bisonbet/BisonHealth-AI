@@ -285,21 +285,35 @@ class MLXClient: ObservableObject, AIProviderInterface {
         prompt: String,
         config: MLXGenerationConfig
     ) async throws -> String {
-        // Use MLXLMCommon's generate function
-        let parameters = GenerateParameters(
+        // Create generate parameters for MLX
+        let generateParams = GenerateParameters(
             temperature: Float(config.temperature),
             topP: Float(config.topP),
-            maxTokens: config.maxTokens,
             repetitionPenalty: Float(config.repetitionPenalty),
             repetitionContextSize: config.repetitionContextSize
         )
 
-        let result = try await model.generate(
-            prompt: prompt,
-            parameters: parameters
-        )
+        // Generate using MLX Swift LM
+        // The model generates tokens and we collect them into a string
+        var generatedText = ""
+        var tokenCount = 0
+        let maxTokens = config.maxTokens
 
-        return result.text
+        // Use the model's generate method which returns an async sequence of tokens
+        for try await output in model.generate(
+            prompt: prompt,
+            parameters: generateParams,
+            maxTokens: maxTokens
+        ) {
+            generatedText += output
+            tokenCount += 1
+
+            if tokenCount >= maxTokens {
+                break
+            }
+        }
+
+        return generatedText
     }
 
     /// Stream text generation token by token
@@ -309,17 +323,28 @@ class MLXClient: ObservableObject, AIProviderInterface {
         config: MLXGenerationConfig,
         onToken: @escaping (String) -> Void
     ) async throws {
-        let parameters = GenerateParameters(
+        let generateParams = GenerateParameters(
             temperature: Float(config.temperature),
             topP: Float(config.topP),
-            maxTokens: config.maxTokens,
             repetitionPenalty: Float(config.repetitionPenalty),
             repetitionContextSize: config.repetitionContextSize
         )
 
-        // Use the streaming API
-        for try await token in model.generateStream(prompt: prompt, parameters: parameters) {
-            onToken(token)
+        var tokenCount = 0
+        let maxTokens = config.maxTokens
+
+        // Stream tokens as they're generated
+        for try await output in model.generate(
+            prompt: prompt,
+            parameters: generateParams,
+            maxTokens: maxTokens
+        ) {
+            onToken(output)
+            tokenCount += 1
+
+            if tokenCount >= maxTokens {
+                break
+            }
         }
     }
 
@@ -372,26 +397,41 @@ extension LMModel {
 struct GenerateParameters {
     let temperature: Float
     let topP: Float
-    let maxTokens: Int
     let repetitionPenalty: Float
     let repetitionContextSize: Int
 }
 
-// Extension to add streaming and generation to LMModel
+// MARK: - LMModel Extension for Generation
+
 extension LMModel {
-    func generate(prompt: String, parameters: GenerateParameters) async throws -> GenerateResult {
-        // This is a placeholder - actual implementation would use MLXLMCommon's API
-        // The real MLX Swift LM package has different methods
-        // This will be replaced with proper MLX API calls
-        fatalError("Must implement using actual MLX Swift LM API")
-    }
+    /// Generate text using the MLX model with an async sequence
+    /// This matches the actual MLX Swift LM API pattern
+    func generate(
+        prompt: String,
+        parameters: GenerateParameters,
+        maxTokens: Int
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    // Use MLXLMCommon's actual generation method
+                    // The real implementation uses the model's tokenizer and generate methods
+                    // This is a simplified version - the actual MLX Swift LM package
+                    // handles tokenization, generation, and detokenization internally
 
-    func generateStream(prompt: String, parameters: GenerateParameters) -> AsyncThrowingStream<String, Error> {
-        // This is a placeholder - actual implementation would use MLXLMCommon's streaming API
-        fatalError("Must implement using actual MLX Swift LM streaming API")
-    }
-}
+                    // Note: The actual API might be slightly different
+                    // You may need to adjust based on the exact MLX Swift LM version
+                    // Typical usage: model.generate(input: tokens, parameters: params)
 
-struct GenerateResult {
-    let text: String
+                    // For now, this indicates where the actual MLX API calls would go
+                    // The MLX Swift LM examples show this pattern
+                    continuation.finish(throwing: MLXError.modelLoadFailed(
+                        "MLX generation not fully implemented - requires MLX Swift LM package"
+                    ))
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }

@@ -2,6 +2,17 @@
 
 This document describes the MLX (Apple Metal Linear Algebra) integration for BisonHealth-AI, enabling completely private, on-device AI inference without requiring network connectivity.
 
+## ⚠️ Implementation Status
+
+**Current Status**: 🟡 Architecture Complete, API Integration Required
+
+The complete architecture is implemented, but the MLX Swift LM API calls need to be completed after adding the packages. See **[MLX_IMPLEMENTATION_STATUS.md](MLX_IMPLEMENTATION_STATUS.md)** for detailed information about what needs to be finished.
+
+- ✅ Full architecture and UI complete
+- ✅ Model management working
+- 🟡 MLX generation API needs implementation (after adding packages)
+- ⏳ Estimated completion time: 1.5-3 hours
+
 ## Overview
 
 The MLX integration adds local AI model support using Apple's MLX framework, allowing users to run medical AI models like MedGemma directly on their device. This provides:
@@ -92,7 +103,7 @@ The following new files need to be added to the Xcode project:
    - `MLXModelManager.swift`
 
 3. **Services Group**:
-   - `MLXClient.swift`
+   - `MLXClient.swift` ⚠️ Requires API implementation after adding packages
 
 4. **Views Group**:
    - `MLXSettingsView.swift`
@@ -105,6 +116,8 @@ The following new files need to be added to the Xcode project:
 4. Ensure "Copy items if needed" is checked
 5. Ensure "HealthApp" target is checked
 6. Click "Add"
+
+**Note**: `MLXClient.swift` contains placeholder implementations that need to be completed after adding the MLX Swift packages. See `MLX_IMPLEMENTATION_STATUS.md` for details.
 
 ### Step 3: Update Entitlements (if needed)
 
@@ -121,12 +134,28 @@ Ensure these are configured in `HealthApp.entitlements`:
 <true/>
 ```
 
-### Step 4: Build and Test
+### Step 4: Complete MLX API Implementation
+
+⚠️ **Required**: After adding packages, complete the MLX Swift LM API integration in `MLXClient.swift`.
+
+See **[MLX_IMPLEMENTATION_STATUS.md](MLX_IMPLEMENTATION_STATUS.md)** for:
+- Detailed implementation instructions
+- Code examples and patterns
+- Reference to official MLX examples
+- Testing procedures
+
+**Files to update**:
+- `HealthApp/HealthApp/Services/MLXClient.swift` (lines 282-349, 406-437)
+
+**Estimated time**: 1.5-3 hours
+
+### Step 5: Build and Test
 
 1. Clean build folder: `Product > Clean Build Folder`
 2. Build the project: `⌘B`
 3. Resolve any package dependencies: `File > Packages > Resolve Package Versions`
 4. Run on a device or simulator
+5. Test MLX generation (after completing Step 4)
 
 ## Usage
 
