@@ -323,7 +323,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
         let generateParams = GenerateParameters(
             temperature: Float(config.temperature),
             topP: Float(config.topP),
-            repetitionPenalty: Float(config.repetitionPenalty) ?? 1.0,
+            repetitionPenalty: Float(config.repetitionPenalty),
             repetitionContextSize: config.repetitionContextSize
         )
 
@@ -351,7 +351,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
         let generateParams = GenerateParameters(
             temperature: Float(config.temperature),
             topP: Float(config.topP),
-            repetitionPenalty: Float(config.repetitionPenalty) ?? 1.0,
+            repetitionPenalty: Float(config.repetitionPenalty),
             repetitionContextSize: config.repetitionContextSize
         )
 

@@ -52,6 +52,11 @@ class MLXModelManager: ObservableObject {
         }
     }
 
+    deinit {
+        // Invalidate download session to prevent memory leaks
+        downloadSession.invalidateAndCancel()
+    }
+
     // MARK: - Model Discovery
 
     /// Load all downloaded models from disk
@@ -132,6 +137,18 @@ class MLXModelManager: ObservableObject {
         // Check if already downloading
         if case .downloading = modelStatuses[config.id] {
             throw MLXError.downloadInProgress
+        }
+
+        // Check available disk space (require 2x the model size for safety)
+        if let availableSpace = getAvailableDiskSpace() {
+            let requiredSpace = config.estimatedSize * 2  // 2x for temporary files during download
+            if availableSpace < requiredSpace {
+                let availableGB = Double(availableSpace) / 1_073_741_824.0
+                let requiredGB = Double(requiredSpace) / 1_073_741_824.0
+                logger.warning("⚠️ Insufficient storage: \(String(format: "%.2f", availableGB))GB available, \(String(format: "%.2f", requiredGB))GB required")
+                throw MLXError.insufficientStorage
+            }
+            logger.info("✅ Storage check passed: \(String(format: "%.2f", Double(availableSpace) / 1_073_741_824.0))GB available")
         }
 
         // Set initial status
@@ -305,6 +322,19 @@ class MLXModelManager: ObservableObject {
         downloadedModels.contains { $0.id == modelId && $0.isActive }
     }
 
+    /// Get available disk space in bytes
+    private func getAvailableDiskSpace() -> Int64? {
+        do {
+            let attributes = try fileManager.attributesOfFileSystem(forPath: NSHomeDirectory())
+            if let freeSize = attributes[.systemFreeSize] as? NSNumber {
+                return freeSize.int64Value
+            }
+        } catch {
+            logger.error("Failed to get available disk space", error: error)
+        }
+        return nil
+    }
+
     /// Get local model by ID
     func getLocalModel(_ modelId: String) -> MLXLocalModel? {
         downloadedModels.first { $0.id == modelId }
@@ -331,11 +361,15 @@ class MLXModelManager: ObservableObject {
     /// Update last used timestamp
     func markModelUsed(_ modelId: String) {
         if let index = downloadedModels.firstIndex(where: { $0.id == modelId }) {
-            downloadedModels[index].lastUsed = Date()
+            // Capture model before mutation to avoid race condition
+            var model = downloadedModels[index]
+            model.lastUsed = Date()
 
-            // Save updated metadata asynchronously in background
-            let model = downloadedModels[index]
-            Task {
+            // Update in array
+            downloadedModels[index] = model
+
+            // Save updated metadata asynchronously on main actor to prevent race conditions
+            Task { @MainActor in
                 do {
                     try self.saveModelMetadata(model)
                 } catch {
