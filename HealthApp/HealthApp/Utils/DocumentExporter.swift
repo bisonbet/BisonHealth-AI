@@ -203,7 +203,7 @@ class DocumentExporter: ObservableObject {
     }
     
     // MARK: - Document Bundle Export
-    func exportDocumentBundle(documents: [HealthDocument]) async throws -> URL {
+    func exportDocumentBundle(documents: [MedicalDocument]) async throws -> URL {
         isExporting = true
         exportProgress = 0.0
         
@@ -316,7 +316,7 @@ class DocumentExporter: ObservableObject {
         return [page]
     }
     
-    private func createDocumentsSummaryPage(_ documents: [HealthDocument]) -> PDFPage {
+    private func createDocumentsSummaryPage(_ documents: [MedicalDocument]) -> PDFPage {
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
         let page = PDFPage()
         page.setBounds(pageRect, for: .mediaBox)

@@ -311,11 +311,11 @@ struct DocumentsView: View {
     @State private var showingFilterView = false
     @State private var showingBatchProcessing = false
     @State private var showingDocumentDetail = false
-    @State private var selectedDocument: HealthDocument?
+    @State private var selectedDocument: MedicalDocument?
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var viewMode: DocumentViewMode = .list
     @State private var showingDocumentTypeSelector = false
-    @State private var pendingDocumentForCategory: HealthDocument?
+    @State private var pendingDocumentForCategory: MedicalDocument?
     @State private var showingDuplicateReview = false
     
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -550,7 +550,7 @@ struct DocumentsView: View {
         .onChange(of: selectedPhotos) { _, photos in
             if !photos.isEmpty {
                 Task {
-                    var importedDocs: [HealthDocument] = []
+                    var importedDocs: [MedicalDocument] = []
                     
                     for photo in photos {
                         if let data = try? await photo.loadTransferable(type: Data.self),

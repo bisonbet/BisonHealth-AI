@@ -40,7 +40,27 @@ final class AIChatManagerTests: XCTestCase {
         XCTAssertFalse(chatManager.isLoading)
         XCTAssertEqual(chatManager.contextSizeLimit, 4000)
     }
-    
+
+    func testMockHealthDataManagerProperties() {
+        // Verify MockHealthDataManager correctly overrides base class properties
+        XCTAssertNotNil(mockHealthDataManager)
+        XCTAssertEqual(mockHealthDataManager.imagingReports.count, 0)
+        XCTAssertEqual(mockHealthDataManager.healthCheckups.count, 0)
+
+        // Test property setters work correctly
+        let mockDocument = MedicalDocument(
+            fileName: "test.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/test.pdf"),
+            documentCategory: .imagingReport,
+            fileSize: 1024
+        )
+
+        mockHealthDataManager.imagingReports = [mockDocument]
+        XCTAssertEqual(mockHealthDataManager.imagingReports.count, 1)
+        XCTAssertEqual(mockHealthDataManager.imagingReports.first?.fileName, "test.pdf")
+    }
+
     // MARK: - Connection Management Tests
     func testCheckConnectionSuccess() async {
         // Given
@@ -466,21 +486,27 @@ class MockHealthDataManager: HealthDataManager {
         get { _personalInfo }
         set { _personalInfo = newValue }
     }
-    
+
     override var bloodTests: [BloodTestResult] {
         get { _bloodTests }
         set { _bloodTests = newValue }
     }
-    
-    override var documents: [HealthDocument] {
-        get { _documents }
-        set { _documents = newValue }
+
+    override var imagingReports: [MedicalDocument] {
+        get { _imagingReports }
+        set { _imagingReports = newValue }
     }
-    
+
+    override var healthCheckups: [MedicalDocument] {
+        get { _healthCheckups }
+        set { _healthCheckups = newValue }
+    }
+
     private var _personalInfo: PersonalHealthInfo?
     private var _bloodTests: [BloodTestResult] = []
-    private var _documents: [HealthDocument] = []
-    
+    private var _imagingReports: [MedicalDocument] = []
+    private var _healthCheckups: [MedicalDocument] = []
+
     init() {
         // Create mock dependencies
         let mockDB = try! MockDatabaseManager()

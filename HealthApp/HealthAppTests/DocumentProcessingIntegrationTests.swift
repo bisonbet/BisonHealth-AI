@@ -435,7 +435,7 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         fatalError("Mock implementation needed")
     }
     
-    private func createTestDocument(type: DocumentType) async throws -> HealthDocument {
+    private func createTestDocument(type: DocumentType) async throws -> MedicalDocument {
         let testData: Data
         switch type {
         case .pdf:
@@ -450,8 +450,8 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         return try await documentImporter.importDocument(from: testURL)
     }
     
-    private func createTestDocuments(count: Int) async throws -> [HealthDocument] {
-        var documents: [HealthDocument] = []
+    private func createTestDocuments(count: Int) async throws -> [MedicalDocument] {
+        var documents: [MedicalDocument] = []
         
         for i in 0..<count {
             let type: DocumentType = i % 2 == 0 ? .pdf : .jpeg
@@ -462,8 +462,8 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         return documents
     }
     
-    private func createTestDocumentsWithVariedProperties() async throws -> [HealthDocument] {
-        var documents: [HealthDocument] = []
+    private func createTestDocumentsWithVariedProperties() async throws -> [MedicalDocument] {
+        var documents: [MedicalDocument] = []
         
         // Create documents with different names, types, and statuses
         let properties = [

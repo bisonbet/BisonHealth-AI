@@ -197,7 +197,7 @@ final class HealthDataManagerTests: XCTestCase {
     
     func testUpdateDocumentProcessingStatus() async throws {
         // Given
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf")
@@ -215,7 +215,7 @@ final class HealthDataManagerTests: XCTestCase {
     
     func testDeleteDocument() async throws {
         // Given
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf")
@@ -314,7 +314,7 @@ final class HealthDataManagerTests: XCTestCase {
     // MARK: - Data Linking Tests
     func testLinkExtractedDataToDocument() async throws {
         // Given
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf")
@@ -348,7 +348,7 @@ final class HealthDataManagerTests: XCTestCase {
             allergies: ["Peanuts"] // Should be added
         )
         
-        let document = HealthDocument(
+        let document = MedicalDocument(
             fileName: "test.pdf",
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/test.pdf")
@@ -379,7 +379,7 @@ class MockDatabaseManager: DatabaseManager {
     
     var mockPersonalInfo: PersonalHealthInfo?
     var mockBloodTests: [BloodTestResult] = []
-    var mockDocuments: [HealthDocument] = []
+    var mockDocuments: [MedicalDocument] = []
     
     override init() throws {
         // Skip the real initialization
@@ -426,11 +426,11 @@ class MockDatabaseManager: DatabaseManager {
         return mockBloodTests
     }
     
-    override func fetchDocuments() async throws -> [HealthDocument] {
+    override func fetchDocuments() async throws -> [MedicalDocument] {
         return mockDocuments
     }
     
-    override func saveDocument(_ document: HealthDocument) async throws {
+    override func saveDocument(_ document: MedicalDocument) async throws {
         saveDocumentCalled = true
         mockDocuments.append(document)
     }

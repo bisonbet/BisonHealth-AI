@@ -160,7 +160,6 @@ enum MessageRole: String, CaseIterable, Codable {
 struct ChatContext: Codable {
     var personalInfo: PersonalHealthInfo?
     var bloodTests: [BloodTestResult]
-    var documents: [HealthDocument]
     var medicalDocuments: [MedicalDocumentSummary]  // Medical documents selected for AI context
     var selectedDataTypes: Set<HealthDataType>
     var contextSummary: String?
@@ -169,7 +168,6 @@ struct ChatContext: Codable {
     init(
         personalInfo: PersonalHealthInfo? = nil,
         bloodTests: [BloodTestResult] = [],
-        documents: [HealthDocument] = [],
         medicalDocuments: [MedicalDocumentSummary] = [],
         selectedDataTypes: Set<HealthDataType> = [],
         contextSummary: String? = nil,
@@ -177,7 +175,6 @@ struct ChatContext: Codable {
     ) {
         self.personalInfo = personalInfo
         self.bloodTests = bloodTests
-        self.documents = documents
         self.medicalDocuments = medicalDocuments
         self.selectedDataTypes = selectedDataTypes
         self.contextSummary = contextSummary
@@ -344,7 +341,6 @@ extension ChatContext {
     var isEmpty: Bool {
         return personalInfo == nil &&
                bloodTests.isEmpty &&
-               documents.isEmpty &&
                medicalDocuments.isEmpty
     }
 
@@ -352,7 +348,6 @@ extension ChatContext {
         // Rough estimation: 1 token ≈ 4 characters
         let personalInfoTokens = personalInfo != nil ? 200 : 0
         let bloodTestTokens = bloodTests.count * 100
-        let documentTokens = documents.count * 50
 
         // Estimate tokens for medical documents based on sections
         var medicalDocTokens = 0
@@ -363,7 +358,7 @@ extension ChatContext {
             }
         }
 
-        return personalInfoTokens + bloodTestTokens + documentTokens + medicalDocTokens
+        return personalInfoTokens + bloodTestTokens + medicalDocTokens
     }
     
     func buildContextString() -> String {
@@ -605,18 +600,6 @@ extension ChatContext {
             }
         }
         
-        // Documents
-        if !documents.isEmpty {
-            let processedDocs = documents.filter { $0.isProcessed }
-            if !processedDocs.isEmpty {
-                var docContext = "Available Health Documents:\n"
-                for doc in processedDocs.prefix(5) { // Limit to 5 most recent documents
-                    docContext += "- \(doc.fileName) (\(doc.fileType.displayName))\n"
-                }
-                contextParts.append(docContext)
-            }
-        }
-
         // Medical Documents (selected for AI context)
         if !medicalDocuments.isEmpty {
             var medicalDocContext = "\nMedical Documents:\n"

@@ -19,7 +19,7 @@ class DatabaseManager: ObservableObject {
     private let databaseURL: URL
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 6 // Increment when making schema changes
+    private static let currentDatabaseVersion = 7 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
@@ -377,6 +377,32 @@ class DatabaseManager: ObservableObject {
             // default values of [] in the model. The Codable decoder will automatically use the
             // defaults for existing records via decodeIfPresent.
             print("   ✓ Added support for Apple Health sync (vitals and sleep data)")
+
+        case 7:
+            // Migration for version 7: HealthDocument → MedicalDocument format migration
+            // Ensures all existing documents have proper default values for new fields
+            print("📦 Migrating to version 7: HealthDocument → MedicalDocument format")
+
+            // IMPORTANT: Use separate UPDATE statements to avoid overwriting valid data
+            // If we used a single UPDATE with OR conditions, a document with valid category
+            // but NULL include_in_ai_context would get its category overwritten to 'other'
+
+            // Update only documents with missing or empty category
+            try db.run("""
+                UPDATE documents
+                SET document_category = 'other'
+                WHERE document_category IS NULL
+                   OR document_category = ''
+            """)
+
+            // Update only documents with missing include_in_ai_context
+            try db.run("""
+                UPDATE documents
+                SET include_in_ai_context = 0
+                WHERE include_in_ai_context IS NULL
+            """)
+
+            print("   ✓ Migrated document format: ensured default values for MedicalDocument fields")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")

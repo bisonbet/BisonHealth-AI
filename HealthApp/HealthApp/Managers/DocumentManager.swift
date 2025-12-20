@@ -18,7 +18,7 @@ class DocumentManager: ObservableObject {
     )
     
     // MARK: - Published Properties
-    @Published var documents: [HealthDocument] = []
+    @Published var documents: [MedicalDocument] = []
     @Published var isImporting = false
     @Published var isProcessing = false
     @Published var importProgress: Double = 0.0
@@ -39,7 +39,7 @@ class DocumentManager: ObservableObject {
     private let pendingOperationsManager = PendingOperationsManager.shared
     
     // MARK: - Computed Properties
-    var filteredDocuments: [HealthDocument] {
+    var filteredDocuments: [MedicalDocument] {
         var filtered = documents
         
         // Apply search filter
@@ -135,7 +135,7 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Import
-    func importDocuments(from urls: [URL]) async -> [HealthDocument] {
+    func importDocuments(from urls: [URL]) async -> [MedicalDocument] {
         isImporting = true
         importProgress = 0.0
         
@@ -184,7 +184,7 @@ class DocumentManager: ObservableObject {
         }
     }
     
-    func importScannedDocument(_ scan: VNDocumentCameraScan) async -> HealthDocument? {
+    func importScannedDocument(_ scan: VNDocumentCameraScan) async -> MedicalDocument? {
         isImporting = true
         importProgress = 0.0
         
@@ -228,7 +228,7 @@ class DocumentManager: ObservableObject {
         }
     }
     
-    func importFromPhotoLibrary(_ results: [PHPickerResult]) async -> [HealthDocument] {
+    func importFromPhotoLibrary(_ results: [PHPickerResult]) async -> [MedicalDocument] {
         isImporting = true
         importProgress = 0.0
         
@@ -254,7 +254,7 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Processing
-    func processDocument(_ document: HealthDocument, immediately: Bool = false) async {
+    func processDocument(_ document: MedicalDocument, immediately: Bool = false) async {
         // Check network connectivity before processing
         guard networkManager.isConnected else {
             print("⚠️ DocumentManager: Network unavailable, queueing document for processing")
@@ -312,7 +312,7 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Management
-    func updateDocument(_ document: HealthDocument) async {
+    func updateDocument(_ document: MedicalDocument) async {
         do {
             try await databaseManager.saveDocument(document)
             
@@ -352,7 +352,7 @@ class DocumentManager: ObservableObject {
         await updateDocument(document)
     }
     
-    func deleteDocument(_ document: HealthDocument) async {
+    func deleteDocument(_ document: MedicalDocument) async {
         do {
             // Remove from processing queue if queued
             await documentProcessor.removeFromQueue(document.id)
@@ -443,7 +443,7 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Sharing and Export
-    func shareDocument(_ document: HealthDocument) -> URL? {
+    func shareDocument(_ document: MedicalDocument) -> URL? {
         return document.filePath
     }
     
@@ -465,7 +465,7 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Thumbnail Management
-    func regenerateThumbnail(for document: HealthDocument) async {
+    func regenerateThumbnail(for document: MedicalDocument) async {
         do {
             if let thumbnailURL = try await fileSystemManager.generateThumbnail(
                 for: document.filePath,
@@ -606,8 +606,8 @@ struct DocumentMetadataExport: Codable {
     let tags: [String]
     let notes: String?
     let extractedDataCount: Int
-    
-    init(from document: HealthDocument) {
+
+    init(from document: MedicalDocument) {
         self.id = document.id
         self.fileName = document.fileName
         self.fileType = document.fileType
@@ -617,7 +617,7 @@ struct DocumentMetadataExport: Codable {
         self.fileSize = document.fileSize
         self.tags = document.tags
         self.notes = document.notes
-        self.extractedDataCount = document.extractedData.count
+        self.extractedDataCount = document.extractedHealthData.count
     }
 }
 

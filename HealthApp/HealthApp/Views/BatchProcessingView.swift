@@ -8,11 +8,11 @@ struct BatchProcessingView: View {
     @State private var selectedPriority: ProcessingPriority = .normal
     @State private var showingConfirmation = false
     
-    private var selectedDocuments: [HealthDocument] {
+    private var selectedDocuments: [MedicalDocument] {
         documentManager.documents.filter { documentManager.selectedDocuments.contains($0.id) }
     }
     
-    private var pendingDocuments: [HealthDocument] {
+    private var pendingDocuments: [MedicalDocument] {
         selectedDocuments.filter { $0.processingStatus == .pending || $0.processingStatus == .failed }
     }
     
@@ -258,7 +258,7 @@ struct BatchProcessingView: View {
 // MARK: - Supporting Views
 
 struct BatchDocumentRow: View {
-    let document: HealthDocument
+    let document: MedicalDocument
     
     var body: some View {
         HStack(spacing: 12) {

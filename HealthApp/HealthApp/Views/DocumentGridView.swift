@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct DocumentGridView: View {
-    let documents: [HealthDocument]
+    let documents: [MedicalDocument]
     @Binding var selectedDocuments: Set<UUID>
-    let onDocumentTap: (HealthDocument) -> Void
+    let onDocumentTap: (MedicalDocument) -> Void
     
     @Environment(\.editMode) private var editMode
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -39,7 +39,7 @@ struct DocumentGridView: View {
 }
 
 struct DocumentGridItem: View {
-    let document: HealthDocument
+    let document: MedicalDocument
     let isSelected: Bool
     let isEditing: Bool
     let onTap: () -> Void
@@ -208,42 +208,42 @@ struct ProcessingStatusIndicator: View {
     NavigationStack {
         DocumentGridView(
             documents: [
-                HealthDocument(
+                MedicalDocument(
                     fileName: "Blood Test Results - January 2024.pdf",
                     fileType: .pdf,
                     filePath: URL(fileURLWithPath: "/tmp/test.pdf"),
                     processingStatus: .completed,
                     fileSize: 1024000
                 ),
-                HealthDocument(
+                MedicalDocument(
                     fileName: "X-Ray Report.jpg",
                     fileType: .jpg,
                     filePath: URL(fileURLWithPath: "/tmp/xray.jpg"),
                     processingStatus: .processing,
                     fileSize: 2048000
                 ),
-                HealthDocument(
+                MedicalDocument(
                     fileName: "Prescription.png",
                     fileType: .png,
                     filePath: URL(fileURLWithPath: "/tmp/prescription.png"),
                     processingStatus: .failed,
                     fileSize: 512000
                 ),
-                HealthDocument(
+                MedicalDocument(
                     fileName: "Lab Results March.pdf",
                     fileType: .pdf,
                     filePath: URL(fileURLWithPath: "/tmp/lab.pdf"),
                     processingStatus: .pending,
                     fileSize: 756000
                 ),
-                HealthDocument(
+                MedicalDocument(
                     fileName: "Insurance Card.jpg",
                     fileType: .jpg,
                     filePath: URL(fileURLWithPath: "/tmp/insurance.jpg"),
                     processingStatus: .completed,
                     fileSize: 1200000
                 ),
-                HealthDocument(
+                MedicalDocument(
                     fileName: "Vaccination Record.pdf",
                     fileType: .pdf,
                     filePath: URL(fileURLWithPath: "/tmp/vaccine.pdf"),

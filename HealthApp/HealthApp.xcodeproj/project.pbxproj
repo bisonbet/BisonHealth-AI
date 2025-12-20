@@ -63,7 +63,6 @@
 		313646423741443531333141 /* AccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363235363030414442423836 /* AccessibilityTests.swift */; };
 		333132453133363839344239 /* AccessibilityModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303741434636463836313336 /* AccessibilityModifiers.swift */; };
 		3472925DE4F3A645FEBE6C53 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3EA1C9995061054A565167 /* Logger.swift */; };
-		354439384443443241413039 /* AccessibilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344433363046343643354239 /* AccessibilityUITests.swift */; };
 		373331303130383939373544 /* AccessibilityColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304643454332314443313245 /* AccessibilityColors.swift */; };
 		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
 		463346414531383846334544 /* AccessibilityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303242343446444138303338 /* AccessibilityManager.swift */; };
@@ -189,7 +188,6 @@
 		14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPromptExceptionList.swift; sourceTree = "<group>"; };
 		14ADE5AF2EF0B90100BB7C6C /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
 		14ADE5B12EF0B93F00BB7C6C /* VitalsAndSleepSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsAndSleepSection.swift; sourceTree = "<group>"; };
-		14ADE5B32EF0BA3A00BB7C6C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		14ADE5B42EF0CFE000BB7C6C /* VitalEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalEntryView.swift; sourceTree = "<group>"; };
 		14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentVitalsSection.swift; sourceTree = "<group>"; };
 		14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsListView.swift; sourceTree = "<group>"; };
@@ -202,7 +200,6 @@
 		303242343446444138303338 /* AccessibilityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityManager.swift; sourceTree = "<group>"; };
 		303741434636463836313336 /* AccessibilityModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityModifiers.swift; sourceTree = "<group>"; };
 		304643454332314443313245 /* AccessibilityColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityColors.swift; sourceTree = "<group>"; };
-		344433363046343643354239 /* AccessibilityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityUITests.swift; sourceTree = "<group>"; };
 		363235363030414442423836 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };
 		4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryView.swift; sourceTree = "<group>"; };
 		4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorView.swift; sourceTree = "<group>"; };
@@ -338,7 +335,6 @@
 		A1000003294A0000000000002 /* HealthApp */ = {
 			isa = PBXGroup;
 			children = (
-				14ADE5B32EF0BA3A00BB7C6C /* Info.plist */,
 				14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */,
 				14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */,
 				14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */,
@@ -516,7 +512,6 @@
 				X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */,
 				DEF123456789BACKUP00003 /* iCloudBackupTests.swift */,
 				363235363030414442423836 /* AccessibilityTests.swift */,
-				344433363046343643354239 /* AccessibilityUITests.swift */,
 			);
 			path = HealthAppTests;
 			sourceTree = "<group>";
@@ -777,7 +772,6 @@
 				2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */,
 				ABC123456789BACKUP00003 /* iCloudBackupTests.swift in Sources */,
 				313646423741443531333141 /* AccessibilityTests.swift in Sources */,
-				354439384443443241413039 /* AccessibilityUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
