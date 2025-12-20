@@ -388,41 +388,77 @@ class iCloudBackupManager: ObservableObject {
         let documents = try await databaseManager.fetchDocuments()
         var totalSize: Int64 = 0
 
-        var documentBackups: [DocumentBackup] = []
-
-        for document in documents {
+        // Save each document as a separate CloudKit record with CKAsset for file data
+        for (index, document) in documents.enumerated() {
             do {
+                // Create temporary file for the document data (required for CKAsset)
+                let tempDir = FileManager.default.temporaryDirectory
+                let tempFileURL = tempDir.appendingPathComponent("backup_\(document.id.uuidString)")
+                var tempThumbnailURL: URL?
+
+                // Guarantee cleanup of temp files even if errors occur (after CloudKit upload)
+                defer {
+                    try? FileManager.default.removeItem(at: tempFileURL)
+                    if let tempThumbURL = tempThumbnailURL {
+                        try? FileManager.default.removeItem(at: tempThumbURL)
+                    }
+                }
+
+                // 🔒 Encrypt document data before upload
                 let documentData = try fileSystemManager.retrieveDocument(from: document.filePath)
-                let thumbnailData = document.thumbnailPath.flatMap { url in
-                    try? Data(contentsOf: url)
+                let encryptedDocData = try await encryptRawData(documentData)
+                try encryptedDocData.write(to: tempFileURL)
+
+                // Create CKAsset for the encrypted document file
+                let documentAsset = CKAsset(fileURL: tempFileURL)
+
+                // Handle thumbnail if available
+                var thumbnailAsset: CKAsset?
+                var encryptedThumbData: Data?
+                if let thumbnailPath = document.thumbnailPath {
+                    if let thumbnailData = try? Data(contentsOf: thumbnailPath) {
+                        let tempThumbURL = tempDir.appendingPathComponent("thumb_\(document.id.uuidString)")
+                        tempThumbnailURL = tempThumbURL
+
+                        // 🔒 Encrypt thumbnail data before upload
+                        let encryptedThumb = try await encryptRawData(thumbnailData)
+                        encryptedThumbData = encryptedThumb
+                        try encryptedThumb.write(to: tempThumbURL)
+                        thumbnailAsset = CKAsset(fileURL: tempThumbURL)
+                    }
                 }
 
-                let docBackup = DocumentBackup(
-                    metadata: document,
-                    fileData: documentData,
-                    thumbnailData: thumbnailData
-                )
+                // Create record for this individual document
+                let recordName = "\(Self.documentsRecordType)_\(backupId.uuidString)_\(index)"
+                let recordId = CKRecord.ID(recordName: recordName)
+                let record = CKRecord(recordType: Self.documentsRecordType, recordID: recordId)
 
-                documentBackups.append(docBackup)
-                totalSize += Int64(documentData.count)
-                if let thumbData = thumbnailData {
-                    totalSize += Int64(thumbData.count)
+                // Store metadata as encrypted JSON
+                let encryptedMetadata = try await encryptData(document)
+                record["metadata"] = encryptedMetadata
+                record["documentAsset"] = documentAsset
+                if let thumbnailAsset = thumbnailAsset {
+                    record["thumbnailAsset"] = thumbnailAsset
                 }
+                record["backupId"] = backupId.uuidString
+                record["documentIndex"] = index
+
+                // Save the record (CloudKit reads temp files during this call)
+                try await database.save(record)
+
+                // Track total size using in-memory encrypted data
+                totalSize += Int64(encryptedDocData.count)
+                if let encryptedThumb = encryptedThumbData {
+                    totalSize += Int64(encryptedThumb.count)
+                }
+
             } catch {
                 print("Failed to backup document \(document.fileName): \(error)")
+                // Continue with other documents even if one fails
             }
         }
 
-        let documentsData = DocumentsDataBackup(documents: documentBackups)
-        let encryptedData = try await encryptData(documentsData)
-        let record = createCloudKitRecord(
-            type: Self.documentsRecordType,
-            id: backupId,
-            data: encryptedData
-        )
-
-        try await database.save(record)
-        return Int64(encryptedData.count)
+        return totalSize
     }
 
     private func backupSettings(backupId: UUID) async throws -> Int64 {
@@ -522,35 +558,106 @@ class iCloudBackupManager: ObservableObject {
     }
 
     private func restoreDocuments(backupId: UUID) async throws {
-        let recordName = "\(Self.documentsRecordType)_\(backupId.uuidString)"
-        let recordId = CKRecord.ID(recordName: recordName)
-        let record = try await database.record(for: recordId)
+        // Query for all document records for this backup with pagination support
+        let predicate = NSPredicate(format: "backupId == %@", backupId.uuidString)
+        let query = CKQuery(recordType: Self.documentsRecordType, predicate: predicate)
+        query.sortDescriptors = [NSSortDescriptor(key: "documentIndex", ascending: true)]
 
-        guard let encryptedData = record["data"] as? Data else {
-            throw BackupError.dataCorrupted
+        var cursor: CKQueryOperation.Cursor?
+        var hasMoreResults = true
+        var restoredCount = 0
+
+        // Paginate through all results to handle 100+ documents
+        while hasMoreResults {
+            let results: (matchResults: [(CKRecord.ID, Result<CKRecord, Error>)], queryCursor: CKQueryOperation.Cursor?)
+
+            if let cursor = cursor {
+                // Continue from previous cursor
+                results = try await database.records(continuingMatchFrom: cursor)
+            } else {
+                // Initial query
+                results = try await database.records(matching: query)
+            }
+
+            // Restore documents in this batch
+            for (_, recordResult) in results.matchResults {
+                switch recordResult {
+                case .success(let record):
+                    do {
+                        // Get encrypted metadata
+                        guard let encryptedMetadata = record["metadata"] as? Data else {
+                            print("Document record missing metadata")
+                            continue
+                        }
+
+                        // Decrypt metadata
+                        let document: HealthDocument = try await decryptData(encryptedMetadata)
+
+                        // Get document asset
+                        guard let documentAsset = record["documentAsset"] as? CKAsset,
+                              let documentURL = documentAsset.fileURL else {
+                            print("Document record missing asset for \(document.fileName)")
+                            continue
+                        }
+
+                        // 🔒 Read and decrypt document data from asset
+                        let encryptedDocData = try Data(contentsOf: documentURL)
+                        let documentData = try await decryptRawData(encryptedDocData)
+
+                        // Save file using existing storeDocument method
+                        let filePath = try fileSystemManager.storeDocument(
+                            data: documentData,
+                            fileName: document.fileName,
+                            fileType: document.fileType
+                        )
+
+                        // Handle thumbnail if available
+                        var thumbnailPath: URL?
+                        if let thumbnailAsset = record["thumbnailAsset"] as? CKAsset,
+                           let thumbnailURL = thumbnailAsset.fileURL {
+                            do {
+                                // 🔒 Read and decrypt thumbnail data
+                                let encryptedThumbData = try Data(contentsOf: thumbnailURL)
+                                let thumbnailData = try await decryptRawData(encryptedThumbData)
+
+                                // Store thumbnail using FileSystemManager
+                                thumbnailPath = try fileSystemManager.storeThumbnail(
+                                    data: thumbnailData,
+                                    forDocumentId: document.id
+                                )
+                            } catch {
+                                print("⚠️ Failed to restore thumbnail for document \(document.fileName): \(error)")
+                                // Continue without thumbnail - not a fatal error
+                            }
+                        }
+
+                        // Update document with new paths
+                        var restoredDoc = document
+                        restoredDoc.filePath = filePath
+                        restoredDoc.thumbnailPath = thumbnailPath
+
+                        try await databaseManager.saveDocument(restoredDoc)
+                        restoredCount += 1
+
+                    } catch {
+                        print("Failed to restore document: \(error)")
+                        // Continue with other documents
+                    }
+
+                case .failure(let error):
+                    print("Failed to fetch document record: \(error)")
+                }
+            }
+
+            // Check if there are more results to fetch
+            if let queryCursor = results.queryCursor {
+                cursor = queryCursor
+            } else {
+                hasMoreResults = false
+            }
         }
 
-        let documentsData: DocumentsDataBackup = try await decryptData(encryptedData)
-
-        // Restore documents
-        for docBackup in documentsData.documents {
-            // Save file data using existing storeDocument method
-            let filePath = try fileSystemManager.storeDocument(
-                data: docBackup.fileData,
-                fileName: docBackup.metadata.fileName,
-                fileType: docBackup.metadata.fileType
-            )
-
-            // For now, skip thumbnail restoration as it requires more complex implementation
-            // In a full implementation, we would need to add thumbnail storage methods
-
-            // Update document with new path
-            var restoredDoc = docBackup.metadata
-            restoredDoc.filePath = filePath
-            restoredDoc.thumbnailPath = nil // Reset thumbnail path for now
-
-            try await databaseManager.saveDocument(restoredDoc)
-        }
+        print("Restored \(restoredCount) documents from backup")
     }
 
     private func restoreSettings(backupId: UUID) async throws {
@@ -593,6 +700,26 @@ class iCloudBackupManager: ObservableObject {
         let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
         let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
         return try JSONDecoder().decode(T.self, from: decryptedData)
+    }
+
+    // Encrypt raw data (e.g., document files) without JSON encoding
+    private func encryptRawData(_ data: Data) async throws -> Data {
+        let encryptionKey = try await getBackupEncryptionKey()
+        let sealedBox = try AES.GCM.seal(data, using: encryptionKey)
+
+        guard let combinedData = sealedBox.combined else {
+            throw BackupError.encryptionFailed
+        }
+
+        return combinedData
+    }
+
+    // Decrypt raw data without JSON decoding
+    private func decryptRawData(_ encryptedData: Data) async throws -> Data {
+        let encryptionKey = try await getBackupEncryptionKey()
+        let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+        let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
+        return decryptedData
     }
 
     private func getBackupEncryptionKey() async throws -> SymmetricKey {
@@ -806,13 +933,83 @@ class iCloudBackupManager: ObservableObject {
                 default: continue
                 }
 
-                do {
-                    let dataRecordName = "\(dataRecordType)_\(backup.id)"
-                    let dataRecordId = CKRecord.ID(recordName: dataRecordName)
-                    try await database.deleteRecord(withID: dataRecordId)
-                } catch {
-                    // Individual data record deletion can fail if already deleted
-                    print("Failed to delete \(dataRecordType) record for backup \(backup.id): \(error)")
+                // Special handling for documents - query and delete all individual records with pagination
+                if dataType == "documents" {
+                    do {
+                        let predicate = NSPredicate(format: "backupId == %@", backup.id)
+                        let query = CKQuery(recordType: Self.documentsRecordType, predicate: predicate)
+
+                        var cursor: CKQueryOperation.Cursor?
+                        var hasMoreResults = true
+                        var totalDeleted = 0
+
+                        // Paginate through all results to handle 100+ documents
+                        while hasMoreResults {
+                            let results: (matchResults: [(CKRecord.ID, Result<CKRecord, Error>)], queryCursor: CKQueryOperation.Cursor?)
+
+                            if let cursor = cursor {
+                                // Continue from previous cursor
+                                results = try await database.records(continuingMatchFrom: cursor)
+                            } else {
+                                // Initial query
+                                results = try await database.records(matching: query)
+                            }
+
+                            // Collect record IDs to delete, tracking fetch failures
+                            var recordsToDelete: [CKRecord.ID] = []
+                            var fetchFailures = 0
+                            for (recordID, recordResult) in results.matchResults {
+                                switch recordResult {
+                                case .success:
+                                    recordsToDelete.append(recordID)
+                                case .failure(let error):
+                                    fetchFailures += 1
+                                    print("⚠️ Failed to fetch document record \(recordID.recordName) for deletion: \(error)")
+                                }
+                            }
+
+                            if fetchFailures > 0 {
+                                print("⚠️ Warning: \(fetchFailures) document records could not be fetched and may be orphaned in CloudKit")
+                            }
+
+                            // Delete this batch
+                            if !recordsToDelete.isEmpty {
+                                let (_, deleteResults) = try await database.modifyRecords(saving: [], deleting: recordsToDelete)
+                                var successCount = 0
+                                for (_, result) in deleteResults {
+                                    if case .success = result {
+                                        successCount += 1
+                                    } else if case .failure(let error) = result {
+                                        print("Failed to delete document record: \(error)")
+                                    }
+                                }
+                                totalDeleted += successCount
+                            }
+
+                            // Check if there are more results to fetch
+                            if let queryCursor = results.queryCursor {
+                                cursor = queryCursor
+                            } else {
+                                hasMoreResults = false
+                            }
+                        }
+
+                        if totalDeleted > 0 {
+                            print("Deleted \(totalDeleted) document records")
+                        }
+                    } catch {
+                        print("Failed to query/delete document records for backup \(backup.id): \(error)")
+                    }
+                } else {
+                    // For other data types, delete single record (old format)
+                    do {
+                        let dataRecordName = "\(dataRecordType)_\(backup.id)"
+                        let dataRecordId = CKRecord.ID(recordName: dataRecordName)
+                        try await database.deleteRecord(withID: dataRecordId)
+                    } catch {
+                        // Individual data record deletion can fail if already deleted
+                        print("Failed to delete \(dataRecordType) record for backup \(backup.id): \(error)")
+                    }
                 }
             }
             print("Successfully deleted backup from \(backup.backupDate)")
