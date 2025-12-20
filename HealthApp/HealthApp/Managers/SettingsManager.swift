@@ -70,12 +70,14 @@ enum AIProvider: String, CaseIterable {
     case ollama = "ollama"
     case bedrock = "bedrock"
     case openAICompatible = "openai_compatible"
+    case mlx = "mlx"
 
     var displayName: String {
         switch self {
         case .ollama: return "Ollama"
         case .bedrock: return "AWS Bedrock"
         case .openAICompatible: return "OpenAI Compatible"
+        case .mlx: return "MLX (On-Device)"
         }
     }
 
@@ -87,6 +89,8 @@ enum AIProvider: String, CaseIterable {
             return "AWS Bedrock cloud AI service"
         case .openAICompatible:
             return "OpenAI-compatible servers (LiteLLM, LocalAI, vLLM, etc.)"
+        case .mlx:
+            return "On-device AI using Apple's MLX framework - completely private, no network required"
         }
     }
 }
@@ -98,6 +102,7 @@ struct ModelPreferences: Equatable {
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
+    var mlxModelId: String? = nil          // Selected MLX model ID
     var contextSizeLimit: Int = 32768      // Default context size: 32k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
@@ -165,10 +170,15 @@ class SettingsManager: ObservableObject {
     @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
     @Published var openAICompatibleContextSize: Int = 32768  // Default: 32k tokens
 
+    // MLX configuration
+    @Published var mlxSettings = MLXSettings.default
+    @Published var mlxGenerationConfig = MLXGenerationConfig.default
+
     // Connection statuses
     @Published var ollamaStatus: ConnectionStatus = .unknown
     @Published var doclingStatus: ConnectionStatus = .unknown
     @Published var openAICompatibleStatus: ConnectionStatus = .unknown
+    @Published var mlxStatus: ConnectionStatus = .unknown
     
     // Backup settings
     @Published var backupSettings = BackupSettings()
@@ -186,6 +196,7 @@ class SettingsManager: ObservableObject {
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
+    private var mlxClient: MLXClient?
 
     // iCloud backup manager
     @Published var backupManager: iCloudBackupManager?
@@ -198,6 +209,7 @@ class SettingsManager: ObservableObject {
     private let kcDoclingKey = "settings.doclingConfig.v1"
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
+    private let kcMLXSettingsKey = "settings.mlxSettings.v1"
 
     // Tracks whether model prefs were loaded from persisted storage
     private var loadedModelPrefsFromStorage: Bool = false
@@ -270,6 +282,21 @@ class SettingsManager: ObservableObject {
         } else {
             loadedModelPrefsFromStorage = false
         }
+
+        // Load MLX settings
+        if let mlxData = userDefaults.data(forKey: "mlxSettings"),
+           let decoded = try? JSONDecoder().decode(MLXSettings.self, from: mlxData) {
+            mlxSettings = decoded
+        } else if let kcData = try? keychain.retrieve(for: kcMLXSettingsKey),
+                  let decoded = try? JSONDecoder().decode(MLXSettings.self, from: kcData) {
+            mlxSettings = decoded
+        }
+
+        // Load MLX generation config
+        if let mlxGenData = userDefaults.data(forKey: "mlxGenerationConfig"),
+           let decoded = try? JSONDecoder().decode(MLXGenerationConfig.self, from: mlxGenData) {
+            mlxGenerationConfig = decoded
+        }
     }
     
     func saveSettings() {
@@ -310,7 +337,18 @@ class SettingsManager: ObservableObject {
             userDefaults.set(encoded, forKey: "modelPreferences")
             _ = try? keychain.store(data: encoded, for: kcModelPrefsKey)
         }
-        
+
+        // Save MLX settings
+        if let encoded = try? JSONEncoder().encode(mlxSettings) {
+            userDefaults.set(encoded, forKey: "mlxSettings")
+            _ = try? keychain.store(data: encoded, for: kcMLXSettingsKey)
+        }
+
+        // Save MLX generation config
+        if let encoded = try? JSONEncoder().encode(mlxGenerationConfig) {
+            userDefaults.set(encoded, forKey: "mlxGenerationConfig")
+        }
+
         // Sync with UserDefaults
         userDefaults.synchronize()
     }
@@ -370,7 +408,24 @@ class SettingsManager: ObservableObject {
             return getBedrockClient()
         case .openAICompatible:
             return getOpenAICompatibleClient()
+        case .mlx:
+            return getMLXClient()
         }
+    }
+
+    func getMLXClient() -> MLXClient {
+        if mlxClient == nil {
+            mlxClient = MLXClient.shared
+
+            // Set the current model if one is selected
+            if let modelId = modelPreferences.mlxModelId {
+                mlxClient?.currentModelId = modelId
+            }
+
+            // Set generation config
+            mlxClient?.setGenerationConfig(mlxGenerationConfig)
+        }
+        return mlxClient!
     }
 
     func getOpenAICompatibleClient() -> OpenAICompatibleClient {
@@ -429,10 +484,15 @@ class SettingsManager: ObservableObject {
         ollamaClient = nil
         doclingClient = nil
         openAICompatibleClient = nil
+        mlxClient = nil
     }
 
     func invalidateOpenAICompatibleClient() {
         openAICompatibleClient = nil
+    }
+
+    func invalidateMLXClient() {
+        mlxClient = nil
     }
     
     // MARK: - Validation
@@ -444,6 +504,12 @@ class SettingsManager: ObservableObject {
 
     func hasValidOpenAICompatibleConfig() -> Bool {
         return !openAICompatibleBaseURL.isEmpty && URL(string: openAICompatibleBaseURL) != nil
+    }
+
+    func hasValidMLXConfig() -> Bool {
+        // MLX is valid if a model is selected
+        // Actual model availability is checked when loading the model
+        return modelPreferences.mlxModelId != nil
     }
 
     func validateServerConfiguration(_ config: ServerConfiguration) -> String? {
@@ -768,6 +834,8 @@ extension ModelPreferences: Codable {
         case documentModel
         case openAICompatibleModel
         case bedrockModel
+        case mlxModelId
+        case contextSizeLimit
         case lastUpdated
     }
 
@@ -781,6 +849,8 @@ extension ModelPreferences: Codable {
         self.documentModel = try container.decode(String.self, forKey: .documentModel)
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
+        self.mlxModelId = try container.decodeIfPresent(String.self, forKey: .mlxModelId)
+        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 32768
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
 
@@ -793,6 +863,8 @@ extension ModelPreferences: Codable {
         try container.encode(documentModel, forKey: .documentModel)
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
+        try container.encode(mlxModelId, forKey: .mlxModelId)
+        try container.encode(contextSizeLimit, forKey: .contextSizeLimit)
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }
 }

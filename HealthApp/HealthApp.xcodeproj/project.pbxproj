@@ -137,6 +137,11 @@
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
 		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
+		MLX00010294A0000000000001 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00003294A0000000000001 /* MLX */; };
+		MLX00011294A0000000000001 /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00004294A0000000000001 /* MLXNN */; };
+		MLX00012294A0000000000001 /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00005294A0000000000001 /* MLXRandom */; };
+		MLX00013294A0000000000001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00006294A0000000000001 /* MLXLLM */; };
+		MLX00014294A0000000000001 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = MLX00007294A0000000000001 /* MLXLMCommon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -290,6 +295,11 @@
 				146E72AD2EC2BD8D00D20C53 /* MarkdownUI in Frameworks */,
 				143446A02E78E36D00961754 /* AWSBedrockRuntime in Frameworks */,
 				1434469E2E78E36D00961754 /* AWSBedrock in Frameworks */,
+				MLX00010294A0000000000001 /* MLX in Frameworks */,
+				MLX00011294A0000000000001 /* MLXNN in Frameworks */,
+				MLX00012294A0000000000001 /* MLXRandom in Frameworks */,
+				MLX00013294A0000000000001 /* MLXLLM in Frameworks */,
+				MLX00014294A0000000000001 /* MLXLMCommon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -608,6 +618,8 @@
 				1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */,
 				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				MLX00001294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift" */,
+				MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
 			projectDirPath = "";
@@ -1096,6 +1108,22 @@
 				minimumVersion = 0.15.3;
 			};
 		};
+		MLX00001294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.18.0;
+			};
+		};
+		MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 2.29.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1128,6 +1156,31 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
+		};
+		MLX00003294A0000000000001 /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MLX00001294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		MLX00004294A0000000000001 /* MLXNN */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MLX00001294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXNN;
+		};
+		MLX00005294A0000000000001 /* MLXRandom */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MLX00001294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXRandom;
+		};
+		MLX00006294A0000000000001 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		MLX00007294A0000000000001 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

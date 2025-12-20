@@ -142,6 +142,9 @@ class AIChatManager: ObservableObject {
             // For OpenAI-compatible servers, assume connected if configuration is valid
             // User can manually test in settings if needed
             isConnected = settingsManager.hasValidOpenAICompatibleConfig()
+        case .mlx:
+            // For MLX, check if a model is downloaded and available
+            isConnected = settingsManager.hasValidMLXConfig()
         }
     }
     
@@ -701,6 +704,60 @@ class AIChatManager: ObservableObject {
 
                             // Generate title after first exchange if still using default title
                             if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
+                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
+                            }
+                        } catch {
+                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            )
+
+        case .mlx:
+            let mlxClient = settingsManager.getMLXClient()
+            try await mlxClient.sendStreamingChatMessage(
+                content,
+                context: context,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                onUpdate: { [weak self] partialContent in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Update the streaming message content
+                        streamingMessage.content = partialContent
+
+                        // Update in conversation
+                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
+                            self.currentConversation = self.conversations[conversationIndex]
+                        }
+                    }
+                },
+                onComplete: { [weak self] finalResponse in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+
+                        // Create final message with complete content and metadata
+                        let finalMessage = ChatMessage(
+                            id: streamingMessageId,
+                            content: finalResponse.content,
+                            role: .assistant,
+                            tokens: finalResponse.tokenCount,
+                            processingTime: finalResponse.responseTime
+                        )
+
+                        // Save final message to database
+                        do {
+                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
+
+                            // Update local conversation with final message
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
+                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+                                self.currentConversation = self.conversations[conversationIndex]
+
+                                // Generate title after first exchange if still using default title
                                 await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                             }
                         } catch {
