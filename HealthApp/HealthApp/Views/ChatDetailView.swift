@@ -333,9 +333,10 @@ struct EnhancedMessageListView: View {
                             chatManager: chatManager,
                             conversationId: conversationId
                         )
+                        .equatable()
                         .id(message.id)
                     }
-                    
+
                     if isLoading {
                         TypingIndicatorView()
                             .id("typing")
@@ -345,7 +346,9 @@ struct EnhancedMessageListView: View {
                 .padding(.vertical, 8)
             }
             .onChange(of: messages.count) {
-                withAnimation(.easeInOut(duration: 0.3)) {
+                // Only scroll when new messages are added (count changes)
+                // Use faster animation for better performance
+                withAnimation(.easeOut(duration: 0.2)) {
                     if let lastMessage = messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
@@ -353,16 +356,15 @@ struct EnhancedMessageListView: View {
             }
             .onChange(of: isLoading) {
                 if isLoading {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo("typing", anchor: .bottom)
-                    }
+                    // No animation when loading indicator appears - just show it
+                    proxy.scrollTo("typing", anchor: .bottom)
                 }
             }
         }
     }
 }
 
-struct EnhancedMessageBubbleView: View {
+struct EnhancedMessageBubbleView: View, Equatable {
     let message: ChatMessage
     let isIPad: Bool
     var chatManager: AIChatManager?
@@ -370,6 +372,22 @@ struct EnhancedMessageBubbleView: View {
 
     @State private var showingCopyConfirmation = false
     @State private var isRetrying = false
+
+    // MARK: - Equatable
+    /// Custom Equatable implementation to prevent unnecessary re-renders during streaming
+    /// - Only re-renders if message content, status, or error state changes
+    /// - Excludes timestamp and metadata to prevent re-renders on every state update
+    /// - Critical for performance: prevents full view rebuild for each streamed character
+    static func == (lhs: EnhancedMessageBubbleView, rhs: EnhancedMessageBubbleView) -> Bool {
+        lhs.message.id == rhs.message.id &&
+        lhs.message.content == rhs.message.content &&
+        lhs.message.status == rhs.message.status &&
+        lhs.message.isError == rhs.message.isError &&
+        lhs.message.lastError == rhs.message.lastError &&
+        lhs.isIPad == rhs.isIPad &&
+        lhs.conversationId == rhs.conversationId &&
+        lhs.chatManager === rhs.chatManager  // Compare by reference identity
+    }
 
     private var markdownContentView: some View {
         buildMarkdownView()

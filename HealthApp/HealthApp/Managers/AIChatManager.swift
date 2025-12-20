@@ -45,6 +45,15 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Context Management
     private var currentContext: ChatContext = ChatContext()
+
+    // MARK: - Streaming Debounce
+    private var streamingUpdateTask: Task<Void, Never>?
+    private var streamingSequenceNumber: UInt64 = 0
+
+    // MARK: - Constants
+    private enum Constants {
+        static let streamingDebounceInterval: TimeInterval = 0.067 // ~15 fps (1/15 second)
+    }
     
     // MARK: - Initialization
     init(
@@ -54,16 +63,16 @@ class AIChatManager: ObservableObject {
         self.healthDataManager = healthDataManager
         self.databaseManager = databaseManager
         self.networkMonitor = NetworkMonitor()
-        
+
         setupNetworkMonitoring()
-        
+
         Task {
             await loadConversations()
             // Don't automatically test connection on startup to avoid noisy failures
             // User can test manually via Settings if needed
         }
     }
-    
+
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
         // Use the new NetworkManager for monitoring
@@ -481,10 +490,72 @@ class AIChatManager: ObservableObject {
         }
     }
     
+    // MARK: - Streaming Helpers
+
+    /// Debounce streaming updates to improve UI performance during long responses
+    /// - Parameters:
+    ///   - content: The updated message content to display
+    ///   - conversationId: ID of the conversation containing the message
+    ///   - messageId: ID of the message being updated
+    /// - Note: Uses sequence numbers to prevent out-of-order updates from race conditions
+    @MainActor
+    private func updateStreamingMessage(content: String, conversationId: UUID, messageId: UUID) {
+        // Cancel any pending update task
+        streamingUpdateTask?.cancel()
+
+        // Increment sequence number to track update ordering
+        streamingSequenceNumber += 1
+        let currentSequence = streamingSequenceNumber
+
+        // Schedule debounced UI update
+        streamingUpdateTask = Task {
+            do {
+                // Wait for debounce interval
+                try await Task.sleep(nanoseconds: UInt64(Constants.streamingDebounceInterval * 1_000_000_000))
+
+                // Check if task was cancelled
+                guard !Task.isCancelled else { return }
+
+                // Verify this is still the latest update (prevent out-of-order race condition)
+                guard currentSequence == self.streamingSequenceNumber else {
+                    logger.debug("Skipping stale update (sequence \(currentSequence) < \(self.streamingSequenceNumber))")
+                    return
+                }
+
+                // Apply the update to the UI
+                if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                   let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
+                    self.conversations[conversationIndex].messages[messageIndex].content = content
+                    self.currentConversation = self.conversations[conversationIndex]
+                }
+            } catch {
+                logger.debug("⚠️ Streaming debounce sleep interrupted: \(error)")
+            }
+        }
+    }
+
+    /// Force immediate update for final message (bypasses debouncing)
+    /// - Parameters:
+    ///   - conversationId: ID of the conversation containing the message
+    ///   - messageId: ID of the message being finalized
+    ///   - finalMessage: The complete final message
+    @MainActor
+    private func finalizeStreamingMessage(_ conversationId: UUID, messageId: UUID, finalMessage: ChatMessage) async {
+        // Cancel any pending debounced updates
+        streamingUpdateTask?.cancel()
+
+        // Apply final update immediately
+        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
+            self.conversations[conversationIndex].messages[messageIndex] = finalMessage
+            self.currentConversation = self.conversations[conversationIndex]
+        }
+    }
+
     private func sendStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
         // Create a placeholder message for streaming content
         let streamingMessageId = UUID()
-        var streamingMessage = ChatMessage(
+        let streamingMessage = ChatMessage(
             id: streamingMessageId,
             content: "",
             role: .assistant
@@ -510,18 +581,11 @@ class AIChatManager: ObservableObject {
                 model: settingsManager.modelPreferences.chatModel,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
+                    guard let self = self else { return }
+                    // Use debounced update for better performance with long messages
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
                     Task { @MainActor in
-                        guard let self = self else { return }
-
-                        // Update the streaming message content
-                        streamingMessage.content = partialContent
-
-                        // Update in conversation
-                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
-                            self.currentConversation = self.conversations[conversationIndex]
-                        }
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
@@ -541,13 +605,11 @@ class AIChatManager: ObservableObject {
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
 
-                            // Update local conversation with final message
-                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
-                                self.currentConversation = self.conversations[conversationIndex]
+                            // Use finalize to bypass debouncing for immediate final update
+                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
 
-                                // Generate title after first exchange if still using default title
+                            // Generate title after first exchange if still using default title
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
                                 await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                             }
                         } catch {
@@ -564,18 +626,11 @@ class AIChatManager: ObservableObject {
                 context: context,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
+                    guard let self = self else { return }
+                    // Use debounced update for better performance with long messages
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
                     Task { @MainActor in
-                        guard let self = self else { return }
-
-                        // Update the streaming message content
-                        streamingMessage.content = partialContent
-
-                        // Update in conversation
-                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
-                            self.currentConversation = self.conversations[conversationIndex]
-                        }
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
@@ -595,13 +650,11 @@ class AIChatManager: ObservableObject {
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
 
-                            // Update local conversation with final message
-                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
-                                self.currentConversation = self.conversations[conversationIndex]
+                            // Use finalize to bypass debouncing for immediate final update
+                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
 
-                                // Generate title after first exchange if still using default title
+                            // Generate title after first exchange if still using default title
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
                                 await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                             }
                         } catch {
@@ -619,18 +672,11 @@ class AIChatManager: ObservableObject {
                 model: settingsManager.modelPreferences.openAICompatibleModel,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
+                    guard let self = self else { return }
+                    // Use debounced update for better performance with long messages
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
                     Task { @MainActor in
-                        guard let self = self else { return }
-
-                        // Update the streaming message content
-                        streamingMessage.content = partialContent
-
-                        // Update in conversation
-                        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                            self.conversations[conversationIndex].messages[messageIndex] = streamingMessage
-                            self.currentConversation = self.conversations[conversationIndex]
-                        }
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
@@ -650,13 +696,11 @@ class AIChatManager: ObservableObject {
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
 
-                            // Update local conversation with final message
-                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == streamingMessageId }) {
-                                self.conversations[conversationIndex].messages[messageIndex] = finalMessage
-                                self.currentConversation = self.conversations[conversationIndex]
+                            // Use finalize to bypass debouncing for immediate final update
+                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
 
-                                // Generate title after first exchange if still using default title
+                            // Generate title after first exchange if still using default title
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
                                 await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                             }
                         } catch {
@@ -934,6 +978,9 @@ class AIChatManager: ObservableObject {
 
     // MARK: - Cleanup
     deinit {
+        // Cancel any pending streaming update task to prevent memory leaks
+        streamingUpdateTask?.cancel()
+        // Stop network monitoring
         networkMonitor.stopMonitoring()
     }
 }
