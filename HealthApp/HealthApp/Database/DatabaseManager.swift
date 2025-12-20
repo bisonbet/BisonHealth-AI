@@ -383,17 +383,23 @@ class DatabaseManager: ObservableObject {
             // Ensures all existing documents have proper default values for new fields
             print("📦 Migrating to version 7: HealthDocument → MedicalDocument format")
 
-            // Ensure documentCategory has default "other" for existing NULL values
-            // Ensure includeInAIContext has default false for existing documents
-            // Note: The schema already has these defaults (v4), but we update any NULL values
-            // that may exist from pre-v4 databases that were migrated
+            // IMPORTANT: Use separate UPDATE statements to avoid overwriting valid data
+            // If we used a single UPDATE with OR conditions, a document with valid category
+            // but NULL include_in_ai_context would get its category overwritten to 'other'
+
+            // Update only documents with missing or empty category
             try db.run("""
                 UPDATE documents
-                SET document_category = 'other',
-                    include_in_ai_context = 0
+                SET document_category = 'other'
                 WHERE document_category IS NULL
                    OR document_category = ''
-                   OR include_in_ai_context IS NULL
+            """)
+
+            // Update only documents with missing include_in_ai_context
+            try db.run("""
+                UPDATE documents
+                SET include_in_ai_context = 0
+                WHERE include_in_ai_context IS NULL
             """)
 
             print("   ✓ Migrated document format: ensured default values for MedicalDocument fields")
