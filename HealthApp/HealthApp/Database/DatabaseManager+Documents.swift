@@ -5,60 +5,59 @@ import SQLite
 extension DatabaseManager {
 
     // MARK: - Save Document
-    /// Saves a MedicalDocument to the database using INSERT OR REPLACE (full row replacement).
+    /// Saves a MedicalDocument to the database with safe field merging.
     ///
-    /// - Parameter document: A complete MedicalDocument instance with all required fields populated.
+    /// - Parameter document: The MedicalDocument to save.
     ///
-    /// - Important: This method uses `insert(or: .replace)` which performs a FULL row replacement if the
-    ///   document ID already exists. This means:
-    ///   - If you pass an incomplete/partial MedicalDocument, ALL fields will be overwritten, including ones
-    ///     you didn't intend to modify
-    ///   - Any missing/nil fields will overwrite existing data with NULL
-    ///   - This is an "upsert" operation: insert if new, replace entire row if exists
+    /// - Important: This method implements safe upsert behavior:
+    ///   - If document is NEW: Inserts all fields as provided
+    ///   - If document EXISTS: Merges fields - only non-nil values in the input document will overwrite
+    ///     existing database values. Nil values preserve existing data (no data loss).
     ///
-    /// - Warning: DO NOT use this method for partial updates. For updating specific fields only, use the
-    ///   dedicated update methods like `updateDocumentExtractedData()`, `updateDocumentCategory()`, etc.
-    ///
-    /// - Note: All current callers correctly pass complete MedicalDocument objects by following the pattern:
-    ///   fetch existing document → modify specific fields → save complete object
+    /// - Note: This prevents accidental data loss from partially populated MedicalDocument objects.
+    ///   For explicit field updates, use dedicated methods like `updateDocumentExtractedData()`.
     ///
     /// - Throws: DatabaseError if the save operation fails.
     func saveDocument(_ document: MedicalDocument) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
 
+        // Check if document exists - if so, merge fields to prevent data loss
+        let existingDoc = try await fetchDocument(id: document.id)
+        let mergedDoc = existingDoc != nil ? mergeDocument(new: document, existing: existingDoc!) : document
+
         do {
-            let tagsJson = try JSONEncoder().encode(document.tags)
+            let tagsJson = try JSONEncoder().encode(mergedDoc.tags)
             let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
 
-            let extractedHealthDataJson = try JSONEncoder().encode(document.extractedHealthData)
+            let extractedHealthDataJson = try JSONEncoder().encode(mergedDoc.extractedHealthData)
 
             // Encode extracted sections
-            let sectionsJson = try JSONEncoder().encode(document.extractedSections)
+            let sectionsJson = try JSONEncoder().encode(mergedDoc.extractedSections)
 
             let insert = documentsTable.insert(or: .replace,
-                documentId <- document.id.uuidString,
-                documentFileName <- document.fileName,
-                documentFileType <- document.fileType.rawValue,
-                documentFilePath <- document.filePath.absoluteString,
-                documentThumbnailPath <- document.thumbnailPath?.absoluteString,
-                documentProcessingStatus <- document.processingStatus.rawValue,
-                documentImportedAt <- Int64(document.importedAt.timeIntervalSince1970),
-                documentProcessedAt <- document.processedAt.map { Int64($0.timeIntervalSince1970) },
-                documentFileSize <- document.fileSize,
+                documentId <- mergedDoc.id.uuidString,
+                documentFileName <- mergedDoc.fileName,
+                documentFileType <- mergedDoc.fileType.rawValue,
+                documentFilePath <- mergedDoc.filePath.absoluteString,
+                documentThumbnailPath <- mergedDoc.thumbnailPath?.absoluteString,
+                documentProcessingStatus <- mergedDoc.processingStatus.rawValue,
+                documentImportedAt <- Int64(mergedDoc.importedAt.timeIntervalSince1970),
+                documentProcessedAt <- mergedDoc.processedAt.map { Int64($0.timeIntervalSince1970) },
+                documentFileSize <- mergedDoc.fileSize,
                 documentTags <- tagsString,
-                documentNotes <- document.notes,
+                documentNotes <- mergedDoc.notes,
                 documentExtractedData <- extractedHealthDataJson,
-                documentCategory <- document.documentCategory.rawValue,
+                documentCategory <- mergedDoc.documentCategory.rawValue,
                 // MedicalDocument-specific fields
-                documentExtractedText <- document.extractedText,
-                documentRawDoclingOutput <- document.rawDoclingOutput,
+                documentExtractedText <- mergedDoc.extractedText,
+                documentRawDoclingOutput <- mergedDoc.rawDoclingOutput,
                 documentExtractedSections <- sectionsJson,
-                documentDate <- document.documentDate.map { Int64($0.timeIntervalSince1970) },
-                documentProviderName <- document.providerName,
-                documentProviderType <- document.providerType?.rawValue,
-                documentIncludeInAIContext <- document.includeInAIContext,
-                documentContextPriority <- document.contextPriority,
-                documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
+                documentDate <- mergedDoc.documentDate.map { Int64($0.timeIntervalSince1970) },
+                documentProviderName <- mergedDoc.providerName,
+                documentProviderType <- mergedDoc.providerType?.rawValue,
+                documentIncludeInAIContext <- mergedDoc.includeInAIContext,
+                documentContextPriority <- mergedDoc.contextPriority,
+                documentLastEditedAt <- mergedDoc.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
             )
 
             try db.run(insert)
@@ -294,6 +293,46 @@ extension DatabaseManager {
     }
     
     // MARK: - Helper Methods
+
+    /// Merges a new MedicalDocument with an existing one, preserving non-nil existing values.
+    ///
+    /// - Parameters:
+    ///   - new: The new document with updated fields
+    ///   - existing: The existing document from the database
+    ///
+    /// - Returns: A merged document where non-nil values from `new` overwrite `existing`,
+    ///   but nil values in `new` preserve the existing values (preventing data loss)
+    ///
+    /// - Note: This prevents accidental data loss when saving documents with nil fields.
+    ///   For example, if `new.extractedText` is nil but `existing.extractedText` has OCR data,
+    ///   the merged document will preserve the OCR data.
+    private func mergeDocument(new: MedicalDocument, existing: MedicalDocument) -> MedicalDocument {
+        return MedicalDocument(
+            id: new.id,  // ID never changes
+            fileName: new.fileName,  // Required field, always present
+            fileType: new.fileType,  // Required field, always present
+            filePath: new.filePath,  // Required field, always present
+            thumbnailPath: new.thumbnailPath ?? existing.thumbnailPath,
+            processingStatus: new.processingStatus,  // Status updates are intentional
+            documentDate: new.documentDate ?? existing.documentDate,
+            providerName: new.providerName ?? existing.providerName,
+            providerType: new.providerType ?? existing.providerType,
+            documentCategory: new.documentCategory,  // Category updates are intentional
+            extractedText: new.extractedText ?? existing.extractedText,  // Preserve OCR text
+            rawDoclingOutput: new.rawDoclingOutput ?? existing.rawDoclingOutput,  // Preserve raw OCR
+            extractedSections: new.extractedSections.isEmpty ? existing.extractedSections : new.extractedSections,
+            includeInAIContext: new.includeInAIContext,  // Boolean, always has value
+            contextPriority: new.contextPriority,  // Int, always has value
+            extractedHealthData: new.extractedHealthData.isEmpty ? existing.extractedHealthData : new.extractedHealthData,
+            importedAt: existing.importedAt,  // Never change import date
+            processedAt: new.processedAt ?? existing.processedAt,
+            lastEditedAt: new.lastEditedAt ?? Date(),  // Update to now if not specified
+            fileSize: new.fileSize,  // File size should match current file
+            tags: new.tags.isEmpty ? existing.tags : new.tags,
+            notes: new.notes ?? existing.notes
+        )
+    }
+
     private func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
         let id = UUID(uuidString: row[documentId]) ?? UUID()
         let fileName = row[documentFileName]
