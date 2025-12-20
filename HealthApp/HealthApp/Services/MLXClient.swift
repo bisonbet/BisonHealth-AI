@@ -14,7 +14,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Published Properties
     @Published var isConnected: Bool = false
-    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var connectionStatus: AIConnectionStatus = .disconnected
     @Published var lastError: Error?
     @Published var isLoading: Bool = false
     @Published var currentModelId: String?

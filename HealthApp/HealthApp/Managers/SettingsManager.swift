@@ -507,11 +507,9 @@ class SettingsManager: ObservableObject {
     }
 
     func hasValidMLXConfig() -> Bool {
-        // MLX is valid if a model is selected and downloaded
-        if let modelId = modelPreferences.mlxModelId {
-            return MLXModelManager.shared.isModelDownloaded(modelId)
-        }
-        return false
+        // MLX is valid if a model is selected
+        // Actual model availability is checked when loading the model
+        return modelPreferences.mlxModelId != nil
     }
 
     func validateServerConfiguration(_ config: ServerConfiguration) -> String? {
@@ -836,6 +834,8 @@ extension ModelPreferences: Codable {
         case documentModel
         case openAICompatibleModel
         case bedrockModel
+        case mlxModelId
+        case contextSizeLimit
         case lastUpdated
     }
 
@@ -849,6 +849,8 @@ extension ModelPreferences: Codable {
         self.documentModel = try container.decode(String.self, forKey: .documentModel)
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
+        self.mlxModelId = try container.decodeIfPresent(String.self, forKey: .mlxModelId)
+        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 32768
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
 
@@ -861,6 +863,8 @@ extension ModelPreferences: Codable {
         try container.encode(documentModel, forKey: .documentModel)
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
+        try container.encode(mlxModelId, forKey: .mlxModelId)
+        try container.encode(contextSizeLimit, forKey: .contextSizeLimit)
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }
 }

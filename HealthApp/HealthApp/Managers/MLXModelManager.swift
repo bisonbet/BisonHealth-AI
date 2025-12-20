@@ -20,7 +20,6 @@ class MLXModelManager: ObservableObject {
     // MARK: - Private Properties
     private let fileManager = FileManager.default
     private let logger = Logger.shared
-    private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var cancellables = Set<AnyCancellable>()
 
     /// Directory where MLX models are stored
@@ -307,8 +306,8 @@ class MLXModelManager: ObservableObject {
     func cancelDownload(_ modelId: String) {
         logger.info("⏸️ Cancelling download: \(modelId)")
 
-        downloadTasks[modelId]?.cancel()
-        downloadTasks.removeValue(forKey: modelId)
+        // Note: Current async/await implementation doesn't support mid-download cancellation
+        // This cleans up state and partial files, but won't stop an in-progress download
         modelStatuses.removeValue(forKey: modelId)
         currentDownload = nil
 
