@@ -23,6 +23,15 @@ class MLXModelManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var downloadTasks: [String: Task<Void, Never>] = [:]
 
+    /// Configured URLSession with appropriate timeouts for large file downloads
+    private lazy var downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60      // 60 seconds for individual requests
+        config.timeoutIntervalForResource = 600    // 10 minutes for entire download
+        config.waitsForConnectivity = true         // Wait for network if temporarily unavailable
+        return URLSession(configuration: config)
+    }()
+
     /// Directory where MLX models are stored
     private var modelsDirectory: URL {
         let documentsDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -231,9 +240,9 @@ class MLXModelManager: ObservableObject {
             do {
                 logger.info("📥 Downloading \(filename) (attempt \(attempt + 1)/\(maxRetries))")
 
-                // Create download task with progress tracking
+                // Create download task with progress tracking using configured session
                 let (tempURL, response) = try await withCheckedThrowingContinuation { continuation in
-                    let task = URLSession.shared.downloadTask(with: url) { localURL, response, error in
+                    let task = downloadSession.downloadTask(with: url) { localURL, response, error in
                         if let error = error {
                             continuation.resume(throwing: error)
                             return
@@ -244,15 +253,24 @@ class MLXModelManager: ObservableObject {
                             return
                         }
 
+                        guard let response = response else {
+                            continuation.resume(throwing: MLXError.downloadFailed(filename: "No response"))
+                            return
+                        }
+
                         continuation.resume(returning: (localURL, response))
                     }
 
                     task.resume()
                 }
 
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200...299).contains(httpResponse.statusCode) else {
-                    throw MLXError.downloadFailed(filename: filename)
+                // Validate HTTP response
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw MLXError.downloadFailed(filename: "Invalid HTTP response")
+                }
+
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    throw MLXError.downloadFailed(filename: "\(filename) (HTTP \(httpResponse.statusCode))")
                 }
 
                 // Move to final location

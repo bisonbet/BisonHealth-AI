@@ -78,7 +78,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
         }
 
         // Load model if not already loaded or if different model selected
-        if loadedModel == nil || currentModelPath != modelManager.getLocalModel(modelId)?.localPath.path {
+        if let currentPath = currentModelPath,
+           currentPath != modelManager.getLocalModel(modelId)?.localPath.path {
+            // Explicitly unload old model before loading new one to free memory
+            logger.info("🔄 Switching models - unloading old model first")
+            unloadModel()
+        }
+
+        if loadedModel == nil {
             try await loadModel(modelId: modelId)
         }
 
@@ -224,8 +231,15 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.modelNotFound
         }
 
-        // Load model if not already loaded
-        if loadedModel == nil || currentModelPath != modelManager.getLocalModel(modelId)?.localPath.path {
+        // Load model if not already loaded or if different model selected
+        if let currentPath = currentModelPath,
+           currentPath != modelManager.getLocalModel(modelId)?.localPath.path {
+            // Explicitly unload old model before loading new one to free memory
+            logger.info("🔄 Switching models - unloading old model first")
+            unloadModel()
+        }
+
+        if loadedModel == nil {
             try await loadModel(modelId: modelId)
         }
 

@@ -448,6 +448,7 @@ struct ModelDownloadView: View {
     @Binding var isPresented: Bool
     @State private var isDownloading = false
     @State private var downloadError: String?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         NavigationStack {
@@ -455,7 +456,7 @@ struct ModelDownloadView: View {
                 // Model Info
                 VStack(spacing: 12) {
                     Image(systemName: "brain.head.profile")
-                        .font(.system(size: 60))
+                        .font(.system(size: horizontalSizeClass == .regular ? 80 : 60))
                         .foregroundColor(.blue)
 
                     Text(model.name)
@@ -530,6 +531,8 @@ struct ModelDownloadView: View {
                 }
             }
             .padding()
+            .frame(maxWidth: horizontalSizeClass == .regular ? 600 : .infinity)  // Constrain width on iPad
+            .frame(maxWidth: .infinity)  // Center the constrained content
             .navigationTitle("Download Model")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
