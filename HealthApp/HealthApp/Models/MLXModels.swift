@@ -14,6 +14,7 @@ struct MLXModelConfig: Codable, Equatable, Identifiable {
     let contextWindow: Int
     let recommended: Bool
     let specialization: String?
+    let requiredFiles: [String]?  // Optional: specific files to download
 
     var sizeInMB: Double {
         Double(estimatedSize) / 1_048_576.0
@@ -29,6 +30,16 @@ struct MLXModelConfig: Codable, Equatable, Identifiable {
         } else {
             return String(format: "%.0f MB", sizeInMB)
         }
+    }
+
+    /// Get list of files to download (uses requiredFiles if specified, otherwise defaults)
+    var filesToDownload: [String] {
+        requiredFiles ?? [
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model.safetensors"
+        ]
     }
 }
 
@@ -130,7 +141,8 @@ struct MLXModelRegistry {
             estimatedSize: 2_500_000_000, // ~2.5 GB
             contextWindow: 8192,
             recommended: true,
-            specialization: "Medical knowledge and health conversations"
+            specialization: "Medical knowledge and health conversations",
+            requiredFiles: nil  // Use default files
         )
     ]
 

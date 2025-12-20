@@ -28,15 +28,25 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Initialization
     private init() {
+        // Check if device has sufficient memory for MLX
+        let totalMemoryGB = DeviceMemory.getTotalMemoryGB()
+        let hasSufficientMemory = DeviceMemory.hasSufficientMemory()
+
+        if !hasSufficientMemory {
+            logger.warning("⚠️ Device has only \(String(format: "%.2f", totalMemoryGB))GB RAM - MLX may struggle")
+        }
+
+        // Set GPU cache based on device memory
+        let cacheLimit = DeviceMemory.getRecommendedGPUCacheLimit()
+
         // Check if MLX is available on this device
         if MLX.GPU.isAvailable {
-            logger.info("🔧 MLX GPU acceleration available")
-            // Set cache limit to 512MB for better performance with 2.5GB models
-            MLX.GPU.set(cacheLimit: 512 * 1024 * 1024)
+            logger.info("🔧 MLX GPU acceleration available (cache: \(cacheLimit / 1024 / 1024)MB)")
+            MLX.GPU.set(cacheLimit: cacheLimit)
         } else {
             logger.warning("⚠️ MLX GPU acceleration not available, will use CPU")
-            // Still set a reasonable cache for CPU mode
-            MLX.GPU.set(cacheLimit: 256 * 1024 * 1024)
+            // Use half the cache for CPU mode
+            MLX.GPU.set(cacheLimit: cacheLimit / 2)
         }
     }
 
@@ -96,7 +106,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
             let cleanedText = AIResponseCleaner.cleanConversational(generatedText)
 
             // Mark model as used
-            await modelManager.markModelUsed(modelId)
+            modelManager.markModelUsed(modelId)
 
             logger.info("✅ Generated response in \(String(format: "%.2f", processingTime))s")
 
@@ -150,18 +160,16 @@ class MLXClient: ObservableObject, AIProviderInterface {
             let modelPath = localModel.localPath.path
             logger.info("📂 Model path: \(modelPath)")
 
-            // Create model configuration
-            let modelConfig = ModelConfiguration(
-                id: modelId,
-                defaultPrompt: ""
-            )
-
-            // Load the model using MLXLMCommon
+            // Load the model using the correct mlx-swift-lm API
+            // The loadModel function from MLXLLM can load from a local directory path
             logger.info("📂 Loading model from disk...")
-            let container = try await LMModelContainer.load(
-                path: modelPath,
-                configuration: modelConfig
-            )
+
+            let loadedLM = try await MLXLLM.loadModel(id: modelPath) { progress in
+                self.logger.info("📊 Loading model: \(Int(progress.fractionCompleted * 100))%")
+            }
+
+            // Wrap in container
+            let container = LMModelContainer(model: loadedLM, path: modelPath)
 
             loadedModel = container
             currentModelPath = modelPath
@@ -249,7 +257,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
             let cleanedText = AIResponseCleaner.cleanConversational(accumulatedText)
 
             // Mark model as used
-            await modelManager.markModelUsed(modelId)
+            modelManager.markModelUsed(modelId)
 
             let response = MLXResponse(
                 content: cleanedText,
@@ -386,22 +394,6 @@ class LMModelContainer {
     init(model: any LanguageModel, path: String) {
         self.model = model
         self.modelPath = path
-    }
-
-    static func load(path: String, configuration: ModelConfiguration) async throws -> LMModelContainer {
-        // Load model using MLX Swift LM
-        let modelDirectory = URL(fileURLWithPath: path)
-
-        // Use the actual MLX Swift LM API to load the model
-        let loadedModel = try await MLXLLM.loadModel(configuration: .init(
-            id: modelDirectory.lastPathComponent,
-            name: configuration.id
-        )) { progress in
-            // Progress callback during model loading
-            print("📊 Loading model: \(Int(progress * 100))%")
-        }
-
-        return LMModelContainer(model: loadedModel, path: path)
     }
 
     func perform<T>(_ operation: (any LanguageModel) async throws -> T) async throws -> T {

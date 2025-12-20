@@ -619,7 +619,7 @@
 				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				MLX00001294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift" */,
-				MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+				MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
 			projectDirPath = "";
@@ -1116,12 +1116,12 @@
 				minimumVersion = 0.18.0;
 			};
 		};
-		MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */ = {
+		MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift-examples";
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = upToNextMinorVersion;
+				minimumVersion = 2.29.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1174,12 +1174,12 @@
 		};
 		MLX00006294A0000000000001 /* MLXLLM */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			package = MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLLM;
 		};
 		MLX00007294A0000000000001 /* MLXLMCommon */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			package = MLX00002294A0000000000001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLMCommon;
 		};
 /* End XCSwiftPackageProductDependency section */

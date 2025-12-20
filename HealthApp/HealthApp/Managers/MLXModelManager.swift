@@ -21,6 +21,7 @@ class MLXModelManager: ObservableObject {
     private let fileManager = FileManager.default
     private let logger = Logger.shared
     private var cancellables = Set<AnyCancellable>()
+    private var downloadTasks: [String: Task<Void, Never>] = [:]
 
     /// Directory where MLX models are stored
     private var modelsDirectory: URL {
@@ -82,7 +83,36 @@ class MLXModelManager: ObservableObject {
     // MARK: - Model Download
 
     /// Download a model from HuggingFace
-    func downloadModel(_ config: MLXModelConfig) async throws {
+    /// - Returns: Task handle for cancellation support
+    @discardableResult
+    func downloadModel(_ config: MLXModelConfig) -> Task<Void, Never> {
+        let task = Task {
+            do {
+                try await performDownload(config: config)
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.logger.info("⏸️ Download cancelled: \(config.name)")
+                    self.modelStatuses[config.id] = .failed(error: "Cancelled")
+                    self.currentDownload = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.logger.error("❌ Download failed: \(config.name)", error: error)
+                    self.modelStatuses[config.id] = .failed(error: error.localizedDescription)
+                    self.currentDownload = nil
+                }
+            }
+            await MainActor.run {
+                self.downloadTasks.removeValue(forKey: config.id)
+            }
+        }
+
+        downloadTasks[config.id] = task
+        return task
+    }
+
+    /// Perform the actual download (internal implementation)
+    private func performDownload(config: MLXModelConfig) async throws {
         logger.info("📥 Starting download for model: \(config.name)")
 
         // Check if already downloaded
@@ -98,36 +128,28 @@ class MLXModelManager: ObservableObject {
         // Set initial status
         modelStatuses[config.id] = .downloading(progress: 0.0)
 
-        do {
-            // Use HuggingFace Hub API to download the model
-            let modelPath = try await downloadFromHuggingFace(config: config)
+        // Use HuggingFace Hub API to download the model
+        let modelPath = try await downloadFromHuggingFace(config: config)
 
-            // Create local model record
-            let localModel = MLXLocalModel(
-                id: config.id,
-                config: config,
-                downloadedAt: Date(),
-                lastUsed: nil,
-                localPath: modelPath,
-                fileSize: calculateDirectorySize(modelPath)
-            )
+        // Create local model record
+        let localModel = MLXLocalModel(
+            id: config.id,
+            config: config,
+            downloadedAt: Date(),
+            lastUsed: nil,
+            localPath: modelPath,
+            fileSize: calculateDirectorySize(modelPath)
+        )
 
-            // Save metadata
-            try saveModelMetadata(localModel)
+        // Save metadata
+        try saveModelMetadata(localModel)
 
-            // Update state
-            downloadedModels.append(localModel)
-            modelStatuses[config.id] = .downloaded
-            currentDownload = nil
+        // Update state
+        downloadedModels.append(localModel)
+        modelStatuses[config.id] = .downloaded
+        currentDownload = nil
 
-            logger.info("✅ Successfully downloaded model: \(config.name)")
-
-        } catch {
-            modelStatuses[config.id] = .failed(error: error.localizedDescription)
-            currentDownload = nil
-            logger.error("❌ Failed to download model: \(config.name)", error: error)
-            throw error
-        }
+        logger.info("✅ Successfully downloaded model: \(config.name)")
     }
 
     /// Download model files from HuggingFace using their Hub API
@@ -138,13 +160,9 @@ class MLXModelManager: ObservableObject {
         let modelDir = modelsDirectory.appendingPathComponent(config.id)
         try fileManager.createDirectory(at: modelDir, withIntermediateDirectories: true)
 
-        // Required MLX model files
-        let requiredFiles = [
-            "config.json",
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "model.safetensors" // MLX uses safetensors format
-        ]
+        // Get required files from config (allows per-model customization)
+        let requiredFiles = config.filesToDownload
+        logger.info("📥 Will download \(requiredFiles.count) files: \(requiredFiles.joined(separator: ", "))")
 
         // Optional files
         let optionalFiles = [
@@ -207,6 +225,9 @@ class MLXModelManager: ObservableObject {
         let maxRetries = 3
 
         for attempt in 0..<maxRetries {
+            // Check for task cancellation
+            try Task.checkCancellation()
+
             do {
                 logger.info("📥 Downloading \(filename) (attempt \(attempt + 1)/\(maxRetries))")
 
@@ -248,8 +269,9 @@ class MLXModelManager: ObservableObject {
                 logger.warning("⚠️ Download attempt \(attempt + 1) failed: \(error.localizedDescription)")
 
                 if attempt < maxRetries - 1 {
-                    // Exponential backoff: 2^attempt seconds
-                    let delay = pow(2.0, Double(attempt))
+                    // Exponential backoff: 2, 4, 8 seconds
+                    let delay = pow(2.0, Double(attempt + 1))
+                    logger.info("⏸️ Retrying in \(Int(delay)) seconds...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
             }
@@ -289,15 +311,18 @@ class MLXModelManager: ObservableObject {
     }
 
     /// Update last used timestamp
-    func markModelUsed(_ modelId: String) async {
+    func markModelUsed(_ modelId: String) {
         if let index = downloadedModels.firstIndex(where: { $0.id == modelId }) {
             downloadedModels[index].lastUsed = Date()
 
-            // Save updated metadata
-            do {
-                try saveModelMetadata(downloadedModels[index])
-            } catch {
-                logger.error("Failed to update model metadata", error: error)
+            // Save updated metadata asynchronously in background
+            let model = downloadedModels[index]
+            Task {
+                do {
+                    try self.saveModelMetadata(model)
+                } catch {
+                    self.logger.error("Failed to update model metadata", error: error)
+                }
             }
         }
     }
@@ -306,8 +331,13 @@ class MLXModelManager: ObservableObject {
     func cancelDownload(_ modelId: String) {
         logger.info("⏸️ Cancelling download: \(modelId)")
 
-        // Note: Current async/await implementation doesn't support mid-download cancellation
-        // This cleans up state and partial files, but won't stop an in-progress download
+        // Cancel the download task
+        if let task = downloadTasks[modelId] {
+            task.cancel()
+            logger.info("✅ Download task cancelled")
+        }
+
+        downloadTasks.removeValue(forKey: modelId)
         modelStatuses.removeValue(forKey: modelId)
         currentDownload = nil
 
