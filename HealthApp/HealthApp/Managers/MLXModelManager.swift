@@ -192,7 +192,7 @@ class MLXModelManager: ObservableObject {
         return modelDir
     }
 
-    /// Download a single file from HuggingFace
+    /// Download a single file from HuggingFace with retry logic
     private func downloadFile(repo: String, filename: String, to directory: URL) async throws -> URL {
         // HuggingFace CDN URL format
         let urlString = "https://huggingface.co/\(repo)/resolve/main/\(filename)"
@@ -203,21 +203,60 @@ class MLXModelManager: ObservableObject {
 
         let destinationURL = directory.appendingPathComponent(filename)
 
-        // Download using URLSession
-        let (tempURL, response) = try await URLSession.shared.download(from: url)
+        // Retry logic for network failures
+        var lastError: Error?
+        let maxRetries = 3
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw MLXError.downloadFailed(filename: filename)
+        for attempt in 0..<maxRetries {
+            do {
+                logger.info("📥 Downloading \(filename) (attempt \(attempt + 1)/\(maxRetries))")
+
+                // Create download task with progress tracking
+                let (tempURL, response) = try await withCheckedThrowingContinuation { continuation in
+                    let task = URLSession.shared.downloadTask(with: url) { localURL, response, error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                            return
+                        }
+
+                        guard let localURL = localURL else {
+                            continuation.resume(throwing: MLXError.downloadFailed(filename: filename))
+                            return
+                        }
+
+                        continuation.resume(returning: (localURL, response))
+                    }
+
+                    task.resume()
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    throw MLXError.downloadFailed(filename: filename)
+                }
+
+                // Move to final location
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.moveItem(at: tempURL, to: destinationURL)
+
+                logger.info("✅ Downloaded \(filename)")
+                return destinationURL
+
+            } catch {
+                lastError = error
+                logger.warning("⚠️ Download attempt \(attempt + 1) failed: \(error.localizedDescription)")
+
+                if attempt < maxRetries - 1 {
+                    // Exponential backoff: 2^attempt seconds
+                    let delay = pow(2.0, Double(attempt))
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+            }
         }
 
-        // Move to final location
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            try fileManager.removeItem(at: destinationURL)
-        }
-        try fileManager.moveItem(at: tempURL, to: destinationURL)
-
-        return destinationURL
+        throw lastError ?? MLXError.downloadFailed(filename: filename)
     }
 
     // MARK: - Model Management
