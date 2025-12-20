@@ -466,21 +466,27 @@ class MockHealthDataManager: HealthDataManager {
         get { _personalInfo }
         set { _personalInfo = newValue }
     }
-    
+
     override var bloodTests: [BloodTestResult] {
         get { _bloodTests }
         set { _bloodTests = newValue }
     }
-    
-    override var documents: [MedicalDocument] {
-        get { _documents }
-        set { _documents = newValue }
+
+    override var imagingReports: [MedicalDocument] {
+        get { _imagingReports }
+        set { _imagingReports = newValue }
     }
-    
+
+    override var healthCheckups: [MedicalDocument] {
+        get { _healthCheckups }
+        set { _healthCheckups = newValue }
+    }
+
     private var _personalInfo: PersonalHealthInfo?
     private var _bloodTests: [BloodTestResult] = []
-    private var _documents: [MedicalDocument] = []
-    
+    private var _imagingReports: [MedicalDocument] = []
+    private var _healthCheckups: [MedicalDocument] = []
+
     init() {
         // Create mock dependencies
         let mockDB = try! MockDatabaseManager()

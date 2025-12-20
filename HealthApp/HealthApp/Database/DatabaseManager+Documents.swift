@@ -5,6 +5,15 @@ import SQLite
 extension DatabaseManager {
 
     // MARK: - Save Document
+    /// Saves a MedicalDocument to the database.
+    ///
+    /// - Parameter document: A complete MedicalDocument instance with all required fields populated.
+    ///
+    /// - Important: This method expects a fully-formed MedicalDocument object. All callers must ensure
+    ///   they pass complete objects with all fields properly initialized. Partial updates should be done
+    ///   by fetching the existing document, modifying specific fields, and then saving the complete object.
+    ///
+    /// - Throws: DatabaseError if the save operation fails.
     func saveDocument(_ document: MedicalDocument) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
 

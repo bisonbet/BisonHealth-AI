@@ -19,7 +19,7 @@ class DatabaseManager: ObservableObject {
     private let databaseURL: URL
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 6 // Increment when making schema changes
+    private static let currentDatabaseVersion = 7 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
@@ -377,6 +377,26 @@ class DatabaseManager: ObservableObject {
             // default values of [] in the model. The Codable decoder will automatically use the
             // defaults for existing records via decodeIfPresent.
             print("   ✓ Added support for Apple Health sync (vitals and sleep data)")
+
+        case 7:
+            // Migration for version 7: HealthDocument → MedicalDocument format migration
+            // Ensures all existing documents have proper default values for new fields
+            print("📦 Migrating to version 7: HealthDocument → MedicalDocument format")
+
+            // Ensure documentCategory has default "other" for existing NULL values
+            // Ensure includeInAIContext has default false for existing documents
+            // Note: The schema already has these defaults (v4), but we update any NULL values
+            // that may exist from pre-v4 databases that were migrated
+            try db.run("""
+                UPDATE documents
+                SET document_category = 'other',
+                    include_in_ai_context = 0
+                WHERE document_category IS NULL
+                   OR document_category = ''
+                   OR include_in_ai_context IS NULL
+            """)
+
+            print("   ✓ Migrated document format: ensured default values for MedicalDocument fields")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
