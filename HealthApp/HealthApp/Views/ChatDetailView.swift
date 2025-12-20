@@ -384,7 +384,9 @@ struct EnhancedMessageBubbleView: View, Equatable {
         lhs.message.status == rhs.message.status &&
         lhs.message.isError == rhs.message.isError &&
         lhs.message.lastError == rhs.message.lastError &&
-        lhs.isIPad == rhs.isIPad
+        lhs.isIPad == rhs.isIPad &&
+        lhs.conversationId == rhs.conversationId &&
+        lhs.chatManager === rhs.chatManager  // Compare by reference identity
     }
 
     private var markdownContentView: some View {

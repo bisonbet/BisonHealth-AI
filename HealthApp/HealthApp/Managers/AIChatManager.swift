@@ -62,16 +62,16 @@ class AIChatManager: ObservableObject {
         self.healthDataManager = healthDataManager
         self.databaseManager = databaseManager
         self.networkMonitor = NetworkMonitor()
-        
+
         setupNetworkMonitoring()
-        
+
         Task {
             await loadConversations()
             // Don't automatically test connection on startup to avoid noisy failures
             // User can test manually via Settings if needed
         }
     }
-    
+
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
         // Use the new NetworkManager for monitoring
@@ -571,7 +571,10 @@ class AIChatManager: ObservableObject {
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
-                    self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
+                    Task { @MainActor in
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    }
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in
@@ -613,7 +616,10 @@ class AIChatManager: ObservableObject {
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
-                    self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
+                    Task { @MainActor in
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    }
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in
@@ -656,7 +662,10 @@ class AIChatManager: ObservableObject {
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
-                    self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
+                    Task { @MainActor in
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    }
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in
@@ -971,6 +980,9 @@ class AIChatManager: ObservableObject {
 
     // MARK: - Cleanup
     deinit {
+        // Cancel any pending streaming update task to prevent memory leaks
+        streamingUpdateTask?.cancel()
+        // Stop network monitoring
         networkMonitor.stopMonitoring()
     }
 }
