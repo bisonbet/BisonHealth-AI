@@ -253,7 +253,19 @@ class FileSystemManager: ObservableObject {
         let documentName = documentURL.deletingPathExtension().lastPathComponent
         return thumbnailsDirectory.appendingPathComponent("\(documentName)_thumb.jpg")
     }
-    
+
+    /// Store a thumbnail image for a document
+    /// - Parameters:
+    ///   - data: The thumbnail image data (typically JPEG)
+    ///   - documentId: The UUID of the document this thumbnail belongs to
+    /// - Returns: The URL where the thumbnail was stored
+    func storeThumbnail(data: Data, forDocumentId documentId: UUID) throws -> URL {
+        try FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
+        let thumbnailURL = thumbnailsDirectory.appendingPathComponent("\(documentId.uuidString)_thumb.jpg")
+        try data.write(to: thumbnailURL)
+        return thumbnailURL
+    }
+
     // MARK: - File Operations
     func copyFile(from sourceURL: URL, fileName: String, fileType: DocumentType) throws -> URL {
         let fileData = try Data(contentsOf: sourceURL)

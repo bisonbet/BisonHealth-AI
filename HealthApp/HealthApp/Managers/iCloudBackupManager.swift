@@ -394,10 +394,14 @@ class iCloudBackupManager: ObservableObject {
                 // Create temporary file for the document data (required for CKAsset)
                 let tempDir = FileManager.default.temporaryDirectory
                 let tempFileURL = tempDir.appendingPathComponent("backup_\(document.id.uuidString)")
+                var tempThumbnailURL: URL?
 
-                // Guarantee cleanup of temp file even if errors occur
+                // Guarantee cleanup of temp files even if errors occur (after CloudKit upload)
                 defer {
                     try? FileManager.default.removeItem(at: tempFileURL)
+                    if let tempThumbURL = tempThumbnailURL {
+                        try? FileManager.default.removeItem(at: tempThumbURL)
+                    }
                 }
 
                 // 🔒 Encrypt document data before upload
@@ -410,20 +414,16 @@ class iCloudBackupManager: ObservableObject {
 
                 // Handle thumbnail if available
                 var thumbnailAsset: CKAsset?
-                var tempThumbnailURL: URL?
+                var encryptedThumbData: Data?
                 if let thumbnailPath = document.thumbnailPath {
                     if let thumbnailData = try? Data(contentsOf: thumbnailPath) {
                         let tempThumbURL = tempDir.appendingPathComponent("thumb_\(document.id.uuidString)")
                         tempThumbnailURL = tempThumbURL
 
-                        // Guarantee cleanup of temp thumbnail even if errors occur
-                        defer {
-                            try? FileManager.default.removeItem(at: tempThumbURL)
-                        }
-
                         // 🔒 Encrypt thumbnail data before upload
-                        let encryptedThumbData = try await encryptRawData(thumbnailData)
-                        try encryptedThumbData.write(to: tempThumbURL)
+                        let encryptedThumb = try await encryptRawData(thumbnailData)
+                        encryptedThumbData = encryptedThumb
+                        try encryptedThumb.write(to: tempThumbURL)
                         thumbnailAsset = CKAsset(fileURL: tempThumbURL)
                     }
                 }
@@ -443,15 +443,13 @@ class iCloudBackupManager: ObservableObject {
                 record["backupId"] = backupId.uuidString
                 record["documentIndex"] = index
 
-                // Save the record
+                // Save the record (CloudKit reads temp files during this call)
                 try await database.save(record)
 
-                // Track total size
-                totalSize += Int64(documentData.count)
-                if let thumbURL = tempThumbnailURL {
-                    if let thumbData = try? Data(contentsOf: thumbURL) {
-                        totalSize += Int64(thumbData.count)
-                    }
+                // Track total size using in-memory encrypted data
+                totalSize += Int64(encryptedDocData.count)
+                if let encryptedThumb = encryptedThumbData {
+                    totalSize += Int64(encryptedThumb.count)
                 }
 
             } catch {
@@ -617,17 +615,19 @@ class iCloudBackupManager: ObservableObject {
                         var thumbnailPath: URL?
                         if let thumbnailAsset = record["thumbnailAsset"] as? CKAsset,
                            let thumbnailURL = thumbnailAsset.fileURL {
-                            if let encryptedThumbData = try? Data(contentsOf: thumbnailURL) {
-                                // 🔒 Decrypt thumbnail data
-                                if let thumbnailData = try? await decryptRawData(encryptedThumbData) {
-                                    // Store thumbnail in app's documents directory
-                                    let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                                    let thumbnailsDir = documentsDir.appendingPathComponent("Thumbnails", isDirectory: true)
-                                    try? FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
-                                    let thumbPath = thumbnailsDir.appendingPathComponent("\(document.id.uuidString)_thumb.jpg")
-                                    try thumbnailData.write(to: thumbPath)
-                                    thumbnailPath = thumbPath
-                                }
+                            do {
+                                // 🔒 Read and decrypt thumbnail data
+                                let encryptedThumbData = try Data(contentsOf: thumbnailURL)
+                                let thumbnailData = try await decryptRawData(encryptedThumbData)
+
+                                // Store thumbnail using FileSystemManager
+                                thumbnailPath = try fileSystemManager.storeThumbnail(
+                                    data: thumbnailData,
+                                    forDocumentId: document.id
+                                )
+                            } catch {
+                                print("⚠️ Failed to restore thumbnail for document \(document.fileName): \(error)")
+                                // Continue without thumbnail - not a fatal error
                             }
                         }
 
@@ -955,10 +955,21 @@ class iCloudBackupManager: ObservableObject {
                                 results = try await database.records(matching: query)
                             }
 
-                            // Collect record IDs to delete
+                            // Collect record IDs to delete, tracking fetch failures
                             var recordsToDelete: [CKRecord.ID] = []
-                            for (recordID, _) in results.matchResults {
-                                recordsToDelete.append(recordID)
+                            var fetchFailures = 0
+                            for (recordID, recordResult) in results.matchResults {
+                                switch recordResult {
+                                case .success:
+                                    recordsToDelete.append(recordID)
+                                case .failure(let error):
+                                    fetchFailures += 1
+                                    print("⚠️ Failed to fetch document record \(recordID.recordName) for deletion: \(error)")
+                                }
+                            }
+
+                            if fetchFailures > 0 {
+                                print("⚠️ Warning: \(fetchFailures) document records could not be fetched and may be orphaned in CloudKit")
                             }
 
                             // Delete this batch
