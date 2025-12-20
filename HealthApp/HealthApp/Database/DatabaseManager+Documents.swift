@@ -303,7 +303,16 @@ extension DatabaseManager {
     /// - Returns: A merged document where non-nil values from `new` overwrite `existing`,
     ///   but nil values in `new` preserve the existing values (preventing data loss)
     ///
-    /// - Note: This prevents accidental data loss when saving documents with nil fields.
+    /// - Important: **Array Field Behavior** - Empty arrays are treated as "preserve existing" to prevent
+    ///   accidental data loss. This means:
+    ///   - `new.tags = []` preserves `existing.tags` (does NOT clear)
+    ///   - `new.extractedSections = []` preserves `existing.extractedSections` (does NOT clear)
+    ///   - `new.extractedHealthData = []` preserves `existing.extractedHealthData` (does NOT clear)
+    ///
+    ///   **To explicitly clear array fields**, use dedicated update methods or create a new document with
+    ///   a sentinel value array (e.g., `[.empty]` marker) that calling code can interpret.
+    ///
+    /// - Note: This prevents accidental data loss when saving documents with nil/empty fields.
     ///   For example, if `new.extractedText` is nil but `existing.extractedText` has OCR data,
     ///   the merged document will preserve the OCR data.
     private func mergeDocument(new: MedicalDocument, existing: MedicalDocument) -> MedicalDocument {
@@ -320,14 +329,17 @@ extension DatabaseManager {
             documentCategory: new.documentCategory,  // Category updates are intentional
             extractedText: new.extractedText ?? existing.extractedText,  // Preserve OCR text
             rawDoclingOutput: new.rawDoclingOutput ?? existing.rawDoclingOutput,  // Preserve raw OCR
+            // Arrays: empty = preserve existing (safer default, prevents accidental clearing)
             extractedSections: new.extractedSections.isEmpty ? existing.extractedSections : new.extractedSections,
             includeInAIContext: new.includeInAIContext,  // Boolean, always has value
             contextPriority: new.contextPriority,  // Int, always has value
+            // Arrays: empty = preserve existing (safer default, prevents accidental clearing)
             extractedHealthData: new.extractedHealthData.isEmpty ? existing.extractedHealthData : new.extractedHealthData,
             importedAt: existing.importedAt,  // Never change import date
             processedAt: new.processedAt ?? existing.processedAt,
             lastEditedAt: new.lastEditedAt ?? Date(),  // Update to now if not specified
             fileSize: new.fileSize,  // File size should match current file
+            // Arrays: empty = preserve existing (safer default, prevents accidental clearing)
             tags: new.tags.isEmpty ? existing.tags : new.tags,
             notes: new.notes ?? existing.notes
         )
