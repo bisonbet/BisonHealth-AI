@@ -146,6 +146,17 @@ extension DatabaseManager {
     }
 
     // MARK: - Update Document Extracted Data
+    /// Updates only the extractedData, processingStatus, and processedAt fields for a document.
+    ///
+    /// - Important: This method uses `.update()` which performs a partial update of only the specified
+    ///   fields. Unlike `.replace()`, it preserves all other MedicalDocument fields (e.g., extractedText,
+    ///   extractedSections, documentCategory, etc.). No field preservation logic is needed.
+    ///
+    /// - Parameters:
+    ///   - documentId: The UUID of the document to update
+    ///   - extractedData: The array of health data extracted from the document
+    ///
+    /// - Throws: DatabaseError if the update fails or document is not found
     func updateDocumentExtractedData(_ documentId: UUID, extractedData: [AnyHealthData]) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
 
@@ -153,6 +164,7 @@ extension DatabaseManager {
             let extractedDataJson = try JSONEncoder().encode(extractedData)
 
             let query = documentsTable.filter(self.documentId == documentId.uuidString)
+            // Uses .update() for partial field update - safe, no data loss for other fields
             let update = query.update(
                 documentExtractedData <- extractedDataJson,
                 documentProcessingStatus <- ProcessingStatus.completed.rawValue,
