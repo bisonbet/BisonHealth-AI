@@ -81,20 +81,17 @@ After adding packages and building:
 - **Default**: Balanced settings
 - **Creative**: High temperature, diverse responses
 
-## Models Included
+## Model Included
 
 | Model | Size | Context | Specialization |
 |-------|------|---------|----------------|
-| MedGemma 4B (4-bit) ⭐ | 2.5 GB | 8K | Medical conversations |
-| Llama 3.2 3B (4-bit) | 2.0 GB | 131K | General purpose |
-| Qwen 2.5 7B (4-bit) | 4.5 GB | 32K | Strong reasoning |
-| Ministral 8B (4-bit) | 5.0 GB | 32K | On-device optimized |
+| **MedGemma 4B (4-bit)** | 2.5 GB | 8K tokens | Medical conversations and health discussions |
 
 ## System Requirements
 
 - iOS 17.0+
 - 6GB+ RAM (8GB+ recommended)
-- 3-10 GB storage per model
+- 3+ GB storage for MedGemma model
 - iPhone 14 Pro+ or iPad Pro (M1+) recommended
 
 ## Architecture

@@ -182,42 +182,21 @@ static let custom = MLXGenerationConfig(
 
 ## Available Models
 
-### 1. MedGemma 4B (4-bit) ⭐ Recommended
+### MedGemma 4B (4-bit)
 
 - **Repository**: `mlx-community/medgemma-4b-it-4bit`
 - **Size**: ~2.5 GB
 - **Specialization**: Medical knowledge and health conversations
 - **Context Window**: 8,192 tokens
-- **Description**: Medical AI assistant based on Google's Gemma, optimized for health conversations
-
-### 2. Llama 3.2 3B (4-bit)
-
-- **Repository**: `mlx-community/Llama-3.2-3B-Instruct-4bit`
-- **Size**: ~2 GB
-- **Context Window**: 131,072 tokens
-- **Description**: Compact and efficient general-purpose model
-
-### 3. Qwen 2.5 7B (4-bit)
-
-- **Repository**: `mlx-community/Qwen2.5-7B-Instruct-4bit`
-- **Size**: ~4.5 GB
-- **Context Window**: 32,768 tokens
-- **Description**: High-quality general-purpose model with strong reasoning
-
-### 4. Ministral 8B (4-bit)
-
-- **Repository**: `mlx-community/Ministral-8B-Instruct-2410-4bit`
-- **Size**: ~5 GB
-- **Context Window**: 32,768 tokens
-- **Description**: Compact Mistral model optimized for on-device use
+- **Description**: Medical AI assistant based on Google's Gemma, optimized for health conversations. This is the only model included to maintain focus on medical-specific AI capabilities.
 
 ## System Requirements
 
 ### Minimum Requirements:
 
 - **iOS**: 17.0 or later
-- **RAM**: 6GB+ (for 4B models), 8GB+ (for 7-8B models)
-- **Storage**: 3-10 GB free space (depending on model)
+- **RAM**: 6GB+ (for MedGemma 4B)
+- **Storage**: 3+ GB free space
 - **Devices**:
   - iPhone 14 Pro or later
   - iPhone 15 or later
@@ -227,7 +206,7 @@ static let custom = MLXGenerationConfig(
 
 - **Devices with Apple Silicon**: M1/M2/M3/M4 chips for GPU acceleration
 - **RAM**: 8GB+
-- **Storage**: 10+ GB free space for multiple models
+- **Storage**: 5+ GB free space
 
 ## Performance
 
@@ -279,12 +258,12 @@ static let custom = MLXGenerationConfig(
 
 Potential future improvements:
 
-1. **Model Quantization**: Support for different quantization levels (2-bit, 8-bit)
-2. **Custom Models**: Allow users to import custom fine-tuned models
-3. **Model Updates**: Automatic checking for model updates
-4. **Multi-Modal**: Support for vision-language models
-5. **LoRA Support**: Fine-tuning with LoRA adapters
-6. **Batch Processing**: Process multiple documents simultaneously
+1. **Additional Medical Models**: Support for other medical-specialized models as they become available
+2. **Model Quantization**: Support for different quantization levels (2-bit, 8-bit)
+3. **Custom Models**: Allow users to import custom fine-tuned MedGemma models
+4. **Model Updates**: Automatic checking for MedGemma model updates
+5. **Multi-Modal**: Support for vision-language medical models
+6. **LoRA Support**: Fine-tuning with LoRA adapters for personalization
 
 ## References
 

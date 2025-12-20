@@ -131,42 +131,6 @@ struct MLXModelRegistry {
             contextWindow: 8192,
             recommended: true,
             specialization: "Medical knowledge and health conversations"
-        ),
-        MLXModelConfig(
-            id: "llama-3.2-3b-4bit",
-            name: "Llama 3.2 3B (4-bit)",
-            huggingFaceRepo: "mlx-community/Llama-3.2-3B-Instruct-4bit",
-            description: "Compact and efficient general-purpose model",
-            modelType: .textOnly,
-            quantization: "4-bit",
-            estimatedSize: 2_000_000_000, // ~2 GB
-            contextWindow: 131072,
-            recommended: false,
-            specialization: nil
-        ),
-        MLXModelConfig(
-            id: "qwen2.5-7b-4bit",
-            name: "Qwen 2.5 7B (4-bit)",
-            huggingFaceRepo: "mlx-community/Qwen2.5-7B-Instruct-4bit",
-            description: "High-quality general-purpose model with strong reasoning",
-            modelType: .textOnly,
-            quantization: "4-bit",
-            estimatedSize: 4_500_000_000, // ~4.5 GB
-            contextWindow: 32768,
-            recommended: false,
-            specialization: nil
-        ),
-        MLXModelConfig(
-            id: "ministral-8b-2410-4bit",
-            name: "Ministral 8B (4-bit)",
-            huggingFaceRepo: "mlx-community/Ministral-8B-Instruct-2410-4bit",
-            description: "Compact Mistral model optimized for on-device use",
-            modelType: .textOnly,
-            quantization: "4-bit",
-            estimatedSize: 5_000_000_000, // ~5 GB
-            contextWindow: 32768,
-            recommended: false,
-            specialization: nil
         )
     ]
 
@@ -175,7 +139,7 @@ struct MLXModelRegistry {
     }
 
     static func recommendedModel() -> MLXModelConfig {
-        availableModels.first { $0.recommended } ?? availableModels[0]
+        availableModels[0] // Only MedGemma available
     }
 }
 
