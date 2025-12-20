@@ -48,6 +48,7 @@ class AIChatManager: ObservableObject {
 
     // MARK: - Streaming Debounce
     private var streamingUpdateTask: Task<Void, Never>?
+    private var streamingSequenceNumber: UInt64 = 0
 
     // MARK: - Constants
     private enum Constants {
@@ -496,10 +497,15 @@ class AIChatManager: ObservableObject {
     ///   - content: The updated message content to display
     ///   - conversationId: ID of the conversation containing the message
     ///   - messageId: ID of the message being updated
+    /// - Note: Uses sequence numbers to prevent out-of-order updates from race conditions
     @MainActor
     private func updateStreamingMessage(content: String, conversationId: UUID, messageId: UUID) {
         // Cancel any pending update task
         streamingUpdateTask?.cancel()
+
+        // Increment sequence number to track update ordering
+        streamingSequenceNumber += 1
+        let currentSequence = streamingSequenceNumber
 
         // Schedule debounced UI update
         streamingUpdateTask = Task {
@@ -510,6 +516,12 @@ class AIChatManager: ObservableObject {
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
 
+                // Verify this is still the latest update (prevent out-of-order race condition)
+                guard currentSequence == self.streamingSequenceNumber else {
+                    logger.debug("Skipping stale update (sequence \(currentSequence) < \(self.streamingSequenceNumber))")
+                    return
+                }
+
                 // Apply the update to the UI
                 if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
                    let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
@@ -517,7 +529,7 @@ class AIChatManager: ObservableObject {
                     self.currentConversation = self.conversations[conversationIndex]
                 }
             } catch {
-                print("⚠️ Streaming debounce sleep interrupted: \(error)")
+                logger.debug("⚠️ Streaming debounce sleep interrupted: \(error)")
             }
         }
     }
