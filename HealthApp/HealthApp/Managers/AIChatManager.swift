@@ -531,8 +531,10 @@ class AIChatManager: ObservableObject {
                     self.conversations[conversationIndex].messages[messageIndex].content = content
                     self.currentConversation = self.conversations[conversationIndex]
                 }
+            } catch is CancellationError {
+                // Expected - debouncing mechanism cancels old updates when new ones arrive
             } catch {
-                logger.debug("⚠️ Streaming debounce sleep interrupted: \(error)")
+                logger.debug("⚠️ Streaming debounce error: \(error)")
             }
         }
     }

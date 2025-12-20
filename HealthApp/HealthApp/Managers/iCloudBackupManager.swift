@@ -591,7 +591,7 @@ class iCloudBackupManager: ObservableObject {
                         }
 
                         // Decrypt metadata
-                        let document: HealthDocument = try await decryptData(encryptedMetadata)
+                        let document: MedicalDocument = try await decryptData(encryptedMetadata)
 
                         // Get document asset
                         guard let documentAsset = record["documentAsset"] as? CKAsset,

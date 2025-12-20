@@ -294,6 +294,7 @@ class ConversationExporter: ObservableObject {
         let contentWidth = pageRect.width - (margin * 2)
         var currentYPosition: CGFloat = margin
         let maxYPosition = pageRect.height - margin
+        let availableHeight = maxYPosition - margin
 
         var currentPageMessages: [(message: ChatMessage, height: CGFloat)] = []
 
@@ -314,8 +315,31 @@ class ConversationExporter: ObservableObject {
 
             let messageHeight = calculateMessageHeight(message: message, width: contentWidth)
 
-            // Check if we need a new page
-            if currentYPosition + messageHeight > maxYPosition && !currentPageMessages.isEmpty {
+            // Check if message is too tall for a single page
+            if messageHeight > availableHeight {
+                // Create page with current messages if any
+                if !currentPageMessages.isEmpty {
+                    let page = try renderMessagesPage(
+                        messages: currentPageMessages.map { $0.message },
+                        pageRect: pageRect,
+                        margin: margin
+                    )
+                    pages.append(page)
+                    currentPageMessages = []
+                    currentYPosition = margin
+                }
+
+                // Split long message across multiple pages
+                let messagePages = try renderLongMessage(
+                    message: message,
+                    pageRect: pageRect,
+                    margin: margin,
+                    contentWidth: contentWidth
+                )
+                pages.append(contentsOf: messagePages)
+                currentYPosition = margin
+
+            } else if currentYPosition + messageHeight > maxYPosition && !currentPageMessages.isEmpty {
                 // Create page with current messages
                 let page = try renderMessagesPage(
                     messages: currentPageMessages.map { $0.message },
@@ -324,13 +348,14 @@ class ConversationExporter: ObservableObject {
                 )
                 pages.append(page)
 
-                // Reset for new page
-                currentPageMessages = []
-                currentYPosition = margin
+                // Reset for new page and add current message
+                currentPageMessages = [(message, messageHeight)]
+                currentYPosition = margin + messageHeight + 20
+            } else {
+                // Add message to current page
+                currentPageMessages.append((message, messageHeight))
+                currentYPosition += messageHeight + 20
             }
-
-            currentPageMessages.append((message, messageHeight))
-            currentYPosition += messageHeight + 20
         }
 
         // Create final page if there are remaining messages
@@ -426,6 +451,160 @@ class ConversationExporter: ObservableObject {
 
                 yPosition += contentSize.height + 20
             }
+        }
+
+        guard let pdfPage = PDFPage(image: image) else {
+            throw ConversationExportError.pdfGenerationFailed
+        }
+        return pdfPage
+    }
+
+    private func renderLongMessage(message: ChatMessage, pageRect: CGRect, margin: CGFloat, contentWidth: CGFloat) throws -> [PDFPage] {
+        var pages: [PDFPage] = []
+
+        let roleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        let timestampFont = UIFont.systemFont(ofSize: 10, weight: .light)
+        let contentFont = UIFont.systemFont(ofSize: 11)
+        let contentAttributes: [NSAttributedString.Key: Any] = [
+            .font: contentFont,
+            .foregroundColor: UIColor.black
+        ]
+
+        // Calculate header heights
+        let roleText: String
+        let roleColor: UIColor
+
+        switch message.role {
+        case .user:
+            roleText = "👤 You"
+            roleColor = .systemBlue
+        case .assistant:
+            roleText = "🤖 Doctor"
+            roleColor = .systemGreen
+        case .system:
+            roleText = "⚙️ System"
+            roleColor = .systemGray
+        }
+
+        let roleHeight = roleText.size(withAttributes: [.font: roleFont]).height
+        let timestampHeight = formatDate(message.timestamp).size(withAttributes: [.font: timestampFont]).height
+        let headerHeight = roleHeight + 5 + timestampHeight + 8
+
+        // Calculate available space for content on first page and subsequent pages
+        let firstPageContentHeight = pageRect.height - margin - headerHeight - margin
+        let subsequentPageContentHeight = pageRect.height - margin - margin
+
+        // Create attributed string for the entire content
+        let attributedContent = NSAttributedString(string: message.content, attributes: contentAttributes)
+
+        // Calculate how much text fits on each page
+        var startLocation = 0
+        var isFirstPage = true
+
+        while startLocation < attributedContent.length {
+            let availableHeight = isFirstPage ? firstPageContentHeight : subsequentPageContentHeight
+            let maxSize = CGSize(width: contentWidth, height: availableHeight)
+
+            // Calculate how much text fits in the available space
+            let framesetter = CTFramesetterCreateWithAttributedString(attributedContent)
+            let path = CGPath(rect: CGRect(origin: .zero, size: maxSize), transform: nil)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(startLocation, 0), path, nil)
+            let visibleRange = CTFrameGetVisibleStringRange(frame)
+
+            // Extract the text for this page
+            let pageRange = NSRange(location: startLocation, length: visibleRange.length)
+            let pageContent = attributedContent.attributedSubstring(from: pageRange)
+
+            // Render the page
+            let page = try renderMessagePageSegment(
+                message: message,
+                content: pageContent.string,
+                pageRect: pageRect,
+                margin: margin,
+                showHeader: isFirstPage,
+                roleText: roleText,
+                roleColor: roleColor,
+                isContinuation: !isFirstPage
+            )
+            pages.append(page)
+
+            // Move to next segment
+            startLocation += visibleRange.length
+            isFirstPage = false
+        }
+
+        return pages
+    }
+
+    private func renderMessagePageSegment(message: ChatMessage, content: String, pageRect: CGRect, margin: CGFloat, showHeader: Bool, roleText: String, roleColor: UIColor, isContinuation: Bool) throws -> PDFPage {
+        let renderer = UIGraphicsImageRenderer(size: pageRect.size)
+
+        let image = renderer.image { context in
+            let ctx = context.cgContext
+
+            // Background
+            UIColor.white.setFill()
+            ctx.fill(pageRect)
+
+            var yPosition = margin
+
+            if showHeader {
+                // Role header
+                let roleFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
+                let roleAttributes: [NSAttributedString.Key: Any] = [
+                    .font: roleFont,
+                    .foregroundColor: roleColor
+                ]
+
+                let roleSize = roleText.size(withAttributes: roleAttributes)
+                let roleRect = CGRect(x: margin, y: yPosition, width: roleSize.width, height: roleSize.height)
+                roleText.draw(in: roleRect, withAttributes: roleAttributes)
+
+                yPosition += roleSize.height + 5
+
+                // Timestamp
+                let timestampText = formatDate(message.timestamp)
+                let timestampFont = UIFont.systemFont(ofSize: 10, weight: .light)
+                let timestampAttributes: [NSAttributedString.Key: Any] = [
+                    .font: timestampFont,
+                    .foregroundColor: UIColor.gray
+                ]
+                let timestampSize = timestampText.size(withAttributes: timestampAttributes)
+                let timestampRect = CGRect(x: margin, y: yPosition, width: timestampSize.width, height: timestampSize.height)
+                timestampText.draw(in: timestampRect, withAttributes: timestampAttributes)
+
+                yPosition += timestampSize.height + 8
+            } else if isContinuation {
+                // Add continuation indicator
+                let continuationText = "(continued)"
+                let continuationFont = UIFont.systemFont(ofSize: 10, weight: .light)
+                let continuationAttributes: [NSAttributedString.Key: Any] = [
+                    .font: continuationFont,
+                    .foregroundColor: UIColor.gray
+                ]
+                let continuationSize = continuationText.size(withAttributes: continuationAttributes)
+                let continuationRect = CGRect(x: margin, y: yPosition, width: continuationSize.width, height: continuationSize.height)
+                continuationText.draw(in: continuationRect, withAttributes: continuationAttributes)
+
+                yPosition += continuationSize.height + 8
+            }
+
+            // Message content
+            let contentFont = UIFont.systemFont(ofSize: 11)
+            let contentAttributes: [NSAttributedString.Key: Any] = [
+                .font: contentFont,
+                .foregroundColor: UIColor.black
+            ]
+
+            let contentRect = CGRect(
+                x: margin,
+                y: yPosition,
+                width: pageRect.width - (margin * 2),
+                height: pageRect.height - yPosition - margin
+            )
+
+            let attributedContent = NSAttributedString(string: content, attributes: contentAttributes)
+            attributedContent.draw(in: contentRect)
         }
 
         guard let pdfPage = PDFPage(image: image) else {

@@ -9,10 +9,20 @@ class HealthKitManager: ObservableObject {
     static let shared = HealthKitManager()
 
     // MARK: - Published Properties
-    @Published var isAuthorized = false
+    @Published var isAuthorized = false {
+        didSet {
+            UserDefaults.standard.set(isAuthorized, forKey: "healthKitIsAuthorized")
+        }
+    }
     @Published var authorizationStatus: HKAuthorizationStatus = .notDetermined
     @Published var isSyncing = false
-    @Published var lastSyncDate: Date?
+    @Published var lastSyncDate: Date? {
+        didSet {
+            if let date = lastSyncDate {
+                UserDefaults.standard.set(date, forKey: "healthKitLastSyncDate")
+            }
+        }
+    }
     @Published var syncError: Error?
     @Published var lastSyncStats: SyncStatistics?
 
@@ -84,6 +94,11 @@ class HealthKitManager: ObservableObject {
 
     // MARK: - Initialization
     private init() {
+        // Load persisted state
+        isAuthorized = UserDefaults.standard.bool(forKey: "healthKitIsAuthorized")
+        lastSyncDate = UserDefaults.standard.object(forKey: "healthKitLastSyncDate") as? Date
+
+        // Check current authorization status
         checkAuthorizationStatus()
     }
 
@@ -102,10 +117,22 @@ class HealthKitManager: ObservableObject {
         }
 
         // Check if we have authorization for at least one type
+        // Note: We only update isAuthorized if we have a definitive answer
+        // Otherwise, we keep the persisted value from previous successful syncs
         if let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) {
             let status = healthStore.authorizationStatus(for: heartRateType)
             authorizationStatus = status
-            isAuthorized = (status == .sharingAuthorized)
+
+            // Only update isAuthorized if we have a definitive status
+            // .sharingDenied means definitely not authorized
+            // .sharingAuthorized means definitely authorized
+            // .notDetermined means we don't know yet - keep existing value
+            if status == .sharingDenied {
+                isAuthorized = false
+            } else if status == .sharingAuthorized {
+                isAuthorized = true
+            }
+            // If .notDetermined, keep the persisted value
         }
     }
 
