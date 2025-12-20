@@ -322,9 +322,6 @@ struct EnhancedMessageListView: View {
     var chatManager: AIChatManager?
     var conversationId: UUID?
 
-    @State private var scrollTarget: String?
-    @State private var lastScrollTime: Date = .distantPast
-
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -377,8 +374,11 @@ struct EnhancedMessageBubbleView: View, Equatable {
     @State private var isRetrying = false
 
     // MARK: - Equatable
+    /// Custom Equatable implementation to prevent unnecessary re-renders during streaming
+    /// - Only re-renders if message content, status, or error state changes
+    /// - Excludes timestamp and metadata to prevent re-renders on every state update
+    /// - Critical for performance: prevents full view rebuild for each streamed character
     static func == (lhs: EnhancedMessageBubbleView, rhs: EnhancedMessageBubbleView) -> Bool {
-        // Only re-render if message content, status, or error state changes
         lhs.message.id == rhs.message.id &&
         lhs.message.content == rhs.message.content &&
         lhs.message.status == rhs.message.status &&

@@ -48,8 +48,11 @@ class AIChatManager: ObservableObject {
 
     // MARK: - Streaming Debounce
     private var streamingUpdateTask: Task<Void, Never>?
-    private var pendingStreamingContent: String?
-    private let streamingDebounceInterval: TimeInterval = 0.067 // ~15 fps (1/15 second)
+
+    // MARK: - Constants
+    private enum Constants {
+        static let streamingDebounceInterval: TimeInterval = 0.067 // ~15 fps (1/15 second)
+    }
     
     // MARK: - Initialization
     init(
@@ -489,31 +492,42 @@ class AIChatManager: ObservableObject {
     // MARK: - Streaming Helpers
 
     /// Debounce streaming updates to improve UI performance during long responses
-    private func updateStreamingMessage(_ streamingMessage: inout ChatMessage, content: String, conversationId: UUID, messageId: UUID) {
+    /// - Parameters:
+    ///   - content: The updated message content to display
+    ///   - conversationId: ID of the conversation containing the message
+    ///   - messageId: ID of the message being updated
+    @MainActor
+    private func updateStreamingMessage(content: String, conversationId: UUID, messageId: UUID) {
         // Cancel any pending update task
         streamingUpdateTask?.cancel()
 
-        // Update the message content immediately in memory
-        streamingMessage.content = content
-
         // Schedule debounced UI update
-        streamingUpdateTask = Task { @MainActor in
-            // Wait for debounce interval
-            try? await Task.sleep(nanoseconds: UInt64(streamingDebounceInterval * 1_000_000_000))
+        streamingUpdateTask = Task {
+            do {
+                // Wait for debounce interval
+                try await Task.sleep(nanoseconds: UInt64(Constants.streamingDebounceInterval * 1_000_000_000))
 
-            // Check if task was cancelled
-            guard !Task.isCancelled else { return }
+                // Check if task was cancelled
+                guard !Task.isCancelled else { return }
 
-            // Apply the update to the UI
-            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-               let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
-                self.conversations[conversationIndex].messages[messageIndex].content = content
-                self.currentConversation = self.conversations[conversationIndex]
+                // Apply the update to the UI
+                if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                   let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
+                    self.conversations[conversationIndex].messages[messageIndex].content = content
+                    self.currentConversation = self.conversations[conversationIndex]
+                }
+            } catch {
+                print("⚠️ Streaming debounce sleep interrupted: \(error)")
             }
         }
     }
 
     /// Force immediate update for final message (bypasses debouncing)
+    /// - Parameters:
+    ///   - conversationId: ID of the conversation containing the message
+    ///   - messageId: ID of the message being finalized
+    ///   - finalMessage: The complete final message
+    @MainActor
     private func finalizeStreamingMessage(_ conversationId: UUID, messageId: UUID, finalMessage: ChatMessage) async {
         // Cancel any pending debounced updates
         streamingUpdateTask?.cancel()
@@ -529,7 +543,7 @@ class AIChatManager: ObservableObject {
     private func sendStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
         // Create a placeholder message for streaming content
         let streamingMessageId = UUID()
-        var streamingMessage = ChatMessage(
+        let streamingMessage = ChatMessage(
             id: streamingMessageId,
             content: "",
             role: .assistant
@@ -557,7 +571,7 @@ class AIChatManager: ObservableObject {
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
-                    self.updateStreamingMessage(&streamingMessage, content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in
@@ -599,7 +613,7 @@ class AIChatManager: ObservableObject {
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
-                    self.updateStreamingMessage(&streamingMessage, content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in
@@ -642,7 +656,7 @@ class AIChatManager: ObservableObject {
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
-                    self.updateStreamingMessage(&streamingMessage, content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in
