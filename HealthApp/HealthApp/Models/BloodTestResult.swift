@@ -4,13 +4,16 @@ import Foundation
 struct BloodTestResult: HealthDataProtocol {
     let id: UUID
     var type: HealthDataType { .bloodTest }
-    
+
     // Test Information
     var testDate: Date
     var laboratoryName: String?
     var orderingPhysician: String?
     var results: [BloodTestItem]
-    
+
+    // AI Context management
+    var includeInAIContext: Bool
+
     // Protocol Requirements
     let createdAt: Date
     var updatedAt: Date
@@ -22,6 +25,7 @@ struct BloodTestResult: HealthDataProtocol {
         laboratoryName: String? = nil,
         orderingPhysician: String? = nil,
         results: [BloodTestItem] = [],
+        includeInAIContext: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         metadata: [String: String]? = nil
@@ -31,6 +35,7 @@ struct BloodTestResult: HealthDataProtocol {
         self.laboratoryName = laboratoryName
         self.orderingPhysician = orderingPhysician
         self.results = results
+        self.includeInAIContext = includeInAIContext
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.metadata = metadata

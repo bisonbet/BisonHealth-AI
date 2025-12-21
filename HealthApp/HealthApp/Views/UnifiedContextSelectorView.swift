@@ -167,14 +167,7 @@ struct UnifiedContextSelectorView: View {
     private var bloodTestsSection: some View {
         Section {
             // Category toggle
-            Toggle(isOn: Binding(
-                get: { viewModel.bloodTestsEnabled },
-                set: { newValue in
-                    viewModel.bloodTestsEnabled = newValue
-                    // Auto-select/deselect all documents in this category
-                    viewModel.toggleAllDocuments(in: .bloodTest, enabled: newValue)
-                }
-            )) {
+            Toggle(isOn: $viewModel.bloodTestsEnabled) {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.bloodTest.icon)
                         .font(.title3)
@@ -185,10 +178,26 @@ struct UnifiedContextSelectorView: View {
                         Text(HealthDataType.bloodTest.displayName)
                             .font(.headline)
 
-                        Text("\(viewModel.bloodTestDocuments.count) documents available")
+                        let bloodTestCount = viewModel.allBloodTests.count
+                        let documentCount = viewModel.bloodTestDocuments.count
+                        Text("\(bloodTestCount) lab result\(bloodTestCount == 1 ? "" : "s"), \(documentCount) document\(documentCount == 1 ? "" : "s")")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                }
+            }
+
+            // Blood test results list (when enabled)
+            if viewModel.bloodTestsEnabled && !viewModel.allBloodTests.isEmpty {
+                ForEach(viewModel.allBloodTests.sorted(by: { $0.testDate > $1.testDate })) { bloodTest in
+                    BloodTestSelectionRow(
+                        bloodTest: bloodTest,
+                        isSelected: viewModel.isBloodTestSelected(bloodTest),
+                        onToggle: {
+                            viewModel.toggleBloodTest(bloodTest)
+                        }
+                    )
+                    .disabled(!viewModel.bloodTestsEnabled)
                 }
             }
 
@@ -198,12 +207,8 @@ struct UnifiedContextSelectorView: View {
                     DocumentSelectionRow(
                         document: document,
                         isSelected: viewModel.isDocumentSelected(document),
-                        priority: viewModel.getDocumentPriority(document),
                         onToggle: {
                             viewModel.toggleDocument(document)
-                        },
-                        onPriorityChange: { priority in
-                            viewModel.updateDocumentPriority(document, priority: priority)
                         }
                     )
                     .disabled(!viewModel.bloodTestsEnabled)
@@ -247,12 +252,8 @@ struct UnifiedContextSelectorView: View {
                     DocumentSelectionRow(
                         document: document,
                         isSelected: viewModel.isDocumentSelected(document),
-                        priority: viewModel.getDocumentPriority(document),
                         onToggle: {
                             viewModel.toggleDocument(document)
-                        },
-                        onPriorityChange: { priority in
-                            viewModel.updateDocumentPriority(document, priority: priority)
                         }
                     )
                     .disabled(!viewModel.imagingReportsEnabled)
@@ -296,12 +297,8 @@ struct UnifiedContextSelectorView: View {
                     DocumentSelectionRow(
                         document: document,
                         isSelected: viewModel.isDocumentSelected(document),
-                        priority: viewModel.getDocumentPriority(document),
                         onToggle: {
                             viewModel.toggleDocument(document)
-                        },
-                        onPriorityChange: { priority in
-                            viewModel.updateDocumentPriority(document, priority: priority)
                         }
                     )
                     .disabled(!viewModel.healthCheckupsEnabled)
@@ -311,112 +308,99 @@ struct UnifiedContextSelectorView: View {
     }
 }
 
+// MARK: - Blood Test Selection Row
+struct BloodTestSelectionRow: View {
+    let bloodTest: BloodTestResult
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Checkbox
+            Button(action: onToggle) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.title3)
+                    .foregroundColor(isSelected ? .blue : .secondary)
+            }
+            .buttonStyle(.plain)
+
+            // Blood test info
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(bloodTest.testDate, style: .date)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    if let lab = bloodTest.laboratoryName {
+                        Text("•")
+                            .foregroundColor(.secondary)
+                            .font(.caption2)
+
+                        Text(lab)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Text("\(bloodTest.results.count) result\(bloodTest.results.count == 1 ? "" : "s")")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
+                if bloodTest.abnormalResults.count > 0 {
+                    Text("\(bloodTest.abnormalResults.count) abnormal")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 // MARK: - Document Selection Row
 struct DocumentSelectionRow: View {
     let document: MedicalDocument
     let isSelected: Bool
-    let priority: Int
     let onToggle: () -> Void
-    let onPriorityChange: (Int) -> Void
-
-    @State private var showingPriorityPicker = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Main row
-            HStack(spacing: 12) {
-                // Checkbox
-                Button(action: onToggle) {
-                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                        .font(.title3)
-                        .foregroundColor(isSelected ? .blue : .secondary)
-                }
-                .buttonStyle(.plain)
-
-                // Document info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(document.fileName)
-                        .font(.subheadline)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        if let date = document.documentDate {
-                            Text(date, style: .date)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let provider = document.providerName {
-                            Text(provider)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                // Priority indicator
-                if isSelected {
-                    Button(action: { showingPriorityPicker.toggle() }) {
-                        HStack(spacing: 4) {
-                            ForEach(1...priority, id: \.self) { _ in
-                                Image(systemName: "star.fill")
-                                    .font(.caption2)
-                            }
-                        }
-                        .foregroundColor(.orange)
-                    }
-                    .buttonStyle(.plain)
-                }
+        HStack(spacing: 12) {
+            // Checkbox
+            Button(action: onToggle) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.title3)
+                    .foregroundColor(isSelected ? .blue : .secondary)
             }
-            .padding(.vertical, 4)
+            .buttonStyle(.plain)
 
-            // Priority picker (when shown)
-            if showingPriorityPicker && isSelected {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Priority")
-                            .font(.caption)
+            // Document info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(document.fileName)
+                    .font(.subheadline)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    if let date = document.documentDate {
+                        Text(date, style: .date)
+                            .font(.caption2)
                             .foregroundColor(.secondary)
-
-                        Spacer()
-
-                        ForEach(1...5, id: \.self) { level in
-                            Button(action: {
-                                onPriorityChange(level)
-                                showingPriorityPicker = false
-                            }) {
-                                HStack(spacing: 2) {
-                                    ForEach(1...level, id: \.self) { _ in
-                                        Image(systemName: "star.fill")
-                                            .font(.caption2)
-                                    }
-                                }
-                                .foregroundColor(priority == level ? .orange : .gray)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(priority == level ? Color.orange.opacity(0.2) : Color.clear)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
                     }
 
-                    Text("Higher priority documents are included first when AI context is limited")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    if let provider = document.providerName {
+                        Text(provider)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-                .padding(12)
-                .background(Color(.systemGray6))
-                .cornerRadius(8)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+
+            Spacer()
         }
-        .animation(.easeInOut(duration: 0.2), value: showingPriorityPicker)
+        .padding(.vertical, 4)
     }
 }
 
@@ -453,17 +437,20 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     @Published var bloodTestDocuments: [MedicalDocument] = []
     @Published var imagingReportDocuments: [MedicalDocument] = []
     @Published var healthCheckupDocuments: [MedicalDocument] = []
+    @Published var allBloodTests: [BloodTestResult] = []
 
     // Private state
     private var selectedDocuments: Set<UUID> = []
-    private var documentPriorities: [UUID: Int] = [:]
+    private var selectedBloodTests: Set<UUID> = []
     private var allDocuments: [MedicalDocument] = []
 
     private let databaseManager = DatabaseManager.shared
     private let chatManager: AIChatManager
+    private let healthDataManager: HealthDataManager
 
     init(chatManager: AIChatManager) {
         self.chatManager = chatManager
+        self.healthDataManager = HealthDataManager.shared
     }
 
     // Computed properties
@@ -527,6 +514,9 @@ class UnifiedContextSelectorViewModel: ObservableObject {
                 HealthDataType.healthCheckup.relatedDocumentCategories.contains($0.documentCategory)
             }
 
+            // Load all blood tests
+            allBloodTests = healthDataManager.bloodTests
+
             // Load current selections from AIChatManager
             let selectedTypes = chatManager.selectedHealthDataTypes
             personalInfoEnabled = selectedTypes.contains(.personalInfo)
@@ -537,10 +527,8 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             // Load document selections
             selectedDocuments = Set(allDocuments.filter { $0.includeInAIContext }.map { $0.id })
 
-            // Load priorities
-            for doc in allDocuments where doc.includeInAIContext {
-                documentPriorities[doc.id] = doc.contextPriority
-            }
+            // Load blood test selections
+            selectedBloodTests = Set(allBloodTests.filter { $0.includeInAIContext }.map { $0.id })
 
         } catch {
             print("❌ Failed to load context data: \(error)")
@@ -552,22 +540,25 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         selectedDocuments.contains(document.id)
     }
 
-    func getDocumentPriority(_ document: MedicalDocument) -> Int {
-        documentPriorities[document.id] ?? 3
-    }
-
     func toggleDocument(_ document: MedicalDocument) {
         if selectedDocuments.contains(document.id) {
             selectedDocuments.remove(document.id)
-            documentPriorities.removeValue(forKey: document.id)
         } else {
             selectedDocuments.insert(document.id)
-            documentPriorities[document.id] = 3 // Default priority
         }
     }
 
-    func updateDocumentPriority(_ document: MedicalDocument, priority: Int) {
-        documentPriorities[document.id] = priority
+    // MARK: - Blood Test Management
+    func isBloodTestSelected(_ bloodTest: BloodTestResult) -> Bool {
+        selectedBloodTests.contains(bloodTest.id)
+    }
+
+    func toggleBloodTest(_ bloodTest: BloodTestResult) {
+        if selectedBloodTests.contains(bloodTest.id) {
+            selectedBloodTests.remove(bloodTest.id)
+        } else {
+            selectedBloodTests.insert(bloodTest.id)
+        }
     }
 
     func toggleAllDocuments(in category: HealthDataType, enabled: Bool) {
@@ -588,15 +579,11 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             // Add all documents in this category to selection
             for doc in documentsInCategory {
                 selectedDocuments.insert(doc.id)
-                if documentPriorities[doc.id] == nil {
-                    documentPriorities[doc.id] = 3 // Default priority
-                }
             }
         } else {
             // Remove all documents in this category from selection
             for doc in documentsInCategory {
                 selectedDocuments.remove(doc.id)
-                documentPriorities.removeValue(forKey: doc.id)
             }
         }
     }
@@ -613,17 +600,28 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
             chatManager.selectHealthDataForContext(selectedTypes)
 
-            // Save document selections and priorities
+            // Save document selections
             for document in allDocuments {
                 let shouldInclude = selectedDocuments.contains(document.id)
-                let priority = documentPriorities[document.id] ?? 3
 
-                if document.includeInAIContext != shouldInclude || document.contextPriority != priority {
+                if document.includeInAIContext != shouldInclude {
                     var updatedDoc = document
                     updatedDoc.includeInAIContext = shouldInclude
-                    updatedDoc.contextPriority = priority
 
                     try await databaseManager.updateMedicalDocument(updatedDoc)
+                }
+            }
+
+            // Save blood test selections
+            for bloodTest in allBloodTests {
+                let shouldInclude = selectedBloodTests.contains(bloodTest.id)
+
+                if bloodTest.includeInAIContext != shouldInclude {
+                    var updatedTest = bloodTest
+                    updatedTest.includeInAIContext = shouldInclude
+
+                    // Save to database via HealthDataManager
+                    try await healthDataManager.updateBloodTest(updatedTest)
                 }
             }
 
