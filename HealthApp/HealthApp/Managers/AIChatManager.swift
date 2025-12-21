@@ -17,7 +17,7 @@ class AIChatManager: ObservableObject {
     @Published var isGeneratingTitle: Bool = false
     @Published var isSendingMessage: Bool = false
     @Published var errorMessage: String? = nil
-    @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo, .bloodTest]
+    @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo]
     @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Family Medicine" })
     @Published var isOffline: Bool = false
     
@@ -270,21 +270,28 @@ class AIChatManager: ObservableObject {
               let assistantMessage = conversation.messages.first(where: { $0.role == .assistant }) else {
             return "New Conversation"
         }
-        
+
+        // For MLX provider, use heuristic title generation to avoid memory issues
+        // MLX can't load a second model instance for title generation
+        if settingsManager.modelPreferences.aiProvider == .mlx {
+            logger.info("Using heuristic title generation for MLX")
+            return generateHeuristicTitle(from: userMessage.content)
+        }
+
         // Create a prompt for title generation
         let titlePrompt = """
         Based on this conversation, generate a short, descriptive title (3-5 words) that summarizes the main topic.
-        
+
         User: \(userMessage.content)
         Assistant: \(assistantMessage.content.prefix(200))
-        
+
         Generate only the title, nothing else. The title should be 3-5 words and capture the essence of the conversation.
         """
-        
+
         // Use the AI client to generate the title
         let aiClient = getAIClient()
         let response = try await aiClient.sendMessage(titlePrompt, context: "")
-        
+
         // Clean up the response - remove quotes, extra whitespace, etc.
         var title = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -309,7 +316,31 @@ class AIChatManager: ObservableObject {
         
         return title
     }
-    
+
+    /// Generate a simple heuristic title from user message (for MLX to avoid memory issues)
+    private func generateHeuristicTitle(from message: String) -> String {
+        // Clean the message
+        var cleaned = message.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Remove common question words and phrases
+        let prefixesToRemove = ["what", "how", "why", "when", "where", "can you", "could you", "please", "tell me about", "explain"]
+        for prefix in prefixesToRemove {
+            if cleaned.lowercased().hasPrefix(prefix) {
+                cleaned = String(cleaned.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+
+        // Take first 5 words
+        let words = cleaned.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        let titleWords = words.prefix(5)
+
+        // Join and capitalize
+        let title = titleWords.joined(separator: " ")
+
+        // Return capitalized title or default
+        return title.isEmpty ? "New Conversation" : title.prefix(1).uppercased() + title.dropFirst()
+    }
+
     func clearConversationMessages(_ conversation: ChatConversation) async throws {
         // Clear all messages from the conversation
         try await databaseManager.clearConversationMessages(conversation.id)
@@ -362,9 +393,20 @@ class AIChatManager: ObservableObject {
             let healthContext = await buildHealthDataContext()
 
             // Check if this is the first user message and if current model requires instruction injection
-            let currentModel = settingsManager.modelPreferences.chatModel
+            // Get the appropriate model name based on the current AI provider
+            let currentModel: String
+            switch settingsManager.modelPreferences.aiProvider {
+            case .mlx:
+                currentModel = settingsManager.modelPreferences.mlxModelId ?? ""
+            case .ollama, .openAICompatible:
+                currentModel = settingsManager.modelPreferences.chatModel
+            case .bedrock:
+                currentModel = settingsManager.modelPreferences.bedrockModel
+            }
             let isFirstUserMessage = conversation.messages.filter({ $0.role == .user }).count == 1
             let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
+
+            print("🔍 AIChatManager: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', isFirst=\(isFirstUserMessage), requiresInjection=\(requiresInjection)")
 
             // Prepare the message content (potentially formatted for exception models)
             var messageContent = content
@@ -394,8 +436,10 @@ class AIChatManager: ObservableObject {
                 // Use streaming for real-time response
                 if isFirstUserMessage && requiresInjection {
                     // For exception models, send formatted message with empty context
+                    print("📝 AIChatManager: FIRST turn - sending formatted message (length: \(messageContent.count))")
                     try await sendStreamingMessage(messageContent, context: "", conversationId: conversation.id)
                 } else {
+                    print("📝 AIChatManager: SUBSEQUENT turn - sending raw message (length: \(messageContent.count)), first 200 chars: '\(String(messageContent.prefix(200)))'")
                     try await sendStreamingMessage(messageContent, context: healthContext, conversationId: conversation.id)
                 }
             } else {
@@ -539,6 +583,22 @@ class AIChatManager: ObservableObject {
         }
     }
 
+    /// Immediate update for streaming messages (bypasses debouncing)
+    /// Used for MLX which is already on MainActor and doesn't need debouncing
+    /// - Parameters:
+    ///   - content: The streaming content to display
+    ///   - conversationId: ID of the conversation containing the message
+    ///   - messageId: ID of the message being updated
+    @MainActor
+    private func updateStreamingMessageImmediate(content: String, conversationId: UUID, messageId: UUID) {
+        // Apply update immediately without debouncing
+        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
+           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
+            self.conversations[conversationIndex].messages[messageIndex].content = content
+            self.currentConversation = self.conversations[conversationIndex]
+        }
+    }
+
     /// Force immediate update for final message (bypasses debouncing)
     /// - Parameters:
     ///   - conversationId: ID of the conversation containing the message
@@ -573,8 +633,34 @@ class AIChatManager: ObservableObject {
         }
 
         // Determine if we should send systemPrompt separately
-        // For exception models, context is empty and instructions are embedded in content
-        let shouldSendSystemPrompt = !context.isEmpty
+        // For exception models on first message: instructions are embedded in content
+        // For exception models on subsequent messages: DON'T send system prompt (already in conversation history)
+        // For normal models: always send system prompt if context is provided
+        // Get the appropriate model name based on the current AI provider
+        let currentModel: String
+        switch settingsManager.modelPreferences.aiProvider {
+        case .mlx:
+            currentModel = settingsManager.modelPreferences.mlxModelId ?? ""
+        case .ollama, .openAICompatible:
+            currentModel = settingsManager.modelPreferences.chatModel
+        case .bedrock:
+            currentModel = settingsManager.modelPreferences.bedrockModel
+        }
+        let isFirstUserMessage = if let conv = conversations.first(where: { $0.id == conversationId }) {
+            conv.messages.filter({ $0.role == .user }).count <= 1
+        } else {
+            true
+        }
+        let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
+
+        let shouldSendSystemPrompt: Bool
+        if requiresInjection {
+            // Exception models: never send system prompt separately after first message
+            shouldSendSystemPrompt = false
+        } else {
+            // Normal models: send if context is provided
+            shouldSendSystemPrompt = !context.isEmpty
+        }
 
         // Use the selected AI provider with streaming support
         switch settingsManager.modelPreferences.aiProvider {
@@ -717,17 +803,19 @@ class AIChatManager: ObservableObject {
 
         case .mlx:
             let mlxClient = settingsManager.getMLXClient()
+            // For exception models on first turn, context is already embedded in content
+            // So we pass empty context to avoid duplication
+            let mlxContext = (requiresInjection && isFirstUserMessage) ? "" : context
             try await mlxClient.sendStreamingChatMessage(
                 content,
-                context: context,
+                context: mlxContext,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                conversationId: conversationId,
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
-                    // Use debounced update for better performance with long messages
-                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
-                    Task { @MainActor in
-                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
-                    }
+                    // MLX is already on MainActor, call directly without Task wrapper
+                    // to avoid unnecessary queuing and debouncing issues
+                    self.updateStreamingMessageImmediate(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                 },
                 onComplete: { [weak self] finalResponse in
                     Task { @MainActor in

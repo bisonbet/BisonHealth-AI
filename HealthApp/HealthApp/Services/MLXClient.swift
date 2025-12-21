@@ -25,6 +25,10 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var currentConfig: MLXGenerationConfig = .default
     private let logger = Logger.shared
 
+    // Conversation tracking
+    private var currentConversationId: UUID?
+    private var conversationTokenCount: Int = 0
+
     // MARK: - Initialization
     private init() {
         // Set GPU cache limit for MLX
@@ -54,54 +58,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
     }
 
     func sendMessage(_ message: String, context: String) async throws -> AIResponse {
-        guard let modelId = currentModelId else {
-            throw MLXError.invalidConfiguration
-        }
-
-        // Auto-load model if not already loaded
-        if chatSession == nil {
-            logger.info("🔄 Auto-loading model: \(modelId)")
-            try await loadModel(modelId: modelId)
-        }
-
-        // Check if chat session is loaded
-        guard let session = chatSession else {
-            throw MLXError.modelLoadFailed("Model failed to load")
-        }
-
-        // Build the full prompt with context
-        let fullPrompt = buildPrompt(message: message, context: context)
-
-        logger.info("🤖 Generating response with MLX model")
-        let startTime = Date()
-
-        do {
-            // Generate response using ChatSession
-            let generatedText = try await session.respond(to: fullPrompt)
-
-            let processingTime = Date().timeIntervalSince(startTime)
-
-            // Clean the response
-            let cleanedText = AIResponseCleaner.cleanConversational(generatedText)
-
-            logger.info("✅ Generated response in \(String(format: "%.2f", processingTime))s")
-
-            return MLXResponse(
-                content: cleanedText,
-                responseTime: processingTime,
-                tokenCount: estimateTokenCount(cleanedText),
-                metadata: [
-                    "model": currentModelId ?? "unknown",
-                    "temperature": currentConfig.temperature,
-                    "maxTokens": currentConfig.maxTokens
-                ]
-            )
-
-        } catch {
-            logger.error("❌ MLX generation failed", error: error)
-            lastError = error
-            throw MLXError.generationFailed(error.localizedDescription)
-        }
+        // MLX doesn't support one-off generation due to memory constraints
+        // Title generation should use heuristics instead
+        throw MLXError.invalidConfiguration
     }
 
     func getCapabilities() async throws -> AICapabilities {
@@ -167,6 +126,78 @@ class MLXClient: ObservableObject, AIProviderInterface {
         connectionStatus = .disconnected
     }
 
+    /// Delete a downloaded model from cache
+    func deleteModel(modelId: String) async throws {
+        guard let modelConfig = MLXModelRegistry.model(withId: modelId) else {
+            throw MLXError.modelNotFound
+        }
+
+        // Unload if this is the current model
+        if currentModelId == modelId {
+            unloadModel()
+        }
+
+        logger.info("🗑️ Deleting model: \(modelId)")
+
+        // Get the HuggingFace cache directory (iOS compatible)
+        let homeDirectory = URL(fileURLWithPath: NSHomeDirectory())
+        let cacheDirectory = homeDirectory
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Caches")
+            .appendingPathComponent("huggingface")
+            .appendingPathComponent("hub")
+
+        // Model directories follow pattern: models--<org>--<model>
+        let repoPath = modelConfig.huggingFaceRepo.replacingOccurrences(of: "/", with: "--")
+        let modelDirectory = cacheDirectory.appendingPathComponent("models--\(repoPath)")
+
+        if FileManager.default.fileExists(atPath: modelDirectory.path) {
+            try FileManager.default.removeItem(at: modelDirectory)
+            logger.info("✅ Deleted model cache at: \(modelDirectory.path)")
+        } else {
+            logger.warning("⚠️ Model cache not found at: \(modelDirectory.path)")
+        }
+    }
+
+    /// Check if a model is downloaded
+    func isModelDownloaded(modelId: String) -> Bool {
+        guard let modelConfig = MLXModelRegistry.model(withId: modelId) else {
+            return false
+        }
+
+        // Get the HuggingFace cache directory (iOS compatible)
+        let homeDirectory = URL(fileURLWithPath: NSHomeDirectory())
+        let cacheDirectory = homeDirectory
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Caches")
+            .appendingPathComponent("huggingface")
+            .appendingPathComponent("hub")
+
+        let repoPath = modelConfig.huggingFaceRepo.replacingOccurrences(of: "/", with: "--")
+        let modelDirectory = cacheDirectory.appendingPathComponent("models--\(repoPath)")
+
+        return FileManager.default.fileExists(atPath: modelDirectory.path)
+    }
+
+    /// Reset the chat session to clear conversation history and KV cache
+    func resetSession() async throws {
+        guard let modelId = currentModelId else {
+            throw MLXError.invalidConfiguration
+        }
+
+        logger.info("🔄 Resetting chat session")
+
+        // Explicitly unload the current session first to free memory
+        // This prevents having both old and new models in memory simultaneously
+        chatSession = nil
+
+        // Small delay to ensure memory is freed
+        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+
+        // Reload the model to get a fresh session
+        try await loadModel(modelId: modelId)
+    }
+
     /// Set generation configuration
     func setGenerationConfig(_ config: MLXGenerationConfig) {
         logger.info("🔧 Updating generation config - temp: \(config.temperature), maxTokens: \(config.maxTokens)")
@@ -180,6 +211,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
         _ message: String,
         context: String,
         systemPrompt: String?,
+        conversationId: UUID? = nil,
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (MLXResponse) -> Void
     ) async throws {
@@ -187,9 +219,22 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.invalidConfiguration
         }
 
+        // Check if we need to reset the session
+        let shouldReset = shouldResetSession(for: conversationId)
+        let isFirstTurn = shouldReset || chatSession == nil
+
+        if shouldReset {
+            logger.info("🔄 Resetting session - new conversation or context limit")
+            try await resetSession()
+            currentConversationId = conversationId
+            conversationTokenCount = 0
+        } else {
+            logger.debug("📝 Continuing conversation - token count: \(conversationTokenCount)")
+        }
+
         // Auto-load model if not already loaded
         if chatSession == nil {
-            logger.info("🔄 Auto-loading model for streaming: \(modelId)")
+            logger.info("🔄 Auto-loading model: \(modelId)")
             try await loadModel(modelId: modelId)
         }
 
@@ -197,23 +242,108 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.modelLoadFailed("Model failed to load")
         }
 
-        // Build the full prompt
-        let fullPrompt = buildPrompt(message: message, context: context, systemPrompt: systemPrompt)
+        // Build the prompt
+        // For first turn: include full context (system prompt + health data + message)
+        // For subsequent turns: only the new message (ChatSession maintains history)
+        let fullPrompt: String
+        if isFirstTurn {
+            fullPrompt = buildPrompt(message: message, context: context, systemPrompt: systemPrompt)
+            logger.debug("📋 First turn - including full context")
+        } else {
+            fullPrompt = message
+            logger.debug("📋 Subsequent turn - message only")
+        }
 
         logger.info("🤖 Streaming response with MLX model")
+        logger.debug("📋 Full prompt:\n\(fullPrompt.prefix(200))...")
         let startTime = Date()
 
         do {
             var finalText = ""
+            var tokenCount = 0
+            let maxTokens = currentConfig.maxTokens
+
+            // Track last N characters to detect repetition
+            var previousChunk = ""
+            var repetitionCount = 0
+
+            // Throttle UI updates to prevent performance degradation
+            var lastUpdateTime = Date()
+            let updateInterval: TimeInterval = 0.1 // Update UI every 100ms max
+            var tokensPerUpdate = 0
 
             // Stream tokens using ChatSession
-            // Note: streamResponse yields complete accumulated text each iteration
-            for try await text in session.streamResponse(to: fullPrompt) {
-                finalText = text
-                // Update with the full accumulated text so far
-                // Already on MainActor, so just call directly
-                onUpdate(text)
+            // streamResponse yields individual token strings that need to be accumulated
+            for try await token in session.streamResponse(to: fullPrompt) {
+                tokenCount += 1
+                tokensPerUpdate += 1
+
+                // Append the token to build the complete response
+                finalText += token
+
+                // Check for Gemma end-of-turn tokens
+                if finalText.contains("<end_of_turn>") ||
+                   finalText.contains("<|eot_id|>") ||
+                   finalText.contains("</s>") {
+                    logger.info("🛑 Detected end-of-turn token, stopping stream")
+                    // Remove the end token from final text
+                    finalText = finalText.replacingOccurrences(of: "<end_of_turn>", with: "")
+                    finalText = finalText.replacingOccurrences(of: "<|eot_id|>", with: "")
+                    finalText = finalText.replacingOccurrences(of: "</s>", with: "")
+                    // Send final update before breaking
+                    onUpdate(finalText)
+                    break
+                }
+
+                // Detect repetition (same content being generated repeatedly)
+                let recentChunk = String(finalText.suffix(100))
+                if recentChunk == previousChunk {
+                    repetitionCount += 1
+                    if repetitionCount > 3 {
+                        logger.warning("⚠️ Detected repetition loop, stopping stream")
+                        // Send final update before breaking
+                        onUpdate(finalText)
+                        break
+                    }
+                } else {
+                    repetitionCount = 0
+                    previousChunk = recentChunk
+                }
+
+                // Safety check: respect maxTokens limit
+                if tokenCount >= maxTokens {
+                    logger.warning("⚠️ Reached max tokens limit (\(maxTokens)), stopping stream")
+                    // Send final update before breaking
+                    onUpdate(finalText)
+                    break
+                }
+
+                // Log every 50th token to track progress
+                if tokenCount % 50 == 0 {
+                    logger.debug("📝 MLX streaming token \(tokenCount), total length: \(finalText.count), last 50 chars: \(String(finalText.suffix(50)))")
+                }
+
+                // Throttle UI updates: only update every 100ms to prevent performance issues
+                // This prevents CPU spikes from constant SwiftUI re-renders of growing text
+                let now = Date()
+                let timeSinceLastUpdate = now.timeIntervalSince(lastUpdateTime)
+                if timeSinceLastUpdate >= updateInterval {
+                    onUpdate(finalText)
+                    lastUpdateTime = now
+                    if tokensPerUpdate > 0 {
+                        logger.debug("📊 Updated UI: \(tokensPerUpdate) tokens in \(String(format: "%.0f", timeSinceLastUpdate * 1000))ms")
+                        tokensPerUpdate = 0
+                    }
+                }
             }
+
+            // Send final update to ensure UI has the complete text
+            onUpdate(finalText)
+
+            logger.info("✅ MLX streaming completed: \(tokenCount) tokens, \(finalText.count) characters")
+
+            // Update conversation token count
+            conversationTokenCount += tokenCount
 
             let processingTime = Date().timeIntervalSince(startTime)
             let cleanedText = AIResponseCleaner.cleanConversational(finalText)
@@ -225,7 +355,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 metadata: [
                     "model": currentModelId ?? "unknown",
                     "temperature": currentConfig.temperature,
-                    "streaming": true
+                    "streaming": true,
+                    "conversationTokens": conversationTokenCount
                 ]
             )
 
@@ -239,21 +370,50 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Private Helpers
 
+    /// Determine if we should reset the session
+    private func shouldResetSession(for conversationId: UUID?) -> Bool {
+        // Reset if no session exists
+        guard chatSession != nil else {
+            return true
+        }
+
+        // Reset if conversation ID changed (new conversation)
+        if let conversationId = conversationId, conversationId != currentConversationId {
+            logger.debug("🔄 Conversation changed: \(String(describing: currentConversationId)) → \(conversationId)")
+            return true
+        }
+
+        // Reset if approaching context window limit (90% of max)
+        let contextLimit = Int(Double(currentConfig.contextWindow) * 0.9)
+        if conversationTokenCount >= contextLimit {
+            logger.warning("⚠️ Approaching context limit: \(conversationTokenCount)/\(currentConfig.contextWindow)")
+            return true
+        }
+
+        return false
+    }
+
     private func buildPrompt(message: String, context: String, systemPrompt: String? = nil) -> String {
+        // MedGemma uses Gemma's chat template format
+        // ChatSession handles turn markers, so we provide a clean user message
+        // Avoid mentioning turn markers or special tokens in the prompt itself
+
         var prompt = ""
 
-        // Add system prompt if provided
+        // Include system instructions as part of the message content
+        // Don't use special formatting that might confuse the model
         if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
-            prompt += "\(systemPrompt)\n\n"
+            prompt += systemPrompt + "\n\n"
         }
 
-        // Add context if provided
         if !context.isEmpty {
-            prompt += "Context:\n\(context)\n\n"
+            prompt += "Patient Health Information:\n\(context)\n\n"
         }
 
-        // Add user message
-        prompt += "User: \(message)\n\nAssistant:"
+        // Simple, direct question format
+        prompt += message
+
+        logger.debug("📝 Prompt length: \(prompt.count) characters")
 
         return prompt
     }

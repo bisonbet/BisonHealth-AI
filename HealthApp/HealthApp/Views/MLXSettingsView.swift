@@ -26,6 +26,9 @@ struct MLXSettingsView: View {
         } message: {
             Text(loadError ?? "")
         }
+        .onAppear {
+            loadCurrentConfiguration()
+        }
     }
 
     // MARK: - Status Section
@@ -62,13 +65,20 @@ struct MLXSettingsView: View {
             }
 
             ForEach(MLXModelRegistry.availableModels) { model in
+                let mlxClient = settingsManager.getMLXClient()
+                let isDownloaded = mlxClient.isModelDownloaded(modelId: model.id)
+
                 ModelRow(
                     model: model,
                     isSelected: settingsManager.modelPreferences.mlxModelId == model.id,
+                    isDownloaded: isDownloaded,
                     isLoading: isLoadingModel,
                     onSelect: {
                         selectAndLoadModel(model)
-                    }
+                    },
+                    onDelete: isDownloaded ? {
+                        deleteModel(model)
+                    } : nil
                 )
             }
         }
@@ -201,6 +211,36 @@ struct MLXSettingsView: View {
     private func updateMLXConfig() {
         let client = settingsManager.getMLXClient()
         client.setGenerationConfig(generationConfig)
+
+        // Persist to SettingsManager
+        settingsManager.mlxGenerationConfig = generationConfig
+        settingsManager.saveSettings()
+    }
+
+    private func loadCurrentConfiguration() {
+        // Load from SettingsManager
+        generationConfig = settingsManager.mlxGenerationConfig
+
+        // Also update the MLX client
+        let client = settingsManager.getMLXClient()
+        client.setGenerationConfig(generationConfig)
+    }
+
+    private func deleteModel(_ model: MLXModelConfig) {
+        Task {
+            do {
+                let client = settingsManager.getMLXClient()
+                try await client.deleteModel(modelId: model.id)
+
+                // If this was the selected model, clear the selection
+                if settingsManager.modelPreferences.mlxModelId == model.id {
+                    settingsManager.modelPreferences.mlxModelId = nil
+                    settingsManager.saveSettings()
+                }
+            } catch {
+                loadError = "Failed to delete model: \(error.localizedDescription)"
+            }
+        }
     }
 }
 
@@ -209,54 +249,75 @@ struct MLXSettingsView: View {
 struct ModelRow: View {
     let model: MLXModelConfig
     let isSelected: Bool
+    let isDownloaded: Bool
     let isLoading: Bool
     let onSelect: () -> Void
+    let onDelete: (() -> Void)?
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.name)
-                        .font(.headline)
-                        .foregroundColor(.primary)
+        HStack(spacing: 0) {
+            Button(action: onSelect) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(model.name)
+                                .font(.headline)
+                                .foregroundColor(.primary)
 
-                    Text(model.description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    HStack {
-                        if model.recommended {
-                            Text("Recommended")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.blue.opacity(0.2))
-                                .foregroundColor(.blue)
-                                .cornerRadius(4)
+                            if isDownloaded {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
                         }
 
-                        Text(model.formattedSize)
-                            .font(.caption2)
+                        Text(model.description)
+                            .font(.caption)
                             .foregroundColor(.secondary)
 
-                        if let specialization = model.specialization {
-                            Text(specialization)
+                        HStack {
+                            if model.recommended {
+                                Text("Recommended")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue.opacity(0.2))
+                                    .foregroundColor(.blue)
+                                    .cornerRadius(4)
+                            }
+
+                            Text(model.formattedSize)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+
+                            if let specialization = model.specialization {
+                                Text(specialization)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
-                }
 
-                Spacer()
+                    Spacer()
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.blue)
+                    }
                 }
             }
+            .disabled(isLoading)
+            .opacity(isLoading && !isSelected ? 0.5 : 1.0)
+
+            if let onDelete = onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                        .padding(.leading, 12)
+                }
+                .buttonStyle(.borderless)
+            }
         }
-        .disabled(isLoading)
-        .opacity(isLoading && !isSelected ? 0.5 : 1.0)
     }
 }
 
