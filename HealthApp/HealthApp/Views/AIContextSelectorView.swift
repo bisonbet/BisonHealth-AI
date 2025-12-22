@@ -161,11 +161,6 @@ struct AIContextSelectorView: View {
                         Task {
                             await viewModel.toggleDocument(document)
                         }
-                    },
-                    onPriorityChange: { priority in
-                        Task {
-                            await viewModel.updatePriority(document, priority: priority)
-                        }
                     }
                 )
             }
@@ -196,13 +191,10 @@ struct AIContextSelectorView: View {
             documents = documents.filter { $0.includeInAIContext }
         }
 
-        // Sort by priority (desc) and date (desc)
+        // Sort by selection status and date (newest first)
         return documents.sorted { doc1, doc2 in
             if doc1.includeInAIContext != doc2.includeInAIContext {
                 return doc1.includeInAIContext
-            }
-            if doc1.contextPriority != doc2.contextPriority {
-                return doc1.contextPriority > doc2.contextPriority
             }
             guard let date1 = doc1.documentDate, let date2 = doc2.documentDate else {
                 return doc1.documentDate != nil
@@ -236,116 +228,55 @@ struct FilterChip: View {
 struct AIContextDocumentRow: View {
     let document: MedicalDocument
     let onToggle: () -> Void
-    let onPriorityChange: (Int) -> Void
-
-    @State private var showingPrioritySlider: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                // Selection toggle
-                Button(action: onToggle) {
-                    Image(systemName: document.includeInAIContext ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundColor(document.includeInAIContext ? .blue : .secondary)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Document icon
-                Image(systemName: document.documentCategory.icon)
+        HStack(spacing: 12) {
+            // Selection toggle
+            Button(action: onToggle) {
+                Image(systemName: document.includeInAIContext ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundColor(.blue)
-                    .frame(width: 30)
-
-                // Document info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(document.fileName)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        Text(document.documentCategory.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(4)
-
-                        if let date = document.documentDate {
-                            Text(date, style: .date)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let provider = document.providerName {
-                            Text(provider)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                // Priority indicator (when included)
-                if document.includeInAIContext {
-                    Button(action: { showingPrioritySlider.toggle() }) {
-                        VStack(spacing: 2) {
-                            Image(systemName: "star.fill")
-                                .font(.caption)
-
-                            Text("\(document.contextPriority)")
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                        }
-                        .foregroundColor(.orange)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
+                    .foregroundColor(document.includeInAIContext ? .blue : .secondary)
             }
-            .padding(.vertical, 4)
+            .buttonStyle(PlainButtonStyle())
 
-            // Priority slider (when expanded and included)
-            if showingPrioritySlider && document.includeInAIContext {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Priority")
+            // Document icon
+            Image(systemName: document.documentCategory.icon)
+                .font(.title3)
+                .foregroundColor(.blue)
+                .frame(width: 30)
+
+            // Document info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(document.fileName)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    Text(document.documentCategory.displayName)
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(4)
+
+                    if let date = document.documentDate {
+                        Text(date, style: .date)
                             .font(.caption)
                             .foregroundColor(.secondary)
-
-                        Spacer()
-
-                        Text("1")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-
-                        Slider(
-                            value: Binding(
-                                get: { Double(document.contextPriority) },
-                                set: { onPriorityChange(Int($0)) }
-                            ),
-                            in: 1...5,
-                            step: 1
-                        )
-                        .frame(width: 120)
-
-                        Text("5")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
                     }
 
-                    Text("Higher priority documents are included first")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    if let provider = document.providerName {
+                        Text(provider)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-                .padding(12)
-                .background(Color(.systemGray6))
-                .cornerRadius(8)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+
+            Spacer()
         }
-        .animation(.easeInOut(duration: 0.2), value: showingPrioritySlider)
+        .padding(.vertical, 4)
     }
 }
 
@@ -383,18 +314,6 @@ class AIContextSelectorViewModel: ObservableObject {
             print("❌ Failed to update context status: \(error)")
             // Revert on error
             documents[index].includeInAIContext = !newValue
-        }
-    }
-
-    func updatePriority(_ document: MedicalDocument, priority: Int) async {
-        guard let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
-
-        documents[index].contextPriority = priority
-
-        do {
-            try await databaseManager.updateMedicalDocument(documents[index])
-        } catch {
-            print("❌ Failed to update priority: \(error)")
         }
     }
 

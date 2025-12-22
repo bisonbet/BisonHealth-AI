@@ -563,11 +563,17 @@ extension ChatContext {
             }
         }
         
-        // Blood Tests
+        // Blood Tests - Only include selected tests
         if selectedDataTypes.contains(.bloodTest) {
-            if !bloodTests.isEmpty {
+            // Filter to only tests marked for AI context
+            let selectedTests = bloodTests.filter { $0.includeInAIContext }
+
+            if !selectedTests.isEmpty {
                 var bloodTestContext = "Blood Test Results:\n"
-                for test in bloodTests.prefix(3) { // Limit to most recent 3 tests
+                // Sort by date (newest first) and limit to prevent token overflow
+                let sortedTests = selectedTests.sorted { $0.testDate > $1.testDate }.prefix(5)
+
+                for test in sortedTests {
                     let formatter = DateFormatter()
                     formatter.dateStyle = .medium
                     bloodTestContext += "\nTest Date: \(formatter.string(from: test.testDate))\n"
@@ -576,7 +582,7 @@ extension ChatContext {
                         bloodTestContext += "Laboratory: \(lab)\n"
                     }
 
-                    // Include ALL results, not just abnormal ones
+                    // Include only the actual result data: name, value, unit, reference range
                     if !test.results.isEmpty {
                         bloodTestContext += "Results:\n"
                         for result in test.results {
@@ -596,7 +602,7 @@ extension ChatContext {
                 }
                 contextParts.append(bloodTestContext)
             } else {
-                contextParts.append("Blood Test Results: No data available yet\n")
+                contextParts.append("Blood Test Results: No tests selected for AI context\n")
             }
         }
         
@@ -625,27 +631,29 @@ extension ChatContext {
                 print("🔍 Context Build -   Extracted text length: \(medicalDoc.extractedText?.count ?? 0)")
                 print("🔍 Context Build -   Extracted text is nil: \(medicalDoc.extractedText == nil)")
 
-                // Include extracted sections if available
+                // Only include extracted sections (NOT full text to save tokens)
                 if !medicalDoc.sections.isEmpty {
                     print("🔍 Context Build -   Using sections for context")
                     for section in medicalDoc.sections {
                         medicalDocContext += "\n\(section.sectionType):\n"
-                        medicalDocContext += "\(section.content)\n"
+                        // Limit section content to prevent token overflow (max 500 chars per section)
+                        // Truncate at word boundaries to avoid cutting mid-word
+                        let sectionContent: String
+                        if section.content.count > 500 {
+                            let truncated = section.content.prefix(500)
+                            if let lastSpace = truncated.lastIndex(of: " ") {
+                                sectionContent = String(section.content[..<lastSpace]) + "..."
+                            } else {
+                                sectionContent = String(truncated) + "..."
+                            }
+                        } else {
+                            sectionContent = section.content
+                        }
+                        medicalDocContext += "\(sectionContent)\n"
                     }
-                } else if let extractedText = medicalDoc.extractedText, !extractedText.isEmpty {
-                    // Fallback to extracted text if no sections are available
-                    print("🔍 Context Build -   Using extracted text for context (length: \(extractedText.count))")
-                    // Clean markdown to remove any base64 image data that might still be present
-                    let cleanedText = cleanMarkdownForContext(extractedText)
-                    // Truncate if too long to avoid context overflow
-                    let maxTextLength = 5000
-                    let displayText = cleanedText.count > maxTextLength 
-                        ? String(cleanedText.prefix(maxTextLength)) + "\n... (text truncated)"
-                        : cleanedText
-                    medicalDocContext += "\nDocument Content:\n\(displayText)\n"
                 } else {
-                    print("⚠️ Context Build -   WARNING: No sections or extracted text available!")
-                    medicalDocContext += "\n(No content available - document may still be processing)\n"
+                    print("⚠️ Context Build -   No sections available for document")
+                    medicalDocContext += "\n(No structured content available - please ensure document has been processed)\n"
                 }
             }
 
