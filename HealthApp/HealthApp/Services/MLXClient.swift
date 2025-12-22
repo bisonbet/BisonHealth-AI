@@ -25,8 +25,15 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var loadedModel: ModelContext?  // Store model separately from session for reuse
     private var currentConfig: MLXGenerationConfig = .default
     private let logger = Logger.shared
+
+    // GPU Initialization State
+    // Note: We need both pieces of state because:
+    // - gpuInitializationTask: Represents the async initialization work (await its completion)
+    // - isGPUInitialized: Represents the result (success/failure) - can't be derived from Task<Void, Never>
+    // Both are MainActor-isolated, preventing race conditions
     private let gpuInitializationTask: Task<Void, Never>
     private var isGPUInitialized: Bool = false
+
     private static let gpuCacheLimit: UInt64 = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
 
     // Conversation tracking
@@ -44,8 +51,19 @@ class MLXClient: ObservableObject, AIProviderInterface {
             let cacheLimit = Self.gpuCacheLimit
             // MLX.GPU.set is not a throwing function, so no try-catch needed
             MLX.GPU.set(cacheLimit: cacheLimit)
-            logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
-            isGPUInitialized = true
+
+            // Verify initialization by checking GPU memory stats
+            let activeMemory = GPU.activeMemory
+            let cacheMemory = GPU.cacheMemory
+
+            if activeMemory >= 0 && cacheMemory >= 0 {
+                logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+                logger.debug("📊 GPU verification - Active: \(activeMemory / 1024 / 1024)MB, Cache: \(cacheMemory / 1024 / 1024)MB")
+                isGPUInitialized = true
+            } else {
+                logger.error("❌ GPU initialization verification failed - memory stats unavailable")
+                isGPUInitialized = false
+            }
         }
     }
 
@@ -62,8 +80,20 @@ class MLXClient: ObservableObject, AIProviderInterface {
         logger.info("🔄 Retrying GPU initialization...")
         let cacheLimit = Self.gpuCacheLimit
         MLX.GPU.set(cacheLimit: cacheLimit)
-        logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
-        isGPUInitialized = true
+
+        // Verify initialization by checking GPU memory stats
+        // If GPU is working, these values should be non-negative
+        let activeMemory = GPU.activeMemory
+        let cacheMemory = GPU.cacheMemory
+
+        if activeMemory >= 0 && cacheMemory >= 0 {
+            logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+            logger.info("📊 GPU verification - Active: \(activeMemory / 1024 / 1024)MB, Cache: \(cacheMemory / 1024 / 1024)MB")
+            isGPUInitialized = true
+        } else {
+            logger.error("❌ GPU initialization verification failed - memory stats unavailable")
+            isGPUInitialized = false
+        }
     }
 
     // MARK: - Memory Monitoring
@@ -563,10 +593,23 @@ class MLXClient: ObservableObject, AIProviderInterface {
     /// 2. Guarantees UI callbacks always run on MainActor
     /// 3. Swift's Task system is optimized for short-lived tasks
     ///
+    /// Note: We use Task { @MainActor } instead of MainActor.assumeIsolated because:
+    /// - Task wrapper is safe - will hop to MainActor if needed
+    /// - assumeIsolated crashes if assumption is wrong
+    /// - AsyncSequence behavior regarding execution context is not guaranteed
+    ///
     /// - Parameters:
     ///   - text: The accumulated response text
     ///   - onUpdate: Callback to deliver the update (will be called on MainActor)
     private func deliverUpdate(_ text: String, onUpdate: @escaping (String) -> Void) {
+        #if DEBUG
+        // In debug builds, verify our threading assumptions
+        // If this assertion never fires, we could optimize by calling directly
+        if Thread.isMainThread {
+            logger.debug("🧵 deliverUpdate called on main thread - Task wrapper may be unnecessary")
+        }
+        #endif
+
         Task { @MainActor in
             onUpdate(text)
         }
@@ -577,6 +620,13 @@ class MLXClient: ObservableObject, AIProviderInterface {
     ///   - response: The final MLX response
     ///   - onComplete: Callback to deliver completion (will be called on MainActor)
     private func deliverCompletion(_ response: MLXResponse, onComplete: @escaping (MLXResponse) -> Void) {
+        #if DEBUG
+        // In debug builds, verify our threading assumptions
+        if Thread.isMainThread {
+            logger.debug("🧵 deliverCompletion called on main thread - Task wrapper may be unnecessary")
+        }
+        #endif
+
         Task { @MainActor in
             onComplete(response)
         }
