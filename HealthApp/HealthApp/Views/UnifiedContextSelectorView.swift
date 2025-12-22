@@ -139,12 +139,23 @@ struct UnifiedContextSelectorView: View {
                             }
                         }
 
+                        if viewModel.selectedBloodTestsCount > 0 {
+                            HStack {
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 4, height: 4)
+                                Text("\(viewModel.selectedBloodTestsCount) lab result\(viewModel.selectedBloodTestsCount == 1 ? "" : "s"): ~\(viewModel.estimatedBloodTestTokens) tokens")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
                         if viewModel.includedDocumentsCount > 0 {
                             HStack {
                                 Circle()
                                     .fill(Color.green)
                                     .frame(width: 4, height: 4)
-                                Text("\(viewModel.includedDocumentsCount) document\(viewModel.includedDocumentsCount == 1 ? "" : "s"): ~\(viewModel.estimatedTokens - (viewModel.personalInfoEnabled ? 200 : 0)) tokens")
+                                Text("\(viewModel.includedDocumentsCount) document\(viewModel.includedDocumentsCount == 1 ? "" : "s"): ~\(viewModel.estimatedDocumentTokens) tokens")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -225,6 +236,7 @@ struct UnifiedContextSelectorView: View {
                     )
                     .disabled(!viewModel.bloodTestsEnabled)
                 }
+                .animation(.default, value: viewModel.selectedBloodTests)
             }
 
             // Documents list (when enabled)
@@ -352,6 +364,9 @@ struct BloodTestSelectionRow: View {
                     .foregroundColor(isSelected ? .blue : .secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(isSelected ? "Deselect blood test from \(bloodTest.testDate.formatted(date: .abbreviated, time: .omitted))" : "Select blood test from \(bloodTest.testDate.formatted(date: .abbreviated, time: .omitted))")
+            .accessibilityHint("Double tap to \(isSelected ? "deselect" : "select") this lab result for AI context")
+            .accessibilityIdentifier("bloodTestSelectionToggle_\(bloodTest.id.uuidString)")
 
             // Blood test info
             VStack(alignment: .leading, spacing: 4) {
@@ -462,12 +477,11 @@ struct StatBox: View {
 class UnifiedContextSelectorViewModel: ObservableObject {
     // MARK: - Constants
     private enum Constants {
-        static let defaultPriority = 3
         static let defaultTokenEstimate = 500
         static let personalInfoTokenEstimate = 200
         static let tokensPerCharacter = 4
-        static let smallContextThreshold = 4000
-        static let mediumContextThreshold = 8000
+        static let tokensPerBloodTestResult = 50  // ~50 tokens per result line
+        static let bloodTestHeaderTokens = 50     // Header info (date, lab name)
         static let smallContextDisplayThreshold = 1000
         static let largeContextDisplayThreshold = 10000
     }
@@ -515,23 +529,59 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         selectedDocuments.count
     }
 
+    var selectedBloodTestsCount: Int {
+        selectedBloodTests.count
+    }
+
+    var estimatedBloodTestTokens: Int {
+        var tokens = 0
+        for testId in selectedBloodTests {
+            if let test = allBloodTests.first(where: { $0.id == testId }) {
+                tokens += test.results.count * Constants.tokensPerBloodTestResult + Constants.bloodTestHeaderTokens
+            }
+        }
+        return tokens
+    }
+
+    var estimatedDocumentTokens: Int {
+        var tokens = 0
+        for docId in selectedDocuments {
+            if let doc = allDocuments.first(where: { $0.id == docId }) {
+                if let text = doc.extractedText {
+                    tokens += text.count / Constants.tokensPerCharacter
+                } else {
+                    tokens += Constants.defaultTokenEstimate
+                }
+            }
+        }
+        return tokens
+    }
+
     var estimatedTokens: Int {
         // Calculate hash of dependencies for cache invalidation
         let currentHash = hashForTokensCalculation()
-        
+
         // Return cached value if dependencies haven't changed
         if let cached = _cachedEstimatedTokens,
            let lastHash = _lastTokensCalculationHash,
            lastHash == currentHash {
             return cached
         }
-        
+
         // Calculate tokens
         var tokens = 0
 
         // Personal info tokens
         if personalInfoEnabled {
             tokens += Constants.personalInfoTokenEstimate
+        }
+
+        // Blood tests: estimate based on selected tests
+        for testId in selectedBloodTests {
+            if let test = allBloodTests.first(where: { $0.id == testId }) {
+                // Estimate: ~50 tokens per result line + 50 for headers
+                tokens += test.results.count * Constants.tokensPerBloodTestResult + Constants.bloodTestHeaderTokens
+            }
         }
 
         // Documents: estimate based on selected documents
@@ -549,7 +599,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         // Cache the result
         _cachedEstimatedTokens = tokens
         _lastTokensCalculationHash = currentHash
-        
+
         return tokens
     }
     
@@ -647,7 +697,6 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         // Note: @Published properties automatically trigger objectWillChange
     }
 
-<<<<<<< Updated upstream
     // MARK: - Blood Test Management
     func isBloodTestSelected(_ bloodTest: BloodTestResult) -> Bool {
         selectedBloodTests.contains(bloodTest.id)

@@ -637,9 +637,18 @@ extension ChatContext {
                     for section in medicalDoc.sections {
                         medicalDocContext += "\n\(section.sectionType):\n"
                         // Limit section content to prevent token overflow (max 500 chars per section)
-                        let sectionContent = section.content.count > 500
-                            ? String(section.content.prefix(500)) + "..."
-                            : section.content
+                        // Truncate at word boundaries to avoid cutting mid-word
+                        let sectionContent: String
+                        if section.content.count > 500 {
+                            let truncated = section.content.prefix(500)
+                            if let lastSpace = truncated.lastIndex(of: " ") {
+                                sectionContent = String(section.content[..<lastSpace]) + "..."
+                            } else {
+                                sectionContent = String(truncated) + "..."
+                            }
+                        } else {
+                            sectionContent = section.content
+                        }
                         medicalDocContext += "\(sectionContent)\n"
                     }
                 } else {
