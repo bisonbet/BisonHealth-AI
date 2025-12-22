@@ -275,7 +275,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     /// Set generation configuration
     func setGenerationConfig(_ config: MLXGenerationConfig) {
-        logger.info("🔧 Updating generation config - temp: \(config.temperature), maxTokens: \(config.maxTokens)")
+        logger.info("🔧 Updating generation config - temp: \(config.temperature), maxTokens: \(config.maxTokens), contextWindow: \(config.contextWindow)")
         currentConfig = config
     }
 
@@ -491,6 +491,11 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
             logger.info("✅ MLX streaming completed: \(tokenCount) tokens, \(finalText.count) characters")
             logMemoryStats(label: "After Generation")
+
+            // Clear GPU cache after generation to free memory
+            // Since we reset session each turn for MedGemma anyway, cached tensors aren't reused
+            GPU.clearCache()
+            logMemoryStats(label: "After Cache Clear")
 
             // Update conversation token count
             conversationTokenCount += tokenCount

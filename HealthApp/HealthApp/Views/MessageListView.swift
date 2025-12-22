@@ -248,7 +248,8 @@ struct MessageBubbleView: View {
 
 struct TypingIndicatorView: View {
     @State private var animationPhase = 0
-    
+    @State private var animationTimer: Timer?
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
@@ -286,16 +287,21 @@ struct TypingIndicatorView: View {
         }
         .onAppear {
             animationPhase = 0
-            Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
+            animationTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
                 animationPhase = (animationPhase + 1) % 3
             }
+        }
+        .onDisappear {
+            animationTimer?.invalidate()
+            animationTimer = nil
         }
     }
 }
 
 struct StreamingIndicatorView: View {
     @State private var animationPhase = 0
-    
+    @State private var animationTimer: Timer?
+
     var body: some View {
         HStack(spacing: 4) {
             ForEach(0..<3) { index in
@@ -314,9 +320,13 @@ struct StreamingIndicatorView: View {
         .padding(.horizontal, 8)
         .onAppear {
             animationPhase = 0
-            Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
+            animationTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
                 animationPhase = (animationPhase + 1) % 3
             }
+        }
+        .onDisappear {
+            animationTimer?.invalidate()
+            animationTimer = nil
         }
     }
 }
