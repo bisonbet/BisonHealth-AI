@@ -41,15 +41,40 @@ struct UnifiedContextSelectorView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         Task {
-                            await viewModel.saveChanges()
-                            dismiss()
+                            do {
+                                try await viewModel.saveChanges()
+                                dismiss()
+                            } catch {
+                                // Error is handled by viewModel.errorMessage
+                            }
                         }
                     }
                     .fontWeight(.semibold)
+                    .disabled(viewModel.isLoading)
                 }
             }
             .task {
                 await viewModel.loadData()
+            }
+            .alert("Error", isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            )) {
+                Button("OK") {
+                    viewModel.errorMessage = nil
+                }
+            } message: {
+                if let errorMessage = viewModel.errorMessage {
+                    Text(errorMessage)
+                }
+            }
+            .overlay {
+                if viewModel.isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.1))
+                }
             }
         }
     }
@@ -133,8 +158,9 @@ struct UnifiedContextSelectorView: View {
     }
 
     private var sizeColor: Color {
-        if viewModel.estimatedTokens < 4000 { return .green }
-        if viewModel.estimatedTokens < 8000 { return .orange }
+        let tokens = viewModel.estimatedTokens
+        if tokens < 4000 { return .green }
+        if tokens < 8000 { return .orange }
         return .red
     }
 
@@ -213,6 +239,7 @@ struct UnifiedContextSelectorView: View {
                     )
                     .disabled(!viewModel.bloodTestsEnabled)
                 }
+                .animation(.default, value: viewModel.selectedDocuments)
             }
         }
     }
@@ -258,6 +285,7 @@ struct UnifiedContextSelectorView: View {
                     )
                     .disabled(!viewModel.imagingReportsEnabled)
                 }
+                .animation(.default, value: viewModel.selectedDocuments)
             }
         }
     }
@@ -303,6 +331,7 @@ struct UnifiedContextSelectorView: View {
                     )
                     .disabled(!viewModel.healthCheckupsEnabled)
                 }
+                .animation(.default, value: viewModel.selectedDocuments)
             }
         }
     }
@@ -375,6 +404,9 @@ struct DocumentSelectionRow: View {
                     .foregroundColor(isSelected ? .blue : .secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(isSelected ? "Deselect \(document.fileName)" : "Select \(document.fileName)")
+            .accessibilityHint("Double tap to \(isSelected ? "deselect" : "select") this document for AI context")
+            .accessibilityIdentifier("documentSelectionToggle_\(document.id.uuidString)")
 
             // Document info
             VStack(alignment: .leading, spacing: 4) {
@@ -428,6 +460,18 @@ struct StatBox: View {
 // MARK: - View Model
 @MainActor
 class UnifiedContextSelectorViewModel: ObservableObject {
+    // MARK: - Constants
+    private enum Constants {
+        static let defaultPriority = 3
+        static let defaultTokenEstimate = 500
+        static let personalInfoTokenEstimate = 200
+        static let tokensPerCharacter = 4
+        static let smallContextThreshold = 4000
+        static let mediumContextThreshold = 8000
+        static let smallContextDisplayThreshold = 1000
+        static let largeContextDisplayThreshold = 10000
+    }
+    
     // Published properties
     @Published var personalInfoEnabled: Bool = false
     @Published var bloodTestsEnabled: Bool = false
@@ -439,10 +483,17 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     @Published var healthCheckupDocuments: [MedicalDocument] = []
     @Published var allBloodTests: [BloodTestResult] = []
 
-    // Private state
-    private var selectedDocuments: Set<UUID> = []
-    private var selectedBloodTests: Set<UUID> = []
+    // Published state for UI updates (fixes P1 Badge issue)
+    @Published var selectedDocuments: Set<UUID> = []
+    @Published var selectedBloodTests: Set<UUID> = []
+    @Published var errorMessage: String? = nil
+    @Published var isLoading: Bool = false
+    
     private var allDocuments: [MedicalDocument] = []
+    
+    // Cached computed properties
+    private var _cachedEstimatedTokens: Int?
+    private var _lastTokensCalculationHash: Int?
 
     private let databaseManager = DatabaseManager.shared
     private let chatManager: AIChatManager
@@ -465,11 +516,22 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     }
 
     var estimatedTokens: Int {
+        // Calculate hash of dependencies for cache invalidation
+        let currentHash = hashForTokensCalculation()
+        
+        // Return cached value if dependencies haven't changed
+        if let cached = _cachedEstimatedTokens,
+           let lastHash = _lastTokensCalculationHash,
+           lastHash == currentHash {
+            return cached
+        }
+        
+        // Calculate tokens
         var tokens = 0
 
-        // Personal info: ~200 tokens
+        // Personal info tokens
         if personalInfoEnabled {
-            tokens += 200
+            tokens += Constants.personalInfoTokenEstimate
         }
 
         // Documents: estimate based on selected documents
@@ -477,25 +539,51 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             if let doc = allDocuments.first(where: { $0.id == docId }) {
                 // Rough estimate: 1 token per 4 characters
                 if let text = doc.extractedText {
-                    tokens += text.count / 4
+                    tokens += text.count / Constants.tokensPerCharacter
                 } else {
-                    tokens += 500 // Default estimate
+                    tokens += Constants.defaultTokenEstimate
                 }
             }
         }
 
+        // Cache the result
+        _cachedEstimatedTokens = tokens
+        _lastTokensCalculationHash = currentHash
+        
         return tokens
+    }
+    
+    private func hashForTokensCalculation() -> Int {
+        var hasher = Hasher()
+        hasher.combine(personalInfoEnabled)
+        hasher.combine(selectedDocuments)
+        hasher.combine(selectedBloodTests)
+        // Include document text lengths in hash
+        for docId in selectedDocuments {
+            if let doc = allDocuments.first(where: { $0.id == docId }),
+               let text = doc.extractedText {
+                hasher.combine(text.count)
+            }
+        }
+        return hasher.finalize()
     }
 
     var estimatedContextSize: String {
         let tokens = estimatedTokens
-        if tokens < 1000 { return "\(tokens)" }
-        if tokens < 10000 { return String(format: "%.1fK", Double(tokens) / 1000) }
+        if tokens < Constants.smallContextDisplayThreshold { 
+            return "\(tokens)" 
+        }
+        if tokens < Constants.largeContextDisplayThreshold { 
+            return String(format: "%.1fK", Double(tokens) / 1000) 
+        }
         return String(format: "%.0fK", Double(tokens) / 1000)
     }
 
     // MARK: - Data Loading
     func loadData() async {
+        isLoading = true
+        errorMessage = nil
+        
         do {
             // Load all medical documents
             allDocuments = try await databaseManager.fetchMedicalDocuments()
@@ -529,10 +617,17 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
             // Load blood test selections
             selectedBloodTests = Set(allBloodTests.filter { $0.includeInAIContext }.map { $0.id })
+            
+            // Invalidate cache after loading
+            _cachedEstimatedTokens = nil
+            _lastTokensCalculationHash = nil
 
         } catch {
+            errorMessage = "Failed to load context data: \(error.localizedDescription)"
             print("❌ Failed to load context data: \(error)")
         }
+        
+        isLoading = false
     }
 
     // MARK: - Document Management
@@ -546,8 +641,13 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         } else {
             selectedDocuments.insert(document.id)
         }
+        // Invalidate cache when selection changes
+        _cachedEstimatedTokens = nil
+        _lastTokensCalculationHash = nil
+        // Note: @Published properties automatically trigger objectWillChange
     }
 
+<<<<<<< Updated upstream
     // MARK: - Blood Test Management
     func isBloodTestSelected(_ bloodTest: BloodTestResult) -> Bool {
         selectedBloodTests.contains(bloodTest.id)
@@ -559,6 +659,10 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         } else {
             selectedBloodTests.insert(bloodTest.id)
         }
+        // Invalidate cache when selection changes
+        _cachedEstimatedTokens = nil
+        _lastTokensCalculationHash = nil
+        // Note: @Published properties automatically trigger objectWillChange
     }
 
     func toggleAllDocuments(in category: HealthDataType, enabled: Bool) {
@@ -586,10 +690,22 @@ class UnifiedContextSelectorViewModel: ObservableObject {
                 selectedDocuments.remove(doc.id)
             }
         }
+        // Invalidate cache when selection changes
+        _cachedEstimatedTokens = nil
+        _lastTokensCalculationHash = nil
+        // Note: @Published properties automatically trigger objectWillChange
     }
 
     // MARK: - Save Changes
-    func saveChanges() async {
+    func saveChanges() async throws {
+        // Validate before saving
+        guard validateSelections() else {
+            throw ValidationError.invalidSelection
+        }
+        
+        errorMessage = nil
+        isLoading = true
+        
         do {
             // Save health data type selections to AIChatManager
             var selectedTypes: Set<HealthDataType> = []
@@ -627,7 +743,35 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
             print("✅ Context selections saved successfully")
         } catch {
+            errorMessage = "Failed to save context selections: \(error.localizedDescription)"
             print("❌ Failed to save context selections: \(error)")
+            throw error
+        }
+        
+        isLoading = false
+    }
+    
+    // MARK: - Validation
+    private func validateSelections() -> Bool {
+        // Validation: If documents are selected, at least one category should be enabled
+        if !selectedDocuments.isEmpty {
+            let hasEnabledCategory = personalInfoEnabled || 
+                                   bloodTestsEnabled || 
+                                   imagingReportsEnabled || 
+                                   healthCheckupsEnabled
+            return hasEnabledCategory
+        }
+        return true
+    }
+    
+    enum ValidationError: LocalizedError {
+        case invalidSelection
+        
+        var errorDescription: String? {
+            switch self {
+            case .invalidSelection:
+                return "Please enable at least one category when selecting documents."
+            }
         }
     }
 }
