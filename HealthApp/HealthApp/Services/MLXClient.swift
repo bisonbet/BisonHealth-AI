@@ -26,6 +26,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var currentConfig: MLXGenerationConfig = .default
     private let logger = Logger.shared
     private let gpuInitializationTask: Task<Void, Never>
+    private var isGPUInitialized: Bool = false
     private static let gpuCacheLimit: UInt64 = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
 
     // Conversation tracking
@@ -37,13 +38,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Initialization
     private init() {
-        gpuInitializationTask = Task { @MainActor [logger] in
-            // Set GPU cache limit for MLX
-            // Increased from 512MB to 4GB to support larger models
-            // Requires increased-memory-limit entitlement in production
+        // Initialize GPU on MainActor to ensure Metal resources are properly bound
+        // The defer ensures isGPUInitialized is set even if an error occurs
+        gpuInitializationTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            defer { self.isGPUInitialized = true }
             let cacheLimit = Self.gpuCacheLimit
             MLX.GPU.set(cacheLimit: cacheLimit)
-            logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+            self.logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
         }
     }
 
@@ -416,9 +418,11 @@ class MLXClient: ObservableObject, AIProviderInterface {
             var tokensPerUpdate = 0
 
             // Stream tokens using ChatSession
-            // streamResponse yields individual token strings that need to be accumulated
-            let tokenStream = await MainActor.run { session.streamResponse(to: fullPrompt) }
-            for try await token in tokenStream {
+            // Note: We're already on MainActor (class-level isolation), so we can call
+            // streamResponse directly without MainActor.run wrapper
+            // The iteration may happen on a background thread (AsyncSequence behavior),
+            // which is why we use deliverUpdate() to marshal callbacks back to MainActor
+            for try await token in session.streamResponse(to: fullPrompt) {
                 tokenCount += 1
                 tokensPerUpdate += 1
 
@@ -527,25 +531,34 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Private Helpers
 
+    /// Load MLX model from HuggingFace repository
+    /// Already running on MainActor due to class-level isolation
     private func loadModelOnMainActor(_ huggingFaceRepo: String) async throws -> ModelContext {
-        try await withCheckedThrowingContinuation { continuation in
-            Task { @MainActor in
-                do {
-                    let model = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
-                    continuation.resume(returning: model)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        // No need for Task { @MainActor } wrapper - already on MainActor
+        return try await MLXLMCommon.loadModel(id: huggingFaceRepo)
     }
 
+    /// Delivers streaming update to MainActor, safe to call from any context
+    ///
+    /// Creates a new Task to ensure MainActor execution regardless of caller's context.
+    /// While this creates one Task per update during streaming, it's necessary because:
+    /// 1. AsyncSequence iteration may change execution context
+    /// 2. Guarantees UI callbacks always run on MainActor
+    /// 3. Swift's Task system is optimized for short-lived tasks
+    ///
+    /// - Parameters:
+    ///   - text: The accumulated response text
+    ///   - onUpdate: Callback to deliver the update (will be called on MainActor)
     private func deliverUpdate(_ text: String, onUpdate: @escaping (String) -> Void) {
         Task { @MainActor in
             onUpdate(text)
         }
     }
 
+    /// Delivers completion response to MainActor, safe to call from any context
+    /// - Parameters:
+    ///   - response: The final MLX response
+    ///   - onComplete: Callback to deliver completion (will be called on MainActor)
     private func deliverCompletion(_ response: MLXResponse, onComplete: @escaping (MLXResponse) -> Void) {
         Task { @MainActor in
             onComplete(response)
