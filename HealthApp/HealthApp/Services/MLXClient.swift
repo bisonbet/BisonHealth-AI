@@ -25,6 +25,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var loadedModel: ModelContext?  // Store model separately from session for reuse
     private var currentConfig: MLXGenerationConfig = .default
     private let logger = Logger.shared
+    private let gpuInitializationTask: Task<Void, Never>
+    private static let gpuCacheLimit: UInt64 = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
 
     // Conversation tracking
     private var currentConversationId: UUID?
@@ -35,13 +37,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Initialization
     private init() {
-        // Set GPU cache limit for MLX
-        // Increased from 512MB to 4GB to support larger models
-        // Requires increased-memory-limit entitlement in production
-        let cacheLimit = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
-        MLX.GPU.set(cacheLimit: cacheLimit)
-
-        logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+        gpuInitializationTask = Task { @MainActor [logger] in
+            // Set GPU cache limit for MLX
+            // Increased from 512MB to 4GB to support larger models
+            // Requires increased-memory-limit entitlement in production
+            let cacheLimit = Self.gpuCacheLimit
+            MLX.GPU.set(cacheLimit: cacheLimit)
+            logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+        }
     }
 
     // MARK: - Memory Monitoring
@@ -149,8 +152,11 @@ class MLXClient: ObservableObject, AIProviderInterface {
         logger.info("📦 Loading from HuggingFace: \(huggingFaceRepo)")
 
         do {
+            // Ensure GPU initialization completes on the MainActor before loading
+            await gpuInitializationTask.value
+
             // Use MLX's built-in loading (downloads if needed, uses cache if available)
-            let model = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
+            let model = try await loadModelOnMainActor(huggingFaceRepo)
 
             // Store the model reference for reuse when resetting sessions
             self.loadedModel = model
@@ -411,7 +417,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
             // Stream tokens using ChatSession
             // streamResponse yields individual token strings that need to be accumulated
-            for try await token in session.streamResponse(to: fullPrompt) {
+            let tokenStream = await MainActor.run { session.streamResponse(to: fullPrompt) }
+            for try await token in tokenStream {
                 tokenCount += 1
                 tokensPerUpdate += 1
 
@@ -434,7 +441,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                     finalText = finalText.replacingOccurrences(of: "<|eot_id|>", with: "")
                     finalText = finalText.replacingOccurrences(of: "</s>", with: "")
                     // Send final update before breaking
-                    onUpdate(finalText)
+                    deliverUpdate(finalText, onUpdate: onUpdate)
                     break
                 } else if hasEndToken {
                     // End token detected but too early - log and remove it but continue
@@ -451,7 +458,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                     if repetitionCount > 3 {
                         logger.warning("⚠️ Detected repetition loop, stopping stream")
                         // Send final update before breaking
-                        onUpdate(finalText)
+                        deliverUpdate(finalText, onUpdate: onUpdate)
                         break
                     }
                 } else {
@@ -463,7 +470,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 if tokenCount >= maxTokens {
                     logger.warning("⚠️ Reached max tokens limit (\(maxTokens)), stopping stream")
                     // Send final update before breaking
-                    onUpdate(finalText)
+                    deliverUpdate(finalText, onUpdate: onUpdate)
                     break
                 }
 
@@ -477,7 +484,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 let now = Date()
                 let timeSinceLastUpdate = now.timeIntervalSince(lastUpdateTime)
                 if timeSinceLastUpdate >= updateInterval {
-                    onUpdate(finalText)
+                    deliverUpdate(finalText, onUpdate: onUpdate)
                     lastUpdateTime = now
                     if tokensPerUpdate > 0 {
                         logger.debug("📊 Updated UI: \(tokensPerUpdate) tokens in \(String(format: "%.0f", timeSinceLastUpdate * 1000))ms")
@@ -487,7 +494,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
             }
 
             // Send final update to ensure UI has the complete text
-            onUpdate(finalText)
+            deliverUpdate(finalText, onUpdate: onUpdate)
 
             logger.info("✅ MLX streaming completed: \(tokenCount) tokens, \(finalText.count) characters")
             logMemoryStats(label: "After Generation")
@@ -510,7 +517,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 ]
             )
 
-            onComplete(response)
+            deliverCompletion(response, onComplete: onComplete)
 
         } catch {
             logger.error("❌ MLX streaming failed", error: error)
@@ -519,6 +526,31 @@ class MLXClient: ObservableObject, AIProviderInterface {
     }
 
     // MARK: - Private Helpers
+
+    private func loadModelOnMainActor(_ huggingFaceRepo: String) async throws -> ModelContext {
+        try await withCheckedThrowingContinuation { continuation in
+            Task { @MainActor in
+                do {
+                    let model = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
+                    continuation.resume(returning: model)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func deliverUpdate(_ text: String, onUpdate: @escaping (String) -> Void) {
+        Task { @MainActor in
+            onUpdate(text)
+        }
+    }
+
+    private func deliverCompletion(_ response: MLXResponse, onComplete: @escaping (MLXResponse) -> Void) {
+        Task { @MainActor in
+            onComplete(response)
+        }
+    }
 
     /// Determine if we should reset the session
     /// Returns: (shouldReset, isNewConversation)
@@ -602,4 +634,3 @@ struct MLXResponse: AIResponse {
         self.metadata = metadata
     }
 }
-
