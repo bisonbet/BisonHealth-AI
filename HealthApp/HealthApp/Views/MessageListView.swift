@@ -247,8 +247,7 @@ struct MessageBubbleView: View {
 }
 
 struct TypingIndicatorView: View {
-    @State private var animationPhase = 0
-    @State private var animationTimer: Timer?
+    @State private var isAnimating = false
 
     var body: some View {
         HStack {
@@ -257,23 +256,23 @@ struct TypingIndicatorView: View {
                     Image(systemName: "brain.head.profile")
                         .foregroundColor(.green)
                         .font(.caption)
-                    
+
                     Text("BisonHealth AI")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
+
                 HStack(spacing: 4) {
                     ForEach(0..<3) { index in
                         Circle()
                             .fill(Color.secondary)
                             .frame(width: 8, height: 8)
-                            .scaleEffect(animationPhase == index ? 1.2 : 0.8)
+                            .scaleEffect(isAnimating ? 1.2 : 0.8)
                             .animation(
                                 Animation.easeInOut(duration: 0.6)
                                     .repeatForever()
                                     .delay(Double(index) * 0.2),
-                                value: animationPhase
+                                value: isAnimating
                             )
                     }
                 }
@@ -282,25 +281,20 @@ struct TypingIndicatorView: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(18)
             }
-            
+
             Spacer(minLength: 50)
         }
         .onAppear {
-            animationPhase = 0
-            animationTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
-                animationPhase = (animationPhase + 1) % 3
-            }
+            isAnimating = true
         }
         .onDisappear {
-            animationTimer?.invalidate()
-            animationTimer = nil
+            isAnimating = false
         }
     }
 }
 
 struct StreamingIndicatorView: View {
-    @State private var animationPhase = 0
-    @State private var animationTimer: Timer?
+    @State private var isAnimating = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -308,25 +302,21 @@ struct StreamingIndicatorView: View {
                 Circle()
                     .fill(Color.blue)
                     .frame(width: 6, height: 6)
-                    .scaleEffect(animationPhase == index ? 1.2 : 0.8)
+                    .scaleEffect(isAnimating ? 1.2 : 0.8)
                     .animation(
                         Animation.easeInOut(duration: 0.6)
                             .repeatForever()
                             .delay(Double(index) * 0.2),
-                        value: animationPhase
+                        value: isAnimating
                     )
             }
         }
         .padding(.horizontal, 8)
         .onAppear {
-            animationPhase = 0
-            animationTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { _ in
-                animationPhase = (animationPhase + 1) % 3
-            }
+            isAnimating = true
         }
         .onDisappear {
-            animationTimer?.invalidate()
-            animationTimer = nil
+            isAnimating = false
         }
     }
 }

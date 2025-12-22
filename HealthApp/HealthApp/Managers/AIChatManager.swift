@@ -271,14 +271,24 @@ class AIChatManager: ObservableObject {
             return "New Conversation"
         }
 
-        // For MLX provider, use heuristic title generation to avoid memory issues
-        // MLX can't load a second model instance for title generation
+        // For MLX provider, use the MLX client's built-in title generation
+        // This uses the current session and then resets it to clear the title generation interaction
         if settingsManager.modelPreferences.aiProvider == .mlx {
-            logger.info("Using heuristic title generation for MLX")
-            return generateHeuristicTitle(from: userMessage.content)
+            logger.info("🏷️ Using MLX LLM-based title generation")
+            do {
+                let mlxClient = settingsManager.getMLXClient()
+                return try await mlxClient.generateTitle(
+                    userMessage: userMessage.content,
+                    assistantResponse: assistantMessage.content
+                )
+            } catch {
+                logger.warning("⚠️ MLX title generation failed, falling back to heuristic: \(error.localizedDescription)")
+                // Fall back to heuristic if LLM generation fails
+                return generateHeuristicTitle(from: userMessage.content)
+            }
         }
 
-        // Create a prompt for title generation
+        // Create a prompt for title generation for other providers
         let titlePrompt = """
         Based on this conversation, generate a short, descriptive title (3-5 words) that summarizes the main topic.
 
@@ -294,7 +304,7 @@ class AIChatManager: ObservableObject {
 
         // Clean up the response - remove quotes, extra whitespace, etc.
         var title = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // Remove surrounding quotes if present
         if title.hasPrefix("\"") && title.hasSuffix("\"") {
             title = String(title.dropFirst().dropLast())
@@ -302,22 +312,22 @@ class AIChatManager: ObservableObject {
         if title.hasPrefix("'") && title.hasSuffix("'") {
             title = String(title.dropFirst().dropLast())
         }
-        
+
         // Limit to reasonable length and word count
         let words = title.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         if words.count > 5 {
             title = words.prefix(5).joined(separator: " ")
         }
-        
+
         // Ensure title is not empty and not too long
         if title.isEmpty || title.count > 50 {
             return "New Conversation"
         }
-        
+
         return title
     }
 
-    /// Generate a simple heuristic title from user message (for MLX to avoid memory issues)
+    /// Generate a simple heuristic title from user message (fallback when LLM generation fails)
     private func generateHeuristicTitle(from message: String) -> String {
         // Clean the message
         var cleaned = message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -577,7 +587,10 @@ class AIChatManager: ObservableObject {
         let currentSequence = streamingSequenceNumber
 
         // Schedule debounced UI update
-        streamingUpdateTask = Task {
+        // IMPORTANT: Use [weak self] to prevent retain cycle
+        streamingUpdateTask = Task { [weak self] in
+            guard let self = self else { return }
+
             do {
                 // Wait for debounce interval
                 try await Task.sleep(nanoseconds: UInt64(Constants.streamingDebounceInterval * 1_000_000_000))
@@ -600,7 +613,7 @@ class AIChatManager: ObservableObject {
             } catch is CancellationError {
                 // Expected - debouncing mechanism cancels old updates when new ones arrive
             } catch {
-                logger.debug("⚠️ Streaming debounce error: \(error)")
+                self.logger.debug("⚠️ Streaming debounce error: \(error)")
             }
         }
     }
@@ -715,12 +728,13 @@ class AIChatManager: ObservableObject {
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
                     // Explicitly dispatch to MainActor since onUpdate may be called from background thread
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
                         self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
                         guard let self = self else { return }
 
                         // Create final message with complete content and metadata
@@ -760,12 +774,13 @@ class AIChatManager: ObservableObject {
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
                     // Explicitly dispatch to MainActor since onUpdate may be called from background thread
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
                         self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
                         guard let self = self else { return }
 
                         // Create final message with complete content and metadata
@@ -806,12 +821,13 @@ class AIChatManager: ObservableObject {
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
                     // Explicitly dispatch to MainActor since onUpdate may be called from background thread
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
                         self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
                     }
                 },
                 onComplete: { [weak self] finalResponse in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
                         guard let self = self else { return }
 
                         // Create final message with complete content and metadata

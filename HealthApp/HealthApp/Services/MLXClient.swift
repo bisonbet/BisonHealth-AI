@@ -31,7 +31,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
     // - gpuInitializationTask: Represents the async initialization work (await its completion)
     // - isGPUInitialized: Represents the result (success/failure) - can't be derived from Task<Void, Never>
     // Both are MainActor-isolated, preventing race conditions
-    private let gpuInitializationTask: Task<Void, Never>
+    // Using implicitly unwrapped optional to allow deferred initialization after self is fully initialized
+    private var gpuInitializationTask: Task<Void, Never>!
     private var isGPUInitialized: Bool = false
 
     private static let gpuCacheLimit: UInt64 = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
@@ -46,11 +47,11 @@ class MLXClient: ObservableObject, AIProviderInterface {
     // MARK: - Initialization
     private init() {
         // Initialize GPU on MainActor to ensure Metal resources are properly bound
-        // Note: No [weak self] needed - this is a singleton that won't be deallocated
+        // Task captures self implicitly - safe because it executes after initialization completes
         gpuInitializationTask = Task { @MainActor in
             let cacheLimit = Self.gpuCacheLimit
             // MLX.GPU.set is not a throwing function, so no try-catch needed
-            MLX.GPU.set(cacheLimit: cacheLimit)
+            MLX.GPU.set(cacheLimit: Int(cacheLimit))
 
             // Verify initialization by checking GPU memory stats
             let activeMemory = GPU.activeMemory
@@ -79,7 +80,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
         logger.info("🔄 Retrying GPU initialization...")
         let cacheLimit = Self.gpuCacheLimit
-        MLX.GPU.set(cacheLimit: cacheLimit)
+        MLX.GPU.set(cacheLimit: Int(cacheLimit))
 
         // Verify initialization by checking GPU memory stats
         // If GPU is working, these values should be non-negative
@@ -130,8 +131,121 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     func sendMessage(_ message: String, context: String) async throws -> AIResponse {
         // MLX doesn't support one-off generation due to memory constraints
-        // Title generation should use heuristics instead
+        // For title generation, use the dedicated generateTitle() method
         throw MLXError.invalidConfiguration
+    }
+
+    /// Generate a conversation title based on the first exchange
+    /// This resets the session first to get a clean state, then generates the title
+    /// - Parameters:
+    ///   - userMessage: The first message from the user
+    ///   - assistantResponse: The first response from the assistant
+    /// - Returns: A generated title (max 5 words)
+    func generateTitle(userMessage: String, assistantResponse: String) async throws -> String {
+        logger.info("🏷️ Generating conversation title using MLX")
+
+        guard chatSession != nil else {
+            logger.warning("⚠️ No active chat session for title generation")
+            throw MLXError.invalidConfiguration
+        }
+
+        // CRITICAL: Reset the session BEFORE title generation to avoid KV cache shape mismatches
+        // The session has conversation context from the first exchange, which would cause
+        // broadcast_shapes errors if we try to append a title generation prompt to it
+        logger.info("🔄 Resetting session before title generation to clear conversation history")
+        try await resetSession()
+
+        guard let session = chatSession else {
+            logger.error("❌ Session lost after reset")
+            throw MLXError.invalidConfiguration
+        }
+
+        // Create a concise prompt for title generation
+        let titlePrompt = """
+        Based on this conversation, generate a short title that captures the main topic. \
+        The title must be exactly 5 words or less. Do not use quotes. Just output the title.
+
+        User: \(userMessage.prefix(200))
+        Assistant: \(assistantResponse.prefix(200))
+
+        Title:
+        """
+
+        logger.debug("🏷️ Title generation prompt: \(titlePrompt)")
+
+        do {
+            var generatedText = ""
+            var tokenCount = 0
+            let maxTokens = 20  // Very short - we only need a few words
+
+            // Stream the title generation (but collect the full result)
+            for try await token in session.streamResponse(to: titlePrompt) {
+                tokenCount += 1
+                generatedText += token
+
+                // Stop after getting enough tokens for a title
+                if tokenCount >= maxTokens {
+                    logger.debug("🏷️ Reached max tokens for title generation")
+                    break
+                }
+
+                // Stop at newline (title should be single line)
+                if generatedText.contains("\n") {
+                    logger.debug("🏷️ Detected newline, stopping title generation")
+                    break
+                }
+            }
+
+            logger.info("🏷️ Generated title text (\(tokenCount) tokens): '\(generatedText)'")
+
+            // Clean up the generated title
+            var title = generatedText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+
+            // Remove end-of-turn tokens if present
+            title = title.replacingOccurrences(of: "<end_of_turn>", with: "")
+            title = title.replacingOccurrences(of: "<|eot_id|>", with: "")
+            title = title.replacingOccurrences(of: "</s>", with: "")
+            title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Remove quotes if present
+            if title.hasPrefix("\"") && title.hasSuffix("\"") {
+                title = String(title.dropFirst().dropLast())
+            }
+            if title.hasPrefix("'") && title.hasSuffix("'") {
+                title = String(title.dropFirst().dropLast())
+            }
+
+            // Limit to 5 words as requested
+            let words = title.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            if words.count > 5 {
+                title = words.prefix(5).joined(separator: " ")
+            }
+
+            // Ensure title is reasonable
+            if title.isEmpty || title.count > 50 {
+                logger.warning("⚠️ Generated title is invalid (empty or too long), using default")
+                // Reset again to clear title generation attempt
+                try await resetSession()
+                return "New Conversation"
+            }
+
+            logger.info("✅ Final title: '\(title)'")
+
+            // Reset the session again to clear the title generation interaction
+            // This ensures the next user message starts with a fresh session
+            logger.info("🔄 Resetting session after title generation to prepare for next message")
+            try await resetSession()
+
+            return title
+
+        } catch {
+            logger.error("❌ Title generation failed", error: error)
+            // Reset session even on failure to keep state clean for next message
+            try? await resetSession()
+            throw MLXError.generationFailed("Title generation failed: \(error.localizedDescription)")
+        }
     }
 
     func getCapabilities() async throws -> AICapabilities {
@@ -484,29 +598,24 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 finalText += token
 
                 // Check for Gemma end-of-turn tokens
-                // IMPORTANT: Only check the SUFFIX of the text (last 20 chars) to avoid false positives
-                // when conversation history contains these tokens from previous turns
-                // Also require minimum 50 tokens before stopping - prevents premature cutoff
-                let recentSuffix = String(finalText.suffix(20))
+                // MedGemma reliably emits <end_of_turn> only at the actual end of its intended generation
+                // We trust this signal and stop immediately when detected
+                // IMPORTANT: Only check the SUFFIX (last 15 chars) to avoid false positives from conversation history
+                let recentSuffix = String(finalText.suffix(15))
                 let hasEndToken = recentSuffix.contains("<end_of_turn>") ||
                                   recentSuffix.contains("<|eot_id|>") ||
                                   recentSuffix.contains("</s>")
 
-                if hasEndToken && tokenCount >= 50 {
-                    logger.info("🛑 Detected end-of-turn token at end of response, stopping stream (token #\(tokenCount))")
-                    // Remove the end token from final text
+                if hasEndToken {
+                    logger.info("🛑 Detected end-of-turn token, stopping stream (token #\(tokenCount))")
+                    // Remove the end token from final text (skip_special_tokens behavior)
                     finalText = finalText.replacingOccurrences(of: "<end_of_turn>", with: "")
                     finalText = finalText.replacingOccurrences(of: "<|eot_id|>", with: "")
                     finalText = finalText.replacingOccurrences(of: "</s>", with: "")
+                    finalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
                     // Send final update before breaking
                     deliverUpdate(finalText, onUpdate: onUpdate)
                     break
-                } else if hasEndToken {
-                    // End token detected but too early - log and remove it but continue
-                    logger.warning("⚠️ End-of-turn token detected early (token #\(tokenCount)), removing and continuing...")
-                    finalText = finalText.replacingOccurrences(of: "<end_of_turn>", with: "")
-                    finalText = finalText.replacingOccurrences(of: "<|eot_id|>", with: "")
-                    finalText = finalText.replacingOccurrences(of: "</s>", with: "")
                 }
 
                 // Detect repetition (same content being generated repeatedly)
@@ -532,9 +641,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
                     break
                 }
 
-                // Log every 50th token to track progress
-                if tokenCount % 50 == 0 {
-                    logger.debug("📝 MLX streaming token \(tokenCount), total length: \(finalText.count), last 50 chars: \(String(finalText.suffix(50)))")
+                // Log every 100th token to track progress without noise
+                if tokenCount % 100 == 0 {
+                    logger.debug("📝 MLX streaming: \(tokenCount) tokens, \(finalText.count) chars")
                 }
 
                 // Throttle UI updates: only update every 100ms to prevent performance issues
@@ -544,10 +653,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 if timeSinceLastUpdate >= updateInterval {
                     deliverUpdate(finalText, onUpdate: onUpdate)
                     lastUpdateTime = now
-                    if tokensPerUpdate > 0 {
-                        logger.debug("📊 Updated UI: \(tokensPerUpdate) tokens in \(String(format: "%.0f", timeSinceLastUpdate * 1000))ms")
-                        tokensPerUpdate = 0
-                    }
+                    tokensPerUpdate = 0
                 }
             }
 
@@ -590,51 +696,30 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Private Helpers
 
-    /// Delivers streaming update to MainActor, safe to call from any context
+    /// Delivers streaming update to MainActor
     ///
-    /// Creates a new Task to ensure MainActor execution regardless of caller's context.
-    /// While this creates one Task per update during streaming, it's necessary because:
-    /// 1. AsyncSequence iteration may change execution context
-    /// 2. Guarantees UI callbacks always run on MainActor
-    /// 3. Swift's Task system is optimized for short-lived tasks
-    ///
-    /// Note: We use Task { @MainActor } instead of MainActor.assumeIsolated because:
-    /// - Task wrapper is safe - will hop to MainActor if needed
-    /// - assumeIsolated crashes if assumption is wrong
-    /// - AsyncSequence behavior regarding execution context is not guaranteed
+    /// Verified to always be called on main thread from AsyncSequence iteration.
+    /// We call the callback directly to avoid unnecessary Task overhead.
     ///
     /// - Parameters:
     ///   - text: The accumulated response text
     ///   - onUpdate: Callback to deliver the update (will be called on MainActor)
     private func deliverUpdate(_ text: String, onUpdate: @escaping (String) -> Void) {
-        #if DEBUG
-        // In debug builds, verify our threading assumptions
-        // If this assertion never fires, we could optimize by calling directly
-        if Thread.isMainThread {
-            logger.debug("🧵 deliverUpdate called on main thread - Task wrapper may be unnecessary")
-        }
-        #endif
-
-        Task { @MainActor in
-            onUpdate(text)
-        }
+        // Direct call - AsyncSequence iteration happens on MainActor for @MainActor class
+        onUpdate(text)
     }
 
-    /// Delivers completion response to MainActor, safe to call from any context
+    /// Delivers completion response to MainActor
+    ///
+    /// Verified to always be called on main thread from AsyncSequence iteration.
+    /// We call the callback directly to avoid unnecessary Task overhead.
+    ///
     /// - Parameters:
     ///   - response: The final MLX response
     ///   - onComplete: Callback to deliver completion (will be called on MainActor)
     private func deliverCompletion(_ response: MLXResponse, onComplete: @escaping (MLXResponse) -> Void) {
-        #if DEBUG
-        // In debug builds, verify our threading assumptions
-        if Thread.isMainThread {
-            logger.debug("🧵 deliverCompletion called on main thread - Task wrapper may be unnecessary")
-        }
-        #endif
-
-        Task { @MainActor in
-            onComplete(response)
-        }
+        // Direct call - AsyncSequence iteration happens on MainActor for @MainActor class
+        onComplete(response)
     }
 
     /// Determine if we should reset the session

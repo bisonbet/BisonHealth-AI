@@ -49,13 +49,21 @@ if timeSinceLastUpdate >= updateInterval {
 }
 ```
 
-### 3. Title Generation ([AIChatManager.swift:274-342](HealthApp/HealthApp/Managers/AIChatManager.swift#L274-L342))
+### 3. Title Generation ([AIChatManager.swift:276-288](HealthApp/HealthApp/Managers/AIChatManager.swift#L276-L288), [MLXClient.swift:144-236](HealthApp/HealthApp/Services/MLXClient.swift#L144-L236))
 **Problem**: Using ChatSession for title generation doubled memory usage
-**Fix**: Heuristic-based title generation for MLX
+**Fix**: LLM-based title generation with session reset
+- After first exchange, MLXClient generates a concise title (max 5 words)
+- Uses existing chat session for efficiency
+- Immediately resets session after title generation to clear the interaction
+- Falls back to heuristic if LLM generation fails
 ```swift
-if settingsManager.modelPreferences.aiProvider == .mlx {
-    return generateHeuristicTitle(from: userMessage.content)
-}
+// MLXClient.generateTitle() - generates title using LLM
+let mlxClient = settingsManager.getMLXClient()
+return try await mlxClient.generateTitle(
+    userMessage: userMessage.content,
+    assistantResponse: assistantMessage.content
+)
+// Session is automatically reset after title generation
 ```
 
 ### 4. Model Name Detection ([AIChatManager.swift:395-405](HealthApp/HealthApp/Managers/AIChatManager.swift#L395-L405))
@@ -286,7 +294,7 @@ All changes are in commit `0fc80d1`:
 2. [HealthApp/HealthApp/Managers/AIChatManager.swift](HealthApp/HealthApp/Managers/AIChatManager.swift)
    - Provider-specific model name detection
    - Debug logging for troubleshooting
-   - Heuristic title generation for MLX
+   - LLM-based title generation for MLX with session reset
    - Exception model handling refinement
    - Default context changed to personalInfo only
 
@@ -300,7 +308,7 @@ All changes are in commit `0fc80d1`:
 
 ✅ **Memory management**: No more OOM crashes
 ✅ **Performance**: UI updates throttled, no CPU spikes
-✅ **Title generation**: Heuristic-based, no second model load
+✅ **Title generation**: LLM-based with automatic session reset, max 5 words
 ✅ **Model deletion**: iOS-compatible HuggingFace cache cleanup
 ✅ **Configuration**: Settings persist across app restarts
 ✅ **First turn works**: When it gets proper formatting (though currently doesn't)
