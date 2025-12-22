@@ -69,9 +69,11 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 logger.error("❌ GPU initialization verification failed - memory stats unavailable")
                 isGPUInitialized = false
             }
-        }
 
-        setupLifecycleObservers()
+            // Setup lifecycle observers after GPU is fully initialized
+            // This avoids race condition where app could background during GPU init
+            setupLifecycleObservers()
+        }
     }
 
     deinit {
@@ -114,6 +116,16 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private func setupLifecycleObservers() {
         let center = NotificationCenter.default
 
+        let resignActiveObserver = center.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWillResignActive()
+            }
+        }
+
         let backgroundObserver = center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
@@ -134,14 +146,25 @@ class MLXClient: ObservableObject, AIProviderInterface {
             }
         }
 
-        lifecycleObservers.append(contentsOf: [backgroundObserver, foregroundObserver])
+        lifecycleObservers.append(contentsOf: [resignActiveObserver, backgroundObserver, foregroundObserver])
+    }
+
+    private func handleWillResignActive() {
+        logger.info("⚠️ App resigning active state - preparing to cancel streaming")
+        isAppActive = false
+        // Don't clear cache yet, just set state
     }
 
     private func handleDidEnterBackground() {
         logger.warning("📴 App entered background - cancelling MLX streaming to avoid Metal errors")
         isAppActive = false
         cancelActiveStreaming(reason: "App entered background")
-        GPU.clearCache()
+
+        // Wait briefly for cancellation to complete before clearing cache
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            GPU.clearCache()
+        }
     }
 
     private func handleDidBecomeActive() {
@@ -239,6 +262,13 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
             // Stream the title generation (but collect the full result)
             for try await token in session.streamResponse(to: titlePrompt) {
+                try Task.checkCancellation()
+
+                guard isAppActive else {
+                    logger.warning("🛑 Title generation cancelled - app moved to background")
+                    throw CancellationError()
+                }
+
                 tokenCount += 1
                 generatedText += token
 
@@ -327,6 +357,11 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     /// Load a model into memory using MLX's built-in download/cache system
     func loadModel(modelId: String) async throws {
+        guard isAppActive else {
+            logger.warning("❌ Cannot load model while app is inactive")
+            throw MLXError.generationFailed("Cannot load model in background")
+        }
+
         // Prevent concurrent loads - if already loading, wait for it to complete
         if isLoadingModel {
             logger.info("⏳ MLX: Model load already in progress, waiting...")
