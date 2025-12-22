@@ -39,13 +39,19 @@ class MLXClient: ObservableObject, AIProviderInterface {
     // MARK: - Initialization
     private init() {
         // Initialize GPU on MainActor to ensure Metal resources are properly bound
-        // The defer ensures isGPUInitialized is set even if an error occurs
-        gpuInitializationTask = Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            defer { self.isGPUInitialized = true }
+        // Note: No [weak self] needed - this is a singleton that won't be deallocated
+        gpuInitializationTask = Task { @MainActor in
             let cacheLimit = Self.gpuCacheLimit
-            MLX.GPU.set(cacheLimit: cacheLimit)
-            self.logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+            do {
+                MLX.GPU.set(cacheLimit: cacheLimit)
+                logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+                isGPUInitialized = true
+            } catch {
+                logger.error("❌ Failed to initialize GPU cache", error: error)
+                isGPUInitialized = false
+                // Don't throw - we want initialization to continue even if GPU setup fails
+                // The error will be caught when trying to use GPU operations
+            }
         }
     }
 
@@ -157,8 +163,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
             // Ensure GPU initialization completes on the MainActor before loading
             await gpuInitializationTask.value
 
+            // Verify GPU initialization succeeded
+            guard isGPUInitialized else {
+                throw MLXError.modelLoadFailed("GPU initialization failed - cannot load model")
+            }
+
             // Use MLX's built-in loading (downloads if needed, uses cache if available)
-            let model = try await loadModelOnMainActor(huggingFaceRepo)
+            // Already on MainActor due to class-level isolation
+            let model = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
 
             // Store the model reference for reuse when resetting sessions
             self.loadedModel = model
@@ -530,13 +542,6 @@ class MLXClient: ObservableObject, AIProviderInterface {
     }
 
     // MARK: - Private Helpers
-
-    /// Load MLX model from HuggingFace repository
-    /// Already running on MainActor due to class-level isolation
-    private func loadModelOnMainActor(_ huggingFaceRepo: String) async throws -> ModelContext {
-        // No need for Task { @MainActor } wrapper - already on MainActor
-        return try await MLXLMCommon.loadModel(id: huggingFaceRepo)
-    }
 
     /// Delivers streaming update to MainActor, safe to call from any context
     ///
