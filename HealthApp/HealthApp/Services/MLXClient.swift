@@ -42,17 +42,28 @@ class MLXClient: ObservableObject, AIProviderInterface {
         // Note: No [weak self] needed - this is a singleton that won't be deallocated
         gpuInitializationTask = Task { @MainActor in
             let cacheLimit = Self.gpuCacheLimit
-            do {
-                MLX.GPU.set(cacheLimit: cacheLimit)
-                logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
-                isGPUInitialized = true
-            } catch {
-                logger.error("❌ Failed to initialize GPU cache", error: error)
-                isGPUInitialized = false
-                // Don't throw - we want initialization to continue even if GPU setup fails
-                // The error will be caught when trying to use GPU operations
-            }
+            // MLX.GPU.set is not a throwing function, so no try-catch needed
+            MLX.GPU.set(cacheLimit: cacheLimit)
+            logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+            isGPUInitialized = true
         }
+    }
+
+    // MARK: - GPU Management
+
+    /// Retry GPU initialization if it failed
+    /// This can be called if GPU initialization fails and you want to retry
+    func retryGPUInitialization() async {
+        guard !isGPUInitialized else {
+            logger.info("ℹ️ GPU already initialized, skipping retry")
+            return
+        }
+
+        logger.info("🔄 Retrying GPU initialization...")
+        let cacheLimit = Self.gpuCacheLimit
+        MLX.GPU.set(cacheLimit: cacheLimit)
+        logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+        isGPUInitialized = true
     }
 
     // MARK: - Memory Monitoring
@@ -165,7 +176,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
             // Verify GPU initialization succeeded
             guard isGPUInitialized else {
-                throw MLXError.modelLoadFailed("GPU initialization failed - cannot load model")
+                logger.error("❌ GPU initialization failed - cannot load model. Try calling retryGPUInitialization()")
+                throw MLXError.modelLoadFailed("GPU initialization failed. The GPU cache could not be configured. Try restarting the app or calling retryGPUInitialization().")
             }
 
             // Use MLX's built-in loading (downloads if needed, uses cache if available)
