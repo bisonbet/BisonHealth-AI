@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import MLX
 import MLXLLM
 import MLXLMCommon
@@ -25,6 +26,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var loadedModel: ModelContext?  // Store model separately from session for reuse
     private var currentConfig: MLXGenerationConfig = .default
     private let logger = Logger.shared
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    private var isAppActive: Bool = true
+    private var activeStreamingTask: Task<Void, Error>?
 
     // GPU Initialization State
     // Note: We need both pieces of state because:
@@ -66,6 +70,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 isGPUInitialized = false
             }
         }
+
+        setupLifecycleObservers()
+    }
+
+    deinit {
+        lifecycleObservers.forEach { observer in
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - GPU Management
@@ -95,6 +107,53 @@ class MLXClient: ObservableObject, AIProviderInterface {
             logger.error("❌ GPU initialization verification failed - memory stats unavailable")
             isGPUInitialized = false
         }
+    }
+
+    // MARK: - Lifecycle Management
+
+    private func setupLifecycleObservers() {
+        let center = NotificationCenter.default
+
+        let backgroundObserver = center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleDidEnterBackground()
+            }
+        }
+
+        let foregroundObserver = center.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleDidBecomeActive()
+            }
+        }
+
+        lifecycleObservers.append(contentsOf: [backgroundObserver, foregroundObserver])
+    }
+
+    private func handleDidEnterBackground() {
+        logger.warning("📴 App entered background - cancelling MLX streaming to avoid Metal errors")
+        isAppActive = false
+        cancelActiveStreaming(reason: "App entered background")
+        GPU.clearCache()
+    }
+
+    private func handleDidBecomeActive() {
+        logger.info("▶️ App became active - MLX streaming enabled")
+        isAppActive = true
+    }
+
+    private func cancelActiveStreaming(reason: String) {
+        guard let task = activeStreamingTask else { return }
+        logger.warning("🛑 Cancelling active MLX streaming task (\(reason))")
+        task.cancel()
+        activeStreamingTask = nil
     }
 
     // MARK: - Memory Monitoring
@@ -457,6 +516,52 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Streaming Support
 
+    /// Public entry point for MLX streaming.
+    /// Wraps the core streaming logic in a cancellable task so we can stop GPU work when the app backgrounds.
+    func sendStreamingChatMessage(
+        _ message: String,
+        context: String,
+        systemPrompt: String?,
+        conversationHistory: [ChatMessage] = [],
+        conversationId: UUID? = nil,
+        onUpdate: @escaping (String) -> Void,
+        onComplete: @escaping (MLXResponse) -> Void
+    ) async throws {
+        guard isAppActive else {
+            logger.warning("❌ MLX streaming blocked - app is not active")
+            throw MLXError.generationFailed("Cannot generate while the app is in the background.")
+        }
+
+        cancelActiveStreaming(reason: "Starting new MLX stream")
+
+        let streamingTask = Task { @MainActor [weak self] () throws -> Void in
+            guard let self else { throw CancellationError() }
+            try Task.checkCancellation()
+            try await self.performStreamingChatMessage(
+                message,
+                context: context,
+                systemPrompt: systemPrompt,
+                conversationHistory: conversationHistory,
+                conversationId: conversationId,
+                onUpdate: onUpdate,
+                onComplete: onComplete
+            )
+        }
+
+        activeStreamingTask = streamingTask
+
+        do {
+            try await streamingTask.value
+        } catch is CancellationError {
+            logger.warning("⚠️ MLX streaming cancelled (likely app background)")
+            throw MLXError.generationFailed("MLX streaming cancelled because the app is not active.")
+        } catch {
+            throw error
+        } finally {
+            activeStreamingTask = nil
+        }
+    }
+
     /// Send streaming chat message
     /// - Parameters:
     ///   - message: The user's current message
@@ -466,7 +571,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
     ///   - conversationId: UUID of the current conversation
     ///   - onUpdate: Callback for streaming updates
     ///   - onComplete: Callback when generation completes
-    func sendStreamingChatMessage(
+    private func performStreamingChatMessage(
         _ message: String,
         context: String,
         systemPrompt: String?,
@@ -479,6 +584,13 @@ class MLXClient: ObservableObject, AIProviderInterface {
             logger.error("❌ MLX: No model selected - currentModelId is nil")
             throw MLXError.invalidConfiguration
         }
+
+        guard isAppActive else {
+            logger.warning("❌ MLX streaming blocked - app is not active")
+            throw MLXError.generationFailed("Cannot generate while the app is in the background.")
+        }
+
+        try Task.checkCancellation()
 
         // Check if model is actually loaded
         if chatSession == nil {
@@ -591,6 +703,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
             // The iteration may happen on a background thread (AsyncSequence behavior),
             // which is why we use deliverUpdate() to marshal callbacks back to MainActor
             for try await token in session.streamResponse(to: fullPrompt) {
+                try Task.checkCancellation()
+
+                guard isAppActive else {
+                    logger.warning("🛑 MLX streaming cancelled - app moved to background")
+                    deliverUpdate(finalText, onUpdate: onUpdate)
+                    throw CancellationError()
+                }
+
                 tokenCount += 1
                 tokensPerUpdate += 1
 
