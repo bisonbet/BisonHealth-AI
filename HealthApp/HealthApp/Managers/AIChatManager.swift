@@ -403,27 +403,42 @@ class AIChatManager: ObservableObject {
             case .bedrock:
                 currentModel = settingsManager.modelPreferences.bedrockModel
             }
-            let isFirstUserMessage = conversation.messages.filter({ $0.role == .user }).count == 1
+            let userMessageCount = conversation.messages.filter({ $0.role == .user }).count
+            let assistantMessageCount = conversation.messages.filter({ $0.role == .assistant }).count
             let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
-            print("🔍 AIChatManager: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', isFirst=\(isFirstUserMessage), requiresInjection=\(requiresInjection)")
+            // FIX: The logic should be:
+            // - First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
+            // - Subsequent turns: userMessageCount > 1 OR assistantMessageCount > 0
+            let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
+            let isFirstUserMessage = userMessageCount == 1
+
+            print("🔍 AIChatManager.sendMessage: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', userMessageCount=\(userMessageCount), assistantMessageCount=\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection)")
+            print("🔍 AIChatManager.sendMessage: All messages in conversation: \(conversation.messages.count)")
+            print("🔍 AIChatManager.sendMessage: Exception patterns: \(SystemPromptExceptionList.shared.getAllPatterns())")
+            print("🔍 AIChatManager.sendMessage: Model contains 'medgemma': \(currentModel.lowercased().contains("medgemma"))")
 
             // Prepare the message content (potentially formatted for exception models)
+            // NOTE: MLX handles its own formatting in MLXClient, so we don't format here for MLX
             var messageContent = content
-            if isFirstUserMessage && requiresInjection {
-                // Format with INSTRUCTIONS/CONTEXT/QUESTION for models that need it
+            let isMLXProvider = settingsManager.modelPreferences.aiProvider == .mlx
+
+            if isFirstTurn && requiresInjection && !isMLXProvider {
+                // Format with INSTRUCTIONS/CONTEXT/QUESTION for non-MLX exception models
                 print("📝 AIChatManager: Model '\(currentModel)' requires instruction injection - formatting first message")
                 messageContent = SystemPromptExceptionList.shared.formatFirstUserMessage(
                     userMessage: content,
                     systemPrompt: selectedDoctor?.systemPrompt,
                     context: healthContext
                 )
-                // For exception models, we don't send context separately since it's embedded in the message
                 print("📝 AIChatManager: Formatted message length: \(messageContent.count) chars")
             }
 
             // Debug: Log what context is being sent
-            if !requiresInjection || !isFirstUserMessage {
+            if isMLXProvider {
+                print("🔍 AIChatManager: MLX provider - passing raw message, context, and systemPrompt to MLXClient")
+                print("🔍 AIChatManager: Context length: \(healthContext.count) chars")
+            } else if !requiresInjection || !isFirstTurn {
                 print("🔍 AIChatManager: Sending message with context length: \(healthContext.count) chars")
                 if !healthContext.isEmpty {
                     print("🔍 AIChatManager: Context preview (first 1000 chars): \(String(healthContext.prefix(1000)))")
@@ -434,8 +449,12 @@ class AIChatManager: ObservableObject {
 
             if useStreaming {
                 // Use streaming for real-time response
-                if isFirstUserMessage && requiresInjection {
-                    // For exception models, send formatted message with empty context
+                if isMLXProvider {
+                    // MLX handles its own formatting - always pass raw message and full context
+                    print("📝 AIChatManager: MLX - sending raw message (length: \(content.count)), letting MLXClient handle formatting")
+                    try await sendStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+                } else if isFirstTurn && requiresInjection {
+                    // For non-MLX exception models, send formatted message with empty context
                     print("📝 AIChatManager: FIRST turn - sending formatted message (length: \(messageContent.count))")
                     try await sendStreamingMessage(messageContent, context: "", conversationId: conversation.id)
                 } else {
@@ -444,8 +463,11 @@ class AIChatManager: ObservableObject {
                 }
             } else {
                 // Use non-streaming for complete response
-                if isFirstUserMessage && requiresInjection {
-                    // For exception models, send formatted message with empty context
+                if isMLXProvider {
+                    // MLX handles its own formatting
+                    try await sendNonStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+                } else if isFirstUserMessage && requiresInjection {
+                    // For non-MLX exception models, send formatted message with empty context
                     try await sendNonStreamingMessage(messageContent, context: "", conversationId: conversation.id)
                 } else {
                     try await sendNonStreamingMessage(messageContent, context: healthContext, conversationId: conversation.id)
@@ -618,25 +640,8 @@ class AIChatManager: ObservableObject {
     }
 
     private func sendStreamingMessage(_ content: String, context: String, conversationId: UUID) async throws {
-        // Create a placeholder message for streaming content
-        let streamingMessageId = UUID()
-        let streamingMessage = ChatMessage(
-            id: streamingMessageId,
-            content: "",
-            role: .assistant
-        )
-
-        // Add placeholder message to conversation
-        if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
-            conversations[index].addMessage(streamingMessage)
-            currentConversation = conversations[index]
-        }
-
-        // Determine if we should send systemPrompt separately
-        // For exception models on first message: instructions are embedded in content
-        // For exception models on subsequent messages: DON'T send system prompt (already in conversation history)
-        // For normal models: always send system prompt if context is provided
-        // Get the appropriate model name based on the current AI provider
+        // IMPORTANT: Calculate message counts BEFORE adding the placeholder message
+        // to correctly determine if this is the first turn
         let currentModel: String
         switch settingsManager.modelPreferences.aiProvider {
         case .mlx:
@@ -646,16 +651,51 @@ class AIChatManager: ObservableObject {
         case .bedrock:
             currentModel = settingsManager.modelPreferences.bedrockModel
         }
-        let isFirstUserMessage = if let conv = conversations.first(where: { $0.id == conversationId }) {
-            conv.messages.filter({ $0.role == .user }).count <= 1
-        } else {
-            true
-        }
+
+        // Get the conversation and its messages BEFORE adding the placeholder
+        let conversation = conversations.first(where: { $0.id == conversationId })
+        let conversationMessages = conversation?.messages ?? []
+
+        let userMessageCount = conversationMessages.filter({ $0.role == .user }).count
+        let assistantMessageCount = conversationMessages.filter({ $0.role == .assistant }).count
         let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
+        // First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
+        let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
+
+        // Debug logging for instruction injection
+        print("🔍 AIChatManager.sendStreamingMessage: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', userMessageCount=\(userMessageCount), assistantMessageCount=\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection), contentLength=\(content.count)")
+        if content.count > 200 {
+            print("🔍 AIChatManager.sendStreamingMessage: Content preview: \(String(content.prefix(200)))...")
+        } else {
+            print("🔍 AIChatManager.sendStreamingMessage: Full content: \(content)")
+        }
+
+        // Create a placeholder message for streaming content
+        let streamingMessageId = UUID()
+        let streamingMessage = ChatMessage(
+            id: streamingMessageId,
+            content: "",
+            role: .assistant
+        )
+
+        // Add placeholder message to conversation (AFTER calculating isFirstTurn)
+        if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+            conversations[index].addMessage(streamingMessage)
+            currentConversation = conversations[index]
+        }
+
+        // Determine if we should send systemPrompt separately
+        // For MLX exception models: ALWAYS pass systemPrompt because MLXClient handles its own
+        //   first-turn detection and needs the prompt for INSTRUCTIONS formatting
+        // For other exception models: never send system prompt separately (instructions are embedded in first message)
+        // For normal models: always send system prompt if context is provided
         let shouldSendSystemPrompt: Bool
-        if requiresInjection {
-            // Exception models: never send system prompt separately after first message
+        if settingsManager.modelPreferences.aiProvider == .mlx && requiresInjection {
+            // MLX handles its own session management, so always provide the system prompt
+            shouldSendSystemPrompt = true
+        } else if requiresInjection {
+            // Other exception models: instructions are embedded in first message by AIChatManager
             shouldSendSystemPrompt = false
         } else {
             // Normal models: send if context is provided
@@ -803,13 +843,28 @@ class AIChatManager: ObservableObject {
 
         case .mlx:
             let mlxClient = settingsManager.getMLXClient()
-            // For exception models on first turn, context is already embedded in content
-            // So we pass empty context to avoid duplication
-            let mlxContext = (requiresInjection && isFirstUserMessage) ? "" : context
+            // MLX handles its own session management and formatting
+            // Always pass full context and system prompt - MLXClient will format as needed
+            // Pass conversation history (excluding the current user message which is passed separately)
+            // The history allows the model to maintain context across turns
+            let relevantMessages = conversationMessages.filter { msg in
+                msg.role == .user || msg.role == .assistant
+            }
+            // Drop the last user message (which is the current one being sent)
+            // If there's only 1 or 0 messages, history will be empty
+            let historyForMLX: [ChatMessage]
+            if relevantMessages.count > 1 {
+                historyForMLX = Array(relevantMessages.dropLast(1))
+            } else {
+                historyForMLX = []
+            }
+            print("📝 AIChatManager: Passing \(historyForMLX.count) history messages to MLX")
+
             try await mlxClient.sendStreamingChatMessage(
                 content,
-                context: mlxContext,
-                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                context: context,
+                systemPrompt: selectedDoctor?.systemPrompt,
+                conversationHistory: historyForMLX,
                 conversationId: conversationId,
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }

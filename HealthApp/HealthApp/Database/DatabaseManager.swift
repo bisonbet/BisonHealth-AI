@@ -17,6 +17,14 @@ class DatabaseManager: ObservableObject {
     internal var db: Connection?
     private let encryptionKey: SymmetricKey
     private let databaseURL: URL
+    internal let logger = Logger.shared
+    
+    // Key fingerprint for detecting key changes
+    private var encryptionKeyFingerprint: String {
+        let keyData = encryptionKey.withUnsafeBytes { Data($0) }
+        let hash = SHA256.hash(data: keyData)
+        return hash.compactMap { String(format: "%02x", $0) }.joined().prefix(16).description
+    }
     
     // MARK: - Database Version
     private static let currentDatabaseVersion = 7 // Increment when making schema changes
@@ -522,12 +530,44 @@ class DatabaseManager: ObservableObject {
     // MARK: - Encryption Key Management
     private static func getOrCreateEncryptionKey() throws -> SymmetricKey {
         let keychain = Keychain()
+        let logger = Logger.shared
         
         if let existingKey = try keychain.getEncryptionKey() {
+            // Verify key integrity
+            let keyData = existingKey.withUnsafeBytes { Data($0) }
+            if keyData.count != 32 { // 256 bits = 32 bytes
+                logger.error("⚠️ Encryption key has invalid size (\(keyData.count) bytes, expected 32). This may cause data loss!")
+                throw DatabaseError.encryptionFailed
+            }
+            
+            // Log key fingerprint for debugging (first 8 chars only for security)
+            let hash = SHA256.hash(data: keyData)
+            let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
+            logger.info("🔑 Using existing encryption key (fingerprint: \(fingerprint)...)")
+            
             return existingKey
         } else {
+            // Check if database already exists - if so, warn about potential data loss
+            let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
+            let databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
+            
+            if FileManager.default.fileExists(atPath: databaseURL.path) {
+                logger.error("⚠️ CRITICAL: Database exists but encryption key is missing! Creating new key will make existing data unreadable!")
+                logger.error("⚠️ Attempting to scan database for recoverable data...")
+                // Don't throw - let the recovery scanner handle it
+            }
+            
+            logger.warning("🔑 Creating new encryption key (no existing key found)")
             let newKey = SymmetricKey(size: .bits256)
             try keychain.storeEncryptionKey(newKey)
+            
+            // Store key fingerprint for future validation
+            let keyData = newKey.withUnsafeBytes { Data($0) }
+            let hash = SHA256.hash(data: keyData)
+            let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
+            logger.info("🔑 New encryption key created (fingerprint: \(fingerprint)...)")
+            
             return newKey
         }
     }
@@ -536,13 +576,52 @@ class DatabaseManager: ObservableObject {
     internal func encryptData<T: Codable>(_ data: T) throws -> Data {
         let jsonData = try JSONEncoder().encode(data)
         let sealedBox = try AES.GCM.seal(jsonData, using: encryptionKey)
-        return sealedBox.combined!
+        
+        guard let combined = sealedBox.combined else {
+            logger.error("❌ Encryption failed: sealedBox.combined is nil")
+            throw DatabaseError.encryptionFailed
+        }
+        
+        // CRITICAL: Verify we can decrypt what we just encrypted
+        // This ensures we never save data that can't be read back
+        do {
+            let verificationBox = try AES.GCM.SealedBox(combined: combined)
+            let decrypted = try AES.GCM.open(verificationBox, using: encryptionKey)
+            
+            // Verify the decrypted data matches what we encrypted
+            guard decrypted == jsonData else {
+                logger.error("❌ Encryption verification failed: decrypted data doesn't match original")
+                throw DatabaseError.encryptionFailed
+            }
+        } catch {
+            logger.error("❌ Encryption verification failed: \(error.localizedDescription)", error: error)
+            throw DatabaseError.encryptionFailed
+        }
+        
+        return combined
     }
     
     internal func decryptData<T: Codable>(_ encryptedData: Data, as type: T.Type) throws -> T {
-        let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
-        let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
-        return try JSONDecoder().decode(type, from: decryptedData)
+        // Validate encrypted data is not empty
+        guard !encryptedData.isEmpty else {
+            throw DatabaseError.decryptionFailed
+        }
+        
+        // Validate minimum size for AES-GCM sealed box (nonce + ciphertext + tag)
+        // AES-GCM requires at least 12 bytes for nonce + 16 bytes for tag = 28 bytes minimum
+        guard encryptedData.count >= 28 else {
+            throw DatabaseError.decryptionFailed
+        }
+        
+        do {
+            let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+            let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
+            return try JSONDecoder().decode(type, from: decryptedData)
+        } catch {
+            // Re-throw the error as-is to preserve the original error information
+            // The calling code will log the actual error details
+            throw error
+        }
     }
     
     internal func encryptString(_ string: String) throws -> Data {

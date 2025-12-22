@@ -79,6 +79,108 @@ class SystemPromptExceptionList {
         return formattedMessage
     }
 
+    /// Format message with conversation history for exception models
+    /// - Parameters:
+    ///   - userMessage: The current user's question/message
+    ///   - systemPrompt: The doctor's system prompt (instructions)
+    ///   - context: The health data context
+    ///   - conversationHistory: Previous messages in the conversation (will be trimmed if needed)
+    ///   - maxTokens: Maximum tokens allowed for the entire prompt
+    /// - Returns: Formatted message with INSTRUCTIONS, CONTEXT, CONVERSATION HISTORY, and QUESTION sections
+    func formatMessageWithHistory(
+        userMessage: String,
+        systemPrompt: String?,
+        context: String,
+        conversationHistory: [ChatMessage],
+        maxTokens: Int
+    ) -> String {
+        var formattedMessage = ""
+
+        // Add INSTRUCTIONS section if system prompt provided
+        if let instructions = systemPrompt, !instructions.isEmpty {
+            formattedMessage += "INSTRUCTIONS:\n\(instructions)\n\n"
+        }
+
+        // Add CONTEXT section if context provided (health data)
+        if !context.isEmpty {
+            formattedMessage += "CONTEXT:\n\(context)\n\n"
+        }
+
+        // Calculate tokens used by fixed parts
+        let fixedTokens = estimateTokens(formattedMessage) + estimateTokens(userMessage) + 50 // 50 tokens buffer for formatting
+
+        // Calculate available tokens for conversation history
+        // Reserve some tokens for the model's response (at least 500 tokens)
+        let reservedForResponse = 500
+        let availableForHistory = maxTokens - fixedTokens - reservedForResponse
+
+        // Build conversation history, trimming oldest messages if needed
+        let historyText = buildTrimmedHistory(
+            conversationHistory: conversationHistory,
+            maxTokens: availableForHistory
+        )
+
+        if !historyText.isEmpty {
+            formattedMessage += "CONVERSATION HISTORY:\n\(historyText)\n\n"
+        }
+
+        // Add QUESTION section with user's actual message
+        formattedMessage += "QUESTION:\n\(userMessage)"
+
+        return formattedMessage
+    }
+
+    /// Estimate token count for a string (rough approximation: ~4 chars per token)
+    func estimateTokens(_ text: String) -> Int {
+        return max(1, text.count / 4)
+    }
+
+    /// Build conversation history string, trimming oldest messages to fit within token limit
+    /// - Parameters:
+    ///   - conversationHistory: All messages in the conversation
+    ///   - maxTokens: Maximum tokens allowed for history
+    /// - Returns: Formatted history string with recent messages that fit within limit
+    private func buildTrimmedHistory(conversationHistory: [ChatMessage], maxTokens: Int) -> String {
+        guard !conversationHistory.isEmpty else { return "" }
+
+        // Filter to only user and assistant messages (not system messages)
+        let relevantMessages = conversationHistory.filter { $0.role == .user || $0.role == .assistant }
+
+        guard !relevantMessages.isEmpty else { return "" }
+
+        // Build history from newest to oldest, stopping when we exceed token limit
+        var historyParts: [String] = []
+        var totalTokens = 0
+
+        // Iterate from newest to oldest (reversed)
+        for message in relevantMessages.reversed() {
+            let roleLabel = message.role == .user ? "User" : "Assistant"
+            let messageLine = "\(roleLabel): \(message.content)"
+            let messageTokens = estimateTokens(messageLine)
+
+            // Check if adding this message would exceed limit
+            if totalTokens + messageTokens > maxTokens {
+                // Stop adding more messages
+                break
+            }
+
+            historyParts.insert(messageLine, at: 0) // Insert at beginning to maintain order
+            totalTokens += messageTokens
+        }
+
+        // If we had to trim, add indicator
+        let includedCount = historyParts.count
+        let totalCount = relevantMessages.count
+        var result = historyParts.joined(separator: "\n")
+
+        if includedCount < totalCount {
+            let trimmedCount = totalCount - includedCount
+            result = "[... \(trimmedCount) earlier message(s) omitted ...]\n" + result
+        }
+
+        return result
+    }
+
     /// Add a new model pattern to the exception list
     /// - Parameter pattern: Model name pattern to add (case-insensitive, supports partial matching)
     func addPattern(_ pattern: String) {

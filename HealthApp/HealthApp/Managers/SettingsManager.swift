@@ -203,6 +203,7 @@ class SettingsManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
+    private let logger = Logger.shared
 
     // Keychain keys for reinstall persistence
     private let kcOllamaKey = "settings.ollamaConfig.v1"
@@ -417,13 +418,14 @@ class SettingsManager: ObservableObject {
         if mlxClient == nil {
             mlxClient = MLXClient.shared
 
-            // Set the current model if one is selected
-            if let modelId = modelPreferences.mlxModelId {
-                mlxClient?.currentModelId = modelId
-            }
-
             // Set generation config
             mlxClient?.setGenerationConfig(mlxGenerationConfig)
+
+            // Set the current model if one is selected (lazy loading - model loads when first message is sent)
+            if let modelId = modelPreferences.mlxModelId {
+                mlxClient?.currentModelId = modelId
+                logger.info("🔧 MLX model ID set to: \(modelId) (will load on first use)")
+            }
         }
         return mlxClient!
     }

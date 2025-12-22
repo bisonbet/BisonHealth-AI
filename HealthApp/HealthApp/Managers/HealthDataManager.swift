@@ -91,13 +91,44 @@ class HealthDataManager: ObservableObject {
 
     /// Internal method for loading health data (used by retry logic)
     private func loadHealthDataInternal() async throws {
-        // Load personal info
-        personalInfo = try await databaseManager.fetchPersonalHealthInfo()
+        // If we detect decryption failures, run a recovery scan
+        // This helps identify if data is recoverable or if keys have changed
+        do {
+            // Load personal info
+            personalInfo = try await databaseManager.fetchPersonalHealthInfo()
 
-        // Load blood test results (only from lab reports or manually entered)
-        // Filter out any blood tests that came from non-lab-report documents
-        let allBloodTests = try await databaseManager.fetchBloodTestResults()
-        bloodTests = await filterValidBloodTests(allBloodTests)
+            // Load blood test results (only from lab reports or manually entered)
+            // Filter out any blood tests that came from non-lab-report documents
+            let allBloodTests = try await databaseManager.fetchBloodTestResults()
+            bloodTests = await filterValidBloodTests(allBloodTests)
+        } catch {
+            // Check if this is a decryption error
+            if let dbError = error as? DatabaseError,
+               case .decryptionFailed = dbError {
+                // Decryption failed - run recovery scan to diagnose the issue
+                logger.warning("⚠️ Decryption failures detected. Running recovery scan...")
+                do {
+                    let scanResult = try await databaseManager.scanDatabaseForRecovery()
+                    
+                    if scanResult.corruptedRecords.count > 0 {
+                        logger.error("❌ Found \(scanResult.corruptedRecords.count) corrupted record(s) that cannot be decrypted")
+                        logger.error("   This may indicate the encryption key has changed or data is corrupted")
+                        logger.error("   Corrupted record IDs: \(scanResult.corruptedRecords.map { $0.recordId }.joined(separator: ", "))")
+                        
+                        // If we have empty records, those are definitely lost
+                        if scanResult.emptyRecords.count > 0 {
+                            logger.error("❌ Found \(scanResult.emptyRecords.count) record(s) with empty encrypted data - these are unrecoverable")
+                        }
+                    }
+                } catch {
+                    // If scan fails, log but continue
+                    logger.error("Failed to run recovery scan: \(error.localizedDescription)", error: error)
+                }
+            }
+            
+            // Re-throw the original error
+            throw error
+        }
 
         // Load imaging reports
         imagingReports = try await databaseManager.fetchMedicalDocuments(category: .imagingReport)

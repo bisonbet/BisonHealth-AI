@@ -22,12 +22,16 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Private Properties
     private var chatSession: ChatSession?
+    private var loadedModel: ModelContext?  // Store model separately from session for reuse
     private var currentConfig: MLXGenerationConfig = .default
     private let logger = Logger.shared
 
     // Conversation tracking
     private var currentConversationId: UUID?
     private var conversationTokenCount: Int = 0
+
+    // Loading lock to prevent concurrent model loads
+    private var isLoadingModel: Bool = false
 
     // MARK: - Initialization
     private init() {
@@ -38,6 +42,21 @@ class MLXClient: ObservableObject, AIProviderInterface {
         MLX.GPU.set(cacheLimit: cacheLimit)
 
         logger.info("🔧 MLX initialized with \(cacheLimit / 1024 / 1024)MB GPU cache")
+    }
+
+    // MARK: - Memory Monitoring
+
+    /// Log current GPU memory usage for debugging
+    private func logMemoryStats(label: String) {
+        let activeMemory = GPU.activeMemory
+        let cacheMemory = GPU.cacheMemory
+        let peakMemory = GPU.peakMemory
+
+        let activeMB = Double(activeMemory) / 1024 / 1024
+        let cacheMB = Double(cacheMemory) / 1024 / 1024
+        let peakMB = Double(peakMemory) / 1024 / 1024
+
+        logger.info("📊 [\(label)] GPU Memory - Active: \(String(format: "%.1f", activeMB))MB, Cache: \(String(format: "%.1f", cacheMB))MB, Peak: \(String(format: "%.1f", peakMB))MB")
     }
 
     // MARK: - AIProviderInterface
@@ -83,9 +102,43 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     /// Load a model into memory using MLX's built-in download/cache system
     func loadModel(modelId: String) async throws {
+        // Prevent concurrent loads - if already loading, wait for it to complete
+        if isLoadingModel {
+            logger.info("⏳ MLX: Model load already in progress, waiting...")
+            // Wait for current load to complete (poll every 100ms, max 30 seconds)
+            for _ in 0..<300 {
+                try await Task.sleep(nanoseconds: 100_000_000)
+                if !isLoadingModel {
+                    logger.info("✅ MLX: Previous load completed, using existing session")
+                    if chatSession != nil {
+                        return // Model is now loaded
+                    }
+                    break // Load failed, try again
+                }
+            }
+            if isLoadingModel {
+                throw MLXError.modelLoadFailed("Timed out waiting for model to load")
+            }
+        }
+
+        // If model is already loaded with this ID, skip reload
+        // Check loadedModel (not chatSession) since session may be nil after reset
+        if loadedModel != nil && currentModelId == modelId {
+            logger.info("✅ MLX: Model already loaded, skipping reload")
+            // Ensure we have a chat session even if model is loaded
+            if chatSession == nil, let model = loadedModel {
+                chatSession = ChatSession(model)
+            }
+            return
+        }
+
+        isLoadingModel = true
         logger.info("📂 Loading MLX model: \(modelId)")
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            isLoadingModel = false
+        }
 
         // Get the HuggingFace repo ID from the model registry
         guard let modelConfig = MLXModelRegistry.model(withId: modelId) else {
@@ -97,18 +150,23 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
         do {
             // Use MLX's built-in loading (downloads if needed, uses cache if available)
-            let loadedModel = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
+            let model = try await MLXLMCommon.loadModel(id: huggingFaceRepo)
+
+            // Store the model reference for reuse when resetting sessions
+            self.loadedModel = model
 
             // Create chat session with the loaded model
-            chatSession = ChatSession(loadedModel)
+            chatSession = ChatSession(model)
             currentModelId = modelId
             isConnected = true
             connectionStatus = .connected
 
             logger.info("✅ Successfully loaded MLX model: \(modelId)")
+            logMemoryStats(label: "After Model Load")
 
         } catch {
             logger.error("❌ Failed to load MLX model", error: error)
+            loadedModel = nil
             chatSession = nil
             currentModelId = nil
             isConnected = false
@@ -121,6 +179,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
     func unloadModel() {
         logger.info("🗑️ Unloading MLX model")
         chatSession = nil
+        loadedModel = nil  // Clear the model reference to free memory
         currentModelId = nil
         isConnected = false
         connectionStatus = .disconnected
@@ -180,22 +239,38 @@ class MLXClient: ObservableObject, AIProviderInterface {
     }
 
     /// Reset the chat session to clear conversation history and KV cache
+    /// This creates a fresh ChatSession without reloading the model from disk
     func resetSession() async throws {
-        guard let modelId = currentModelId else {
-            throw MLXError.invalidConfiguration
+        guard let model = loadedModel else {
+            // No model loaded - need to load it first
+            guard let modelId = currentModelId else {
+                throw MLXError.invalidConfiguration
+            }
+            logger.info("🔄 No loaded model found, loading model: \(modelId)")
+            try await loadModel(modelId: modelId)
+            return
         }
 
-        logger.info("🔄 Resetting chat session")
+        logger.info("🔄 Resetting chat session (reusing loaded model)")
+        logMemoryStats(label: "Before Session Reset")
 
-        // Explicitly unload the current session first to free memory
-        // This prevents having both old and new models in memory simultaneously
+        // Clear the current session to free KV cache memory
         chatSession = nil
 
-        // Small delay to ensure memory is freed
-        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        // Force GPU cache cleanup to release KV cache memory
+        // This is critical to prevent memory accumulation across turns
+        GPU.clearCache()
+        logMemoryStats(label: "After Cache Clear")
 
-        // Reload the model to get a fresh session
-        try await loadModel(modelId: modelId)
+        // Longer delay to ensure memory is fully freed before allocating new session
+        try await Task.sleep(nanoseconds: 200_000_000) // 200ms
+
+        // Create a fresh ChatSession with the already-loaded model
+        // This avoids reloading ~2GB of model weights from disk
+        chatSession = ChatSession(model)
+        logMemoryStats(label: "After New Session")
+
+        logger.info("✅ Chat session reset complete")
     }
 
     /// Set generation configuration
@@ -207,35 +282,71 @@ class MLXClient: ObservableObject, AIProviderInterface {
     // MARK: - Streaming Support
 
     /// Send streaming chat message
+    /// - Parameters:
+    ///   - message: The user's current message
+    ///   - context: Health data context string
+    ///   - systemPrompt: Doctor's system prompt/instructions
+    ///   - conversationHistory: Previous messages in the conversation for context
+    ///   - conversationId: UUID of the current conversation
+    ///   - onUpdate: Callback for streaming updates
+    ///   - onComplete: Callback when generation completes
     func sendStreamingChatMessage(
         _ message: String,
         context: String,
         systemPrompt: String?,
+        conversationHistory: [ChatMessage] = [],
         conversationId: UUID? = nil,
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (MLXResponse) -> Void
     ) async throws {
         guard let modelId = currentModelId else {
+            logger.error("❌ MLX: No model selected - currentModelId is nil")
             throw MLXError.invalidConfiguration
         }
 
-        // Check if we need to reset the session
-        let shouldReset = shouldResetSession(for: conversationId)
-        let isFirstTurn = shouldReset || chatSession == nil
+        // Check if model is actually loaded
+        if chatSession == nil {
+            logger.info("🔄 MLX: Model not loaded, attempting to auto-load: \(modelId)")
+            do {
+                try await loadModel(modelId: modelId)
+            } catch {
+                logger.error("❌ MLX: Failed to auto-load model: \(modelId)", error: error)
+                throw MLXError.modelLoadFailed("Failed to load model: \(error.localizedDescription)")
+            }
+        }
 
-        if shouldReset {
-            logger.info("🔄 Resetting session - new conversation or context limit")
+        // Check if this model requires special handling (like MedGemma)
+        let requiresSpecialFormatting = SystemPromptExceptionList.shared.requiresInstructionInjection(for: modelId)
+
+        // Check if we need to reset the session
+        let (shouldReset, isNewConversation) = shouldResetSession(for: conversationId)
+
+        // For MedGemma and similar models: reset session on EVERY turn
+        // These models don't properly maintain KV cache across turns, so we
+        // send the full context each time and reset to avoid shape mismatches.
+        // LIMITATION: This means MedGemma doesn't have conversation history -
+        // each turn is treated independently with only the health context.
+        // TODO: To support conversation history, we would need to build previous
+        // messages into the CONTEXT section of the prompt.
+        let needsReset = shouldReset || (requiresSpecialFormatting && conversationTokenCount > 0)
+        let isFirstTurn = isNewConversation || chatSession == nil || needsReset
+
+        if needsReset && chatSession != nil {
+            if requiresSpecialFormatting {
+                logger.info("🔄 Resetting session for MedGemma - each turn gets fresh context")
+            } else {
+                logger.info("🔄 Resetting session - switching conversation or context limit reached")
+            }
             try await resetSession()
+            currentConversationId = conversationId
+            conversationTokenCount = 0
+        } else if isNewConversation {
+            // New conversation but no reset needed (session is fresh)
+            logger.info("📝 New conversation, session is fresh - updating conversation ID")
             currentConversationId = conversationId
             conversationTokenCount = 0
         } else {
             logger.debug("📝 Continuing conversation - token count: \(conversationTokenCount)")
-        }
-
-        // Auto-load model if not already loaded
-        if chatSession == nil {
-            logger.info("🔄 Auto-loading model: \(modelId)")
-            try await loadModel(modelId: modelId)
         }
 
         guard let session = chatSession else {
@@ -243,19 +354,45 @@ class MLXClient: ObservableObject, AIProviderInterface {
         }
 
         // Build the prompt
-        // For first turn: include full context (system prompt + health data + message)
-        // For subsequent turns: only the new message (ChatSession maintains history)
+        // Note: requiresSpecialFormatting already calculated above, modelId from guard statement
+
         let fullPrompt: String
-        if isFirstTurn {
+        if requiresSpecialFormatting {
+            // For MedGemma and similar models: ALWAYS use INSTRUCTIONS/CONTEXT/QUESTION format
+            // These models don't properly maintain KV cache across turns with varying formats,
+            // so we include the full context on every turn for consistency
+            // Also include conversation history so the model has context from previous exchanges
+            fullPrompt = SystemPromptExceptionList.shared.formatMessageWithHistory(
+                userMessage: message,
+                systemPrompt: systemPrompt,
+                context: context,
+                conversationHistory: conversationHistory,
+                maxTokens: currentConfig.contextWindow
+            )
+            let historyCount = conversationHistory.filter { $0.role == .user || $0.role == .assistant }.count
+            logger.info("📋 MedGemma format - including \(historyCount) history messages, context window: \(currentConfig.contextWindow)")
+        } else if isFirstTurn {
+            // Standard models: include context on first turn only
             fullPrompt = buildPrompt(message: message, context: context, systemPrompt: systemPrompt)
-            logger.debug("📋 First turn - including full context")
+            logger.debug("📋 First turn - using standard format with full context")
         } else {
+            // Standard models: just the message on subsequent turns (ChatSession maintains history)
             fullPrompt = message
             logger.debug("📋 Subsequent turn - message only")
         }
 
         logger.info("🤖 Streaming response with MLX model")
         logger.debug("📋 Full prompt:\n\(fullPrompt.prefix(200))...")
+
+        // Debug logging for instruction injection
+        logger.info("🔍 MLXClient: isFirstTurn=\(isFirstTurn), shouldReset=\(shouldReset), promptLength=\(fullPrompt.count)")
+        if fullPrompt.count > 200 {
+            logger.debug("🔍 MLXClient: Prompt preview: \(String(fullPrompt.prefix(200)))...")
+        } else {
+            logger.debug("🔍 MLXClient: Full prompt: \(fullPrompt)")
+        }
+
+        logMemoryStats(label: "Before Generation")
         let startTime = Date()
 
         do {
@@ -282,10 +419,16 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 finalText += token
 
                 // Check for Gemma end-of-turn tokens
-                if finalText.contains("<end_of_turn>") ||
-                   finalText.contains("<|eot_id|>") ||
-                   finalText.contains("</s>") {
-                    logger.info("🛑 Detected end-of-turn token, stopping stream")
+                // IMPORTANT: Only check the SUFFIX of the text (last 20 chars) to avoid false positives
+                // when conversation history contains these tokens from previous turns
+                // Also require minimum 50 tokens before stopping - prevents premature cutoff
+                let recentSuffix = String(finalText.suffix(20))
+                let hasEndToken = recentSuffix.contains("<end_of_turn>") ||
+                                  recentSuffix.contains("<|eot_id|>") ||
+                                  recentSuffix.contains("</s>")
+
+                if hasEndToken && tokenCount >= 50 {
+                    logger.info("🛑 Detected end-of-turn token at end of response, stopping stream (token #\(tokenCount))")
                     // Remove the end token from final text
                     finalText = finalText.replacingOccurrences(of: "<end_of_turn>", with: "")
                     finalText = finalText.replacingOccurrences(of: "<|eot_id|>", with: "")
@@ -293,6 +436,12 @@ class MLXClient: ObservableObject, AIProviderInterface {
                     // Send final update before breaking
                     onUpdate(finalText)
                     break
+                } else if hasEndToken {
+                    // End token detected but too early - log and remove it but continue
+                    logger.warning("⚠️ End-of-turn token detected early (token #\(tokenCount)), removing and continuing...")
+                    finalText = finalText.replacingOccurrences(of: "<end_of_turn>", with: "")
+                    finalText = finalText.replacingOccurrences(of: "<|eot_id|>", with: "")
+                    finalText = finalText.replacingOccurrences(of: "</s>", with: "")
                 }
 
                 // Detect repetition (same content being generated repeatedly)
@@ -341,6 +490,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
             onUpdate(finalText)
 
             logger.info("✅ MLX streaming completed: \(tokenCount) tokens, \(finalText.count) characters")
+            logMemoryStats(label: "After Generation")
 
             // Update conversation token count
             conversationTokenCount += tokenCount
@@ -371,26 +521,34 @@ class MLXClient: ObservableObject, AIProviderInterface {
     // MARK: - Private Helpers
 
     /// Determine if we should reset the session
-    private func shouldResetSession(for conversationId: UUID?) -> Bool {
-        // Reset if no session exists
+    /// Returns: (shouldReset, isNewConversation)
+    private func shouldResetSession(for conversationId: UUID?) -> (shouldReset: Bool, isNewConversation: Bool) {
+        // No session exists - don't reset, just load
         guard chatSession != nil else {
-            return true
+            return (shouldReset: false, isNewConversation: true)
         }
 
-        // Reset if conversation ID changed (new conversation)
+        // Conversation ID changed (switching to a different conversation)
         if let conversationId = conversationId, conversationId != currentConversationId {
             logger.debug("🔄 Conversation changed: \(String(describing: currentConversationId)) → \(conversationId)")
-            return true
+            // Only reset if we've actually had a conversation (token count > 0)
+            // If token count is 0, the session is already fresh
+            if conversationTokenCount > 0 {
+                return (shouldReset: true, isNewConversation: true)
+            } else {
+                // Just update the conversation ID, no reset needed
+                return (shouldReset: false, isNewConversation: true)
+            }
         }
 
         // Reset if approaching context window limit (90% of max)
         let contextLimit = Int(Double(currentConfig.contextWindow) * 0.9)
         if conversationTokenCount >= contextLimit {
             logger.warning("⚠️ Approaching context limit: \(conversationTokenCount)/\(currentConfig.contextWindow)")
-            return true
+            return (shouldReset: true, isNewConversation: false)
         }
 
-        return false
+        return (shouldReset: false, isNewConversation: false)
     }
 
     private func buildPrompt(message: String, context: String, systemPrompt: String? = nil) -> String {

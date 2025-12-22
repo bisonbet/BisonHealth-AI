@@ -40,6 +40,26 @@ struct BloodTestResult: HealthDataProtocol {
         self.updatedAt = updatedAt
         self.metadata = metadata
     }
+
+    // Custom Decodable to handle existing records without includeInAIContext field
+    enum CodingKeys: String, CodingKey {
+        case id, testDate, laboratoryName, orderingPhysician, results
+        case includeInAIContext, createdAt, updatedAt, metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        testDate = try container.decode(Date.self, forKey: .testDate)
+        laboratoryName = try container.decodeIfPresent(String.self, forKey: .laboratoryName)
+        orderingPhysician = try container.decodeIfPresent(String.self, forKey: .orderingPhysician)
+        results = try container.decode([BloodTestItem].self, forKey: .results)
+        // Default to false for existing records that don't have this field
+        includeInAIContext = try container.decodeIfPresent(Bool.self, forKey: .includeInAIContext) ?? false
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
+    }
 }
 
 // MARK: - Blood Test Item

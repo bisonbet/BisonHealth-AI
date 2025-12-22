@@ -528,7 +528,7 @@ enum MLXError: LocalizedError {
         case .generationFailed(let message):
             return "Text generation failed: \(message)"
         case .invalidConfiguration:
-            return "Invalid model configuration"
+            return "Invalid MLX configuration - no model selected or model not properly configured"
         }
     }
 

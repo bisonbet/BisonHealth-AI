@@ -1,5 +1,6 @@
 import Foundation
 import SQLite
+import CryptoKit
 
 // MARK: - Health Data CRUD Operations
 extension DatabaseManager {
@@ -8,8 +9,44 @@ extension DatabaseManager {
     func save<T: HealthDataProtocol>(_ data: T) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
+        let logger = Logger.shared
+        
         do {
+            // CRITICAL: Encrypt and verify before saving
             let encryptedData = try encryptData(data)
+            
+            // Double-check: Verify encrypted data is not empty
+            guard !encryptedData.isEmpty else {
+                logger.error("❌ CRITICAL: Encrypted data is empty after encryption! Not saving to prevent data loss.")
+                throw DatabaseError.encryptionFailed
+            }
+            
+            // Double-check: Verify minimum size
+            guard encryptedData.count >= 28 else {
+                logger.error("❌ CRITICAL: Encrypted data is too small (\(encryptedData.count) bytes)! Not saving to prevent data loss.")
+                throw DatabaseError.encryptionFailed
+            }
+            
+            // Triple-check: Verify we can decrypt what we're about to save
+            do {
+                switch data.type {
+                case .personalInfo:
+                    if data is PersonalHealthInfo {
+                        _ = try decryptData(encryptedData, as: PersonalHealthInfo.self)
+                    }
+                case .bloodTest:
+                    if data is BloodTestResult {
+                        _ = try decryptData(encryptedData, as: BloodTestResult.self)
+                    }
+                case .imagingReport, .healthCheckup:
+                    // These are stored in documents table
+                    break
+                }
+            } catch {
+                logger.error("❌ CRITICAL: Cannot decrypt data we just encrypted! Not saving to prevent data loss. Error: \(error.localizedDescription)", error: error)
+                throw DatabaseError.encryptionFailed
+            }
+            
             let metadataJson = try data.metadata.map { try JSONSerialization.data(withJSONObject: $0) }
             let metadataString = metadataJson.map { String(data: $0, encoding: .utf8) } ?? nil
             
@@ -23,7 +60,12 @@ extension DatabaseManager {
             )
             
             try db.run(insert)
+            
+            logger.info("✅ Successfully saved \(data.type.rawValue) record \(data.id.uuidString) (encrypted size: \(encryptedData.count) bytes)")
+        } catch let error as DatabaseError {
+            throw error
         } catch {
+            logger.error("Failed to save health data: \(error.localizedDescription)", error: error)
             throw DatabaseError.encryptionFailed
         }
     }
@@ -33,17 +75,59 @@ extension DatabaseManager {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
         var results: [T] = []
+        var corruptedRecords: Int = 0
+        var corruptedRecordIds: [String] = []
+        let logger = Logger.shared
         
         do {
             let query = healthDataTable.filter(self.healthDataType == healthDataType.rawValue)
                 .order(healthDataUpdatedAt.desc)
             
             for row in try db.prepare(query) {
+                let recordId = row[healthDataId]
                 let encryptedData = row[healthDataEncryptedData]
-                let decryptedData = try decryptData(encryptedData, as: type)
-                results.append(decryptedData)
+                
+                // Check if encrypted data is empty or invalid before attempting decryption
+                if encryptedData.isEmpty {
+                    logger.warning("⚠️ Health data record \(recordId) of type \(healthDataType.rawValue) has empty encrypted data - skipping")
+                    corruptedRecords += 1
+                    corruptedRecordIds.append(recordId)
+                    continue
+                }
+                
+                do {
+                    let decryptedData = try decryptData(encryptedData, as: type)
+                    results.append(decryptedData)
+                } catch {
+                    // Log the actual error for debugging
+                    logger.error("Failed to decrypt health data record \(recordId) of type \(healthDataType.rawValue): \(error.localizedDescription)", error: error)
+                    corruptedRecords += 1
+                    corruptedRecordIds.append(recordId)
+                    
+                    // Continue processing other records instead of failing entirely
+                    // This allows the app to load valid data even if some records are corrupted
+                }
             }
+            
+            // If all records failed to decrypt, log a warning but return empty array instead of throwing
+            // This allows the app to continue functioning even with corrupted data
+            if corruptedRecords > 0 && results.isEmpty {
+                let warningMessage = "⚠️ All \(corruptedRecords) health data records of type \(healthDataType.rawValue) failed to decrypt. Returning empty array. Corrupted record IDs: \(corruptedRecordIds.joined(separator: ", "))"
+                logger.warning(warningMessage)
+                // Don't throw - return empty array to allow app to continue
+                return []
+            }
+            
+            // Log warning if some records were corrupted but we have valid data
+            if corruptedRecords > 0 {
+                logger.warning("⚠️ Skipped \(corruptedRecords) corrupted health data record(s) of type \(healthDataType.rawValue), loaded \(results.count) valid record(s). Corrupted IDs: \(corruptedRecordIds.joined(separator: ", "))")
+            }
+        } catch let error as DatabaseError {
+            // Re-throw database errors as-is (connection errors, etc.)
+            throw error
         } catch {
+            // For other errors, log and throw decryption error
+            logger.error("Unexpected error while fetching health data of type \(healthDataType.rawValue): \(error.localizedDescription)", error: error)
             throw DatabaseError.decryptionFailed
         }
         
@@ -54,16 +138,30 @@ extension DatabaseManager {
     func fetchHealthData<T: HealthDataProtocol>(id: UUID, as type: T.Type) async throws -> T? {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
+        let logger = Logger.shared
+        
         do {
             let query = healthDataTable.filter(healthDataId == id.uuidString)
             
             if let row = try db.pluck(query) {
                 let encryptedData = row[healthDataEncryptedData]
-                return try decryptData(encryptedData, as: type)
+                
+                do {
+                    return try decryptData(encryptedData, as: type)
+                } catch {
+                    // Log the actual error for debugging
+                    logger.error("Failed to decrypt health data record \(id.uuidString): \(error.localizedDescription)", error: error)
+                    throw DatabaseError.decryptionFailed
+                }
             }
             
             return nil
+        } catch let error as DatabaseError {
+            // Re-throw database errors as-is
+            throw error
         } catch {
+            // For other errors, log and throw decryption error
+            logger.error("Unexpected error while fetching health data record \(id.uuidString): \(error.localizedDescription)", error: error)
             throw DatabaseError.decryptionFailed
         }
     }
@@ -181,6 +279,65 @@ extension DatabaseManager {
         }
         
         return results
+    }
+    
+    // MARK: - Cleanup Corrupted Records
+    /// Deletes health data records that have empty or invalid encrypted data
+    /// Returns the number of records deleted
+    func cleanupCorruptedRecords(for healthDataType: HealthDataType? = nil) async throws -> Int {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+        
+        let logger = Logger.shared
+        var deletedCount = 0
+        
+        do {
+            var query = healthDataTable
+            
+            // Filter by type if specified
+            if let type = healthDataType {
+                query = query.filter(self.healthDataType == type.rawValue)
+            }
+            
+            // Find records with empty encrypted data
+            for row in try db.prepare(query) {
+                let recordId = row[healthDataId]
+                let encryptedData = row[healthDataEncryptedData]
+                let typeString = row[self.healthDataType]
+                
+                // Check if encrypted data is empty or too small to be valid
+                if encryptedData.isEmpty || encryptedData.count < 28 {
+                    logger.warning("🗑️ Deleting corrupted health data record \(recordId) of type \(typeString) (empty or invalid encrypted data)")
+                    
+                    // Delete the corrupted record
+                    let deleteQuery = healthDataTable.filter(healthDataId == recordId)
+                    try db.run(deleteQuery.delete())
+                    deletedCount += 1
+                } else {
+                    // Try to decrypt to verify it's valid
+                    do {
+                        // We don't know the exact type, so we'll just try to create a sealed box
+                        // If this fails, the data is corrupted
+                        _ = try AES.GCM.SealedBox(combined: encryptedData)
+                    } catch {
+                        logger.warning("🗑️ Deleting corrupted health data record \(recordId) of type \(typeString) (decryption validation failed)")
+                        
+                        // Delete the corrupted record
+                        let deleteQuery = healthDataTable.filter(healthDataId == recordId)
+                        try db.run(deleteQuery.delete())
+                        deletedCount += 1
+                    }
+                }
+            }
+            
+            if deletedCount > 0 {
+                logger.info("✅ Cleaned up \(deletedCount) corrupted health data record(s)")
+            }
+        } catch {
+            logger.error("Failed to cleanup corrupted records: \(error.localizedDescription)", error: error)
+            throw error
+        }
+        
+        return deletedCount
     }
 }
 

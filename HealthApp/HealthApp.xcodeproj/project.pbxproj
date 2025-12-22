@@ -58,6 +58,7 @@
 		14ADE5B72EF0CFF900BB7C6C /* RecentVitalsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */; };
 		14ADE5B92EF0D35700BB7C6C /* VitalsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */; };
 		14ADE5BB2EF0DC9100BB7C6C /* AIResponseCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5BA2EF0DC9100BB7C6C /* AIResponseCleaner.swift */; };
+		14E9689D2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E9689C2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift */; };
 		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
 		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
 		14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */; };
@@ -207,6 +208,7 @@
 		14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentVitalsSection.swift; sourceTree = "<group>"; };
 		14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsListView.swift; sourceTree = "<group>"; };
 		14ADE5BA2EF0DC9100BB7C6C /* AIResponseCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIResponseCleaner.swift; sourceTree = "<group>"; };
+		14E9689C2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+Recovery.swift"; sourceTree = "<group>"; };
 		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
 		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
 		14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DropdownComponents.swift; sourceTree = "<group>"; };
@@ -491,6 +493,7 @@
 		A1000015294A0000000000001 /* Database */ = {
 			isa = PBXGroup;
 			children = (
+				14E9689C2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift */,
 				A1000043294A0000000000001 /* DatabaseManager.swift */,
 				A1000045294A0000000000001 /* DatabaseManager+HealthData.swift */,
 				A1000047294A0000000000001 /* DatabaseManager+Documents.swift */,
@@ -712,6 +715,7 @@
 				146E72B02EC2905200D20C53 /* SectionEditorView.swift in Sources */,
 				146E72AC2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift in Sources */,
 				14FFBD3B2E77894700FD9B75 /* Views/TestTypePickerView.swift in Sources */,
+				14E9689D2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift in Sources */,
 				1419E6342EF6EFBB009BE031 /* MLXSettingsView.swift in Sources */,
 				1427C6562E66847000EBEFB0 /* BatchProcessingView.swift in Sources */,
 				1427C6572E66847000EBEFB0 /* DocumentGridView.swift in Sources */,
