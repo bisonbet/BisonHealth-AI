@@ -39,8 +39,17 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var gpuInitializationTask: Task<Void, Never>!
     private var isGPUInitialized: Bool = false
 
-    private static let gpuCacheLimit: UInt64 = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
+    // Reduced from 4GB to 2GB to minimize GPU power usage when idle
+    // The model itself is ~2GB, so 2GB cache is sufficient for generation
+    private static let gpuCacheLimit: UInt64 = 2 * 1024 * 1024 * 1024  // 2GB GPU cache
     private static let backgroundCancellationDelay: UInt64 = 50_000_000 // 50ms delay before GPU cache clear
+
+    // Idle resource management
+    private var lastActivityTime: Date = Date()
+    private var idleCleanupTask: Task<Void, Never>?
+    private var modelUnloadTask: Task<Void, Never>?
+    private static let idleCleanupDelay: TimeInterval = 30.0 // Clear GPU cache after 30 seconds of inactivity
+    private static let modelUnloadDelay: TimeInterval = 120.0 // Unload model completely after 120 seconds of inactivity
 
     // Conversation tracking
     private var currentConversationId: UUID?
@@ -81,6 +90,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
         lifecycleObservers.forEach { observer in
             NotificationCenter.default.removeObserver(observer)
         }
+        idleCleanupTask?.cancel()
+        modelUnloadTask?.cancel()
     }
 
     // MARK: - GPU Management
@@ -163,13 +174,23 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
         // Wait briefly for cancellation to complete before clearing cache
         try? await Task.sleep(nanoseconds: Self.backgroundCancellationDelay)
-        GPU.clearCache()
-        logger.info("🗑️ GPU cache cleared after background transition")
+
+        // Only clear cache if still in background (prevents race condition)
+        if !isAppActive {
+            GPU.clearCache()
+            logger.info("🗑️ GPU cache cleared after background transition")
+        } else {
+            logger.info("⏩ Skipped cache clear - app became active during transition")
+        }
     }
 
     private func handleDidBecomeActive() {
         logger.info("▶️ App became active - MLX streaming enabled")
         isAppActive = true
+        // Only schedule idle cleanup if a model is currently loaded
+        if loadedModel != nil {
+            scheduleIdleCleanup()
+        }
     }
 
     private func cancelActiveStreaming(reason: String) {
@@ -177,6 +198,77 @@ class MLXClient: ObservableObject, AIProviderInterface {
         logger.warning("🛑 Cancelling active MLX streaming task (\(reason))")
         task.cancel()
         activeStreamingTask = nil
+    }
+
+    // MARK: - Idle Resource Management
+
+    /// Schedule two-stage cleanup: cache clear at 30s, model unload at 120s
+    /// This reduces GPU/CPU usage progressively as inactivity continues
+    private func scheduleIdleCleanup() {
+        // Cancel any existing cleanup tasks
+        idleCleanupTask?.cancel()
+        modelUnloadTask?.cancel()
+
+        // Don't schedule cleanup if no model is loaded
+        guard loadedModel != nil else {
+            logger.debug("⏩ Skipping idle cleanup scheduling - no model loaded")
+            return
+        }
+
+        // Update last activity time
+        lastActivityTime = Date()
+
+        // Stage 1: Clear GPU cache after 30 seconds (keep model loaded)
+        idleCleanupTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            // Wait for idle period
+            try? await Task.sleep(nanoseconds: UInt64(Self.idleCleanupDelay * 1_000_000_000))
+
+            // Check if still idle, task wasn't cancelled, and model still loaded
+            guard !Task.isCancelled, self.loadedModel != nil else { return }
+
+            let timeSinceLastActivity = Date().timeIntervalSince(self.lastActivityTime)
+            if timeSinceLastActivity >= Self.idleCleanupDelay {
+                logger.info("🧹 MLX Stage 1: Cleaning GPU cache after \(Int(timeSinceLastActivity))s of inactivity")
+                logMemoryStats(label: "Before Idle Cleanup")
+
+                // Clear GPU cache to reduce GPU power usage
+                // Keep the model loaded for quick resumption
+                GPU.clearCache()
+
+                logMemoryStats(label: "After Idle Cleanup")
+                logger.info("✅ MLX Stage 1 complete - GPU cache cleared, model still loaded")
+            }
+        }
+
+        // Stage 2: Unload model completely after 120 seconds (more aggressive)
+        modelUnloadTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            // Wait for longer idle period
+            try? await Task.sleep(nanoseconds: UInt64(Self.modelUnloadDelay * 1_000_000_000))
+
+            // Check if still idle, task wasn't cancelled, and model still loaded
+            guard !Task.isCancelled, self.loadedModel != nil else { return }
+
+            let timeSinceLastActivity = Date().timeIntervalSince(self.lastActivityTime)
+            if timeSinceLastActivity >= Self.modelUnloadDelay {
+                logger.info("🗑️ MLX Stage 2: Unloading model after \(Int(timeSinceLastActivity))s of inactivity")
+                logMemoryStats(label: "Before Model Unload")
+
+                // Unload the entire model to free all GPU resources
+                unloadModel()
+
+                logger.info("✅ MLX Stage 2 complete - Model fully unloaded, GPU resources freed")
+            }
+        }
+    }
+
+    /// Mark activity to prevent idle cleanup and model unload
+    private func markActivity() {
+        lastActivityTime = Date()
+        scheduleIdleCleanup()
     }
 
     // MARK: - Memory Monitoring
@@ -362,6 +454,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.generationFailed("Cannot load model in background")
         }
 
+        // Mark activity
+        markActivity()
+
         // Prevent concurrent loads - if already loading, wait for it to complete
         if isLoadingModel {
             logger.info("⏳ MLX: Model load already in progress, waiting...")
@@ -445,14 +540,61 @@ class MLXClient: ObservableObject, AIProviderInterface {
         }
     }
 
-    /// Unload the current model from memory
+    /// Unload the current model from memory with aggressive GPU resource release
     func unloadModel() {
         logger.info("🗑️ Unloading MLX model")
-        chatSession = nil
-        loadedModel = nil  // Clear the model reference to free memory
+        logMemoryStats(label: "Before Model Unload")
+
+        // Cancel any pending tasks
+        idleCleanupTask?.cancel()
+        idleCleanupTask = nil
+        modelUnloadTask?.cancel()
+        modelUnloadTask = nil
+        activeStreamingTask?.cancel()
+        activeStreamingTask = nil
+
+        // Step 1: Synchronize GPU stream to ensure all pending operations complete
+        // This forces any lazy evaluations to finish before we release resources
+        logger.debug("🔄 Synchronizing GPU stream...")
+        Stream.gpu.synchronize()
+
+        // Step 2: Set cache limit to 0 to force IMMEDIATE deallocation when buffers are freed
+        // By default, MLX keeps freed buffers in cache for reuse - setting to 0 disables this
+        let previousCacheLimit = GPU.cacheLimit
+        GPU.set(cacheLimit: 0)
+        logger.debug("🔧 Set GPU cache limit to 0 (was \(previousCacheLimit / 1024 / 1024)MB)")
+
+        // Step 3: Clear references inside autoreleasepool to encourage immediate ARC deallocation
+        // This helps ensure Swift releases the objects promptly rather than waiting for next run loop
+        autoreleasepool {
+            chatSession = nil
+            loadedModel = nil
+        }
         currentModelId = nil
         isConnected = false
         connectionStatus = .disconnected
+
+        // Step 4: Synchronize again after clearing references
+        // This ensures any cleanup operations from deallocation complete
+        Stream.gpu.synchronize()
+
+        // Step 5: Clear the GPU cache to deallocate any remaining cached buffers
+        GPU.clearCache()
+
+        // Step 6: Final synchronize to ensure all cache clearing operations complete
+        Stream.gpu.synchronize()
+
+        // Step 7: Restore cache limit for future operations
+        // Use a smaller cache limit (256MB) to reduce memory footprint
+        let newCacheLimit = min(previousCacheLimit, 256 * 1024 * 1024)
+        GPU.set(cacheLimit: newCacheLimit)
+        logger.debug("🔧 Restored GPU cache limit to \(newCacheLimit / 1024 / 1024)MB")
+
+        // Step 8: Reset peak memory counter for cleaner diagnostics
+        GPU.resetPeakMemory()
+
+        logMemoryStats(label: "After Model Unload")
+        logger.info("✅ MLX model unloaded")
     }
 
     /// Delete a downloaded model from cache
@@ -584,6 +726,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
         }
 
         activeStreamingTask = streamingTask
+        defer {
+            activeStreamingTask = nil
+        }
 
         do {
             try await streamingTask.value
@@ -592,8 +737,6 @@ class MLXClient: ObservableObject, AIProviderInterface {
             throw MLXError.generationFailed("MLX streaming cancelled because the app is not active.")
         } catch {
             throw error
-        } finally {
-            activeStreamingTask = nil
         }
     }
 
@@ -615,6 +758,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (MLXResponse) -> Void
     ) async throws {
+        // Mark activity to prevent idle cleanup during generation
+        markActivity()
+
         guard let modelId = currentModelId else {
             logger.error("❌ MLX: No model selected - currentModelId is nil")
             throw MLXError.invalidConfiguration
@@ -828,6 +974,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
             // Since we reset session each turn for MedGemma anyway, cached tensors aren't reused
             GPU.clearCache()
             logMemoryStats(label: "After Cache Clear")
+
+            // Schedule idle cleanup for next period of inactivity
+            scheduleIdleCleanup()
 
             // Update conversation token count
             conversationTokenCount += tokenCount

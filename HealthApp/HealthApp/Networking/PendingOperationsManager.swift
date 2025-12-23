@@ -113,7 +113,10 @@ class PendingOperationsManager: ObservableObject {
             return
         }
 
-        print("🔄 PendingOperationsManager: Retrying all \(pendingOperations.count) pending operations")
+        // Only log if there are actually pending operations to retry
+        if !pendingOperations.isEmpty {
+            print("🔄 PendingOperationsManager: Retrying \(pendingOperations.count) pending operations")
+        }
         await processQueue()
     }
 

@@ -322,11 +322,16 @@ struct EnhancedMessageListView: View {
     var chatManager: AIChatManager?
     var conversationId: UUID?
 
+    // Compute filtered messages once instead of on every render
+    private var visibleMessages: [ChatMessage] {
+        messages.filter { !$0.content.isEmpty }
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: isIPad ? 16 : 12) {
-                    ForEach(messages.filter { !$0.content.isEmpty }) { message in
+                    ForEach(visibleMessages) { message in
                         EnhancedMessageBubbleView(
                             message: message,
                             isIPad: isIPad,
@@ -345,9 +350,9 @@ struct EnhancedMessageListView: View {
                 .padding(.horizontal, isIPad ? 24 : 16)
                 .padding(.vertical, 8)
             }
-            .onChange(of: messages.count) {
-                // Only scroll when new messages are added (count changes)
-                // Use faster animation for better performance
+            .onChange(of: messages.last?.id) {
+                // Only scroll when a NEW message is actually added (not when existing messages update)
+                // This prevents unnecessary scrolling and animations during message updates
                 withAnimation(.easeOut(duration: 0.2)) {
                     if let lastMessage = messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)

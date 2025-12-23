@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import Combine
 
 // MARK: - Settings Models
 
@@ -204,6 +205,10 @@ class SettingsManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
     private let logger = Logger.shared
+    private var cancellables = Set<AnyCancellable>()
+
+    // Track previous AI provider to detect changes
+    private var previousAIProvider: AIProvider?
 
     // Keychain keys for reinstall persistence
     private let kcOllamaKey = "settings.ollamaConfig.v1"
@@ -217,14 +222,41 @@ class SettingsManager: ObservableObject {
     
     init() {
         loadSettings()
+        // Store initial AI provider
+        previousAIProvider = modelPreferences.aiProvider
         // Defer backup manager setup to avoid circular dependency
         Task { @MainActor in
             await setupBackupManager()
         }
+        // Observe AI provider changes to unload MLX when switching
+        setupAIProviderObserver()
     }
     
+    // MARK: - AI Provider Change Observer
+
+    /// Observe AI provider changes and unload MLX model when switching away
+    private func setupAIProviderObserver() {
+        $modelPreferences
+            .map { $0.aiProvider }
+            .removeDuplicates()
+            .sink { [weak self] newProvider in
+                guard let self = self else { return }
+
+                // Check if we're switching away from MLX
+                if let previous = self.previousAIProvider,
+                   previous == .mlx && newProvider != .mlx {
+                    self.logger.info("🔄 AI Provider changed from MLX to \(newProvider.displayName) - unloading MLX model")
+                    self.getMLXClient().unloadModel()
+                }
+
+                // Update previous provider
+                self.previousAIProvider = newProvider
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Settings Persistence
-    
+
     func loadSettings() {
         // Load Ollama configuration
         if let ollamaData = userDefaults.data(forKey: "ollamaConfig"),
