@@ -40,6 +40,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var isGPUInitialized: Bool = false
 
     private static let gpuCacheLimit: UInt64 = 4 * 1024 * 1024 * 1024  // 4GB GPU cache for medical LLMs
+    private static let backgroundCancellationDelay: UInt64 = 50_000_000 // 50ms delay before GPU cache clear
 
     // Conversation tracking
     private var currentConversationId: UUID?
@@ -132,7 +133,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleDidEnterBackground()
+                await self?.handleDidEnterBackground()
             }
         }
 
@@ -155,16 +156,15 @@ class MLXClient: ObservableObject, AIProviderInterface {
         // Don't clear cache yet, just set state
     }
 
-    private func handleDidEnterBackground() {
+    private func handleDidEnterBackground() async {
         logger.warning("📴 App entered background - cancelling MLX streaming to avoid Metal errors")
         isAppActive = false
         cancelActiveStreaming(reason: "App entered background")
 
         // Wait briefly for cancellation to complete before clearing cache
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-            GPU.clearCache()
-        }
+        try? await Task.sleep(nanoseconds: Self.backgroundCancellationDelay)
+        GPU.clearCache()
+        logger.info("🗑️ GPU cache cleared after background transition")
     }
 
     private func handleDidBecomeActive() {
@@ -742,7 +742,13 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
                 guard isAppActive else {
                     logger.warning("🛑 MLX streaming cancelled - app moved to background")
-                    deliverUpdate(finalText, onUpdate: onUpdate)
+                    let response = MLXResponse(
+                        content: finalText,
+                        responseTime: Date().timeIntervalSince(startTime),
+                        tokenCount: estimateTokenCount(finalText),
+                        metadata: ["cancelled": true, "reason": "background"]
+                    )
+                    deliverCompletion(response, onComplete: onComplete)
                     throw CancellationError()
                 }
 
