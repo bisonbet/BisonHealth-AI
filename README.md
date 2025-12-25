@@ -26,7 +26,7 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 17+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally with optional iCloud backup
 - 🤖 **Multiple AI Providers** - Support for Ollama, AWS Bedrock, and OpenAI-compatible servers
-- 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Family Medicine, Chronic Health AI, and more)
+- 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Primary Care, Chronic Health AI, and more)
 - 📄 **Smart Document Processing** - Automatic OCR and extraction of health data from documents using Docling
 - 🏥 **Medical Document Management** - Support for 11 document types including imaging reports, lab reports, prescriptions, discharge summaries, and more
 - 🩺 **Comprehensive Health Data** - Personal info, blood tests, medical documents with structured extraction
@@ -196,7 +196,7 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 BisonHealth AI includes multiple specialized AI doctor personas, each with unique expertise and communication styles:
 
 - **Root Cause Analysis & Long Term Health** - Systematic approach to identifying root causes with structured analysis
-- **Family Medicine** - Compassionate general healthcare with empathy-focused communication
+- **Primary Care Physician** - General healthcare with clinical precision and professional communication
 - **Chronic Health AI** - Specialized in managing chronic conditions with comprehensive symptom tracking
 - **Orthopedic Specialist** - Focus on musculoskeletal conditions and joint issues
 - **Clinical Nutritionist** - Evidence-based nutrition advice and meal planning

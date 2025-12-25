@@ -18,7 +18,7 @@ class AIChatManager: ObservableObject {
     @Published var isSendingMessage: Bool = false
     @Published var errorMessage: String? = nil
     @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo]
-    @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Family Medicine" })
+    @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Primary Care Physician" })
     @Published var isOffline: Bool = false
     
     // MARK: - Dependencies
