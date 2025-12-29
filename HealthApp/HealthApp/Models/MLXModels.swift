@@ -136,6 +136,19 @@ struct MLXGenerationConfig: Codable, Equatable {
 struct MLXModelRegistry {
     static let availableModels: [MLXModelConfig] = [
         MLXModelConfig(
+            id: "mediphi-instruct-4bit",
+            name: "MediPhi Instruct (4-bit)",
+            huggingFaceRepo: "bisonnetworking/MediPhi-Instruct-mlx-4bit",
+            description: "Medical AI based on Phi-3.5 with improved system message handling and clinical reasoning",
+            modelType: .textOnly,
+            quantization: "4-bit",
+            estimatedSize: 1_800_000_000, // ~1.8 GB
+            contextWindow: 8192,
+            recommended: true,
+            specialization: "Clinical reasoning with better system prompt support",
+            requiredFiles: nil  // Use default files
+        ),
+        MLXModelConfig(
             id: "medgemma-4b-it-4bit",
             name: "MedGemma 4B (4-bit)",
             huggingFaceRepo: "mlx-community/medgemma-4b-it-4bit",
@@ -144,7 +157,7 @@ struct MLXModelRegistry {
             quantization: "4-bit",
             estimatedSize: 2_500_000_000, // ~2.5 GB
             contextWindow: 8192,
-            recommended: true,
+            recommended: false,
             specialization: "Medical knowledge and health conversations",
             requiredFiles: nil  // Use default files
         )
@@ -155,7 +168,7 @@ struct MLXModelRegistry {
     }
 
     static func recommendedModel() -> MLXModelConfig {
-        availableModels[0] // Only MedGemma available
+        availableModels.first { $0.recommended } ?? availableModels[0]
     }
 }
 

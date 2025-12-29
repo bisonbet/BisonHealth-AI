@@ -20,6 +20,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
     @Published var lastError: Error?
     @Published var isLoading: Bool = false
     @Published var currentModelId: String?
+    @Published var downloadedModelIds: Set<String> = []
 
     // MARK: - Private Properties
     private var chatSession: ChatSession?
@@ -83,7 +84,21 @@ class MLXClient: ObservableObject, AIProviderInterface {
             // Setup lifecycle observers after GPU is fully initialized
             // This avoids race condition where app could background during GPU init
             setupLifecycleObservers()
+
+            // Scan for downloaded models
+            scanDownloadedModels()
         }
+    }
+
+    /// Scan file system for downloaded models and update state
+    private func scanDownloadedModels() {
+        downloadedModelIds.removeAll()
+        for model in MLXModelRegistry.availableModels {
+            if isModelDownloaded(modelId: model.id) {
+                downloadedModelIds.insert(model.id)
+            }
+        }
+        logger.info("📦 Found \(downloadedModelIds.count) downloaded MLX models")
     }
 
     deinit {
@@ -228,6 +243,12 @@ class MLXClient: ObservableObject, AIProviderInterface {
             // Check if still idle, task wasn't cancelled, and model still loaded
             guard !Task.isCancelled, self.loadedModel != nil else { return }
 
+            // Don't cleanup if actively streaming
+            guard self.activeStreamingTask == nil else {
+                logger.debug("⏩ Skipping idle cleanup - streaming is active")
+                return
+            }
+
             let timeSinceLastActivity = Date().timeIntervalSince(self.lastActivityTime)
             if timeSinceLastActivity >= Self.idleCleanupDelay {
                 logger.info("🧹 MLX Stage 1: Cleaning GPU cache after \(Int(timeSinceLastActivity))s of inactivity")
@@ -251,6 +272,12 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
             // Check if still idle, task wasn't cancelled, and model still loaded
             guard !Task.isCancelled, self.loadedModel != nil else { return }
+
+            // Don't unload if actively streaming
+            guard self.activeStreamingTask == nil else {
+                logger.debug("⏩ Skipping model unload - streaming is active")
+                return
+            }
 
             let timeSinceLastActivity = Date().timeIntervalSince(self.lastActivityTime)
             if timeSinceLastActivity >= Self.modelUnloadDelay {
@@ -526,6 +553,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
             isConnected = true
             connectionStatus = .connected
 
+            // Update downloaded models tracking
+            downloadedModelIds.insert(modelId)
+
             logger.info("✅ Successfully loaded MLX model: \(modelId)")
             logMemoryStats(label: "After Model Load")
 
@@ -628,6 +658,9 @@ class MLXClient: ObservableObject, AIProviderInterface {
         } else {
             logger.warning("⚠️ Model cache not found at: \(modelDirectory.path)")
         }
+
+        // Update downloaded models tracking
+        downloadedModelIds.remove(modelId)
     }
 
     /// Check if a model is downloaded
@@ -951,6 +984,8 @@ class MLXClient: ObservableObject, AIProviderInterface {
                 // Log every 100th token to track progress without noise
                 if tokenCount % 100 == 0 {
                     logger.debug("📝 MLX streaming: \(tokenCount) tokens, \(finalText.count) chars")
+                    // Mark activity every 100 tokens to prevent idle cleanup during long generations
+                    markActivity()
                 }
 
                 // Throttle UI updates: only update every 100ms to prevent performance issues

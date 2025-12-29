@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MLXSettingsView: View {
     @ObservedObject var settingsManager: SettingsManager
+    @StateObject private var mlxClient = MLXClient.shared
     @State private var showingAdvancedSettings = false
     @State private var isLoadingModel = false
     @State private var loadError: String?
@@ -65,8 +66,7 @@ struct MLXSettingsView: View {
             }
 
             ForEach(MLXModelRegistry.availableModels) { model in
-                let mlxClient = settingsManager.getMLXClient()
-                let isDownloaded = mlxClient.isModelDownloaded(modelId: model.id)
+                let isDownloaded = mlxClient.downloadedModelIds.contains(model.id)
 
                 ModelRow(
                     model: model,
@@ -187,15 +187,12 @@ struct MLXSettingsView: View {
         settingsManager.saveSettings()
 
         // Load model (MLX will download if needed)
-        // Get client BEFORE invalidating to keep the same instance
-        let client = settingsManager.getMLXClient()
-
         isLoadingModel = true
         loadError = nil
 
         Task {
             do {
-                try await client.loadModel(modelId: model.id)
+                try await mlxClient.loadModel(modelId: model.id)
                 await MainActor.run {
                     isLoadingModel = false
                 }
@@ -209,8 +206,7 @@ struct MLXSettingsView: View {
     }
 
     private func updateMLXConfig() {
-        let client = settingsManager.getMLXClient()
-        client.setGenerationConfig(generationConfig)
+        mlxClient.setGenerationConfig(generationConfig)
 
         // Persist to SettingsManager
         settingsManager.mlxGenerationConfig = generationConfig
@@ -222,15 +218,13 @@ struct MLXSettingsView: View {
         generationConfig = settingsManager.mlxGenerationConfig
 
         // Also update the MLX client
-        let client = settingsManager.getMLXClient()
-        client.setGenerationConfig(generationConfig)
+        mlxClient.setGenerationConfig(generationConfig)
     }
 
     private func deleteModel(_ model: MLXModelConfig) {
         Task {
             do {
-                let client = settingsManager.getMLXClient()
-                try await client.deleteModel(modelId: model.id)
+                try await mlxClient.deleteModel(modelId: model.id)
 
                 // If this was the selected model, clear the selection
                 if settingsManager.modelPreferences.mlxModelId == model.id {
