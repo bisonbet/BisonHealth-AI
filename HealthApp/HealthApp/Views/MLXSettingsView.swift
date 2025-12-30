@@ -29,6 +29,7 @@ struct MLXSettingsView: View {
         }
         .onAppear {
             loadCurrentConfiguration()
+            mlxClient.scanDownloadedModels()
         }
     }
 
@@ -56,7 +57,19 @@ struct MLXSettingsView: View {
     // MARK: - Model Selection Section
 
     private var modelSelectionSection: some View {
-        Section(header: Text("Select Model")) {
+        Section(header: HStack {
+            Text("Select Model")
+            Spacer()
+            Button(action: {
+                mlxClient.scanDownloadedModels()
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Refresh")
+                }
+                .font(.caption)
+            }
+        }) {
             if isLoadingModel {
                 HStack {
                     ProgressView()

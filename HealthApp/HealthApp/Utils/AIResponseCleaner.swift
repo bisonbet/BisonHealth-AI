@@ -14,6 +14,10 @@ struct AIResponseCleaner {
         "<|begin_of_text|>",
         "<|im_start|>",
         "<|im_end|>",
+        "<|end|>",        // Phi-3.5 chat template
+        "<|system|>",     // Phi-3.5 chat template
+        "<|user|>",       // Phi-3.5 chat template
+        "<|assistant|>",  // Phi-3.5 chat template
         "<s>",
         "</s>",
         "[INST]",

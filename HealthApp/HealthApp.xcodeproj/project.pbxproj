@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		06YM0C4N0J8IQJP9DL0WWREU /* PlaceholderSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */; };
+		140E3E122F036B7400C510D3 /* ChatEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140E3E112F036B7400C510D3 /* ChatEngine.swift */; };
 		1419E6312EF6EFB2009BE031 /* AIConnectionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */; };
 		1419E6322EF6EFB2009BE031 /* MLXModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E6302EF6EFB2009BE031 /* MLXModels.swift */; };
 		1419E6342EF6EFBB009BE031 /* MLXSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E6332EF6EFBB009BE031 /* MLXSettingsView.swift */; };
@@ -163,6 +164,7 @@
 /* Begin PBXFileReference section */
 		0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmptyStateView.swift; sourceTree = "<group>"; };
 		0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoSection.swift; sourceTree = "<group>"; };
+		140E3E112F036B7400C510D3 /* ChatEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEngine.swift; sourceTree = "<group>"; };
 		1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConnectionStatus.swift; sourceTree = "<group>"; };
 		1419E6302EF6EFB2009BE031 /* MLXModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModels.swift; sourceTree = "<group>"; };
 		1419E6332EF6EFBB009BE031 /* MLXSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXSettingsView.swift; sourceTree = "<group>"; };
@@ -476,6 +478,7 @@
 		A1000014294A0000000000001 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				140E3E112F036B7400C510D3 /* ChatEngine.swift */,
 				1419E6352EF6EFC8009BE031 /* MLXClient.swift */,
 				143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */,
 				143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */,
@@ -780,6 +783,7 @@
 				1423481E2EA07B4E00059087 /* OfflineIndicatorView.swift in Sources */,
 				D715EC3156258AF86CC36B19 /* SettingsView.swift in Sources */,
 				UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */,
+				140E3E122F036B7400C510D3 /* ChatEngine.swift in Sources */,
 				ABC123456789BACKUP00001 /* iCloudBackupManager.swift in Sources */,
 				ABC123456789BACKUP00002 /* BackupManagementView.swift in Sources */,
 				HIPAA001B /* AppSettingsManager.swift in Sources */,
