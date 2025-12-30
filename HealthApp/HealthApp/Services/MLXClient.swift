@@ -40,17 +40,18 @@ class MLXClient: ObservableObject, AIProviderInterface {
     private var gpuInitializationTask: Task<Void, Never>!
     private var isGPUInitialized: Bool = false
 
-    // Reduced from 4GB to 2GB to minimize GPU power usage when idle
-    // The model itself is ~2GB, so 2GB cache is sufficient for generation
-    private static let gpuCacheLimit: UInt64 = 2 * 1024 * 1024 * 1024  // 2GB GPU cache
+    // Reduced from 2GB to 256MB to prevent Jetsam (OOM) crashes
+    // The cache sits ON TOP of the model weights (~2GB). 
+    // A 2GB cache + 2GB model = 4GB+ baseline, which kills the app.
+    private static let gpuCacheLimit: UInt64 = 256 * 1024 * 1024  // 256MB GPU cache
     private static let backgroundCancellationDelay: UInt64 = 50_000_000 // 50ms delay before GPU cache clear
 
     // Idle resource management
     private var lastActivityTime: Date = Date()
     private var idleCleanupTask: Task<Void, Never>?
-    private var modelUnloadTask: Task<Void, Never>?
+    // modelUnloadTask removed - model stays loaded
     private static let idleCleanupDelay: TimeInterval = 30.0 // Clear GPU cache after 30 seconds of inactivity
-    private static let modelUnloadDelay: TimeInterval = 120.0 // Unload model completely after 120 seconds of inactivity
+    // modelUnloadDelay removed
 
     // Conversation tracking
     private var currentConversationId: UUID?
@@ -112,7 +113,6 @@ class MLXClient: ObservableObject, AIProviderInterface {
             NotificationCenter.default.removeObserver(observer)
         }
         idleCleanupTask?.cancel()
-        modelUnloadTask?.cancel()
     }
 
     // MARK: - GPU Management
@@ -179,7 +179,17 @@ class MLXClient: ObservableObject, AIProviderInterface {
             }
         }
 
-        lifecycleObservers.append(contentsOf: [resignActiveObserver, backgroundObserver, foregroundObserver])
+        let memoryWarningObserver = center.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleMemoryWarning()
+            }
+        }
+
+        lifecycleObservers.append(contentsOf: [resignActiveObserver, backgroundObserver, foregroundObserver, memoryWarningObserver])
     }
 
     private func handleWillResignActive() {
@@ -216,6 +226,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
         }
     }
 
+    private func handleMemoryWarning() {
+        logger.warning("⚠️ Received memory warning - aggressively clearing MLX cache")
+        GPU.clearCache()
+        // Force synchronization to ensure memory is actually freed
+        Stream.gpu.synchronize()
+        logMemoryStats(label: "After Memory Warning")
+    }
+
     private func cancelActiveStreaming(reason: String) {
         guard let task = activeStreamingTask else { return }
         logger.warning("🛑 Cancelling active MLX streaming task (\(reason))")
@@ -225,12 +243,14 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Idle Resource Management
 
-    /// Schedule two-stage cleanup: cache clear at 30s, model unload at 120s
+    /// Schedule one-stage cleanup: cache clear at 30s
     /// This reduces GPU/CPU usage progressively as inactivity continues
+    /// NOTE: Stage 2 (Model Unload) has been removed to keep the model loaded indefinitely
+    /// until the user explicitly changes the AI provider or model.
     private func scheduleIdleCleanup() {
         // Cancel any existing cleanup tasks
         idleCleanupTask?.cancel()
-        modelUnloadTask?.cancel()
+        // modelUnloadTask is deprecated/removed
 
         // Don't schedule cleanup if no model is loaded
         guard loadedModel != nil else {
@@ -268,34 +288,6 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
                 logMemoryStats(label: "After Idle Cleanup")
                 logger.info("✅ MLX Stage 1 complete - GPU cache cleared, model still loaded")
-            }
-        }
-
-        // Stage 2: Unload model completely after 120 seconds (more aggressive)
-        modelUnloadTask = Task { @MainActor [weak self] in
-            guard let self = self else { return }
-
-            // Wait for longer idle period
-            try? await Task.sleep(nanoseconds: UInt64(Self.modelUnloadDelay * 1_000_000_000))
-
-            // Check if still idle, task wasn't cancelled, and model still loaded
-            guard !Task.isCancelled, self.loadedModel != nil else { return }
-
-            // Don't unload if actively streaming
-            guard self.activeStreamingTask == nil else {
-                logger.debug("⏩ Skipping model unload - streaming is active")
-                return
-            }
-
-            let timeSinceLastActivity = Date().timeIntervalSince(self.lastActivityTime)
-            if timeSinceLastActivity >= Self.modelUnloadDelay {
-                logger.info("🗑️ MLX Stage 2: Unloading model after \(Int(timeSinceLastActivity))s of inactivity")
-                logMemoryStats(label: "Before Model Unload")
-
-                // Unload the entire model to free all GPU resources
-                unloadModel()
-
-                logger.info("✅ MLX Stage 2 complete - Model fully unloaded, GPU resources freed")
             }
         }
     }
@@ -421,6 +413,10 @@ class MLXClient: ObservableObject, AIProviderInterface {
             title = title.replacingOccurrences(of: "<end_of_turn>", with: "")
             title = title.replacingOccurrences(of: "<|eot_id|>", with: "")
             title = title.replacingOccurrences(of: "</s>", with: "")
+            title = title.replacingOccurrences(of: "<|end|>", with: "")  // Phi-3 template
+            title = title.replacingOccurrences(of: "<|assistant|>", with: "")  // Strip role tags too
+            title = title.replacingOccurrences(of: "<|user|>", with: "")
+            title = title.replacingOccurrences(of: "<|system|>", with: "")
             title = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
             // Remove quotes if present
@@ -604,8 +600,6 @@ class MLXClient: ObservableObject, AIProviderInterface {
         // Cancel any pending tasks
         idleCleanupTask?.cancel()
         idleCleanupTask = nil
-        modelUnloadTask?.cancel()
-        modelUnloadTask = nil
         activeStreamingTask?.cancel()
         activeStreamingTask = nil
 
@@ -626,7 +620,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
             chatEngine = nil
             loadedModel = nil
         }
-        currentModelId = nil
+        // Do NOT clear currentModelId here - we want to remember it for auto-reload
         isConnected = false
         connectionStatus = .disconnected
 
@@ -662,6 +656,7 @@ class MLXClient: ObservableObject, AIProviderInterface {
         // Unload if this is the current model
         if currentModelId == modelId {
             unloadModel()
+            currentModelId = nil // Clear selection since we are deleting it
         }
 
         logger.info("🗑️ Deleting model: \(modelId)")
@@ -903,7 +898,12 @@ class MLXClient: ObservableObject, AIProviderInterface {
         let requiresSpecialFormatting = SystemPromptExceptionList.shared.requiresInstructionInjection(for: modelId)
 
         // Check if we need to reset for conversation switching
-        let (shouldReset, isNewConversation) = shouldResetSession(for: conversationId)
+        let (shouldReset, isNewConversation) = shouldResetSession(
+            for: conversationId,
+            systemPrompt: systemPrompt,
+            context: context,
+            conversationHistory: conversationHistory
+        )
 
         if shouldReset {
             logger.info("🔄 Resetting engine - switching conversation")
@@ -944,10 +944,16 @@ class MLXClient: ObservableObject, AIProviderInterface {
             tokenStream = engine.streamResponse(to: specialPrompt, maxTokens: currentConfig.maxTokens)
         } else {
             // For standard models: use message-based API with conversation history
-            // ChatEngine handles chat template formatting and resets KV cache automatically
-            logger.info("📋 Standard format - \(conversationHistory.count) history messages")
+            // CRITICAL FIX: Add the current user message to the history!
+            // conversationHistory contains PAST messages only, we need to append the current question
+            var messagesIncludingCurrent = conversationHistory
+            let currentUserMessage = ChatMessage(content: message, role: .user)
+            messagesIncludingCurrent.append(currentUserMessage)
+
+            logger.info("📋 Standard format - \(conversationHistory.count) history messages + current message")
+            logger.debug("📋 Current user message: \(String(message.prefix(200)))\(message.count > 200 ? "..." : "")")
             tokenStream = engine.streamResponse(
-                messages: conversationHistory,
+                messages: messagesIncludingCurrent,
                 systemPrompt: systemPrompt,
                 context: context
             )
@@ -1136,7 +1142,12 @@ class MLXClient: ObservableObject, AIProviderInterface {
 
     /// Determine if we should reset the session
     /// Returns: (shouldReset, isNewConversation)
-    private func shouldResetSession(for conversationId: UUID?) -> (shouldReset: Bool, isNewConversation: Bool) {
+    private func shouldResetSession(
+        for conversationId: UUID?,
+        systemPrompt: String? = nil,
+        context: String? = nil,
+        conversationHistory: [ChatMessage] = []
+    ) -> (shouldReset: Bool, isNewConversation: Bool) {
         // No engine exists - don't reset, just load
         guard chatEngine != nil else {
             return (shouldReset: false, isNewConversation: true)
@@ -1146,19 +1157,26 @@ class MLXClient: ObservableObject, AIProviderInterface {
         if let conversationId = conversationId, conversationId != currentConversationId {
             logger.debug("🔄 Conversation changed: \(String(describing: currentConversationId)) → \(conversationId)")
             // Only reset if we've actually had a conversation (token count > 0)
-            // If token count is 0, the session is already fresh
             if conversationTokenCount > 0 {
                 return (shouldReset: true, isNewConversation: true)
             } else {
-                // Just update the conversation ID, no reset needed
                 return (shouldReset: false, isNewConversation: true)
             }
         }
 
-        // Reset if approaching context window limit (90% of max)
+        // Estimate total context usage (Input + History + Max Generation)
+        // Note: This is an estimation since we don't have the tokenizer here
+        // ~4 chars per token is a safe upper bound for English text
+        let systemTokens = estimateTokenCount(systemPrompt ?? "")
+        let contextTokens = estimateTokenCount(context ?? "")
+        let historyTokens = conversationHistory.reduce(0) { $0 + estimateTokenCount($1.content) }
+        let maxGenTokens = currentConfig.maxTokens
+
+        let totalEstimatedUsage = systemTokens + contextTokens + historyTokens + maxGenTokens
         let contextLimit = Int(Double(currentConfig.contextWindow) * 0.9)
-        if conversationTokenCount >= contextLimit {
-            logger.warning("⚠️ Approaching context limit: \(conversationTokenCount)/\(currentConfig.contextWindow)")
+
+        if totalEstimatedUsage >= contextLimit {
+            logger.warning("⚠️ Approaching context limit: \(totalEstimatedUsage)/\(currentConfig.contextWindow) (History: \(historyTokens), Context: \(contextTokens))")
             return (shouldReset: true, isNewConversation: false)
         }
 

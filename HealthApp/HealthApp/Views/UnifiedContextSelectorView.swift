@@ -526,14 +526,20 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     }
 
     var includedDocumentsCount: Int {
-        selectedDocuments.count
+        // Only count documents that are selected AND in an enabled category
+        selectedDocuments.filter { docId in
+            guard let doc = allDocuments.first(where: { $0.id == docId }) else { return false }
+            return isCategoryEnabled(for: doc)
+        }.count
     }
 
     var selectedBloodTestsCount: Int {
-        selectedBloodTests.count
+        // Only count blood tests if the category is enabled
+        bloodTestsEnabled ? selectedBloodTests.count : 0
     }
 
     var estimatedBloodTestTokens: Int {
+        guard bloodTestsEnabled else { return 0 }
         var tokens = 0
         for testId in selectedBloodTests {
             if let test = allBloodTests.first(where: { $0.id == testId }) {
@@ -546,7 +552,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     var estimatedDocumentTokens: Int {
         var tokens = 0
         for docId in selectedDocuments {
-            if let doc = allDocuments.first(where: { $0.id == docId }) {
+            if let doc = allDocuments.first(where: { $0.id == docId }), isCategoryEnabled(for: doc) {
                 if let text = doc.extractedText {
                     tokens += text.count / Constants.tokensPerCharacter
                 } else {
@@ -576,17 +582,19 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             tokens += Constants.personalInfoTokenEstimate
         }
 
-        // Blood tests: estimate based on selected tests
-        for testId in selectedBloodTests {
-            if let test = allBloodTests.first(where: { $0.id == testId }) {
-                // Estimate: ~50 tokens per result line + 50 for headers
-                tokens += test.results.count * Constants.tokensPerBloodTestResult + Constants.bloodTestHeaderTokens
+        // Blood tests: estimate based on selected tests, only if enabled
+        if bloodTestsEnabled {
+            for testId in selectedBloodTests {
+                if let test = allBloodTests.first(where: { $0.id == testId }) {
+                    // Estimate: ~50 tokens per result line + 50 for headers
+                    tokens += test.results.count * Constants.tokensPerBloodTestResult + Constants.bloodTestHeaderTokens
+                }
             }
         }
 
-        // Documents: estimate based on selected documents
+        // Documents: estimate based on selected documents, only if category enabled
         for docId in selectedDocuments {
-            if let doc = allDocuments.first(where: { $0.id == docId }) {
+            if let doc = allDocuments.first(where: { $0.id == docId }), isCategoryEnabled(for: doc) {
                 // Rough estimate: 1 token per 4 characters
                 if let text = doc.extractedText {
                     tokens += text.count / Constants.tokensPerCharacter
@@ -603,14 +611,34 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         return tokens
     }
     
+    private func isCategoryEnabled(for document: MedicalDocument) -> Bool {
+        let category = document.documentCategory
+        
+        if HealthDataType.bloodTest.relatedDocumentCategories.contains(category) {
+            return bloodTestsEnabled
+        }
+        if HealthDataType.imagingReport.relatedDocumentCategories.contains(category) {
+            return imagingReportsEnabled
+        }
+        if HealthDataType.healthCheckup.relatedDocumentCategories.contains(category) {
+            return healthCheckupsEnabled
+        }
+        
+        return false
+    }
+    
     private func hashForTokensCalculation() -> Int {
         var hasher = Hasher()
         hasher.combine(personalInfoEnabled)
+        hasher.combine(bloodTestsEnabled)
+        hasher.combine(imagingReportsEnabled)
+        hasher.combine(healthCheckupsEnabled)
         hasher.combine(selectedDocuments)
         hasher.combine(selectedBloodTests)
-        // Include document text lengths in hash
+        // Include document text lengths in hash for documents in enabled categories
         for docId in selectedDocuments {
-            if let doc = allDocuments.first(where: { $0.id == docId }),
+            if let doc = allDocuments.first(where: { $0.id == docId }), 
+               isCategoryEnabled(for: doc),
                let text = doc.extractedText {
                 hasher.combine(text.count)
             }

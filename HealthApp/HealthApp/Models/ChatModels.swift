@@ -347,7 +347,10 @@ extension ChatContext {
     var estimatedTokenCount: Int {
         // Rough estimation: 1 token ≈ 4 characters
         let personalInfoTokens = personalInfo != nil ? 200 : 0
-        let bloodTestTokens = bloodTests.count * 100
+        
+        // Only count blood tests that are marked for inclusion in the AI context
+        let includedBloodTests = bloodTests.filter { $0.includeInAIContext }
+        let bloodTestTokens = includedBloodTests.count * 100
 
         // Estimate tokens for medical documents based on sections
         var medicalDocTokens = 0

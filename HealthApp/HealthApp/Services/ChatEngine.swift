@@ -67,7 +67,8 @@ class ChatEngine {
                     logger.debug("🔄 ChatEngine starting generation (prefillStepSize: \(parameters.prefillStepSize))")
 
                     var tokenCount = 0
-                    let maxTokenLimit = maxTokens ?? 2048
+                    // Clamp max tokens to be safe
+                    let maxTokenLimit = min(maxTokens ?? 2048, 4096)
 
                     // Create UserInput with the prompt
                     let userInput = UserInput(prompt: prompt)
@@ -125,11 +126,13 @@ class ChatEngine {
     /// Stream a response based on conversation messages
     /// - Parameters:
     ///   - messages: Array of chat messages (conversation history)
+    ///   - currentMessage: The new user message to append (optional, if not already in messages)
     ///   - systemPrompt: Optional system prompt
     ///   - context: Optional context information (e.g., patient health data)
     /// - Returns: AsyncThrowingStream of token strings
     func streamResponse(
         messages: [ChatMessage],
+        currentMessage: String? = nil,
         systemPrompt: String? = nil,
         context: String? = nil
     ) -> AsyncThrowingStream<String, Error> {
@@ -139,11 +142,12 @@ class ChatEngine {
         // Build prompt using chat template
         let prompt = buildChatTemplatePrompt(
             messages: trimmedMessages,
+            currentMessage: currentMessage,
             systemPrompt: systemPrompt,
             context: context
         )
 
-        logger.debug("📋 ChatEngine prompt length: \(prompt.count) chars, \(trimmedMessages.count) messages")
+        logger.debug("📋 ChatEngine prompt length: \(prompt.count) chars, \(trimmedMessages.count) history messages")
 
         return streamResponse(to: prompt)
     }
@@ -168,41 +172,60 @@ class ChatEngine {
 
     /// Build prompt using Phi-3.5 chat template format
     /// Format: <|system|>...<|end|><|user|>...<|end|><|assistant|>
+    /// WARNING: This template is specific to Phi-3. Other models (Llama, Gemma) may require different templates.
+    /// Future improvement: Use model.tokenizer.applyChatTemplate() or switch based on model type.
     private func buildChatTemplatePrompt(
         messages: [ChatMessage],
+        currentMessage: String? = nil,
         systemPrompt: String? = nil,
         context: String? = nil
     ) -> String {
-        var prompt = ""
+        // Prepend BOS token for Phi-3 models
+        var prompt = "<s>"
 
-        // Build system prompt
-        var fullSystemPrompt = ""
+        // Build system prompt (Role Only)
+        // Kept pure to ensure model adheres to persona instructions
         if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
-            fullSystemPrompt = systemPrompt
-        }
-        if let context = context, !context.isEmpty {
-            if !fullSystemPrompt.isEmpty {
-                fullSystemPrompt += "\n\n"
-            }
-            fullSystemPrompt += "PATIENT HEALTH INFORMATION:\n\(context)"
+            prompt += "<|system|>\n\(systemPrompt)<|end|>\n"
         }
 
-        // Add system message if present
-        if !fullSystemPrompt.isEmpty {
-            prompt += "<|system|>\n\(fullSystemPrompt)<|end|>\n"
+        // Prepare context string to inject into the FIRST user message (or current if no history)
+        var contextToInject = ""
+        if let context = context, !context.isEmpty {
+            contextToInject = "PATIENT HEALTH INFORMATION:\n\(context)\n\n"
         }
 
         // Add conversation messages
+        var isFirstUserMessage = true
         for message in messages {
             switch message.role {
             case .user:
-                prompt += "<|user|>\n\(message.content)<|end|>\n"
+                // Inject context into the very first user message found in history
+                var content = message.content
+                if isFirstUserMessage && !contextToInject.isEmpty {
+                    content = contextToInject + content
+                    // Clear contextToInject so we don't inject it again
+                    contextToInject = ""
+                }
+                isFirstUserMessage = false
+                
+                prompt += "<|user|>\n\(content)<|end|>\n"
             case .assistant:
                 prompt += "<|assistant|>\n\(message.content)<|end|>\n"
             case .system:
                 // System messages already handled above
                 break
             }
+        }
+
+        // Add current user message if provided
+        if let currentMessage = currentMessage, !currentMessage.isEmpty {
+             // If we haven't injected context yet (e.g. no history), inject it here
+             var content = currentMessage
+             if !contextToInject.isEmpty {
+                 content = contextToInject + content
+             }
+             prompt += "<|user|>\n\(content)<|end|>\n"
         }
 
         // Add assistant prompt for response

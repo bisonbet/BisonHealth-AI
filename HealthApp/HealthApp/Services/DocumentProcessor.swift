@@ -455,13 +455,24 @@ class DocumentProcessor: ObservableObject {
         let hexString = firstBytes.map { String(format: "%02x", $0) }.joined(separator: " ")
         print("🔍 DocumentProcessor: First 20 bytes (hex): \(hexString)")
         
-        let asciiString = String(data: firstBytes, encoding: .ascii) ?? "not ascii"
-        print("🔍 DocumentProcessor: First 20 bytes (ascii): '\(asciiString)'")
-        
         // Check if data is all zeros
         let isAllZeros = documentData.allSatisfy { $0 == 0 }
         print("🔍 DocumentProcessor: Is data all zeros? \(isAllZeros)")
         
+        // Verify data integrity before sending
+        if documentData.isEmpty {
+            print("❌ DocumentProcessor: Document data is empty before sending to Docling!")
+            throw DocumentProcessingError.fileReadError
+        }
+
+        // TODO: Future Flag - Enable Local MLX Docling
+        let useLocalDocling = false // settingsManager.useLocalDocling
+        
+        if useLocalDocling {
+            print("🔧 DocumentProcessor: Using LOCAL MLX Docling...")
+            return try await MLXDoclingClient.shared.processDocument(documentData, type: document.fileType)
+        }
+
         // Configure processing options based on document type
         // IMPORTANT: Always set extractImages to false - we only want OCR text, not image data
         // Images in documents should be OCR'd for text extraction, but image data itself should be excluded
@@ -479,7 +490,6 @@ class DocumentProcessor: ObservableObject {
         // Check Docling client connection
         print("🔌 DocumentProcessor: Checking Docling client connection...")
         print("🔌 DocumentProcessor: Docling client URL: \(doclingClient.baseURL)")
-        print("🔌 DocumentProcessor: Settings Docling config: \(settingsManager.doclingConfig.hostname):\(settingsManager.doclingConfig.port)")
         
         if !doclingClient.isConnected {
             print("❌ DocumentProcessor: Docling client not connected!")
@@ -501,20 +511,6 @@ class DocumentProcessor: ObservableObject {
         
         // Process with Docling
         print("🔧 DocumentProcessor: Sending document to Docling for processing...")
-        print("🔧 DocumentProcessor: About to send data - size: \(documentData.count) bytes")
-        
-        // Verify data integrity before sending
-        if documentData.isEmpty {
-            print("❌ DocumentProcessor: Document data is empty before sending to Docling!")
-            throw DocumentProcessingError.fileReadError
-        }
-        
-        // Check if it's a PDF and validate header
-        if document.fileType == .pdf {
-            let header = documentData.prefix(4)
-            let headerString = String(data: header, encoding: .ascii) ?? ""
-            print("🔧 DocumentProcessor: PDF header before sending: '\(headerString)'")
-        }
         
         let result = try await doclingClient.processDocument(
             documentData,

@@ -402,8 +402,15 @@ class AIChatManager: ObservableObject {
             // Build health data context
             let healthContext = await buildHealthDataContext()
 
+            // CRITICAL FIX: Use currentConversation (which has the new message) instead of stale 'conversation' variable
+            // The 'conversation' variable was captured BEFORE adding the user message, so counts are wrong
+            guard let updatedConversation = currentConversation else {
+                throw AIChatError.noActiveConversation
+            }
+
             // Check if this is the first user message and if current model requires instruction injection
-            // Get the appropriate model name based on the current AI provider
+            // IMPORTANT: Injection is ONLY for providers where WE control prompt formatting (MLX, Ollama)
+            // OpenAI Compatible and Bedrock servers handle their own chat template formatting
             let currentModel: String
             switch settingsManager.modelPreferences.aiProvider {
             case .mlx:
@@ -413,9 +420,15 @@ class AIChatManager: ObservableObject {
             case .bedrock:
                 currentModel = settingsManager.modelPreferences.bedrockModel
             }
-            let userMessageCount = conversation.messages.filter({ $0.role == .user }).count
-            let assistantMessageCount = conversation.messages.filter({ $0.role == .assistant }).count
-            let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
+            let userMessageCount = updatedConversation.messages.filter({ $0.role == .user }).count
+            let assistantMessageCount = updatedConversation.messages.filter({ $0.role == .assistant }).count
+
+            // CRITICAL: Only check for injection if provider requires it
+            // OpenAI Compatible servers (llama.cpp, vLLM, etc.) handle chat templates themselves
+            let providerNeedsInjection = (settingsManager.modelPreferences.aiProvider == .mlx ||
+                                         settingsManager.modelPreferences.aiProvider == .ollama)
+            let requiresInjection = providerNeedsInjection &&
+                                   SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
             // FIX: The logic should be:
             // - First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
@@ -424,17 +437,18 @@ class AIChatManager: ObservableObject {
             let isFirstUserMessage = userMessageCount == 1
 
             print("🔍 AIChatManager.sendMessage: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', userMessageCount=\(userMessageCount), assistantMessageCount=\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection)")
-            print("🔍 AIChatManager.sendMessage: All messages in conversation: \(conversation.messages.count)")
+            print("🔍 AIChatManager.sendMessage: All messages in conversation: \(updatedConversation.messages.count)")
             print("🔍 AIChatManager.sendMessage: Exception patterns: \(SystemPromptExceptionList.shared.getAllPatterns())")
             print("🔍 AIChatManager.sendMessage: Model contains 'medgemma': \(currentModel.lowercased().contains("medgemma"))")
 
             // Prepare the message content (potentially formatted for exception models)
             // NOTE: MLX handles its own formatting in MLXClient, so we don't format here for MLX
+            // NOTE: OpenAI Compatible/Bedrock NEVER get injection - they use standard API format
             var messageContent = content
             let isMLXProvider = settingsManager.modelPreferences.aiProvider == .mlx
 
             if isFirstTurn && requiresInjection && !isMLXProvider {
-                // Format with INSTRUCTIONS/CONTEXT/QUESTION for non-MLX exception models
+                // Format with INSTRUCTIONS/CONTEXT/QUESTION for Ollama exception models only
                 print("📝 AIChatManager: Model '\(currentModel)' requires instruction injection - formatting first message")
                 messageContent = SystemPromptExceptionList.shared.formatFirstUserMessage(
                     userMessage: content,
@@ -462,25 +476,25 @@ class AIChatManager: ObservableObject {
                 if isMLXProvider {
                     // MLX handles its own formatting - always pass raw message and full context
                     print("📝 AIChatManager: MLX - sending raw message (length: \(content.count)), letting MLXClient handle formatting")
-                    try await sendStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+                    try await sendStreamingMessage(content, context: healthContext, conversationId: updatedConversation.id)
                 } else if isFirstTurn && requiresInjection {
                     // For non-MLX exception models, send formatted message with empty context
                     print("📝 AIChatManager: FIRST turn - sending formatted message (length: \(messageContent.count))")
-                    try await sendStreamingMessage(messageContent, context: "", conversationId: conversation.id)
+                    try await sendStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
                 } else {
                     print("📝 AIChatManager: SUBSEQUENT turn - sending raw message (length: \(messageContent.count)), first 200 chars: '\(String(messageContent.prefix(200)))'")
-                    try await sendStreamingMessage(messageContent, context: healthContext, conversationId: conversation.id)
+                    try await sendStreamingMessage(messageContent, context: healthContext, conversationId: updatedConversation.id)
                 }
             } else {
                 // Use non-streaming for complete response
                 if isMLXProvider {
                     // MLX handles its own formatting
-                    try await sendNonStreamingMessage(content, context: healthContext, conversationId: conversation.id)
+                    try await sendNonStreamingMessage(content, context: healthContext, conversationId: updatedConversation.id)
                 } else if isFirstUserMessage && requiresInjection {
                     // For non-MLX exception models, send formatted message with empty context
-                    try await sendNonStreamingMessage(messageContent, context: "", conversationId: conversation.id)
+                    try await sendNonStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
                 } else {
-                    try await sendNonStreamingMessage(messageContent, context: healthContext, conversationId: conversation.id)
+                    try await sendNonStreamingMessage(messageContent, context: healthContext, conversationId: updatedConversation.id)
                 }
             }
             
@@ -671,7 +685,13 @@ class AIChatManager: ObservableObject {
 
         let userMessageCount = conversationMessages.filter({ $0.role == .user }).count
         let assistantMessageCount = conversationMessages.filter({ $0.role == .assistant }).count
-        let requiresInjection = SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
+
+        // CRITICAL: Only check for injection if provider requires it
+        // OpenAI Compatible and Bedrock servers handle chat templates themselves
+        let providerNeedsInjection = (settingsManager.modelPreferences.aiProvider == .mlx ||
+                                     settingsManager.modelPreferences.aiProvider == .ollama)
+        let requiresInjection = providerNeedsInjection &&
+                               SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
         // First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
         let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
@@ -699,19 +719,19 @@ class AIChatManager: ObservableObject {
         }
 
         // Determine if we should send systemPrompt separately
-        // For MLX exception models: ALWAYS pass systemPrompt because MLXClient handles its own
-        //   first-turn detection and needs the prompt for INSTRUCTIONS formatting
-        // For other exception models: never send system prompt separately (instructions are embedded in first message)
-        // For normal models: always send system prompt if context is provided
+        // For MLX exception models: ALWAYS pass systemPrompt because MLXClient handles its own formatting
+        // For Ollama exception models: never send system prompt (instructions embedded in first message)
+        // For OpenAI Compatible/Bedrock: ALWAYS send via standard API (server handles formatting)
+        // For normal models: send if context is provided
         let shouldSendSystemPrompt: Bool
         if settingsManager.modelPreferences.aiProvider == .mlx && requiresInjection {
             // MLX handles its own session management, so always provide the system prompt
             shouldSendSystemPrompt = true
         } else if requiresInjection {
-            // Other exception models: instructions are embedded in first message by AIChatManager
+            // Ollama exception models only: instructions are embedded in first message by AIChatManager
             shouldSendSystemPrompt = false
         } else {
-            // Normal models: send if context is provided
+            // Normal models + OpenAI Compatible + Bedrock: send via standard API if context is provided
             shouldSendSystemPrompt = !context.isEmpty
         }
 
@@ -812,6 +832,16 @@ class AIChatManager: ObservableObject {
 
         case .openAICompatible:
             let openAIClient = settingsManager.getOpenAICompatibleClient()
+            print("🔍 AIChatManager: selectedDoctor = \(selectedDoctor?.name ?? "nil")")
+            print("🔍 AIChatManager: shouldSendSystemPrompt = \(shouldSendSystemPrompt)")
+            if shouldSendSystemPrompt {
+                print("🔍 AIChatManager: Sending systemPrompt (\(selectedDoctor?.systemPrompt.count ?? 0) chars)")
+                if let preview = selectedDoctor?.systemPrompt.prefix(200) {
+                    print("🔍 AIChatManager: systemPrompt preview: \(preview)...")
+                }
+            } else {
+                print("⚠️ AIChatManager: NOT sending systemPrompt (shouldSendSystemPrompt=false)")
+            }
             try await openAIClient.sendStreamingChatMessage(
                 content,
                 context: context,
@@ -875,6 +905,13 @@ class AIChatManager: ObservableObject {
                 historyForMLX = []
             }
             print("📝 AIChatManager: Passing \(historyForMLX.count) history messages to MLX")
+            print("🔍 AIChatManager: selectedDoctor = \(selectedDoctor?.name ?? "nil")")
+            print("🔍 AIChatManager: systemPrompt length = \(selectedDoctor?.systemPrompt.count ?? 0) chars")
+            if let systemPromptPreview = selectedDoctor?.systemPrompt.prefix(200) {
+                print("🔍 AIChatManager: systemPrompt preview: \(systemPromptPreview)...")
+            } else {
+                print("⚠️ AIChatManager: selectedDoctor or systemPrompt is NIL!")
+            }
 
             try await mlxClient.sendStreamingChatMessage(
                 content,

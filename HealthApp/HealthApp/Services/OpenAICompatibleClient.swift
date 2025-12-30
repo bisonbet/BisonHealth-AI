@@ -236,20 +236,27 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         // Build messages array
         var messages: [[String: String]] = []
 
-        // Add system prompt if provided
+        // Build combined system message with both prompt and context
+        var systemContent = ""
+
         if let systemPrompt = systemPrompt, !systemPrompt.isEmpty {
-            messages.append([
-                "role": "system",
-                "content": systemPrompt
-            ])
+            systemContent = systemPrompt
         }
 
-        // Add context as system message if provided (and no explicit system prompt)
-        if !context.isEmpty && systemPrompt == nil {
+        if !context.isEmpty {
+            if !systemContent.isEmpty {
+                systemContent += "\n\nPATIENT HEALTH INFORMATION:\n"
+            }
+            systemContent += context
+        }
+
+        // Add combined system message if we have any system content
+        if !systemContent.isEmpty {
             messages.append([
                 "role": "system",
-                "content": context
+                "content": systemContent
             ])
+            print("📋 OpenAICompatibleClient: System message length: \(systemContent.count) chars")
         }
 
         // Add user message
