@@ -63,11 +63,14 @@ struct MessageBubbleView: View {
     }
     
     private func buildMarkdownView() -> some View {
-        applyTextStyles(
+        // Clean the content to fix encoding issues before rendering
+        let cleanedContent = AIResponseCleaner.clean(message.content)
+
+        return applyTextStyles(
             applyBlockStyles(
                 applyCodeStyles(
                     applyLinkAndListStyles(
-                        Markdown(message.content).markdownTheme(.gitHub)
+                        Markdown(cleanedContent).markdownTheme(.gitHub)
                     )
                 )
             )

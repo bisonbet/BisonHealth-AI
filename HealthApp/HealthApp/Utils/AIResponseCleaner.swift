@@ -45,6 +45,9 @@ struct AIResponseCleaner {
     static func clean(_ response: String) -> String {
         var cleaned = response
 
+        // Fix encoding issues first (before other cleaning)
+        cleaned = fixEncodingIssues(in: cleaned)
+
         // Remove special tokens
         cleaned = removeSpecialTokens(from: cleaned)
 
@@ -126,11 +129,90 @@ struct AIResponseCleaner {
         return normalizedLines.joined(separator: "\n")
     }
 
+    /// Fix common encoding issues in text
+    private static func fixEncodingIssues(in text: String) -> String {
+        var result = text
+
+        // Normalize Unicode to composed form (NFC)
+        // This ensures characters like é are stored as a single character, not e + combining accent
+        result = result.precomposedStringWithCanonicalMapping
+
+        // Fix common UTF-8 mojibake patterns
+        // These occur when UTF-8 bytes are interpreted as another encoding
+        let mojibakeReplacements: [String: String] = [
+            // Em-dash (—) often appears as â€" or â when corrupted
+            "â€"": "—",
+            "â€"": "—",
+            "â€"": "—",
+            // En-dash (–) often appears as â€" or similar
+            "â€"": "–",
+            // Ellipsis (…) often appears as â€¦
+            "â€¦": "…",
+            // Single quotes
+            "â€™": "'",
+            "â€˜": "'",
+            // Double quotes
+            "â€œ": "\"",
+            "â€": "\"",
+            // Other common issues
+            "Ã©": "é",
+            "Ã¨": "è",
+            "Ã": "à",
+            "Ã±": "ñ",
+            "Ã§": "ç",
+            // Fix stray â characters that appear alone (often from em-dashes)
+            " â ": " — "
+        ]
+
+        for (bad, good) in mojibakeReplacements {
+            result = result.replacingOccurrences(of: bad, with: good)
+        }
+
+        // Decode common HTML entities that might appear in AI responses
+        let htmlEntities: [String: String] = [
+            "&mdash;": "—",
+            "&ndash;": "–",
+            "&hellip;": "…",
+            "&rsquo;": "'",
+            "&lsquo;": "'",
+            "&rdquo;": "\"",
+            "&ldquo;": "\"",
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&#8217;": "'",
+            "&#8216;": "'",
+            "&#8220;": "\"",
+            "&#8221;": "\"",
+            "&#8212;": "—",
+            "&#8211;": "–",
+            "&#8230;": "…"
+        ]
+
+        for (entity, char) in htmlEntities {
+            result = result.replacingOccurrences(of: entity, with: char)
+        }
+
+        return result
+    }
+
     // MARK: - Specialized Cleaning
 
     /// Clean response specifically for conversational AI (more aggressive)
+    /// Note: This method does NOT apply encoding fixes - those are applied at render time via clean()
     static func cleanConversational(_ response: String) -> String {
-        var cleaned = clean(response)
+        var cleaned = response
+
+        // Remove special tokens
+        cleaned = removeSpecialTokens(from: cleaned)
+
+        // Remove unwanted phase labels
+        cleaned = removeUnwantedPrefixes(from: cleaned)
+
+        // Clean up excessive whitespace
+        cleaned = normalizeWhitespace(in: cleaned)
 
         // Remove common conversational artifacts
         let conversationalPrefixes = [
@@ -146,6 +228,9 @@ struct AIResponseCleaner {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
+
+        // Trim whitespace
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return cleaned
     }
