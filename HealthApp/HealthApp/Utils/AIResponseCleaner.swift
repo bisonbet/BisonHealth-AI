@@ -161,8 +161,7 @@ struct AIResponseCleaner {
             "Ã±": "ñ",
             "Ã§": "ç",
             // Fix stray â characters that appear alone (often from em-dashes)
-            " â ": " — ",
-            // Fix â at start/end of lines
+            " â ": " — "
         ]
 
         for (bad, good) in mojibakeReplacements {
@@ -196,21 +195,24 @@ struct AIResponseCleaner {
             result = result.replacingOccurrences(of: entity, with: char)
         }
 
-        // Attempt to fix badly encoded UTF-8 by re-encoding if needed
-        // This handles cases where UTF-8 was decoded as Latin-1 and then re-encoded
-        if let data = result.data(using: .utf8),
-           let reencoded = String(data: data, encoding: .utf8) {
-            result = reencoded
-        }
-
         return result
     }
 
     // MARK: - Specialized Cleaning
 
     /// Clean response specifically for conversational AI (more aggressive)
+    /// Note: This method does NOT apply encoding fixes - those are applied at render time via clean()
     static func cleanConversational(_ response: String) -> String {
-        var cleaned = clean(response)
+        var cleaned = response
+
+        // Remove special tokens
+        cleaned = removeSpecialTokens(from: cleaned)
+
+        // Remove unwanted phase labels
+        cleaned = removeUnwantedPrefixes(from: cleaned)
+
+        // Clean up excessive whitespace
+        cleaned = normalizeWhitespace(in: cleaned)
 
         // Remove common conversational artifacts
         let conversationalPrefixes = [
@@ -226,6 +228,9 @@ struct AIResponseCleaner {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
+
+        // Trim whitespace
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return cleaned
     }
