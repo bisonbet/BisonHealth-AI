@@ -143,28 +143,26 @@ struct AIResponseCleaner {
         // Fix common UTF-8 mojibake patterns
         // These occur when UTF-8 bytes are interpreted as another encoding
         let mojibakeReplacements: [String: String] = [
-            // Em-dash (—) often appears as â€" or â when corrupted
-            "â€"": "—",
-            "â€"": "—",
-            "â€"": "—",
-            // En-dash (–) often appears as â€" or similar
-            "â€"": "–",
-            // Ellipsis (…) often appears as â€¦
-            "â€¦": "…",
-            // Single quotes
-            "â€™": "'",
-            "â€˜": "'",
-            // Double quotes
-            "â€œ": "\"",
-            "â€": "\"",
-            // Other common issues
-            "Ã©": "é",
-            "Ã¨": "è",
-            "Ã": "à",
-            "Ã±": "ñ",
-            "Ã§": "ç",
-            // Fix stray â characters that appear alone (often from em-dashes)
-            " â ": " — "
+            // Em-dash (—) UTF-8 bytes misinterpreted as Windows-1252
+            "\u{00E2}\u{0080}\u{0094}": "—",  // â€"
+            // En-dash (–) UTF-8 bytes misinterpreted as Windows-1252
+            "\u{00E2}\u{0080}\u{0093}": "–",  // â€"
+            // Ellipsis (…) UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{00A6}": "…",  // â€¦
+            // Right single quote (') UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{0099}": "'",  // â€™
+            // Left single quote (') UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{0098}": "'",  // â€˜
+            // Left double quote (") UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{009C}": "\"", // â€œ
+            // Right double quote (") UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{009D}": "\"", // â€
+            // Common Latin characters with UTF-8 mojibake
+            "\u{00C3}\u{00A9}": "é",  // Ã©
+            "\u{00C3}\u{00A8}": "è",  // Ã¨
+            "\u{00C3}\u{00A0}": "à",  // Ã
+            "\u{00C3}\u{00B1}": "ñ",  // Ã±
+            "\u{00C3}\u{00A7}": "ç"   // Ã§
         ]
 
         for (bad, good) in mojibakeReplacements {
