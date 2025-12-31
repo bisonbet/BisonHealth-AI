@@ -113,7 +113,7 @@ struct ModelPreferences: Equatable {
     var extractionModelId: String? = nil   // MLX extraction model
     
     var useLocalDocling: Bool = false      // Use local MLX Docling model instead of remote server
-    var contextSizeLimit: Int = 32768      // Default context size: 32k tokens (for Ollama)
+    var contextSizeLimit: Int = 8192       // Default context size: 8k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
 
@@ -908,7 +908,7 @@ extension ModelPreferences: Codable {
         self.extractionModelId = try container.decodeIfPresent(String.self, forKey: .extractionModelId)
         
         self.useLocalDocling = try container.decodeIfPresent(Bool.self, forKey: .useLocalDocling) ?? false
-        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 32768
+        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 8192
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
 
