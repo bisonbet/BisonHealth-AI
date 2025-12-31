@@ -1,0 +1,92 @@
+# Blood Test Extraction Prompt - Verbose Version (Pre-optimization)
+# Date: 2025-12-30
+# Location: BloodTestMappingService.swift - extractLabValuesFromChunk()
+# Replaced with optimized version to reduce token usage from ~1400 to ~500 tokens
+# Performance impact: Reduced prefill time by ~50% per chunk
+
+You are a medical AI assistant specializing in laboratory report analysis. Analyze this lab report section{chunkContext} and extract ALL laboratory values from BOTH blood tests AND urine tests.
+
+CRITICAL INSTRUCTIONS:
+1. Extract EVERY numerical laboratory test result you find - BOTH blood tests AND urine tests
+2. Look for test results in tables, lists, and paragraph form
+3. Pay attention to sections labeled: "Results", "Laboratory Results", "Test Results", "Lab Values", "Chemistry", "Hematology", "Urinalysis", "UA", "Urine", etc.
+4. Extract both absolute values AND percentages (e.g., both "Neutrophils: 3.5 K/uL" and "Neutrophils: 55%")
+5. IMPORTANT: Differentiate between BLOOD tests and URINE tests:
+   - Blood tests: Usually in sections labeled "Chemistry", "Hematology", "Serum", "Plasma", "Blood"
+   - Urine tests: Usually in sections labeled "Urinalysis", "UA", "Urine", "Urine Analysis", "Urine Chemistry"
+   - Look for context clues: "serum", "plasma", "blood" vs "urine", "UA", "urinalysis"
+   - If a test name starts with "Urine" or is clearly a urine parameter (e.g., "Urine Protein", "Urine pH", "Urine WBC"), it's a urine test
+   - If unclear, use the section header or context to determine
+
+Document text{chunkContext}:
+{chunk}
+
+For each lab value you find, extract:
+1. Test name (exactly as written in the document, preserve abbreviations)
+2. Test type: "BLOOD" or "URINE" (determine from context - section header, test name, or sample type)
+3. Numerical value (the actual number, or "Negative"/"Positive"/"None" for qualitative urine tests)
+4. Unit (mg/dL, g/dL, %, U/L, ng/mL, pg/mL, μIU/mL, /HPF, /LPF, etc. - leave empty for qualitative results)
+5. Reference range (normal range) if provided (e.g., "70-100", "<200", ">40", "Negative", "Clear")
+6. Abnormal flag if present (High, Low, Critical, H, L, *, ↑, ↓, Positive, Negative, etc. - use "Normal" if none)
+
+Return ONLY lab values in this exact format, one per line:
+TEST_NAME|TEST_TYPE|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
+
+Examples of correct format:
+Glucose|BLOOD|95|mg/dL|70-100|Normal
+Hemoglobin|BLOOD|14.2|g/dL|12.0-16.0|Normal
+Total Cholesterol|BLOOD|220|mg/dL|<200|High
+Urine Protein|URINE|Negative||Negative|Normal
+Urine pH|URINE|6.5||5.0-8.0|Normal
+Urine WBC|URINE|8|/HPF|0-5|High
+Urine Glucose|URINE|Negative||Negative|Normal
+Creatinine|BLOOD|1.1|mg/dL|0.6-1.2|Normal
+Urine Creatinine|URINE|120|mg/dL|20-320|Normal
+WBC|7.2|K/uL|4.5-11.0|Normal
+Neutrophils|55|%|40-60|Normal
+Absolute Neutrophils|3.96|K/uL|1.8-7.8|Normal
+
+IMPORTANT RULES:
+- Include ALL numerical lab values, even if not in standard panels
+- Use "unknown" for missing information (unit, reference range, or flag)
+- Use "Normal" for abnormal flag if no flag is present
+- Preserve test names exactly as written (don't normalize or expand abbreviations)
+- Include common variations: HbA1c, A1C, Hemoglobin A1c are all valid
+- Extract both absolute counts AND percentages for CBC differentials
+- Include calculated values (e.g., "LDL Cholesterol (Calculated)", ratios)
+- Look for values in various formats: tables, lists, inline text
+- Pay attention to footnotes or flags (H, L, *, ↑, ↓) indicating abnormal values
+
+CRITICAL: AVOID DUPLICATES
+- If you see the same test name with the same value, extract it ONLY ONCE
+- If a test appears in multiple sections (e.g., "Glucose" in both "Chemistry" and "Summary"), extract it only once
+- If a test appears with slightly different formatting (e.g., "Glucose" vs "GLUCOSE"), extract it once with the most complete information
+- If you see the same test with different values, extract both (they may be from different time points or different samples)
+- Do NOT extract the same test multiple times just because it appears in different parts of the document
+
+Common test categories to look for:
+- Complete Blood Count (CBC): Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, RDW, MPV, differentials
+- Metabolic Panel: Glucose, Sodium, Potassium, Chloride, CO2, BUN, Creatinine, eGFR, Calcium, Albumin, Total Protein
+BLOOD TESTS to look for:
+- Complete Blood Count (CBC): Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, differentials
+- Lipid Panel: Total Cholesterol, LDL, HDL, Triglycerides, Non-HDL, ratios
+- Liver Function: ALT, AST, ALP, GGT, LDH, Bilirubin (total, direct, indirect)
+- Kidney Function: BUN, Creatinine, eGFR, Cystatin C, BUN/Creatinine Ratio
+- Thyroid: TSH, Free T4, Free T3, Total T4, Total T3, Reverse T3, antibodies
+- Diabetes: Hemoglobin A1c, Glucose (fasting, random), Insulin, C-Peptide, Fructosamine
+- Cardiac: Troponin I/T, BNP, NT-proBNP, CK-MB, Homocysteine
+- Inflammatory: CRP, High-Sensitivity CRP, ESR, Procalcitonin, IL-6
+- Coagulation: PT, PTT, INR, Fibrinogen, D-Dimer, Protein C/S, Antithrombin III
+- Vitamins/Minerals: Vitamin D, B12, Folate, Iron, Ferritin, TIBC, Magnesium, Zinc, Copper, Selenium
+- Hormones: Testosterone, Estradiol, Cortisol, PTH, Progesterone, Prolactin, LH, FSH, Growth Hormone
+- Immunology: ABO Blood Type, Rh Factor, Total IgE, IgA, IgG, IgM
+- Tumor Markers: PSA, CEA, CA 125, CA 19-9, AFP
+
+URINE TESTS to look for:
+- Urinalysis (UA): Color, Appearance, Specific Gravity, pH, Protein, Glucose, Ketones, Blood, Bilirubin, Urobilinogen, Nitrite, Leukocyte Esterase
+- Urine Microscopic: WBC, RBC, Epithelial Cells, Bacteria, Casts, Crystals, Mucus, Yeast
+- Urine Chemistry: Creatinine, Protein (quantitative), Albumin, Microalbumin, Protein/Creatinine Ratio, Albumin/Creatinine Ratio, Sodium, Potassium, Chloride, Osmolality
+- 24-Hour Urine: Urea Nitrogen, Creatinine Clearance, Calcium, Uric Acid, Phosphate, Magnesium
+- Urine Microbiology: Culture results, Bacterial count (CFU/mL)
+
+Return your response now with ONLY the extracted lab values in the specified format:

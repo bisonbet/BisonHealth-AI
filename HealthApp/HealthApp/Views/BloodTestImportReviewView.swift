@@ -1,24 +1,24 @@
 import SwiftUI
 
-// MARK: - Duplicate Blood Test Review View
-struct DuplicateBloodTestReviewView: View {
+// MARK: - Blood Test Import Review View
+struct BloodTestImportReviewView: View {
     @Environment(\.dismiss) private var dismiss
     
-    @Binding var duplicateGroups: [DuplicateTestGroup]
-    let onComplete: ([DuplicateTestGroup]) -> Void
+    @Binding var importGroups: [BloodTestImportGroup]
+    let onComplete: ([BloodTestImportGroup]) -> Void
     
     @State private var showingAcceptAllConfirmation = false
-    @State private var selectedIds: [UUID: UUID] = [:] // groupId -> candidateId
+    @State private var selectedIds: [UUID: UUID?] = [:] // groupId -> candidateId (nil means ignore)
     
-    init(duplicateGroups: Binding<[DuplicateTestGroup]>, onComplete: @escaping ([DuplicateTestGroup]) -> Void) {
-        self._duplicateGroups = duplicateGroups
+    init(importGroups: Binding<[BloodTestImportGroup]>, onComplete: @escaping ([BloodTestImportGroup]) -> Void) {
+        self._importGroups = importGroups
         self.onComplete = onComplete
     }
     
     // Convenience initializer for non-binding usage
-    init(duplicateGroups: [DuplicateTestGroup], onComplete: @escaping ([DuplicateTestGroup]) -> Void) {
-        self._duplicateGroups = Binding(
-            get: { duplicateGroups },
+    init(importGroups: [BloodTestImportGroup], onComplete: @escaping ([BloodTestImportGroup]) -> Void) {
+        self._importGroups = Binding(
+            get: { importGroups },
             set: { _ in }
         )
         self.onComplete = onComplete
@@ -29,24 +29,31 @@ struct DuplicateBloodTestReviewView: View {
             List {
                 headerSection
                 
-                ForEach($duplicateGroups) { $group in
+                ForEach($importGroups) { $group in
                     Section {
                         testGroupView($group)
                     } header: {
-                        Text(group.standardTestName)
-                            .font(.headline)
+                        HStack {
+                            Text(group.standardTestName)
+                                .font(.headline)
+                            Spacer()
+                            // Show 'Ignored' if selectedId is explicitly nil
+                            if let groupId = selectedIds[group.id], groupId == nil {
+                                Text("Will Ignore")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
                     }
                 }
             }
             .onAppear {
                 // Initialize selectedIds from groups' selectedCandidateId
-                for group in duplicateGroups {
-                    if let selectedId = group.selectedCandidateId {
-                        selectedIds[group.id] = selectedId
-                    }
+                for group in importGroups {
+                    selectedIds[group.id] = group.selectedCandidateId
                 }
             }
-            .navigationTitle("Review Duplicate Values")
+            .navigationTitle("Review Lab Results")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -56,10 +63,9 @@ struct DuplicateBloodTestReviewView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Accept Selected") {
+                    Button("Import Selected") {
                         acceptSelected()
                     }
-                    .disabled(!hasValidSelections)
                 }
             }
             .confirmationDialog(
@@ -71,7 +77,7 @@ struct DuplicateBloodTestReviewView: View {
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("This will accept all recommended values (highlighted in green) and discard the others.")
+                Text("This will accept all recommended values (highlighted in green).")
             }
         }
     }
@@ -80,10 +86,10 @@ struct DuplicateBloodTestReviewView: View {
     private var headerSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Found \(duplicateGroups.count) test(s) with duplicate values")
+                Text("Review \(importGroups.count) extracted test results")
                     .font(.headline)
                 
-                Text("Please review and select the correct value for each test. Recommended values are highlighted in green.")
+                Text("Please review values before importing. You can deselect items to ignore them.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 
@@ -97,22 +103,61 @@ struct DuplicateBloodTestReviewView: View {
     }
     
     // MARK: - Test Group View
-    private func testGroupView(_ group: Binding<DuplicateTestGroup>) -> some View {
+    private func testGroupView(_ group: Binding<BloodTestImportGroup>) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(group.wrappedValue.candidates) { candidate in
                 candidateRow(candidate, group: group)
             }
+            
+            // "Don't Import" Option
+            dontImportRow(group: group)
         }
     }
     
+    // MARK: - Don't Import Row
+    private func dontImportRow(group: Binding<BloodTestImportGroup>) -> some View {
+        let groupId = group.wrappedValue.id
+        let currentSelection = selectedIds[groupId] ?? group.wrappedValue.selectedCandidateId
+        let isSelected = currentSelection == nil
+
+        return HStack(spacing: 12) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(isSelected ? .red : .gray)
+                .font(.title3)
+
+            Text("Don't import this result")
+                .foregroundColor(.secondary)
+
+            Spacer()
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .background(Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            print("🔘 Don't import tapped for group: \(groupId)")
+            // Update state dictionary
+            selectedIds[groupId] = nil
+            // Update binding
+            var updatedGroup = group.wrappedValue
+            updatedGroup.selectedCandidateId = nil
+            group.wrappedValue = updatedGroup
+        }
+        .allowsHitTesting(true)
+        .zIndex(1)
+    }
+    
     // MARK: - Candidate Row
-    private func candidateRow(_ candidate: DuplicateBloodTestCandidate, group: Binding<DuplicateTestGroup>) -> some View {
+    private func candidateRow(_ candidate: BloodTestImportCandidate, group: Binding<BloodTestImportGroup>) -> some View {
         // Use selectedIds state if available, otherwise fall back to group's selectedCandidateId
         let currentSelection = selectedIds[group.wrappedValue.id] ?? group.wrappedValue.selectedCandidateId
         let isSelected = currentSelection == candidate.id
         
         // Check if this candidate is the recommended one (matches the group's recommendedCandidate)
         let isRecommended = group.wrappedValue.recommendedCandidate?.id == candidate.id
+        
+        // Check if calculated
+        let isCalculated = candidate.originalTestName.lowercased().contains("calc")
         
         return HStack(spacing: 12) {
             // Selection indicator
@@ -132,6 +177,15 @@ struct DuplicateBloodTestReviewView: View {
                             .font(.caption)
                             .foregroundColor(.green)
                     }
+                    
+                    if isCalculated {
+                        Text("Calculated")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(4)
+                    }
                 }
                 
                 // Original test name
@@ -146,14 +200,13 @@ struct DuplicateBloodTestReviewView: View {
                 
                 // Confidence and reference range
                 HStack(spacing: 12) {
-                    if candidate.confidence < 1.0 {
-                        Text("Confidence: \(Int(candidate.confidence * 100))%")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
+                    // Always show confidence if extracted via AI
+                    Text("Confidence: \(Int(candidate.confidence * 100))%")
+                        .font(.caption2)
+                        .foregroundColor(candidate.confidence > 0.9 ? .secondary : .orange)
                     
                     if let range = candidate.referenceRange {
-                        Text("Range: \(range)")
+                        Text("Expected: \(range)")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -173,7 +226,9 @@ struct DuplicateBloodTestReviewView: View {
                 .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
         )
         .contentShape(Rectangle())
+        .clipped()
         .onTapGesture {
+            print("🔵 Candidate tapped: \(candidate.displayValue)")
             // Only allow selection of valid candidates
             if candidate.validationStatus == .valid {
                 // Update both the state and the binding
@@ -184,10 +239,11 @@ struct DuplicateBloodTestReviewView: View {
             }
         }
         .opacity(candidate.validationStatus == .valid ? 1.0 : 0.6)
+        .zIndex(0)
     }
     
     // MARK: - Validation Status Badge
-    private func validationStatusBadge(_ status: DuplicateBloodTestCandidate.ValidationStatus, reason: String?) -> some View {
+    private func validationStatusBadge(_ status: BloodTestImportCandidate.ValidationStatus, reason: String?) -> some View {
         let (color, text) = statusDisplay(status)
         
         return HStack(spacing: 4) {
@@ -210,7 +266,7 @@ struct DuplicateBloodTestReviewView: View {
         )
     }
     
-    private func statusDisplay(_ status: DuplicateBloodTestCandidate.ValidationStatus) -> (Color, String) {
+    private func statusDisplay(_ status: BloodTestImportCandidate.ValidationStatus) -> (Color, String) {
         switch status {
         case .valid:
             return (.green, "Valid")
@@ -223,34 +279,23 @@ struct DuplicateBloodTestReviewView: View {
         }
     }
     
-    // MARK: - Validation
-    private var hasValidSelections: Bool {
-        for group in duplicateGroups {
-            if group.selectedCandidateId == nil {
-                return false
-            }
-        }
-        return true
-    }
-    
     // MARK: - Actions
     private func acceptSelected() {
         // Update all groups with the selected IDs from state
-        for index in duplicateGroups.indices {
-            if let selectedId = selectedIds[duplicateGroups[index].id] {
-                duplicateGroups[index].selectedCandidateId = selectedId
-            } else if duplicateGroups[index].selectedCandidateId == nil {
-                // If no selection was made, use the recommended one
-                duplicateGroups[index].selectedCandidateId = duplicateGroups[index].recommendedCandidate?.id
+        for index in importGroups.indices {
+            if let selectedId = selectedIds[importGroups[index].id] {
+                // Can be nil (explicit ignore) or UUID
+                importGroups[index].selectedCandidateId = selectedId
             }
+            // If not in selectedIds, keep existing selectedCandidateId
         }
-        onComplete(duplicateGroups)
+        onComplete(importGroups)
         dismiss()
     }
     
     private func acceptAllRecommended() {
         // Update selectedIds state with all recommended candidates
-        for group in duplicateGroups {
+        for group in importGroups {
             if let recommended = group.recommendedCandidate {
                 selectedIds[group.id] = recommended.id
             } else if let firstValid = group.candidates.first(where: { $0.validationStatus == .valid }) {
@@ -260,4 +305,3 @@ struct DuplicateBloodTestReviewView: View {
         acceptSelected()
     }
 }
-

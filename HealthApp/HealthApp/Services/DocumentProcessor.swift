@@ -20,7 +20,7 @@ class DocumentProcessor: ObservableObject {
     @Published var processingProgress: Double = 0.0
     @Published var lastProcessedDocument: MedicalDocument?
     @Published var processingErrors: [ProcessingError] = []
-    @Published var pendingDuplicateReview: PendingDuplicateReview?
+    @Published var pendingImportReview: PendingImportReview?
     
     // MARK: - Dependencies
     private let settingsManager = SettingsManager.shared
@@ -465,8 +465,8 @@ class DocumentProcessor: ObservableObject {
             throw DocumentProcessingError.fileReadError
         }
 
-        // TODO: Future Flag - Enable Local MLX Docling
-        let useLocalDocling = false // settingsManager.useLocalDocling
+        // Check preference for Local MLX Docling
+        let useLocalDocling = settingsManager.modelPreferences.useLocalDocling
         
         if useLocalDocling {
             print("🔧 DocumentProcessor: Using LOCAL MLX Docling...")
@@ -644,7 +644,7 @@ class DocumentProcessor: ObservableObject {
         // Use the full document text for AI analysis
         do {
             // Use the AI-powered mapping service with full document content
-            let aiClient = getAIClientForDocument(document)
+            let aiClient = await getAIClientForDocument(document)
             let mappingService = BloodTestMappingService(aiClient: aiClient)
 
             // Extract suggested test date from document
@@ -662,30 +662,30 @@ class DocumentProcessor: ObservableObject {
             print("✅ DocumentProcessor: Enhanced AI mapping completed with \(mappingResult.confidence)% confidence")
             print("🔬 DocumentProcessor: Mapped \(mappingResult.bloodTestResult.results.count) lab values")
             
-            // Handle duplicates if any
+            // Force review for ALL imports (Pessimistic Mode)
             var finalBloodTest = mappingResult.bloodTestResult
-            if mappingResult.hasDuplicates {
-                print("⚠️ DocumentProcessor: Found \(mappingResult.duplicateGroups.count) duplicate groups that need user review")
+            if mappingResult.needsReview {
+                print("⚠️ DocumentProcessor: Found \(mappingResult.importGroups.count) groups requiring review")
                 
-                // Store duplicate groups for UI review - don't save yet, wait for user selection
-                let pendingReview = PendingDuplicateReview(
+                // Store groups for UI review - don't save yet, wait for user selection
+                let pendingReview = PendingImportReview(
                     documentId: document.id,
                     documentName: document.fileName,
-                    duplicateGroups: mappingResult.duplicateGroups,
+                    importGroups: mappingResult.importGroups,
                     bloodTestResult: finalBloodTest
                 )
                 
                 // Set pending review on main thread so UI can observe it
                 await MainActor.run {
-                    self.pendingDuplicateReview = pendingReview
+                    self.pendingImportReview = pendingReview
                 }
                 
-                print("📋 DocumentProcessor: Set pending duplicate review - UI should show review sheet")
+                print("📋 DocumentProcessor: Set pending import review - UI should show review sheet")
                 
-                // Add metadata indicating duplicates need review
+                // Add metadata indicating review needed
                 var enhancedMetadata = finalBloodTest.metadata ?? [:]
-                enhancedMetadata["has_duplicates"] = "true"
-                enhancedMetadata["duplicate_groups_count"] = String(mappingResult.duplicateGroups.count)
+                enhancedMetadata["needs_review"] = "true"
+                enhancedMetadata["import_groups_count"] = String(mappingResult.importGroups.count)
                 enhancedMetadata["pending_review"] = "true"
                 finalBloodTest.metadata = enhancedMetadata
             }
@@ -731,7 +731,7 @@ class DocumentProcessor: ObservableObject {
 
         do {
             // Use the AI-powered mapping service
-            let aiClient = getAIClientForDocument(document)
+            let aiClient = await getAIClientForDocument(document)
             let mappingService = BloodTestMappingService(aiClient: aiClient)
 
             // Extract suggested test date from document
@@ -1061,19 +1061,68 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - AI Provider Selection Logic
-    private func getAIClientForDocument(_ document: MedicalDocument) -> any AIProviderInterface {
-        let aiClient = settingsManager.getAIClient()
+    private func getAIClientForDocument(_ document: MedicalDocument) async -> any AIProviderInterface {
+        // Use the extraction provider settings (independent from chat)
+        let extractionProvider = settingsManager.modelPreferences.extractionProvider
 
-        // Choose model based on file type and content
+        print("📄 DocumentProcessor: Using extraction provider: \(extractionProvider)")
+
+        // Get the appropriate client based on extraction provider
+        let aiClient: any AIProviderInterface
+
+        switch extractionProvider {
+        case .ollama:
+            let ollamaClient = settingsManager.getOllamaClient()
+            let extractionModel = settingsManager.modelPreferences.extractionOllamaModel
+            ollamaClient.currentModel = extractionModel
+            print("📄 DocumentProcessor: Using Ollama extraction model: \(extractionModel)")
+            aiClient = ollamaClient
+
+        case .openAICompatible:
+            let openAIClient = settingsManager.getOpenAICompatibleClient()
+            let extractionModel = settingsManager.modelPreferences.extractionOpenAIModel
+            openAIClient.currentModel = extractionModel.isEmpty ? nil : extractionModel
+            print("📄 DocumentProcessor: Using OpenAI-compatible extraction model: \(extractionModel.isEmpty ? "(default)" : extractionModel)")
+            aiClient = openAIClient
+
+        case .bedrock:
+            let bedrockClient = settingsManager.getBedrockClient()
+            if let extractionModel = AWSBedrockModel(rawValue: settingsManager.modelPreferences.extractionBedrockModel) {
+                bedrockClient.currentModel = extractionModel
+                print("📄 DocumentProcessor: Using Bedrock extraction model: \(extractionModel.displayName)")
+            } else {
+                print("⚠️ DocumentProcessor: Invalid Bedrock extraction model, using config default")
+            }
+            aiClient = bedrockClient
+
+        case .mlx:
+            let mlxClient = settingsManager.getMLXClient()
+            if let extractionModelId = settingsManager.modelPreferences.extractionModelId {
+                // Only switch if different to avoid reloading
+                if mlxClient.currentModelId != extractionModelId {
+                    print("🔄 DocumentProcessor: Switching MLX model to extraction model: \(extractionModelId)")
+
+                    // Unload current model to ensure clean switch
+                    mlxClient.unloadModel()
+
+                    // Set new model ID (will be loaded on first use in sendMessage)
+                    mlxClient.currentModelId = extractionModelId
+                    print("✅ DocumentProcessor: MLX model switched, will load on first use")
+                } else {
+                    print("📄 DocumentProcessor: Already using MLX extraction model: \(extractionModelId)")
+                }
+            } else {
+                print("⚠️ DocumentProcessor: No MLX extraction model specified, using current model")
+            }
+            aiClient = mlxClient
+        }
+
+        // Log file type info
         if document.fileType.isImage {
-            // For images, we would need a vision-capable mapping service
-            print("📷 DocumentProcessor: Image processing would require vision model for: \(document.fileType.displayName)")
+            print("📷 DocumentProcessor: Processing image file: \(document.fileType.displayName)")
             print("📷 DocumentProcessor: Note: Current BloodTestMappingService is optimized for text, not images")
-            // TODO: Implement image-specific processing pipeline that uses vision model
         } else {
-            // For PDFs, DOCs, and text files, use the selected AI provider
-            print("📄 DocumentProcessor: Using selected AI provider for text file: \(document.fileType.displayName)")
-            // The BloodTestMappingService will use the selected AI provider (Ollama or AWS Bedrock)
+            print("📄 DocumentProcessor: Processing text file: \(document.fileType.displayName)")
         }
 
         return aiClient
@@ -1208,24 +1257,24 @@ struct ProcessingError: Identifiable {
     let timestamp: Date
 }
 
-// MARK: - Pending Duplicate Review
-struct PendingDuplicateReview: Identifiable, Equatable {
+// MARK: - Pending Import Review
+struct PendingImportReview: Identifiable, Equatable {
     let id = UUID()
     let documentId: UUID
     let documentName: String
-    let duplicateGroups: [DuplicateTestGroup]
+    let importGroups: [BloodTestImportGroup]
     let bloodTestResult: BloodTestResult
     let timestamp: Date
     
-    init(documentId: UUID, documentName: String, duplicateGroups: [DuplicateTestGroup], bloodTestResult: BloodTestResult) {
+    init(documentId: UUID, documentName: String, importGroups: [BloodTestImportGroup], bloodTestResult: BloodTestResult) {
         self.documentId = documentId
         self.documentName = documentName
-        self.duplicateGroups = duplicateGroups
+        self.importGroups = importGroups
         self.bloodTestResult = bloodTestResult
         self.timestamp = Date()
     }
     
-    static func == (lhs: PendingDuplicateReview, rhs: PendingDuplicateReview) -> Bool {
+    static func == (lhs: PendingImportReview, rhs: PendingImportReview) -> Bool {
         return lhs.id == rhs.id
     }
 }

@@ -14,6 +14,9 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     @Published var isStreaming = false
     @Published var streamingContent = ""
     
+    // Default model to use when called via AIProviderInterface
+    var currentModel: String = "llama3.2"
+    
     private let client: Client
     private let timeout: TimeInterval = 300.0 // 5 minutes for large document processing
     
@@ -65,7 +68,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
 
             // Get settings from SettingsManager
             let contextSize = SettingsManager.shared.modelPreferences.contextSizeLimit
-            print("🔧 OllamaClient: Using context size: \(contextSize) tokens, keep_alive: forever")
+            print("🔧 OllamaClient: Requesting model '\(model)' with context: \(contextSize) tokens, keep_alive: forever")
 
             // Simple timeout implementation using Task.timeout equivalent
             // Use Ollama.Value to create the options dictionary with the correct type
@@ -221,7 +224,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     
     // MARK: - AIProviderInterface Conformance
     func sendMessage(_ message: String, context: String) async throws -> AIResponse {
-        return try await sendChatMessage(message, context: context)
+        return try await sendChatMessage(message, context: context, model: self.currentModel)
     }
     
     func getCapabilities() async throws -> AICapabilities {
@@ -257,7 +260,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
         // Append health context to the chosen system prompt
         var finalSystemPrompt = baseSystemPrompt
         if !context.isEmpty {
-            finalSystemPrompt += "\n\n--- User's Health Context ---\n" + context
+            finalSystemPrompt += "\n\n--- User's Health Context (JSON Format) ---\n" + context
         }
         
         messages.append(.system(finalSystemPrompt))
@@ -269,12 +272,15 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     private func buildDefaultSystemPrompt() -> String {
         return """
         CRITICAL INSTRUCTIONS:
-        - You MUST ONLY use the health data explicitly provided in the user's context
+        - Health data is provided in structured JSON format
+        - You MUST ONLY use the health data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
+        - Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
         - NEVER make up, assume, or hallucinate any medical values, test results, or health data
-        - If the user asks about specific test results that are not in the provided context, clearly state that you don't have that information
-        - Always refer to the actual values provided in the health context when discussing the user's health data
+        - If a JSON field is null or missing, clearly state that you don't have that information
+        - If the user asks about specific test results not in the JSON, state you don't have that data
+        - Always refer to the actual values provided in the JSON health context
 
-        You are a helpful AI health assistant. You have access to the user's personal health information and should provide informative, accurate responses about their health data.
+        You are a helpful AI health assistant. You have access to the user's personal health information in JSON format and should provide informative, accurate responses about their health data.
 
         Important guidelines:
         - Always remind users that you are not a replacement for professional medical advice

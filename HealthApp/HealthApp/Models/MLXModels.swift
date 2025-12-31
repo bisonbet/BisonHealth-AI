@@ -160,6 +160,32 @@ struct MLXModelRegistry {
             recommended: false,
             specialization: "Medical knowledge and health conversations",
             requiredFiles: nil  // Use default files
+        ),
+        MLXModelConfig(
+            id: "granite-4.0-1b-4bit",
+            name: "Granite 4.0 1B (4-bit)",
+            huggingFaceRepo: "mlx-community/granite-4.0-h-1b-4bit",
+            description: "Lightweight 1B model, efficient for specific tasks like extraction",
+            modelType: .textOnly,
+            quantization: "4-bit",
+            estimatedSize: 800_000_000, // ~800 MB
+            contextWindow: 8192,
+            recommended: false,
+            specialization: "General purpose extraction",
+            requiredFiles: nil
+        ),
+        MLXModelConfig(
+            id: "granite-docling-258M-mlx",
+            name: "Granite Docling (258M)",
+            huggingFaceRepo: "ibm-granite/granite-docling-258M-mlx",
+            description: "Vision-Language Model optimized for document layout analysis and OCR",
+            modelType: .vision,
+            quantization: "4-bit",
+            estimatedSize: 500_000_000, // ~500 MB
+            contextWindow: 4096,
+            recommended: false,
+            specialization: "Document OCR and Layout Analysis",
+            requiredFiles: nil
         )
     ]
 
@@ -185,4 +211,21 @@ struct MLXSettings: Codable, Equatable {
         autoLoadModel: false,
         maxConcurrentRequests: 1
     )
+}
+
+// MARK: - MLX Response
+
+/// Response from MLX generation
+struct MLXResponse: AIResponse {
+    let content: String
+    let responseTime: TimeInterval
+    let tokenCount: Int?
+    let metadata: [String: Any]?
+
+    init(content: String, responseTime: TimeInterval, tokenCount: Int? = nil, metadata: [String: Any]? = nil) {
+        self.content = content
+        self.responseTime = responseTime
+        self.tokenCount = tokenCount
+        self.metadata = metadata
+    }
 }

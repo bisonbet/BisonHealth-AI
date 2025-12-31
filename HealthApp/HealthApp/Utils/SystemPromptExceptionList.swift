@@ -70,7 +70,7 @@ class SystemPromptExceptionList {
 
         // Add CONTEXT section if context provided
         if !context.isEmpty {
-            formattedMessage += "CONTEXT:\n\(context)\n\n"
+            formattedMessage += "CONTEXT (JSON Format):\n\(context)\n\n"
         }
 
         // Add QUESTION section with user's actual message
@@ -103,7 +103,7 @@ class SystemPromptExceptionList {
 
         // Add CONTEXT section if context provided (health data)
         if !context.isEmpty {
-            formattedMessage += "CONTEXT:\n\(context)\n\n"
+            formattedMessage += "CONTEXT (JSON Format):\n\(context)\n\n"
         }
 
         // Calculate tokens used by fixed parts

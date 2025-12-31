@@ -9,12 +9,14 @@ struct AIResponseCleaner {
     private static let specialTokens: [String] = [
         "<|eot_id|>",
         "<|end_of_text|>",
+        "<|endoftext|>",  // Variation
         "<|start_header_id|>",
         "<|end_header_id|>",
         "<|begin_of_text|>",
         "<|im_start|>",
         "<|im_end|>",
         "<|end|>",        // Phi-3.5 chat template
+        "<!end>",         // MediPhi / Custom
         "<|system|>",     // Phi-3.5 chat template
         "<|user|>",       // Phi-3.5 chat template
         "<|assistant|>",  // Phi-3.5 chat template
@@ -23,7 +25,8 @@ struct AIResponseCleaner {
         "[INST]",
         "[/INST]",
         "<<SYS>>",
-        "<</SYS>>"
+        "<</SYS>>",
+        "<|stop|>"
     ]
 
     /// Unwanted phase labels or prompt artifacts that sometimes appear in responses
@@ -66,7 +69,7 @@ struct AIResponseCleaner {
     // MARK: - Private Cleaning Methods
 
     /// Remove all special tokens from the text
-    private static func removeSpecialTokens(from text: String) -> String {
+    static func removeSpecialTokens(from text: String) -> String {
         var result = text
 
         for token in specialTokens {

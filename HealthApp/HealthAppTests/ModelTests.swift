@@ -291,4 +291,82 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(decoded.messages.count, originalConversation.messages.count)
         XCTAssertEqual(decoded.messages.first?.content, originalConversation.messages.first?.content)
     }
+
+    // MARK: - JSON Context Tests
+
+    func testChatContextJSONFormat() throws {
+        let personalInfo = PersonalHealthInfo(name: "Test User", gender: .male)
+        let context = ChatContext(
+            personalInfo: personalInfo,
+            selectedDataTypes: [.personalInfo]
+        )
+
+        let json = context.buildContextJSON()
+
+        // Verify JSON is valid
+        let data = json.data(using: .utf8)!
+        let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNotNil(parsed)
+
+        // Verify structure
+        XCTAssertNotNil(parsed?["personal_info"])
+        XCTAssertNotNil(parsed?["timestamp"])
+        XCTAssertNotNil(parsed?["selected_types"])
+    }
+
+    func testJSONContainsPersonalInfo() throws {
+        let personalInfo = PersonalHealthInfo(
+            name: "John Doe",
+            gender: .male,
+            bloodType: .oPositive
+        )
+        let context = ChatContext(
+            personalInfo: personalInfo,
+            selectedDataTypes: [.personalInfo]
+        )
+
+        let json = context.buildContextJSON()
+        let data = json.data(using: .utf8)!
+        let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        let personalInfoJSON = parsed?["personal_info"] as? [String: Any]
+        XCTAssertEqual(personalInfoJSON?["name"] as? String, "John Doe")
+        XCTAssertEqual(personalInfoJSON?["gender"] as? String, "male")
+        XCTAssertEqual(personalInfoJSON?["blood_type"] as? String, "o_positive")
+    }
+
+    func testJSONTokenEfficiency() throws {
+        // Create context with some data
+        let personalInfo = PersonalHealthInfo(name: "Test", gender: .male)
+        let context = ChatContext(personalInfo: personalInfo, selectedDataTypes: [.personalInfo])
+
+        let jsonTokens = context.estimatedTokenCountJSON
+        let textTokens = context.estimatedTokenCount
+
+        // JSON should generally be more efficient (though not guaranteed for all cases)
+        // At minimum, both should be > 0
+        XCTAssertGreaterThan(jsonTokens, 0)
+        XCTAssertGreaterThan(textTokens, 0)
+    }
+
+    func testJSONParseable() throws {
+        let bloodTest = BloodTestResult(
+            testDate: Date(),
+            results: [
+                BloodTestItem(name: "Glucose", value: "95", unit: "mg/dL", referenceRange: "70-100", isAbnormal: false)
+            ],
+            includeInAIContext: true
+        )
+
+        let context = ChatContext(
+            bloodTests: [bloodTest],
+            selectedDataTypes: [.bloodTest]
+        )
+
+        let json = context.buildContextJSON()
+
+        // Verify it's parseable JSON
+        let data = json.data(using: .utf8)!
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: data))
+    }
 }

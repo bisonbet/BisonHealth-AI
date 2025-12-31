@@ -1108,9 +1108,11 @@ class AIChatManager: ObservableObject {
     private func buildHealthDataContext() async -> String {
         await updateHealthDataContext()
 
-        let contextString = currentContext.buildContextString()
-        let estimatedTokens = currentContext.estimatedTokenCount
+        // Use JSON format for structured health data
+        let contextString = currentContext.buildContextJSON()
+        let estimatedTokens = currentContext.estimatedTokenCountJSON
 
+        print("🔍 Context Debug - JSON format")
         print("🔍 Context Debug - Selected types: \(selectedHealthDataTypes.map { $0.displayName })")
         print("🔍 Context Debug - Personal info exists: \(currentContext.personalInfo != nil)")
         print("🔍 Context Debug - Blood tests count: \(currentContext.bloodTests.count)")
@@ -1120,11 +1122,11 @@ class AIChatManager: ObservableObject {
         print("🔍 Context Debug - Context size limit: \(contextSizeLimit) tokens")
         print("🔍 Context Debug - Compression threshold: \(contextCompressionThreshold) tokens")
 
-        if contextString.isEmpty {
-            print("⚠️ Context Debug - WARNING: Context string is empty!")
+        if contextString.isEmpty || contextString == "{}" {
+            print("⚠️ Context Debug - WARNING: Context string is empty or has no data!")
             print("⚠️ Context Debug - This may indicate no data types were selected or no data is available")
         } else {
-            print("🔍 Context Debug - Context preview: \(String(contextString.prefix(500)))")
+            print("🔍 Context Debug - JSON context preview: \(String(contextString.prefix(500)))")
         }
 
         // If context is too large, compress it

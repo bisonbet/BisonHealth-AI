@@ -7,6 +7,8 @@ struct SettingsView: View {
         case awsBedrockSettings
         case openAICompatibleSettings
         case mlxSettings
+        case doclingRemoteSettings
+        case doclingLocalSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
@@ -89,6 +91,7 @@ struct SettingsView: View {
             disclaimerSection
             aiProviderSection
             documentProcessingSection
+            dataExtractionSection
             appleHealthSection
             backupSection
             appPreferencesSection
@@ -173,6 +176,10 @@ struct SettingsView: View {
                 .onAppear {
                     print("🟣 Navigated to MLX Settings")
                 }
+        case .doclingRemoteSettings:
+            DoclingRemoteSettingsView(settingsManager: settingsManager)
+        case .doclingLocalSettings:
+            DoclingLocalSettingsView(settingsManager: settingsManager)
         }
     }
     
@@ -200,26 +207,6 @@ struct SettingsView: View {
         .padding(16)
         .background(Color(.systemGray6))
         .cornerRadius(10)
-    }
-
-    private var doclingServerCard: some View {
-        serverConfigCard(
-            title: "Docling Server",
-            icon: "doc.text.magnifyingglass",
-            config: $settingsManager.doclingConfig,
-            status: settingsManager.doclingStatus,
-            testAction: {
-                Task {
-                    await testDoclingConnection()
-                }
-            },
-            onConfigChange: { newConfig in
-                settingsManager.doclingConfig = newConfig
-                settingsManager.saveSettings()
-                // Reset status when configuration changes since it may no longer be valid
-                settingsManager.doclingStatus = .unknown
-            }
-        )
     }
 
     private var awsBedrockCard: some View {
@@ -337,7 +324,197 @@ struct SettingsView: View {
 
     private var documentProcessingSection: some View {
         Section("Document Processing") {
-            doclingServerCard
+            VStack(alignment: .leading, spacing: 12) {
+                // Provider Selection
+                Picker("Provider", selection: $settingsManager.modelPreferences.useLocalDocling) {
+                    Text("Remote Server").tag(false)
+                    
+                    // Only show Local if capable
+                    if DeviceMemory.hasSufficientMemory(minimumGB: 4.0) {
+                        Text("Local On-Device (MLX)").tag(true)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: settingsManager.modelPreferences.useLocalDocling) { oldValue, newValue in
+                     if newValue && !DeviceMemory.hasSufficientMemory(minimumGB: 4.0) {
+                         settingsManager.modelPreferences.useLocalDocling = false
+                         settingsManager.saveSettings()
+                     }
+                }
+                
+                HStack {
+                    Text(settingsManager.modelPreferences.useLocalDocling ? "Local MLX Model" : "Remote Server")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    
+                    Spacer()
+                    
+                    Button("Configure") {
+                        if settingsManager.modelPreferences.useLocalDocling {
+                            navigationPath.append(SettingsRoute.doclingLocalSettings)
+                        } else {
+                            navigationPath.append(SettingsRoute.doclingRemoteSettings)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Data Extraction Section
+
+    private var dataExtractionSection: some View {
+        Section("Data Extraction") {
+            VStack(spacing: 16) {
+                Text("Configure AI model for extracting structured data from documents (blood tests, etc.)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Picker("Extraction Provider", selection: $settingsManager.modelPreferences.extractionProvider) {
+                    ForEach(AIProvider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                // Show model selection based on extraction provider
+                switch settingsManager.modelPreferences.extractionProvider {
+                case .ollama:
+                    extractionOllamaModelPicker
+                case .bedrock:
+                    extractionBedrockModelPicker
+                case .openAICompatible:
+                    extractionOpenAIModelPicker
+                case .mlx:
+                    extractionMLXModelPicker
+                }
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Extraction Model Pickers
+
+    private var extractionOllamaModelPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Ollama Model")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            let availableModels = settingsManager.modelSelection.availableModels
+
+            if availableModels.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No models available. Configure Ollama server first.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+
+                    Button("Refresh Models") {
+                        Task {
+                            await settingsManager.fetchAvailableModels()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            } else {
+                Picker("Model", selection: $settingsManager.modelPreferences.extractionOllamaModel) {
+                    ForEach(availableModels, id: \.id) { model in
+                        Text(model.displayName).tag(model.name)
+                    }
+                    // Add currently selected model if it's not in the available list
+                    if !availableModels.contains(where: { $0.name == settingsManager.modelPreferences.extractionOllamaModel }) &&
+                       !settingsManager.modelPreferences.extractionOllamaModel.isEmpty {
+                        Text("\(settingsManager.modelPreferences.extractionOllamaModel) (not available)")
+                            .tag(settingsManager.modelPreferences.extractionOllamaModel)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text("Recommended: Fast, lightweight models (llama3.2:1b, qwen2.5:1.5b)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var extractionBedrockModelPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Bedrock Model")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            Picker("Model", selection: $settingsManager.modelPreferences.extractionBedrockModel) {
+                ForEach(AWSBedrockModel.allCases, id: \.self) { model in
+                    Text(model.displayName).tag(model.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+    }
+
+    private var extractionOpenAIModelPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("OpenAI-Compatible Model")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            TextField("Model name (e.g., gpt-4o-mini)", text: $settingsManager.modelPreferences.extractionOpenAIModel)
+                .textFieldStyle(.roundedBorder)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+
+            Text("Enter the model name from your OpenAI-compatible server. Recommended: Fast, cheap models.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var extractionMLXModelPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("MLX Model")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            let extractionModels = MLXModelRegistry.availableModels.filter { $0.modelType == .textOnly }
+
+            if extractionModels.isEmpty {
+                Text("No MLX models available. Download models in MLX Settings.")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+
+                Button("Go to MLX Settings") {
+                    navigationPath.append(SettingsRoute.mlxSettings)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Picker("Model", selection: Binding(
+                    get: { settingsManager.modelPreferences.extractionModelId ?? "" },
+                    set: { settingsManager.modelPreferences.extractionModelId = $0.isEmpty ? nil : $0 }
+                )) {
+                    Text("None (use chat model)").tag("")
+                    ForEach(extractionModels) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if let modelId = settingsManager.modelPreferences.extractionModelId,
+                   let model = MLXModelRegistry.model(withId: modelId) {
+                    Text("Selected: \(model.name) - \(model.description)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
     }
 
@@ -1121,6 +1298,148 @@ struct ChangeObserversModifier: ViewModifier {
             .onChange(of: settingsManager.modelPreferences) { _, _ in
                 settingsManager.saveSettings()
             }
+    }
+}
+
+// MARK: - Remote Docling Settings View
+
+struct DoclingRemoteSettingsView: View {
+    @ObservedObject var settingsManager: SettingsManager
+    @State private var connectionError = ""
+    @State private var showingConnectionError = false
+    @State private var successMessage = ""
+    @State private var showingSuccessMessage = false
+    
+    var body: some View {
+        Form {
+            Section("Remote Server Configuration") {
+                serverConfigCard(
+                    title: "Docling Server",
+                    icon: "doc.text.magnifyingglass",
+                    config: $settingsManager.doclingConfig,
+                    status: settingsManager.doclingStatus,
+                    testAction: {
+                        Task {
+                            await testDoclingConnection()
+                        }
+                    },
+                    onConfigChange: { newConfig in
+                        settingsManager.doclingConfig = newConfig
+                        settingsManager.saveSettings()
+                        settingsManager.doclingStatus = .unknown
+                    }
+                )
+            }
+        }
+        .navigationTitle("Remote Docling")
+        .alert("Connection Error", isPresented: $showingConnectionError) {
+            Button("OK") { }
+        } message: {
+            Text(connectionError)
+        }
+        .alert("Success", isPresented: $showingSuccessMessage) {
+            Button("OK") { }
+        } message: {
+            Text(successMessage)
+        }
+    }
+    
+    // Helper to reuse the card style from SettingsView
+    // Note: Since this is a separate struct, we duplicate the card logic or reference it.
+    // For simplicity and self-containment, I'll inline a simplified version or I should have made it a shared component.
+    // Given the constraints, I will implement the card logic directly here or use a shared component if one existed.
+    // But SettingsView has `serverConfigCard` as a private method. I cannot call it from here.
+    // So I will COPY the logic of `serverConfigCard` into here or refactor SettingsView to expose it.
+    // Refactoring SettingsView to expose it is cleaner but might break things if I'm not careful.
+    // I'll copy the logic for now to be safe.
+    
+    private func serverConfigCard(
+        title: String,
+        icon: String,
+        config: Binding<ServerConfiguration>,
+        status: ConnectionStatus,
+        testAction: @escaping () -> Void,
+        onConfigChange: @escaping (ServerConfiguration) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(title, systemImage: icon)
+                    .font(.headline)
+                Spacer()
+                HStack(spacing: 4) {
+                    if status == .testing {
+                        ProgressView().scaleEffect(0.7)
+                    } else {
+                        Image(systemName: status.systemImage).foregroundColor(status.color)
+                    }
+                    Text(status.displayText).font(.caption).foregroundColor(status.color)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(status.color.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Hostname").font(.caption).foregroundColor(.secondary)
+                    TextField(ServerConfigurationConstants.defaultOllamaHostname, text: config.hostname)
+                        .onChange(of: config.hostname.wrappedValue) { _, newValue in
+                            var updated = config.wrappedValue
+                            updated.hostname = newValue
+                            onConfigChange(updated)
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Port").font(.caption).foregroundColor(.secondary)
+                    TextField("Port", value: config.port, format: IntegerFormatStyle().grouping(.never))
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.numberPad)
+                        .onChange(of: config.port.wrappedValue) { _, newValue in
+                            var updated = config.wrappedValue
+                            updated.port = newValue
+                            onConfigChange(updated)
+                        }
+                }
+            }
+            
+            Button(action: testAction) {
+                HStack {
+                    if status == .testing {
+                        ProgressView().scaleEffect(0.8)
+                    } else {
+                        Image(systemName: status == .connected ? "checkmark.circle" : "network")
+                            .foregroundColor(status == .connected ? .green : .primary)
+                    }
+                    Text(status == .testing ? "Testing..." : "Test Connection")
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(status == .testing)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+    
+    private func testDoclingConnection() async {
+        await settingsManager.testDoclingConnection()
+        await MainActor.run {
+            switch settingsManager.doclingStatus {
+            case .connected:
+                successMessage = "Successfully connected to Docling server"
+                showingSuccessMessage = true
+            case .failed(let error):
+                connectionError = "Failed to connect: \(error)"
+                showingConnectionError = true
+            default: break
+            }
+        }
     }
 }
 

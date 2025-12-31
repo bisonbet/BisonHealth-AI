@@ -316,7 +316,7 @@ struct DocumentsView: View {
     @State private var viewMode: DocumentViewMode = .list
     @State private var showingDocumentTypeSelector = false
     @State private var pendingDocumentForCategory: MedicalDocument?
-    @State private var showingDuplicateReview = false
+    @State private var showingImportReview = false
     
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
@@ -594,28 +594,28 @@ struct DocumentsView: View {
                 documentProcessor: documentProcessor
             )
         }
-        .sheet(isPresented: $showingDuplicateReview) {
-            if let review = documentProcessor.pendingDuplicateReview {
-                DuplicateBloodTestReviewView(
-                    duplicateGroups: Binding(
-                        get: { review.duplicateGroups },
+        .sheet(isPresented: $showingImportReview) {
+            if let review = documentProcessor.pendingImportReview {
+                BloodTestImportReviewView(
+                    importGroups: Binding(
+                        get: { review.importGroups },
                         set: { _ in }
                     ),
                     onComplete: { selectedGroups in
                         Task {
-                            await handleDuplicateReviewComplete(review: review, selectedGroups: selectedGroups)
-                            showingDuplicateReview = false
+                            await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
+                            showingImportReview = false
                         }
                     }
                 )
             }
         }
-        .onChange(of: documentProcessor.pendingDuplicateReview) { oldValue, newValue in
+        .onChange(of: documentProcessor.pendingImportReview) { oldValue, newValue in
             // Show review sheet when pending review is set
             if newValue != nil {
-                showingDuplicateReview = true
+                showingImportReview = true
             } else {
-                showingDuplicateReview = false
+                showingImportReview = false
             }
         }
         .sheet(isPresented: $showingDocumentTypeSelector) {
@@ -638,67 +638,58 @@ struct DocumentsView: View {
 
     }
     
-    // MARK: - Duplicate Review Handler
-    private func handleDuplicateReviewComplete(review: PendingDuplicateReview, selectedGroups: [DuplicateTestGroup]) async {
-        print("✅ DocumentsView: User completed duplicate review for \(selectedGroups.count) groups")
+    // MARK: - Import Review Handler
+    private func handleImportReviewComplete(review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
+        print("✅ DocumentsView: User completed import review for \(selectedGroups.count) groups")
         
         // Update the blood test result with user's selections
         var updatedBloodTest = review.bloodTestResult
         
         // Create a map of selected candidates by standard key
-        var selectedCandidatesByKey: [String: DuplicateBloodTestCandidate] = [:]
+        // Only include non-nil selections (nil means ignore)
+        var selectedCandidatesByKey: [String: BloodTestImportCandidate] = [:]
         for group in selectedGroups {
             if let selectedId = group.selectedCandidateId,
                let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
                 selectedCandidatesByKey[group.standardKey] = selectedCandidate
                 print("📋 DocumentsView: User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
+            } else {
+                print("🚫 DocumentsView: User ignored group '\(group.standardTestName)'")
             }
         }
         
-        // Update blood test items - replace items that match duplicate groups
+        // Reconstruct the results list based ONLY on selected candidates
         var updatedResults: [BloodTestItem] = []
         var processedKeys: Set<String> = []
         
-        for item in updatedBloodTest.results {
-            // Try to find matching duplicate group by standard key
-            if let standardKey = findStandardKey(for: item.name),
-               let selectedCandidate = selectedCandidatesByKey[standardKey],
-               !processedKeys.contains(standardKey) {
-                // Replace with user's selected value
-                var updatedItem = item
-                updatedItem.value = selectedCandidate.value
-                updatedItem.unit = selectedCandidate.unit ?? item.unit
-                updatedItem.referenceRange = selectedCandidate.referenceRange ?? item.referenceRange
-                updatedItem.isAbnormal = selectedCandidate.isAbnormal
-                if selectedCandidate.originalTestName != item.name {
-                    updatedItem.notes = (updatedItem.notes ?? "") + (updatedItem.notes != nil ? "\n" : "") + "Original: \(selectedCandidate.originalTestName)"
-                }
-                updatedResults.append(updatedItem)
-                processedKeys.insert(standardKey)
-                print("✅ DocumentsView: Updated '\(item.name)' with selected value: \(selectedCandidate.value) \(selectedCandidate.unit ?? "")")
-            } else {
-                // Keep original value (not in duplicate groups or already processed)
-                updatedResults.append(item)
-            }
-        }
+        // In the new flow, we can just iterate through the selected candidates map
+        // because we want to discard anything that wasn't selected.
+        // However, we need to map back to BloodTestItem which needs category info.
+        // The candidate doesn't have category, but the StandardizedLabParameters do.
         
-        // Add any selected candidates that weren't in the original results
         for (standardKey, selectedCandidate) in selectedCandidatesByKey {
-            if !processedKeys.contains(standardKey) {
-                // This is a new item from duplicates
-                if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
-                    let newItem = BloodTestItem(
-                        name: standardParam.name,
-                        value: selectedCandidate.value,
-                        unit: selectedCandidate.unit ?? standardParam.unit,
-                        referenceRange: selectedCandidate.referenceRange ?? standardParam.referenceRange,
-                        isAbnormal: selectedCandidate.isAbnormal,
-                        category: standardParam.category,
-                        notes: "Original: \(selectedCandidate.originalTestName)"
-                    )
-                    updatedResults.append(newItem)
-                    print("✅ DocumentsView: Added new item '\(standardParam.name)' = \(selectedCandidate.value)")
+             if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
+                
+                // Check if this was an update to an existing item (preserve ID if possible? not strictly necessary)
+                // or just create new items. Creating new is cleaner here since we are "Importing".
+                
+                var notes = selectedCandidate.originalTestName != standardParam.name ? "Original: \(selectedCandidate.originalTestName)" : nil
+                if selectedCandidate.originalTestName.lowercased().contains("calc") {
+                    notes = (notes == nil ? "" : notes! + "\n") + "Calculated"
                 }
+
+                let newItem = BloodTestItem(
+                    name: standardParam.name,
+                    value: selectedCandidate.value,
+                    unit: selectedCandidate.unit ?? standardParam.unit,
+                    referenceRange: selectedCandidate.referenceRange ?? standardParam.referenceRange,
+                    isAbnormal: selectedCandidate.isAbnormal,
+                    category: standardParam.category,
+                    notes: notes,
+                    confidence: selectedCandidate.confidence
+                )
+                updatedResults.append(newItem)
+                processedKeys.insert(standardKey)
             }
         }
         
@@ -707,19 +698,20 @@ struct DocumentsView: View {
         // Remove pending review flag
         var metadata = updatedBloodTest.metadata ?? [:]
         metadata.removeValue(forKey: "pending_review")
-        metadata["duplicate_review_completed"] = "true"
+        metadata["import_review_completed"] = "true"
         metadata["reviewed_groups_count"] = String(selectedGroups.count)
+        metadata["imported_items_count"] = String(updatedResults.count)
         updatedBloodTest.metadata = metadata
         
         // Save the updated blood test
         do {
             let healthDataManager = HealthDataManager.shared
             try await healthDataManager.addBloodTest(updatedBloodTest)
-            print("✅ DocumentsView: Saved blood test after duplicate review with \(updatedResults.count) results")
+            print("✅ DocumentsView: Saved blood test after import review with \(updatedResults.count) results")
             
             // Clear pending review
             await MainActor.run {
-                documentProcessor.pendingDuplicateReview = nil
+                documentProcessor.pendingImportReview = nil
             }
         } catch {
             print("❌ DocumentsView: Failed to save blood test after review: \(error)")

@@ -20,6 +20,9 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     private let maxTokens: Int
     private let contextSize: Int
 
+    // Default model to use when called via AIProviderInterface
+    var currentModel: String?
+
     // MARK: - Initialization
     init(baseURL: String, apiKey: String? = nil, timeout: TimeInterval = 300.0, defaultModel: String? = nil, temperature: Double = 0.1, maxTokens: Int = 2048, contextSize: Int = 32768) {
         guard let url = URL(string: baseURL) else {
@@ -99,7 +102,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         if !context.isEmpty {
             messages.append([
                 "role": "system",
-                "content": context
+                "content": "Health data (JSON format):\n" + context
             ])
         }
 
@@ -117,7 +120,8 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             "max_context_length": contextSize  // Some implementations may use this
         ]
 
-        if let model = defaultModel, !model.isEmpty {
+        // Use currentModel (for extraction), fallback to defaultModel (for chat)
+        if let model = currentModel ?? defaultModel, !model.isEmpty {
             requestBody["model"] = model
         }
 
@@ -125,7 +129,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         // Debug: Log request with sanitized headers and truncated body
         print("📤 OpenAICompatibleClient: Sending request to \(messagesURL)")
-        print("   Model: \(defaultModel ?? "(none)")")
+        print("   Model: \(currentModel ?? defaultModel ?? "(none)")")
 
         // Sanitize headers to hide API key
         if let headers = request.allHTTPHeaderFields {
@@ -245,7 +249,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         if !context.isEmpty {
             if !systemContent.isEmpty {
-                systemContent += "\n\nPATIENT HEALTH INFORMATION:\n"
+                systemContent += "\n\nPATIENT HEALTH INFORMATION (JSON Format):\n"
             }
             systemContent += context
         }

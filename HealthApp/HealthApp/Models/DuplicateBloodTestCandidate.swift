@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Duplicate Blood Test Candidate
-/// Represents a candidate value for a blood test that may be a duplicate
-struct DuplicateBloodTestCandidate: Identifiable, Hashable {
+// MARK: - Blood Test Import Candidate
+/// Represents a candidate value for a blood test during import review
+struct BloodTestImportCandidate: Identifiable, Hashable {
     let id: UUID
     let testName: String
     let value: String
@@ -58,30 +58,43 @@ struct DuplicateBloodTestCandidate: Identifiable, Hashable {
     }
 }
 
-// MARK: - Duplicate Test Group
-/// Groups duplicate candidates for the same test
-struct DuplicateTestGroup: Identifiable {
+// MARK: - Blood Test Import Group
+/// Groups candidates for the same test (even if single) for user review
+struct BloodTestImportGroup: Identifiable {
     let id: UUID
     let standardTestName: String
     let standardKey: String
-    let candidates: [DuplicateBloodTestCandidate]
+    let candidates: [BloodTestImportCandidate]
     var selectedCandidateId: UUID?
     
     init(
         id: UUID = UUID(),
         standardTestName: String,
         standardKey: String,
-        candidates: [DuplicateBloodTestCandidate],
+        candidates: [BloodTestImportCandidate],
         selectedCandidateId: UUID? = nil
     ) {
         self.id = id
         self.standardTestName = standardTestName
         self.standardKey = standardKey
         self.candidates = candidates
-        self.selectedCandidateId = selectedCandidateId ?? candidates.first(where: { $0.isRecommended })?.id
+        // Default selection:
+        // 1. If explicit selectedCandidateId provided, use it
+        // 2. Else find the recommended candidate
+        // 3. Else if only one candidate and it's valid, use it
+        // 4. Otherwise nil (user must choose/review)
+        if let selectedId = selectedCandidateId {
+            self.selectedCandidateId = selectedId
+        } else if let recommended = candidates.first(where: { $0.isRecommended }) {
+            self.selectedCandidateId = recommended.id
+        } else if candidates.count == 1, candidates[0].validationStatus == .valid {
+            self.selectedCandidateId = candidates[0].id
+        } else {
+            self.selectedCandidateId = nil
+        }
     }
     
-    var recommendedCandidate: DuplicateBloodTestCandidate? {
+    var recommendedCandidate: BloodTestImportCandidate? {
         return candidates.first(where: { $0.isRecommended })
     }
     

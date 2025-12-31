@@ -120,6 +120,9 @@ class BedrockClient: ObservableObject, AIProviderInterface {
     @Published var lastError: Error?
     @Published var config: AWSBedrockConfig
 
+    // Default model to use when called via AIProviderInterface (overrides config.model if set)
+    var currentModel: AWSBedrockModel?
+
     // MARK: - Private Properties
     private var bedrockClient: BedrockRuntimeClient?
 
@@ -230,7 +233,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             var conversationInput = message
             if !actualContext.isEmpty {
                 conversationInput = """
-                Context: \(actualContext)
+                Context (JSON Format): \(actualContext)
 
                 User: \(message)
                 """
@@ -248,14 +251,16 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             // Clean the response to remove special tokens and unwanted text
             let cleanedResponse = AIResponseCleaner.cleanConversational(response)
 
+            let modelUsed = currentModel ?? config.model
+
             return BedrockAIResponse(
                 content: cleanedResponse,
                 responseTime: responseTime,
                 tokenCount: nil, // Token count not available from direct invoke
                 metadata: [
-                    "model": config.model.rawValue,
+                    "model": modelUsed.rawValue,
                     "region": config.region,
-                    "provider": config.model.provider
+                    "provider": modelUsed.provider
                 ]
             )
 
@@ -314,7 +319,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
         var conversationInput = message
         if !actualContext.isEmpty {
             conversationInput = """
-            Context: \(actualContext)
+            Context (JSON Format): \(actualContext)
 
             User: \(message)
             """
@@ -325,9 +330,12 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             throw BedrockError.invalidCredentials
         }
 
+        // Use currentModel if set (for extraction), otherwise use config.model (for chat)
+        let modelToUse = currentModel ?? config.model
+
         // Create the model request payload
         let modelRequest = AWSBedrockModelFactory.createRequest(
-            for: config.model,
+            for: modelToUse,
             prompt: conversationInput,
             systemPrompt: effectiveSystemPrompt,
             maxTokens: config.maxTokens,
@@ -349,10 +357,10 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             let invokeRequest = InvokeModelWithResponseStreamInput(
                 body: requestBody,
                 contentType: "application/json",
-                modelId: config.model.rawValue
+                modelId: modelToUse.rawValue
             )
 
-            print("📡 BedrockClient: Starting streaming request for model \(config.model.displayName)")
+            print("📡 BedrockClient: Starting streaming request for model \(modelToUse.displayName)")
 
             let response = try await client.invokeModelWithResponseStream(input: invokeRequest)
 
@@ -370,7 +378,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                         let chunkData = Data(bytes)
 
                         // Parse the chunk based on model type
-                        if let chunkContent = parseStreamingChunk(data: chunkData, model: config.model) {
+                        if let chunkContent = parseStreamingChunk(data: chunkData, model: modelToUse) {
                             accumulatedContent += chunkContent
                             onUpdate(accumulatedContent)
                         }
@@ -393,9 +401,9 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 responseTime: responseTime,
                 tokenCount: nil,
                 metadata: [
-                    "model": config.model.rawValue,
+                    "model": modelToUse.rawValue,
                     "region": config.region,
-                    "provider": config.model.provider
+                    "provider": modelToUse.provider
                 ]
             )
 
@@ -475,9 +483,12 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             throw BedrockError.invalidCredentials
         }
 
+        // Use currentModel if set (for extraction), otherwise use config.model (for chat)
+        let modelToUse = currentModel ?? config.model
+
         // Create the model request payload
         let modelRequest = AWSBedrockModelFactory.createRequest(
-            for: config.model,
+            for: modelToUse,
             prompt: prompt,
             systemPrompt: systemPrompt,
             maxTokens: maxTokens,
@@ -503,7 +514,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 accept: "application/json",
                 body: requestBody,
                 contentType: "application/json",
-                modelId: config.model.rawValue
+                modelId: modelToUse.rawValue
             )
 
             let response = try await client.invokeModel(input: invokeRequest)
@@ -516,7 +527,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             let responseData = Data(responseBody)
 
             // Parse the model-specific response
-            let modelResponse = try AWSBedrockModelFactory.parseResponse(for: config.model, data: responseData)
+            let modelResponse = try AWSBedrockModelFactory.parseResponse(for: modelToUse, data: responseData)
 
             return modelResponse.content
 

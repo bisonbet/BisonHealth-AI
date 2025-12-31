@@ -104,6 +104,15 @@ struct ModelPreferences: Equatable {
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
     var mlxModelId: String? = nil          // Selected MLX model ID
+    
+    // Extraction Settings (Independent of Chat)
+    var extractionProvider: AIProvider = .ollama
+    var extractionOllamaModel: String = "llama3.2"
+    var extractionOpenAIModel: String = ""
+    var extractionBedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue
+    var extractionModelId: String? = nil   // MLX extraction model
+    
+    var useLocalDocling: Bool = false      // Use local MLX Docling model instead of remote server
     var contextSizeLimit: Int = 32768      // Default context size: 32k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
@@ -869,6 +878,12 @@ extension ModelPreferences: Codable {
         case openAICompatibleModel
         case bedrockModel
         case mlxModelId
+        case extractionProvider
+        case extractionOllamaModel
+        case extractionOpenAIModel
+        case extractionBedrockModel
+        case extractionModelId
+        case useLocalDocling
         case contextSizeLimit
         case lastUpdated
     }
@@ -884,6 +899,15 @@ extension ModelPreferences: Codable {
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
         self.mlxModelId = try container.decodeIfPresent(String.self, forKey: .mlxModelId)
+        
+        // Extraction Settings
+        self.extractionProvider = try container.decodeIfPresent(AIProvider.self, forKey: .extractionProvider) ?? .ollama
+        self.extractionOllamaModel = try container.decodeIfPresent(String.self, forKey: .extractionOllamaModel) ?? "llama3.2"
+        self.extractionOpenAIModel = try container.decodeIfPresent(String.self, forKey: .extractionOpenAIModel) ?? ""
+        self.extractionBedrockModel = try container.decodeIfPresent(String.self, forKey: .extractionBedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
+        self.extractionModelId = try container.decodeIfPresent(String.self, forKey: .extractionModelId)
+        
+        self.useLocalDocling = try container.decodeIfPresent(Bool.self, forKey: .useLocalDocling) ?? false
         self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 32768
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
@@ -898,6 +922,15 @@ extension ModelPreferences: Codable {
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
         try container.encode(mlxModelId, forKey: .mlxModelId)
+        
+        // Extraction Settings
+        try container.encode(extractionProvider, forKey: .extractionProvider)
+        try container.encode(extractionOllamaModel, forKey: .extractionOllamaModel)
+        try container.encode(extractionOpenAIModel, forKey: .extractionOpenAIModel)
+        try container.encode(extractionBedrockModel, forKey: .extractionBedrockModel)
+        try container.encode(extractionModelId, forKey: .extractionModelId)
+        
+        try container.encode(useLocalDocling, forKey: .useLocalDocling)
         try container.encode(contextSizeLimit, forKey: .contextSizeLimit)
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }

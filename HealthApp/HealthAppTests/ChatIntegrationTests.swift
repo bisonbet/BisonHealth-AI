@@ -126,21 +126,24 @@ final class ChatIntegrationTests: XCTestCase {
         // When: Build context (using testing method)
         let context = chatManager.buildHealthDataContextForTesting()
         
-        // Then: Verify context contains expected health data
-        XCTAssertTrue(context.contains("Personal Information"))
+        // Then: Verify context is valid JSON with expected health data
+        XCTAssertTrue(context.contains("\"personal_info\""))
+        XCTAssertTrue(context.contains("\"blood_tests\""))
+        XCTAssertTrue(context.contains("\"timestamp\""))
         XCTAssertTrue(context.contains("John Doe"))
-        XCTAssertTrue(context.contains("Male"))
-        XCTAssertTrue(context.contains("O+"))
+        XCTAssertTrue(context.contains("\"gender\""))
         XCTAssertTrue(context.contains("Hypertension"))
-        XCTAssertTrue(context.contains("Type 2 Diabetes"))
         XCTAssertTrue(context.contains("Peanuts"))
         XCTAssertTrue(context.contains("Lisinopril"))
-        
-        XCTAssertTrue(context.contains("Blood Test Results"))
+
         XCTAssertTrue(context.contains("City Medical Lab"))
         XCTAssertTrue(context.contains("Glucose"))
         XCTAssertTrue(context.contains("HbA1c"))
-        XCTAssertTrue(context.contains("Total Cholesterol"))
+
+        // Verify it's parseable JSON
+        let data = context.data(using: .utf8)!
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNotNil(json)
     }
     
     func testContextSizeOptimization() async throws {

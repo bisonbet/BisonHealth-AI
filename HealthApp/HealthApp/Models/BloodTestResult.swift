@@ -72,6 +72,7 @@ struct BloodTestItem: Codable, Identifiable {
     var isAbnormal: Bool
     var category: BloodTestCategory?
     var notes: String?
+    var confidence: Double?
     
     init(
         id: UUID = UUID(),
@@ -81,7 +82,8 @@ struct BloodTestItem: Codable, Identifiable {
         referenceRange: String? = nil,
         isAbnormal: Bool = false,
         category: BloodTestCategory? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        confidence: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -91,6 +93,7 @@ struct BloodTestItem: Codable, Identifiable {
         self.isAbnormal = isAbnormal
         self.category = category
         self.notes = notes
+        self.confidence = confidence
     }
 }
 

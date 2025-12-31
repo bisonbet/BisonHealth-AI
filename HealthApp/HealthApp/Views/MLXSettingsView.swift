@@ -15,8 +15,11 @@ struct MLXSettingsView: View {
             // Status Section
             statusSection
 
-            // Model Selection Section
-            modelSelectionSection
+            // Chat Model Selection Section
+            chatModelSelectionSection
+
+            // Document Processing Section
+            documentProcessingSection
 
             // Generation Parameters Section
             generationParametersSection
@@ -33,6 +36,21 @@ struct MLXSettingsView: View {
         }
     }
 
+    // MARK: - Computed Properties
+    
+    private var chatModels: [MLXModelConfig] {
+        MLXModelRegistry.availableModels.filter { $0.modelType == .textOnly }
+    }
+    
+    private var documentModels: [MLXModelConfig] {
+        MLXModelRegistry.availableModels.filter { $0.modelType == .vision }
+    }
+    
+    private var isDeviceCapableOfLocalDocling: Bool {
+        // Require at least 4GB RAM for VLM + App overhead
+        DeviceMemory.getTotalMemoryGB() >= 4.0
+    }
+
     // MARK: - Status Section
 
     private var statusSection: some View {
@@ -40,7 +58,7 @@ struct MLXSettingsView: View {
             MLXStatusRow()
 
             HStack {
-                Text("Active Model")
+                Text("Active Chat Model")
                 Spacer()
                 if let modelId = settingsManager.modelPreferences.mlxModelId,
                    let model = MLXModelRegistry.model(withId: modelId) {
@@ -54,11 +72,11 @@ struct MLXSettingsView: View {
         }
     }
 
-    // MARK: - Model Selection Section
+    // MARK: - Chat Model Selection Section
 
-    private var modelSelectionSection: some View {
+    private var chatModelSelectionSection: some View {
         Section(header: HStack {
-            Text("Select Model")
+            Text("Chat Models")
             Spacer()
             Button(action: {
                 mlxClient.scanDownloadedModels()
@@ -78,7 +96,7 @@ struct MLXSettingsView: View {
                 }
             }
 
-            ForEach(MLXModelRegistry.availableModels) { model in
+            ForEach(chatModels) { model in
                 let isDownloaded = mlxClient.downloadedModelIds.contains(model.id)
 
                 ModelRow(
@@ -93,6 +111,66 @@ struct MLXSettingsView: View {
                         deleteModel(model)
                     } : nil
                 )
+            }
+        }
+    }
+    
+    // MARK: - Document Processing Section
+    
+    private var documentProcessingSection: some View {
+        Section(header: Text("Document Processing")) {
+            // Mode Selection
+            Picker("Processing Mode", selection: Binding(
+                get: { settingsManager.modelPreferences.useLocalDocling },
+                set: { newValue in
+                    settingsManager.modelPreferences.useLocalDocling = newValue
+                    settingsManager.saveSettings()
+                }
+            )) {
+                Text("Remote Server").tag(false)
+                if isDeviceCapableOfLocalDocling {
+                    Text("Local On-Device (MLX)").tag(true)
+                }
+            }
+            .onChange(of: settingsManager.modelPreferences.useLocalDocling) { oldValue, newValue in
+                 if newValue && !isDeviceCapableOfLocalDocling {
+                     // Force back to false if hacked/state mismatch
+                     settingsManager.modelPreferences.useLocalDocling = false
+                     settingsManager.saveSettings()
+                 }
+            }
+            
+            // Capability Warning
+            if !isDeviceCapableOfLocalDocling {
+                 Text("⚠️ Local processing requires at least 4GB RAM.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Local Model Management (Only show if Local is selected or for management)
+            // We show it if Local is selected so user can download it.
+            if settingsManager.modelPreferences.useLocalDocling {
+                ForEach(documentModels) { model in
+                    let isDownloaded = mlxClient.downloadedModelIds.contains(model.id)
+                    
+                    ModelRow(
+                        model: model,
+                        isSelected: isDownloaded, // Mark as selected if downloaded since it's the only option
+                        isDownloaded: isDownloaded,
+                        isLoading: isLoadingModel,
+                        onSelect: {
+                            // Just load/download, don't set as chat model
+                            selectAndLoadModel(model)
+                        },
+                        onDelete: isDownloaded ? {
+                            deleteModel(model)
+                        } : nil
+                    )
+                }
+                
+                Text("Uses 'Granite Docling' vision model for local OCR and table extraction.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -195,9 +273,12 @@ struct MLXSettingsView: View {
     private func selectAndLoadModel(_ model: MLXModelConfig) {
         guard !isLoadingModel else { return }
 
-        // Update selection
-        settingsManager.modelPreferences.mlxModelId = model.id
-        settingsManager.saveSettings()
+        // Only update chat model preference if it's a text model
+        // Docling models are managed separately via useLocalDocling flag
+        if model.modelType == .textOnly {
+            settingsManager.modelPreferences.mlxModelId = model.id
+            settingsManager.saveSettings()
+        }
 
         // Load model (MLX will download if needed)
         isLoadingModel = true
@@ -350,3 +431,138 @@ struct MLXSettingsView_Previews: PreviewProvider {
     }
 }
 #endif
+
+// MARK: - Docling Local Settings View
+
+struct DoclingLocalSettingsView: View {
+    @ObservedObject var settingsManager: SettingsManager
+    @StateObject private var mlxClient = MLXClient.shared
+    @State private var isLoadingModel = false
+    @State private var loadError: String?
+    
+    var body: some View {
+        Form {
+            Section(header: Text("Document Analysis Model (OCR)")) {
+                
+                if !isDeviceCapableOfLocalDocling {
+                     Text("⚠️ Device memory insufficient for local processing. At least 4GB RAM required.")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                }
+                
+                ForEach(documentModels) { model in
+                    let isDownloaded = mlxClient.downloadedModelIds.contains(model.id)
+                    
+                    ModelRow(
+                        model: model,
+                        isSelected: isDownloaded, // Mark as selected if downloaded
+                        isDownloaded: isDownloaded,
+                        isLoading: isLoadingModel,
+                        onSelect: {
+                            selectAndLoadModel(model)
+                        },
+                        onDelete: isDownloaded ? {
+                            deleteModel(model)
+                        } : nil
+                    )
+                }
+                
+                Text("Uses 'Granite Docling' vision model for local OCR and table extraction.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Section(header: Text("Data Extraction Model (Reasoning)")) {
+                Text("Select a model to interpret the extracted text and convert it to structured data.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                ForEach(extractionModels) { model in
+                    let isDownloaded = mlxClient.downloadedModelIds.contains(model.id)
+                    let isSelected = settingsManager.modelPreferences.extractionModelId == model.id
+                    
+                    ModelRow(
+                        model: model,
+                        isSelected: isSelected,
+                        isDownloaded: isDownloaded,
+                        isLoading: isLoadingModel,
+                        onSelect: {
+                            selectAndLoadModel(model)
+                        },
+                        onDelete: isDownloaded ? {
+                            deleteModel(model)
+                        } : nil
+                    )
+                }
+            }
+        }
+        .navigationTitle("Local Docling Settings")
+        .alert("Model Load Error", isPresented: .constant(loadError != nil)) {
+            Button("OK") { loadError = nil }
+        } message: {
+            Text(loadError ?? "")
+        }
+        .onAppear {
+            mlxClient.scanDownloadedModels()
+            // Set default extraction model if not set
+            if settingsManager.modelPreferences.extractionModelId == nil {
+                // Default to Granite 1B if available, else first text model
+                if let defaultModel = extractionModels.first(where: { $0.id.contains("granite") }) ?? extractionModels.first {
+                    settingsManager.modelPreferences.extractionModelId = defaultModel.id
+                    settingsManager.saveSettings()
+                }
+            }
+        }
+    }
+    
+    // MARK: - Helpers
+    
+    private var documentModels: [MLXModelConfig] {
+        MLXModelRegistry.availableModels.filter { $0.modelType == .vision }
+    }
+    
+    private var extractionModels: [MLXModelConfig] {
+        MLXModelRegistry.availableModels.filter { $0.modelType == .textOnly }
+    }
+    
+    private var isDeviceCapableOfLocalDocling: Bool {
+        DeviceMemory.getTotalMemoryGB() >= 4.0
+    }
+    
+    private func selectAndLoadModel(_ model: MLXModelConfig) {
+        guard !isLoadingModel else { return }
+        
+        // Update preference based on type
+        if model.modelType == .textOnly {
+             settingsManager.modelPreferences.extractionModelId = model.id
+             settingsManager.saveSettings()
+        }
+        
+        isLoadingModel = true
+        loadError = nil
+        
+        Task {
+            do {
+                try await mlxClient.loadModel(modelId: model.id)
+                await MainActor.run {
+                    isLoadingModel = false
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingModel = false
+                    loadError = "Failed to load model: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func deleteModel(_ model: MLXModelConfig) {
+        Task {
+            do {
+                try await mlxClient.deleteModel(modelId: model.id)
+            } catch {
+                loadError = "Failed to delete model: \(error.localizedDescription)"
+            }
+        }
+    }
+}

@@ -670,7 +670,35 @@ extension ChatContext {
 
         return contextParts.joined(separator: "\n")
     }
-    
+
+    // MARK: - JSON Context Building
+
+    /// Builds JSON formatted context string for AI providers
+    /// - Returns: JSON string with structured health data, falls back to plain text on error
+    func buildContextJSON() -> String {
+        do {
+            let jsonDict = HealthContextJSON.buildContextJSON(from: self)
+            let data = try JSONSerialization.data(
+                withJSONObject: jsonDict,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            guard let jsonString = String(data: data, encoding: .utf8) else {
+                print("⚠️ Failed to convert JSON data to string, falling back to plain text")
+                return buildContextString()
+            }
+            return jsonString
+        } catch {
+            print("⚠️ JSON serialization error: \(error), falling back to plain text")
+            return buildContextString()
+        }
+    }
+
+    /// Estimated token count for JSON context (more efficient than plain text)
+    var estimatedTokenCountJSON: Int {
+        // JSON is more compact, approximately 1 token per 4 characters
+        return buildContextJSON().count / 4
+    }
+
     // MARK: - Helper Functions
     /// Cleans markdown text by removing base64 image data for AI context
     private func cleanMarkdownForContext(_ markdown: String) -> String {

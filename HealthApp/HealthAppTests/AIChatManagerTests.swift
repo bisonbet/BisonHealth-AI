@@ -289,14 +289,22 @@ final class AIChatManagerTests: XCTestCase {
         
         // When
         let context = chatManager.buildHealthDataContextForTesting()
-        
-        // Then
-        XCTAssertTrue(context.contains("Personal Information"))
+
+        // Then - Verify JSON structure and content
+        XCTAssertTrue(context.contains("\"personal_info\""))
         XCTAssertTrue(context.contains("John Doe"))
-        XCTAssertTrue(context.contains("Male"))
-        XCTAssertTrue(context.contains("O+"))
+        XCTAssertTrue(context.contains("\"gender\""))
+        XCTAssertTrue(context.contains("\"blood_type\""))
+
+        // Verify it's valid JSON
+        let data = context.data(using: .utf8)!
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNotNil(json)
+
+        let personalInfo = json?["personal_info"] as? [String: Any]
+        XCTAssertEqual(personalInfo?["name"] as? String, "John Doe")
     }
-    
+
     func testBuildHealthDataContextWithBloodTests() {
         // Given
         let bloodTest = BloodTestResult(
@@ -308,13 +316,19 @@ final class AIChatManagerTests: XCTestCase {
         )
         mockHealthDataManager.bloodTests = [bloodTest]
         chatManager.selectHealthDataForContext([.bloodTest])
-        
+
         // When
         let context = chatManager.buildHealthDataContextForTesting()
-        
-        // Then
-        XCTAssertTrue(context.contains("Blood Test Results"))
+
+        // Then - Verify JSON structure
+        XCTAssertTrue(context.contains("\"blood_tests\""))
         XCTAssertTrue(context.contains("Test Lab"))
+        XCTAssertTrue(context.contains("Glucose"))
+
+        // Verify it's valid JSON
+        let data = context.data(using: .utf8)!
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNotNil(json)
     }
     
     func testContextSizeEstimation() {
