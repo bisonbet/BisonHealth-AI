@@ -142,9 +142,6 @@ class AIChatManager: ObservableObject {
             // For OpenAI-compatible servers, assume connected if configuration is valid
             // User can manually test in settings if needed
             isConnected = settingsManager.hasValidOpenAICompatibleConfig()
-        case .mlx:
-            // For MLX, check if a model is downloaded and available
-            isConnected = settingsManager.hasValidMLXConfig()
         }
     }
     
@@ -271,23 +268,6 @@ class AIChatManager: ObservableObject {
             return "New Conversation"
         }
 
-        // For MLX provider, use the MLX client's built-in title generation
-        // This uses the current session and then resets it to clear the title generation interaction
-        if settingsManager.modelPreferences.aiProvider == .mlx {
-            logger.info("🏷️ Using MLX LLM-based title generation")
-            do {
-                let mlxClient = settingsManager.getMLXClient()
-                return try await mlxClient.generateTitle(
-                    userMessage: userMessage.content,
-                    assistantResponse: assistantMessage.content
-                )
-            } catch {
-                logger.warning("⚠️ MLX title generation failed, falling back to heuristic: \(error.localizedDescription)")
-                // Fall back to heuristic if LLM generation fails
-                return generateHeuristicTitle(from: userMessage.content)
-            }
-        }
-
         // Create a prompt for title generation for other providers
         let titlePrompt = """
         Based on this conversation, generate a short, descriptive title (3-5 words) that summarizes the main topic.
@@ -409,12 +389,10 @@ class AIChatManager: ObservableObject {
             }
 
             // Check if this is the first user message and if current model requires instruction injection
-            // IMPORTANT: Injection is ONLY for providers where WE control prompt formatting (MLX, Ollama)
+            // IMPORTANT: Injection is ONLY for providers where WE control prompt formatting (Ollama)
             // OpenAI Compatible and Bedrock servers handle their own chat template formatting
             let currentModel: String
             switch settingsManager.modelPreferences.aiProvider {
-            case .mlx:
-                currentModel = settingsManager.modelPreferences.mlxModelId ?? ""
             case .ollama, .openAICompatible:
                 currentModel = settingsManager.modelPreferences.chatModel
             case .bedrock:
@@ -425,8 +403,7 @@ class AIChatManager: ObservableObject {
 
             // CRITICAL: Only check for injection if provider requires it
             // OpenAI Compatible servers (llama.cpp, vLLM, etc.) handle chat templates themselves
-            let providerNeedsInjection = (settingsManager.modelPreferences.aiProvider == .mlx ||
-                                         settingsManager.modelPreferences.aiProvider == .ollama)
+            let providerNeedsInjection = settingsManager.modelPreferences.aiProvider == .ollama
             let requiresInjection = providerNeedsInjection &&
                                    SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
@@ -442,12 +419,10 @@ class AIChatManager: ObservableObject {
             print("🔍 AIChatManager.sendMessage: Model contains 'medgemma': \(currentModel.lowercased().contains("medgemma"))")
 
             // Prepare the message content (potentially formatted for exception models)
-            // NOTE: MLX handles its own formatting in MLXClient, so we don't format here for MLX
             // NOTE: OpenAI Compatible/Bedrock NEVER get injection - they use standard API format
             var messageContent = content
-            let isMLXProvider = settingsManager.modelPreferences.aiProvider == .mlx
 
-            if isFirstTurn && requiresInjection && !isMLXProvider {
+            if isFirstTurn && requiresInjection {
                 // Format with INSTRUCTIONS/CONTEXT/QUESTION for Ollama exception models only
                 print("📝 AIChatManager: Model '\(currentModel)' requires instruction injection - formatting first message")
                 messageContent = SystemPromptExceptionList.shared.formatFirstUserMessage(
@@ -459,10 +434,7 @@ class AIChatManager: ObservableObject {
             }
 
             // Debug: Log what context is being sent
-            if isMLXProvider {
-                print("🔍 AIChatManager: MLX provider - passing raw message, context, and systemPrompt to MLXClient")
-                print("🔍 AIChatManager: Context length: \(healthContext.count) chars")
-            } else if !requiresInjection || !isFirstTurn {
+            if !requiresInjection || !isFirstTurn {
                 print("🔍 AIChatManager: Sending message with context length: \(healthContext.count) chars")
                 if !healthContext.isEmpty {
                     print("🔍 AIChatManager: Context preview (first 1000 chars): \(String(healthContext.prefix(1000)))")
@@ -473,12 +445,8 @@ class AIChatManager: ObservableObject {
 
             if useStreaming {
                 // Use streaming for real-time response
-                if isMLXProvider {
-                    // MLX handles its own formatting - always pass raw message and full context
-                    print("📝 AIChatManager: MLX - sending raw message (length: \(content.count)), letting MLXClient handle formatting")
-                    try await sendStreamingMessage(content, context: healthContext, conversationId: updatedConversation.id)
-                } else if isFirstTurn && requiresInjection {
-                    // For non-MLX exception models, send formatted message with empty context
+                if isFirstTurn && requiresInjection {
+                    // For Ollama exception models, send formatted message with empty context
                     print("📝 AIChatManager: FIRST turn - sending formatted message (length: \(messageContent.count))")
                     try await sendStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
                 } else {
@@ -487,11 +455,8 @@ class AIChatManager: ObservableObject {
                 }
             } else {
                 // Use non-streaming for complete response
-                if isMLXProvider {
-                    // MLX handles its own formatting
-                    try await sendNonStreamingMessage(content, context: healthContext, conversationId: updatedConversation.id)
-                } else if isFirstUserMessage && requiresInjection {
-                    // For non-MLX exception models, send formatted message with empty context
+                if isFirstUserMessage && requiresInjection {
+                    // For Ollama exception models, send formatted message with empty context
                     try await sendNonStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
                 } else {
                     try await sendNonStreamingMessage(messageContent, context: healthContext, conversationId: updatedConversation.id)
@@ -632,22 +597,6 @@ class AIChatManager: ObservableObject {
         }
     }
 
-    /// Immediate update for streaming messages (bypasses debouncing)
-    /// Used for MLX which is already on MainActor and doesn't need debouncing
-    /// - Parameters:
-    ///   - content: The streaming content to display
-    ///   - conversationId: ID of the conversation containing the message
-    ///   - messageId: ID of the message being updated
-    @MainActor
-    private func updateStreamingMessageImmediate(content: String, conversationId: UUID, messageId: UUID) {
-        // Apply update immediately without debouncing
-        if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-           let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
-            self.conversations[conversationIndex].messages[messageIndex].content = content
-            self.currentConversation = self.conversations[conversationIndex]
-        }
-    }
-
     /// Force immediate update for final message (bypasses debouncing)
     /// - Parameters:
     ///   - conversationId: ID of the conversation containing the message
@@ -671,8 +620,6 @@ class AIChatManager: ObservableObject {
         // to correctly determine if this is the first turn
         let currentModel: String
         switch settingsManager.modelPreferences.aiProvider {
-        case .mlx:
-            currentModel = settingsManager.modelPreferences.mlxModelId ?? ""
         case .ollama, .openAICompatible:
             currentModel = settingsManager.modelPreferences.chatModel
         case .bedrock:
@@ -688,8 +635,7 @@ class AIChatManager: ObservableObject {
 
         // CRITICAL: Only check for injection if provider requires it
         // OpenAI Compatible and Bedrock servers handle chat templates themselves
-        let providerNeedsInjection = (settingsManager.modelPreferences.aiProvider == .mlx ||
-                                     settingsManager.modelPreferences.aiProvider == .ollama)
+        let providerNeedsInjection = settingsManager.modelPreferences.aiProvider == .ollama
         let requiresInjection = providerNeedsInjection &&
                                SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
@@ -719,15 +665,11 @@ class AIChatManager: ObservableObject {
         }
 
         // Determine if we should send systemPrompt separately
-        // For MLX exception models: ALWAYS pass systemPrompt because MLXClient handles its own formatting
         // For Ollama exception models: never send system prompt (instructions embedded in first message)
         // For OpenAI Compatible/Bedrock: ALWAYS send via standard API (server handles formatting)
         // For normal models: send if context is provided
         let shouldSendSystemPrompt: Bool
-        if settingsManager.modelPreferences.aiProvider == .mlx && requiresInjection {
-            // MLX handles its own session management, so always provide the system prompt
-            shouldSendSystemPrompt = true
-        } else if requiresInjection {
+        if requiresInjection {
             // Ollama exception models only: instructions are embedded in first message by AIChatManager
             shouldSendSystemPrompt = false
         } else {
@@ -887,74 +829,6 @@ class AIChatManager: ObservableObject {
                 }
             )
 
-        case .mlx:
-            let mlxClient = settingsManager.getMLXClient()
-            // MLX handles its own session management and formatting
-            // Always pass full context and system prompt - MLXClient will format as needed
-            // Pass conversation history (excluding the current user message which is passed separately)
-            // The history allows the model to maintain context across turns
-            let relevantMessages = conversationMessages.filter { msg in
-                msg.role == .user || msg.role == .assistant
-            }
-            // Drop the last user message (which is the current one being sent)
-            // If there's only 1 or 0 messages, history will be empty
-            let historyForMLX: [ChatMessage]
-            if relevantMessages.count > 1 {
-                historyForMLX = Array(relevantMessages.dropLast(1))
-            } else {
-                historyForMLX = []
-            }
-            print("📝 AIChatManager: Passing \(historyForMLX.count) history messages to MLX")
-            print("🔍 AIChatManager: selectedDoctor = \(selectedDoctor?.name ?? "nil")")
-            print("🔍 AIChatManager: systemPrompt length = \(selectedDoctor?.systemPrompt.count ?? 0) chars")
-            if let systemPromptPreview = selectedDoctor?.systemPrompt.prefix(200) {
-                print("🔍 AIChatManager: systemPrompt preview: \(systemPromptPreview)...")
-            } else {
-                print("⚠️ AIChatManager: selectedDoctor or systemPrompt is NIL!")
-            }
-
-            try await mlxClient.sendStreamingChatMessage(
-                content,
-                context: context,
-                systemPrompt: selectedDoctor?.systemPrompt,
-                conversationHistory: historyForMLX,
-                conversationId: conversationId,
-                onUpdate: { [weak self] partialContent in
-                    guard let self = self else { return }
-                    // MLX is already on MainActor, call directly without Task wrapper
-                    // to avoid unnecessary queuing and debouncing issues
-                    self.updateStreamingMessageImmediate(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
-                },
-                onComplete: { [weak self] finalResponse in
-                    Task { @MainActor in
-                        guard let self = self else { return }
-
-                        // Create final message with complete content and metadata
-                        let finalMessage = ChatMessage(
-                            id: streamingMessageId,
-                            content: finalResponse.content,
-                            role: .assistant,
-                            tokens: finalResponse.tokenCount,
-                            processingTime: finalResponse.responseTime
-                        )
-
-                        // Save final message to database
-                        do {
-                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
-
-                            // Use finalize to bypass debouncing for immediate final update
-                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
-
-                            // Generate title after first exchange if still using default title
-                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
-                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
-                            }
-                        } catch {
-                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
-                        }
-                    }
-                }
-            )
         }
     }
     

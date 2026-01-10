@@ -1,6 +1,5 @@
 import SwiftUI
 import Foundation
-import Combine
 
 // MARK: - Settings Models
 
@@ -71,14 +70,12 @@ enum AIProvider: String, CaseIterable {
     case ollama = "ollama"
     case bedrock = "bedrock"
     case openAICompatible = "openai_compatible"
-    case mlx = "mlx"
 
     var displayName: String {
         switch self {
         case .ollama: return "Ollama"
         case .bedrock: return "AWS Bedrock"
         case .openAICompatible: return "OpenAI Compatible"
-        case .mlx: return "MLX (On-Device)"
         }
     }
 
@@ -90,8 +87,6 @@ enum AIProvider: String, CaseIterable {
             return "AWS Bedrock cloud AI service"
         case .openAICompatible:
             return "OpenAI-compatible servers (LiteLLM, LocalAI, vLLM, etc.)"
-        case .mlx:
-            return "On-device AI using Apple's MLX framework - completely private, no network required"
         }
     }
 }
@@ -103,16 +98,12 @@ struct ModelPreferences: Equatable {
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
-    var mlxModelId: String? = nil          // Selected MLX model ID
     
     // Extraction Settings (Independent of Chat)
     var extractionProvider: AIProvider = .ollama
     var extractionOllamaModel: String = "llama3.2"
     var extractionOpenAIModel: String = ""
     var extractionBedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue
-    var extractionModelId: String? = nil   // MLX extraction model
-    
-    var useLocalDocling: Bool = false      // Use local MLX Docling model instead of remote server
     var contextSizeLimit: Int = 8192       // Default context size: 8k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
@@ -180,15 +171,10 @@ class SettingsManager: ObservableObject {
     @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
     @Published var openAICompatibleContextSize: Int = 32768  // Default: 32k tokens
 
-    // MLX configuration
-    @Published var mlxSettings = MLXSettings.default
-    @Published var mlxGenerationConfig = MLXGenerationConfig.default
-
     // Connection statuses
     @Published var ollamaStatus: ConnectionStatus = .unknown
     @Published var doclingStatus: ConnectionStatus = .unknown
     @Published var openAICompatibleStatus: ConnectionStatus = .unknown
-    @Published var mlxStatus: ConnectionStatus = .unknown
     
     // Backup settings
     @Published var backupSettings = BackupSettings()
@@ -206,7 +192,6 @@ class SettingsManager: ObservableObject {
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
-    private var mlxClient: MLXClient?
 
     // iCloud backup manager
     @Published var backupManager: iCloudBackupManager?
@@ -214,54 +199,22 @@ class SettingsManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
     private let logger = Logger.shared
-    private var cancellables = Set<AnyCancellable>()
-
-    // Track previous AI provider to detect changes
-    private var previousAIProvider: AIProvider?
 
     // Keychain keys for reinstall persistence
     private let kcOllamaKey = "settings.ollamaConfig.v1"
     private let kcDoclingKey = "settings.doclingConfig.v1"
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
-    private let kcMLXSettingsKey = "settings.mlxSettings.v1"
 
     // Tracks whether model prefs were loaded from persisted storage
     private var loadedModelPrefsFromStorage: Bool = false
     
     init() {
         loadSettings()
-        // Store initial AI provider
-        previousAIProvider = modelPreferences.aiProvider
         // Defer backup manager setup to avoid circular dependency
         Task { @MainActor in
             await setupBackupManager()
         }
-        // Observe AI provider changes to unload MLX when switching
-        setupAIProviderObserver()
-    }
-    
-    // MARK: - AI Provider Change Observer
-
-    /// Observe AI provider changes and unload MLX model when switching away
-    private func setupAIProviderObserver() {
-        $modelPreferences
-            .map { $0.aiProvider }
-            .removeDuplicates()
-            .sink { [weak self] newProvider in
-                guard let self = self else { return }
-
-                // Check if we're switching away from MLX
-                if let previous = self.previousAIProvider,
-                   previous == .mlx && newProvider != .mlx {
-                    self.logger.info("🔄 AI Provider changed from MLX to \(newProvider.displayName) - unloading MLX model")
-                    self.getMLXClient().unloadModel()
-                }
-
-                // Update previous provider
-                self.previousAIProvider = newProvider
-            }
-            .store(in: &cancellables)
     }
 
     // MARK: - Settings Persistence
@@ -325,20 +278,6 @@ class SettingsManager: ObservableObject {
             loadedModelPrefsFromStorage = false
         }
 
-        // Load MLX settings
-        if let mlxData = userDefaults.data(forKey: "mlxSettings"),
-           let decoded = try? JSONDecoder().decode(MLXSettings.self, from: mlxData) {
-            mlxSettings = decoded
-        } else if let kcData = try? keychain.retrieve(for: kcMLXSettingsKey),
-                  let decoded = try? JSONDecoder().decode(MLXSettings.self, from: kcData) {
-            mlxSettings = decoded
-        }
-
-        // Load MLX generation config
-        if let mlxGenData = userDefaults.data(forKey: "mlxGenerationConfig"),
-           let decoded = try? JSONDecoder().decode(MLXGenerationConfig.self, from: mlxGenData) {
-            mlxGenerationConfig = decoded
-        }
     }
     
     func saveSettings() {
@@ -378,17 +317,6 @@ class SettingsManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(modelPreferences) {
             userDefaults.set(encoded, forKey: "modelPreferences")
             _ = try? keychain.store(data: encoded, for: kcModelPrefsKey)
-        }
-
-        // Save MLX settings
-        if let encoded = try? JSONEncoder().encode(mlxSettings) {
-            userDefaults.set(encoded, forKey: "mlxSettings")
-            _ = try? keychain.store(data: encoded, for: kcMLXSettingsKey)
-        }
-
-        // Save MLX generation config
-        if let encoded = try? JSONEncoder().encode(mlxGenerationConfig) {
-            userDefaults.set(encoded, forKey: "mlxGenerationConfig")
         }
 
         // Sync with UserDefaults
@@ -450,25 +378,7 @@ class SettingsManager: ObservableObject {
             return getBedrockClient()
         case .openAICompatible:
             return getOpenAICompatibleClient()
-        case .mlx:
-            return getMLXClient()
         }
-    }
-
-    func getMLXClient() -> MLXClient {
-        if mlxClient == nil {
-            mlxClient = MLXClient.shared
-
-            // Set generation config
-            mlxClient?.setGenerationConfig(mlxGenerationConfig)
-
-            // Set the current model if one is selected (lazy loading - model loads when first message is sent)
-            if let modelId = modelPreferences.mlxModelId {
-                mlxClient?.currentModelId = modelId
-                logger.info("🔧 MLX model ID set to: \(modelId) (will load on first use)")
-            }
-        }
-        return mlxClient!
     }
 
     func getOpenAICompatibleClient() -> OpenAICompatibleClient {
@@ -527,17 +437,12 @@ class SettingsManager: ObservableObject {
         ollamaClient = nil
         doclingClient = nil
         openAICompatibleClient = nil
-        mlxClient = nil
     }
 
     func invalidateOpenAICompatibleClient() {
         openAICompatibleClient = nil
     }
 
-    func invalidateMLXClient() {
-        mlxClient = nil
-    }
-    
     // MARK: - Validation
 
     func hasValidAWSCredentials() -> Bool {
@@ -547,12 +452,6 @@ class SettingsManager: ObservableObject {
 
     func hasValidOpenAICompatibleConfig() -> Bool {
         return !openAICompatibleBaseURL.isEmpty && URL(string: openAICompatibleBaseURL) != nil
-    }
-
-    func hasValidMLXConfig() -> Bool {
-        // MLX is valid if a model is selected
-        // Actual model availability is checked when loading the model
-        return modelPreferences.mlxModelId != nil
     }
 
     func validateServerConfiguration(_ config: ServerConfiguration) -> String? {
@@ -877,13 +776,10 @@ extension ModelPreferences: Codable {
         case documentModel
         case openAICompatibleModel
         case bedrockModel
-        case mlxModelId
         case extractionProvider
         case extractionOllamaModel
         case extractionOpenAIModel
         case extractionBedrockModel
-        case extractionModelId
-        case useLocalDocling
         case contextSizeLimit
         case lastUpdated
     }
@@ -898,16 +794,13 @@ extension ModelPreferences: Codable {
         self.documentModel = try container.decode(String.self, forKey: .documentModel)
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
-        self.mlxModelId = try container.decodeIfPresent(String.self, forKey: .mlxModelId)
         
         // Extraction Settings
         self.extractionProvider = try container.decodeIfPresent(AIProvider.self, forKey: .extractionProvider) ?? .ollama
         self.extractionOllamaModel = try container.decodeIfPresent(String.self, forKey: .extractionOllamaModel) ?? "llama3.2"
         self.extractionOpenAIModel = try container.decodeIfPresent(String.self, forKey: .extractionOpenAIModel) ?? ""
         self.extractionBedrockModel = try container.decodeIfPresent(String.self, forKey: .extractionBedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
-        self.extractionModelId = try container.decodeIfPresent(String.self, forKey: .extractionModelId)
-        
-        self.useLocalDocling = try container.decodeIfPresent(Bool.self, forKey: .useLocalDocling) ?? false
+
         self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 8192
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
@@ -921,20 +814,28 @@ extension ModelPreferences: Codable {
         try container.encode(documentModel, forKey: .documentModel)
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
-        try container.encode(mlxModelId, forKey: .mlxModelId)
         
         // Extraction Settings
         try container.encode(extractionProvider, forKey: .extractionProvider)
         try container.encode(extractionOllamaModel, forKey: .extractionOllamaModel)
         try container.encode(extractionOpenAIModel, forKey: .extractionOpenAIModel)
         try container.encode(extractionBedrockModel, forKey: .extractionBedrockModel)
-        try container.encode(extractionModelId, forKey: .extractionModelId)
-        
-        try container.encode(useLocalDocling, forKey: .useLocalDocling)
+
         try container.encode(contextSizeLimit, forKey: .contextSizeLimit)
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }
 }
-extension AIProvider: Codable {}
+extension AIProvider: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = AIProvider(rawValue: rawValue) ?? .ollama
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
 extension Theme: Codable {}
 extension BackupFrequency: Codable {}

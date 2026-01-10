@@ -32,14 +32,12 @@ BisonHealth-AI/
 - **AIChatManager.swift**: Central chat management
 - **AIProviderInterface.swift**: Protocol for AI providers
 - **OllamaClient.swift**: Local Ollama integration
-- **MLXClient.swift**: MLX local model integration
 - **BedrockClient.swift**: AWS Bedrock integration
 - **OpenAICompatibleClient.swift**: OpenAI-compatible API integration
 
 #### 2. Data Management
 - **DatabaseManager.swift**: Core database operations
 - **HealthDataManager.swift**: Health data processing
-- **MLXModelManager.swift**: MLX model lifecycle management
 
 #### 3. Core Managers
 - **SettingsManager.swift**: Application settings and preferences
@@ -49,7 +47,6 @@ BisonHealth-AI/
 
 #### 4. Models
 - **ChatModels.swift**: Chat conversation models
-- **MLXModels.swift**: MLX model configurations
 - **HealthDataProtocol.swift**: Health data structures
 
 #### 5. Services
@@ -107,7 +104,6 @@ BisonHealth-AI/
 ### Specific Component Guidelines
 
 #### AI Integration
-- **MLX**: Requires model loading and memory management
 - **Ollama**: Network-based local AI
 - **Bedrock**: AWS cloud AI with authentication
 - **OpenAI**: Compatible API endpoints
@@ -116,12 +112,6 @@ BisonHealth-AI/
 - **Thread Safety**: All database operations must be thread-safe
 - **Error Handling**: Proper error handling for database failures
 - **Migration**: Consider data migration for schema changes
-
-#### MLX-Specific Rules
-- **Model Lifecycle**: Load/unload models properly to avoid memory issues
-- **Conversation State**: ChatSession maintains conversation history
-- **Instruction Formatting**: MedGemma requires special first-message formatting
-- **Error Recovery**: Handle model loading failures gracefully
 
 ### Debugging Best Practices
 
@@ -206,9 +196,8 @@ Task {
 2. **Descriptive Messages**: Use conventional commit format
 3. **Commit Message Format**: `type(scope): description`
 4. **Examples**:
-   - `feat(mlx): add auto-load functionality`
    - `fix(chat): correct turn detection logic`
-   - `docs: update MLX integration guide`
+   - `docs: update AI integration guide`
    - `refactor(manager): improve error handling`
 
 ### Security Considerations
@@ -220,12 +209,6 @@ Task {
 5. **Error Messages**: Don't expose sensitive information in errors
 
 ## Common Issues and Solutions
-
-### MLX Issues
-- **Model Not Loaded**: Check `currentModelId` and `chatSession` state
-- **Memory Issues**: Review GPU cache settings and model unloading
-- **Instruction Formatting**: Verify `isFirstTurn` logic
-- **Tensor Errors**: Check for duplicate context or formatting issues
 
 ### Database Issues
 - **Migration Problems**: Check schema versions and migration paths
