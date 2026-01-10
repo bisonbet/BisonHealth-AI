@@ -6,9 +6,7 @@ struct SettingsView: View {
         case ollamaSettings
         case awsBedrockSettings
         case openAICompatibleSettings
-        case mlxSettings
         case doclingRemoteSettings
-        case doclingLocalSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
@@ -170,16 +168,8 @@ struct SettingsView: View {
                 .onAppear {
                     print("🟢 Navigated to OpenAI Compatible Settings")
                 }
-        case .mlxSettings:
-            let _ = print("📍 Creating MLXSettingsView")
-            MLXSettingsView(settingsManager: settingsManager)
-                .onAppear {
-                    print("🟣 Navigated to MLX Settings")
-                }
         case .doclingRemoteSettings:
             DoclingRemoteSettingsView(settingsManager: settingsManager)
-        case .doclingLocalSettings:
-            DoclingLocalSettingsView(settingsManager: settingsManager)
         }
     }
     
@@ -257,30 +247,6 @@ struct SettingsView: View {
         .cornerRadius(10)
     }
 
-    private var mlxCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("MLX (On-Device)", systemImage: "cpu")
-                    .font(.headline)
-
-                Spacer()
-
-                Button("Configure") {
-                    print("🟣 MLX Configure button tapped")
-                    navigationPath.append(SettingsRoute.mlxSettings)
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Text("On-device AI using Apple's MLX framework - completely private, no network required")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(16)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-    }
-
     // MARK: - AI Provider Section
 
     private var aiProviderSection: some View {
@@ -292,13 +258,6 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: settingsManager.modelPreferences.aiProvider) { oldValue, newValue in
-                    // Unload MLX model when switching away from MLX
-                    if oldValue == .mlx && newValue != .mlx {
-                        let client = settingsManager.getMLXClient()
-                        client.unloadModel()
-                    }
-                }
 
                 Text("Choose your AI service provider")
                     .font(.caption2)
@@ -312,8 +271,6 @@ struct SettingsView: View {
                     awsBedrockCard
                 case .openAICompatible:
                     openAICompatibleCard
-                case .mlx:
-                    mlxCard
                 }
             }
             .padding(.vertical, 8)
@@ -325,36 +282,15 @@ struct SettingsView: View {
     private var documentProcessingSection: some View {
         Section("Document Processing") {
             VStack(alignment: .leading, spacing: 12) {
-                // Provider Selection
-                Picker("Provider", selection: $settingsManager.modelPreferences.useLocalDocling) {
-                    Text("Remote Server").tag(false)
-                    
-                    // Only show Local if capable
-                    if DeviceMemory.hasSufficientMemory(minimumGB: 4.0) {
-                        Text("Local On-Device (MLX)").tag(true)
-                    }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: settingsManager.modelPreferences.useLocalDocling) { oldValue, newValue in
-                     if newValue && !DeviceMemory.hasSufficientMemory(minimumGB: 4.0) {
-                         settingsManager.modelPreferences.useLocalDocling = false
-                         settingsManager.saveSettings()
-                     }
-                }
-                
                 HStack {
-                    Text(settingsManager.modelPreferences.useLocalDocling ? "Local MLX Model" : "Remote Server")
+                    Text("Remote Server")
                         .foregroundColor(.secondary)
                         .font(.caption)
                     
                     Spacer()
                     
                     Button("Configure") {
-                        if settingsManager.modelPreferences.useLocalDocling {
-                            navigationPath.append(SettingsRoute.doclingLocalSettings)
-                        } else {
-                            navigationPath.append(SettingsRoute.doclingRemoteSettings)
-                        }
+                        navigationPath.append(SettingsRoute.doclingRemoteSettings)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -387,8 +323,6 @@ struct SettingsView: View {
                     extractionBedrockModelPicker
                 case .openAICompatible:
                     extractionOpenAIModelPicker
-                case .mlx:
-                    extractionMLXModelPicker
                 }
             }
             .padding(.vertical, 8)
@@ -474,47 +408,6 @@ struct SettingsView: View {
             Text("Enter the model name from your OpenAI-compatible server. Recommended: Fast, cheap models.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-        }
-    }
-
-    private var extractionMLXModelPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("MLX Model")
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-
-            let extractionModels = MLXModelRegistry.availableModels.filter { $0.modelType == .textOnly }
-
-            if extractionModels.isEmpty {
-                Text("No MLX models available. Download models in MLX Settings.")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-
-                Button("Go to MLX Settings") {
-                    navigationPath.append(SettingsRoute.mlxSettings)
-                }
-                .buttonStyle(.bordered)
-            } else {
-                Picker("Model", selection: Binding(
-                    get: { settingsManager.modelPreferences.extractionModelId ?? "" },
-                    set: { settingsManager.modelPreferences.extractionModelId = $0.isEmpty ? nil : $0 }
-                )) {
-                    Text("None (use chat model)").tag("")
-                    ForEach(extractionModels) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                if let modelId = settingsManager.modelPreferences.extractionModelId,
-                   let model = MLXModelRegistry.model(withId: modelId) {
-                    Text("Selected: \(model.name) - \(model.description)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
         }
     }
 

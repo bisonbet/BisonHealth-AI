@@ -17,7 +17,7 @@ Doctor personas are used in the chat interface to provide specialized medical ad
 - `best_doctor.txt` - Comprehensive medical AI assistant
 - `daveshap_chronic_health_ai.txt` - Chronic condition management
 
-**Tight vs. Regular**: "Tight" versions are optimized for mobile MLX models with shorter prompts and faster generation.
+**Tight vs. Regular**: "Tight" versions are optimized for mobile use with shorter prompts and faster generation.
 
 ## Task-Specific Prompts
 
@@ -40,7 +40,7 @@ Used by `BloodTestMappingService.swift` to extract lab values from medical docum
 
 - Doctor personas are loaded via `Doctor.swift` model
 - Blood test extraction prompt is in `BloodTestMappingService.extractLabValuesFromChunk()`
-- Tight prompts are recommended for on-device MLX inference
+- Tight prompts are recommended for on-device inference
 - Regular prompts can be used with cloud providers (Bedrock, OpenAI)
 
 ## Version Control

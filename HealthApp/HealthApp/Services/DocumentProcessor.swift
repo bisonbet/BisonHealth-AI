@@ -465,14 +465,6 @@ class DocumentProcessor: ObservableObject {
             throw DocumentProcessingError.fileReadError
         }
 
-        // Check preference for Local MLX Docling
-        let useLocalDocling = settingsManager.modelPreferences.useLocalDocling
-        
-        if useLocalDocling {
-            print("🔧 DocumentProcessor: Using LOCAL MLX Docling...")
-            return try await MLXDoclingClient.shared.processDocument(documentData, type: document.fileType)
-        }
-
         // Configure processing options based on document type
         // IMPORTANT: Always set extractImages to false - we only want OCR text, not image data
         // Images in documents should be OCR'd for text extraction, but image data itself should be excluded
@@ -1094,27 +1086,6 @@ class DocumentProcessor: ObservableObject {
                 print("⚠️ DocumentProcessor: Invalid Bedrock extraction model, using config default")
             }
             aiClient = bedrockClient
-
-        case .mlx:
-            let mlxClient = settingsManager.getMLXClient()
-            if let extractionModelId = settingsManager.modelPreferences.extractionModelId {
-                // Only switch if different to avoid reloading
-                if mlxClient.currentModelId != extractionModelId {
-                    print("🔄 DocumentProcessor: Switching MLX model to extraction model: \(extractionModelId)")
-
-                    // Unload current model to ensure clean switch
-                    mlxClient.unloadModel()
-
-                    // Set new model ID (will be loaded on first use in sendMessage)
-                    mlxClient.currentModelId = extractionModelId
-                    print("✅ DocumentProcessor: MLX model switched, will load on first use")
-                } else {
-                    print("📄 DocumentProcessor: Already using MLX extraction model: \(extractionModelId)")
-                }
-            } else {
-                print("⚠️ DocumentProcessor: No MLX extraction model specified, using current model")
-            }
-            aiClient = mlxClient
         }
 
         // Log file type info
