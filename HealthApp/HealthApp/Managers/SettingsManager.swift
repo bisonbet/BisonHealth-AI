@@ -495,6 +495,18 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    // MARK: - App Lifecycle
+
+    func suspendOnDeviceLLMForBackground() async {
+        guard let onDeviceLLMClient = onDeviceLLMClient else { return }
+        await onDeviceLLMClient.suspendForBackground()
+    }
+
+    func resumeOnDeviceLLMAfterForeground() async {
+        guard let onDeviceLLMClient = onDeviceLLMClient else { return }
+        await onDeviceLLMClient.resumeAfterForeground()
+    }
+
     // MARK: - Validation
 
     func hasValidAWSCredentials() -> Bool {

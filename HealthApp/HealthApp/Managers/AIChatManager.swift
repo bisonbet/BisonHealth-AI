@@ -18,6 +18,7 @@ class AIChatManager: ObservableObject {
     @Published var isSendingMessage: Bool = false
     @Published var errorMessage: String? = nil
     @Published var selectedHealthDataTypes: Set<HealthDataType> = [.personalInfo]
+    @Published var selectedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases)
     @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Primary Care Physician" })
     @Published var isOffline: Bool = false
     
@@ -168,19 +169,21 @@ class AIChatManager: ObservableObject {
         let conversationTitle = title ?? "New Conversation"
         let conversation = ChatConversation(
             title: conversationTitle,
-            includedHealthDataTypes: selectedHealthDataTypes
+            includedHealthDataTypes: selectedHealthDataTypes,
+            includedPersonalInfoCategories: selectedPersonalInfoCategories
         )
-        
+
         try await databaseManager.saveConversation(conversation)
         conversations.insert(conversation, at: 0)
         currentConversation = conversation
-        
+
         return conversation
     }
     
     func selectConversation(_ conversation: ChatConversation) {
         currentConversation = conversation
         selectedHealthDataTypes = conversation.includedHealthDataTypes
+        selectedPersonalInfoCategories = conversation.includedPersonalInfoCategories
         Task {
             await updateHealthDataContext()
         }
@@ -697,15 +700,16 @@ class AIChatManager: ObservableObject {
             let ollamaClient = getOllamaClient()
 
             // Get conversation history for multi-turn support
+            // Exclude the current user message and any empty placeholder messages
             let ollamaConversationHistory: [ChatMessage]
             if let conversation = conversations.first(where: { $0.id == conversationId }) {
                 let allMessages = conversation.messages
                 if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
                     var messagesWithoutCurrent = allMessages
                     messagesWithoutCurrent.remove(at: lastUserMessageIndex)
-                    ollamaConversationHistory = messagesWithoutCurrent
+                    ollamaConversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
                 } else {
-                    ollamaConversationHistory = allMessages
+                    ollamaConversationHistory = allMessages.filter { !$0.content.isEmpty }
                 }
             } else {
                 ollamaConversationHistory = []
@@ -761,15 +765,16 @@ class AIChatManager: ObservableObject {
             let bedrockClient = settingsManager.getBedrockClient()
 
             // Get conversation history for multi-turn support
+            // Exclude the current user message and any empty placeholder messages
             let bedrockConversationHistory: [ChatMessage]
             if let conversation = conversations.first(where: { $0.id == conversationId }) {
                 let allMessages = conversation.messages
                 if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
                     var messagesWithoutCurrent = allMessages
                     messagesWithoutCurrent.remove(at: lastUserMessageIndex)
-                    bedrockConversationHistory = messagesWithoutCurrent
+                    bedrockConversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
                 } else {
-                    bedrockConversationHistory = allMessages
+                    bedrockConversationHistory = allMessages.filter { !$0.content.isEmpty }
                 }
             } else {
                 bedrockConversationHistory = []
@@ -824,15 +829,16 @@ class AIChatManager: ObservableObject {
             let openAIClient = settingsManager.getOpenAICompatibleClient()
 
             // Get conversation history for multi-turn support
+            // Exclude the current user message and any empty placeholder messages
             let openAIConversationHistory: [ChatMessage]
             if let conversation = conversations.first(where: { $0.id == conversationId }) {
                 let allMessages = conversation.messages
                 if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
                     var messagesWithoutCurrent = allMessages
                     messagesWithoutCurrent.remove(at: lastUserMessageIndex)
-                    openAIConversationHistory = messagesWithoutCurrent
+                    openAIConversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
                 } else {
-                    openAIConversationHistory = allMessages
+                    openAIConversationHistory = allMessages.filter { !$0.content.isEmpty }
                 }
             } else {
                 openAIConversationHistory = []
@@ -898,29 +904,33 @@ class AIChatManager: ObservableObject {
             let onDeviceLLMClient = settingsManager.getOnDeviceLLMClient()
 
             // Get conversation history for multi-turn support
-            // Exclude the current user message (the last one added) from history
+            // Exclude the current user message and any empty placeholder messages
             let conversationHistory: [ChatMessage]
             if let conversation = conversations.first(where: { $0.id == conversationId }) {
-                // Get all messages except the last user message (the one we just sent)
-                // This is safe because we just added the user message before calling this
+                // Get all messages except:
+                // 1. The last user message (the one we just sent)
+                // 2. Any empty messages (streaming placeholders)
                 let allMessages = conversation.messages
                 if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
                     var messagesWithoutCurrent = allMessages
                     messagesWithoutCurrent.remove(at: lastUserMessageIndex)
-                    conversationHistory = messagesWithoutCurrent
+                    // Filter out empty messages (streaming placeholders)
+                    conversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
                 } else {
-                    conversationHistory = allMessages
+                    // Filter out empty messages even if no user message found
+                    conversationHistory = allMessages.filter { !$0.content.isEmpty }
                 }
             } else {
                 conversationHistory = []
             }
 
+            // Use compact system prompt for on-device LLM (small models need concise instructions)
             try await onDeviceLLMClient.sendStreamingChatMessage(
                 content,
                 context: context,
                 conversationHistory: conversationHistory,
                 model: nil,
-                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
                     // Use debounced update for better performance with long messages
@@ -1025,19 +1035,26 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Health Data Context Management
     func selectHealthDataForContext(_ types: Set<HealthDataType>) {
+        selectHealthDataForContext(types, personalInfoCategories: selectedPersonalInfoCategories)
+    }
+
+    func selectHealthDataForContext(
+        _ types: Set<HealthDataType>,
+        personalInfoCategories: Set<PersonalInfoCategory>
+    ) {
         print("🎯 Context Selection - Selected types: \(types)")
-        print("🎯 Context Selection - Previous types: \(selectedHealthDataTypes)")
+        print("🎯 Context Selection - Selected personal info categories: \(personalInfoCategories)")
 
         selectedHealthDataTypes = types
+        selectedPersonalInfoCategories = personalInfoCategories
         Task {
             await updateHealthDataContext()
         }
 
-        print("🎯 Context Selection - After update, selectedHealthDataTypes: \(selectedHealthDataTypes)")
-
-        // Update current conversation's included data types
+        // Update current conversation's included data types and categories
         if var conversation = currentConversation {
             conversation.includedHealthDataTypes = types
+            conversation.includedPersonalInfoCategories = personalInfoCategories
             print("🎯 Context Selection - Updating conversation: \(conversation.title)")
             Task {
                 try await databaseManager.updateConversation(conversation)
@@ -1107,6 +1124,7 @@ class AIChatManager: ObservableObject {
             bloodTests: selectedHealthDataTypes.contains(.bloodTest) ? healthDataManager.bloodTests : [],
             medicalDocuments: medicalDocuments,
             selectedDataTypes: selectedHealthDataTypes,
+            selectedPersonalInfoCategories: selectedPersonalInfoCategories,
             maxTokens: contextSizeLimit
         )
     }

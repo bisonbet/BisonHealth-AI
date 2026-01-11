@@ -5,6 +5,7 @@ import Combine
 struct HealthAppApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var appSettingsManager = AppSettingsManager.shared
+    @Environment(\.scenePhase) private var scenePhase
     
     var body: some Scene {
         WindowGroup {
@@ -17,6 +18,9 @@ struct HealthAppApp: App {
                     .environmentObject(appState)
                     .preferredColorScheme(appState.colorScheme)
             }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            appState.handleScenePhaseChange(newPhase)
         }
     }
 }
@@ -87,5 +91,20 @@ class AppState: ObservableObject {
             .map { $0.theme.colorScheme }
             .removeDuplicates()
             .assign(to: &$colorScheme)
+    }
+
+    func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            Task {
+                await settingsManager.resumeOnDeviceLLMAfterForeground()
+            }
+        case .inactive, .background:
+            Task {
+                await settingsManager.suspendOnDeviceLLMForBackground()
+            }
+        @unknown default:
+            break
+        }
     }
 }

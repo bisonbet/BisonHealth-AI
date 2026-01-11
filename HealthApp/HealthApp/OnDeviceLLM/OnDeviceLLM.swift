@@ -93,7 +93,8 @@ open class OnDeviceLLM: ObservableObject {
     private var inputTokenCount: Int32 = 0
 
     /// Maximum tokens to generate in a single response (prevents runaway generation)
-    private let maxOutputTokens: Int32 = 2048
+    /// Keep responses concise for on-device models - 512 tokens ≈ 400 words
+    private let maxOutputTokens: Int32 = 512
 
     // MARK: - Initialization
 
@@ -142,6 +143,7 @@ open class OnDeviceLLM: ObservableObject {
         self.params.type_v = GGML_TYPE_Q4_1  // Quantize V cache to Q4_1
 
         print("[OnDeviceLLM] Context: n_ctx=\(self.maxTokenCount), n_batch=512, model_train_ctx=\(modelTrainCtx), threads=\(processorCount), kv_cache=Q4_1")
+        print("[OnDeviceLLM] Sampling params: topK=\(topK), topP=\(topP), minP=\(minP), temp=\(temp), repeatPenalty=\(repeatPenalty), penaltyWindow=256")
         self.topK = topK
         self.topP = topP
         self.minP = minP
@@ -173,7 +175,9 @@ open class OnDeviceLLM: ObservableObject {
             if minP > 0 {
                 llama_sampler_chain_add(sampler, llama_sampler_init_min_p(minP, 1))
             }
-            llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, repeatPenalty, 0.0, 0.0))
+            // Use larger penalty window (256 tokens) to better prevent repetition
+            // A window of 64 was too small - responses could repeat patterns from earlier content
+            llama_sampler_chain_add(sampler, llama_sampler_init_penalties(256, repeatPenalty, 0.0, 0.0))
             llama_sampler_chain_add(sampler, llama_sampler_init_temp(temp))
             llama_sampler_chain_add(sampler, llama_sampler_init_dist(seed))
         }
@@ -309,6 +313,7 @@ open class OnDeviceLLM: ObservableObject {
     @InferenceActor
     private func predictNextToken() async -> Token {
         guard let context = self.context else { return self.model.endToken }
+        guard self.isAvailable else { return self.model.endToken }
         guard !Task.isCancelled else { return self.model.endToken }
         guard self.inferenceTask != nil else { return self.model.endToken }
         guard self.batch.n_tokens > 0 else {
@@ -340,6 +345,7 @@ open class OnDeviceLLM: ObservableObject {
     @InferenceActor
     private func tokenizeAndBatchInput(message input: borrowing String) -> Bool {
         guard self.inferenceTask != nil else { return false }
+        guard self.isAvailable else { return false }
         guard !input.isEmpty else { return false }
         context = context ?? LLMContext(model, params)
         self.batch.clear()
@@ -366,6 +372,7 @@ open class OnDeviceLLM: ObservableObject {
         print("[OnDeviceLLM] Processing \(totalTokens) input tokens in batches of \(batchSize)")
 
         while tokenIndex < totalTokens {
+            guard self.isAvailable else { return false }
             self.batch.clear()
 
             let remainingTokens = totalTokens - tokenIndex
@@ -397,22 +404,35 @@ open class OnDeviceLLM: ObservableObject {
         return true
     }
 
+    /// Reset static state used by emitDecoded - call before starting new generation
+    @InferenceActor
+    private func resetEmitState() {
+        // Access the static struct to reset it
+        // This is a workaround for the static variables in emitDecoded
+        _emitDecodedState.matchIndices = []
+        _emitDecodedState.letters = []
+        _emitDecodedState.tokenCount = 0
+    }
+
+    /// Shared state for emitDecoded - using a class-level struct instead of function-level static
+    /// to allow proper reset between generation sessions
+    private struct _emitDecodedState {
+        static var matchIndices: [Int] = []
+        static var letters: [CChar] = []
+        static var tokenCount: Int = 0
+    }
+
     @InferenceActor
     private func emitDecoded(token: Token, to output: borrowing AsyncStream<String>.Continuation) -> Bool {
-        struct saved {
-            static var matchIndices: [Int] = []
-            static var letters: [CChar] = []
-            static var tokenCount: Int = 0  // Track tokens emitted for early flushing
-        }
         guard self.inferenceTask != nil else { return false }
 
         // Check for any end token (EOS, EOT, or any EOG token)
         // Uses llama_vocab_is_eog() to handle models with multiple end tokens
         guard !model.isEndToken(token) else {
-            // Reset static state when we hit an end token
-            saved.matchIndices = []
-            saved.letters = []
-            saved.tokenCount = 0  // Reset for next generation
+            // Reset state when we hit an end token
+            _emitDecodedState.matchIndices = []
+            _emitDecodedState.letters = []
+            _emitDecodedState.tokenCount = 0
             if OnDeviceLLMFeatureFlags.verboseLogging {
                 print("[OnDeviceLLM] Hit EOG token \(token), stopping generation")
             }
@@ -423,9 +443,9 @@ open class OnDeviceLLM: ObservableObject {
 
         // Some models output empty tokens at the end - treat as completion
         if word.isEmpty {
-            saved.matchIndices = []
-            saved.letters = []
-            saved.tokenCount = 0  // Reset for next generation
+            _emitDecodedState.matchIndices = []
+            _emitDecodedState.letters = []
+            _emitDecodedState.tokenCount = 0
             return false
         }
 
@@ -434,8 +454,8 @@ open class OnDeviceLLM: ObservableObject {
             return true
         }
 
-        if saved.matchIndices.count != stopSequences.count {
-            saved.matchIndices = Array(repeating: 0, count: stopSequences.count)
+        if _emitDecodedState.matchIndices.count != stopSequences.count {
+            _emitDecodedState.matchIndices = Array(repeating: 0, count: stopSequences.count)
         }
 
         // Maximum characters to buffer while checking for stop sequences (prevents excessive buffering)
@@ -444,15 +464,15 @@ open class OnDeviceLLM: ObservableObject {
         // Next 5 tokens: flush quickly (5 char buffer)
         // Later tokens: normal flushing (50 char buffer)
         let maxBufferSize: Int
-        if saved.tokenCount < 3 {
+        if _emitDecodedState.tokenCount < 3 {
             maxBufferSize = 1  // Immediate feedback for first 3 tokens
-        } else if saved.tokenCount < 8 {
+        } else if _emitDecodedState.tokenCount < 8 {
             maxBufferSize = 5  // Quick feedback for next 5 tokens
         } else {
             maxBufferSize = 50  // Normal buffering after that
         }
 
-        saved.tokenCount += 1  // Increment token count
+        _emitDecodedState.tokenCount += 1
 
         for letter in word.utf8CString {
             guard letter != 0 else { break }
@@ -461,18 +481,18 @@ open class OnDeviceLLM: ObservableObject {
             var fullMatch = false
 
             for (index, sequence) in stopSequences.enumerated() {
-                let matchIndex = saved.matchIndices[index]
+                let matchIndex = _emitDecodedState.matchIndices[index]
                 if letter == sequence[matchIndex] {
-                    saved.matchIndices[index] += 1
-                    if saved.matchIndices[index] > stopSequenceLengths[index] {
+                    _emitDecodedState.matchIndices[index] += 1
+                    if _emitDecodedState.matchIndices[index] > stopSequenceLengths[index] {
                         fullMatch = true
                         break
                     }
                     anyMatch = true
                 } else {
-                    saved.matchIndices[index] = 0
+                    _emitDecodedState.matchIndices[index] = 0
                     if letter == sequence[0] {
-                        saved.matchIndices[index] = 1
+                        _emitDecodedState.matchIndices[index] = 1
                         if 0 == stopSequenceLengths[index] {
                             fullMatch = true
                             break
@@ -483,32 +503,33 @@ open class OnDeviceLLM: ObservableObject {
             }
 
             if fullMatch {
-                saved.matchIndices = Array(repeating: 0, count: stopSequences.count)
-                saved.letters.removeAll()
-                saved.tokenCount = 0  // Reset for next generation
+                _emitDecodedState.matchIndices = Array(repeating: 0, count: stopSequences.count)
+                _emitDecodedState.letters.removeAll()
+                _emitDecodedState.tokenCount = 0
+                print("[OnDeviceLLM] Stop sequence matched, ending generation")
                 return false
             }
 
             if anyMatch {
-                saved.letters.append(letter)
+                _emitDecodedState.letters.append(letter)
 
                 // STREAMING FIX: If buffer gets too large, flush it to prevent UI lag
                 // This prevents excessive buffering when text happens to partially match stop sequences
                 // Use smaller threshold for first few tokens to ensure immediate visual feedback
-                if saved.letters.count >= maxBufferSize {
+                if _emitDecodedState.letters.count >= maxBufferSize {
                     if OnDeviceLLMFeatureFlags.verboseLogging {
-                        print("[OnDeviceLLM] Stop sequence buffer limit reached (\(saved.letters.count) chars), flushing to stream")
+                        print("[OnDeviceLLM] Stop sequence buffer limit reached (\(_emitDecodedState.letters.count) chars), flushing to stream")
                     }
-                    let bufferedContent = String(cString: saved.letters + [0])
+                    let bufferedContent = String(cString: _emitDecodedState.letters + [0])
                     output.yield(bufferedContent)
-                    saved.letters.removeAll()
-                    saved.matchIndices = Array(repeating: 0, count: stopSequences.count)
+                    _emitDecodedState.letters.removeAll()
+                    _emitDecodedState.matchIndices = Array(repeating: 0, count: stopSequences.count)
                 }
             } else {
-                if !saved.letters.isEmpty {
-                    let prefix = String(cString: saved.letters + [0])
+                if !_emitDecodedState.letters.isEmpty {
+                    let prefix = String(cString: _emitDecodedState.letters + [0])
                     output.yield(prefix)
-                    saved.letters.removeAll()
+                    _emitDecodedState.letters.removeAll()
                 }
                 output.yield(String(cString: [letter, 0]))
             }
@@ -522,6 +543,10 @@ open class OnDeviceLLM: ObservableObject {
             Task { @InferenceActor [weak self] in
                 guard let self = self else { return output.finish() }
                 guard self.inferenceTask != nil else { return output.finish() }
+                guard self.isAvailable else { return output.finish() }
+
+                // Reset emit state to ensure clean slate for this generation
+                self.resetEmitState()
 
                 defer {
                     if !OnDeviceLLMFeatureFlags.useLLMCaching {
@@ -553,16 +578,26 @@ open class OnDeviceLLM: ObservableObject {
                         break
                     }
 
+                    // Check if task was cancelled
+                    if Task.isCancelled {
+                        print("[OnDeviceLLM] Task cancelled during generation")
+                        break
+                    }
+
                     if self.nPast >= self.maxTokenCount {
                         self.trimKvCache()
                     }
                     token = await self.predictNextToken()
                 }
 
+                // Log why we exited the loop
+                print("[OnDeviceLLM] Generation loop exited after \(outputTokenCount) output tokens (metrics: \(self.metrics.inferenceTokenCount) sampled)")
+
                 metrics.stop()
                 let tokensPerSec = metrics.inferenceTokensPerSecond
                 print("[OnDeviceLLM] Generation complete: \(outputTokenCount) output tokens at \(String(format: "%.1f", tokensPerSec)) tokens/sec")
                 output.finish()
+                print("[OnDeviceLLM] AsyncStream finished")
             }
         }
     }
@@ -586,12 +621,26 @@ open class OnDeviceLLM: ObservableObject {
 
     @InferenceActor
     public func performInference(to input: String, with makeOutputFrom: @escaping (AsyncStream<String>) async -> String) async {
+        guard self.isAvailable else { return }
         self.inferenceTask?.cancel()
         self.inferenceTask = Task { [weak self] in
             guard let self = self else { return }
 
             self.input = input
             let processedInput = self.preprocess(input, self.history, self)
+
+            // Debug logging for prompt structure
+            print("[OnDeviceLLM] === PROMPT DEBUG ===")
+            print("[OnDeviceLLM] Template: \(self.template != nil ? "present" : "nil")")
+            print("[OnDeviceLLM] System prompt: \(self.template?.systemPrompt != nil ? "present (\(self.template?.systemPrompt?.count ?? 0) chars)" : "nil")")
+            print("[OnDeviceLLM] Stop sequences: \(self.template?.stopSequences ?? [])")
+            print("[OnDeviceLLM] Original input length: \(input.count) chars")
+            print("[OnDeviceLLM] Processed input length: \(processedInput.count) chars")
+            // Log first 500 chars of processed input to see template structure
+            let previewLength = min(500, processedInput.count)
+            print("[OnDeviceLLM] Processed input preview:\n\(String(processedInput.prefix(previewLength)))...")
+            print("[OnDeviceLLM] === END PROMPT DEBUG ===")
+
             let responseStream = self.generateResponseStream(from: processedInput)
 
             let output = (await makeOutputFrom(responseStream)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -614,6 +663,17 @@ open class OnDeviceLLM: ObservableObject {
         }
 
         await inferenceTask?.value
+    }
+
+    @InferenceActor
+    public func suspendForBackground() {
+        isAvailable = false
+        stop()
+    }
+
+    @InferenceActor
+    public func resumeAfterForeground() {
+        isAvailable = true
     }
 
     private func rollbackLastUserInputIfEmptyResponse(_ response: String) {

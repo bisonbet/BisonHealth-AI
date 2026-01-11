@@ -121,14 +121,15 @@ extension LLMTemplate {
 
     // MARK: - Phi-3 Format
 
-    /// Phi-3 format for Microsoft Phi models
-    /// Stop sequences include <|end|>, <|user|>, and <|endoftext|> to prevent multi-turn generation
+    /// Phi-3 format for Microsoft Phi models (including MediPhi)
+    /// Stop sequences include template tokens and horizontal rule to prevent meta-commentary
+    /// MediPhi uses <|end_of_assistant_response|> as its stop token
     public static func phi3(_ systemPrompt: String? = nil) -> LLMTemplate {
         return LLMTemplate(
             system: ("<|system|>\n", "<|end|>\n"),
             user: ("<|user|>\n", "<|end|>\n"),
             bot: ("<|assistant|>\n", "<|end|>\n"),
-            stopSequences: ["<|end|>", "<|user|>", "<|endoftext|>"],
+            stopSequences: ["<|end|>", "<|end_of_assistant_response|>", "<|user|>", "<|endoftext|>", "\n---"],
             systemPrompt: systemPrompt
         )
     }
@@ -228,7 +229,7 @@ extension LLMTemplate {
     // MARK: - Gemma 3 Format
 
     /// Gemma 3 format for Google's Gemma 3 models (including MedGemma)
-    /// Stop sequences include <end_of_turn>, <eos>, and <start_of_turn> to prevent multi-turn generation
+    /// Stop sequences include template tokens and horizontal rule to prevent meta-commentary
     public static func gemma3(_ systemPrompt: String? = nil) -> LLMTemplate {
         let systemText = systemPrompt.map { "<start_of_turn>user\n\($0)<end_of_turn>\n" } ?? ""
         return LLMTemplate(
@@ -236,7 +237,7 @@ extension LLMTemplate {
             system: ("", ""),
             user: ("<start_of_turn>user\n", "<end_of_turn>\n"),
             bot: ("<start_of_turn>model\n", "<end_of_turn>\n"),
-            stopSequences: ["<end_of_turn>", "<eos>", "<start_of_turn>"],
+            stopSequences: ["<end_of_turn>", "<eos>", "<start_of_turn>", "\n---"],
             systemPrompt: nil
         )
     }
@@ -259,28 +260,13 @@ extension LLMTemplate {
 
 extension LLMTemplate {
 
-    /// System prompt for health assistant conversations
+    /// Compact system prompt for on-device health assistant (small models need concise instructions)
     public static let healthAssistantSystemPrompt = """
-You are a knowledgeable health assistant. Your role is to help users understand their health data, answer questions about medical information, and provide general health guidance.
-
-Important guidelines:
-- Be clear, accurate, and helpful in your responses
-- When discussing medical information, remind users to consult healthcare professionals for diagnosis and treatment
-- Explain medical terms in plain language when possible
-- Be empathetic and supportive
-- Focus on education and understanding rather than diagnosis
-- Use the health data context provided to give personalized insights
+Health assistant. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
 """
 
-    /// System prompt for document analysis
+    /// Compact system prompt for on-device document analysis
     public static let documentAnalysisSystemPrompt = """
-You are a medical document analyst. Your task is to help users understand their medical documents, lab results, and health records.
-
-Guidelines:
-- Explain medical terminology in plain language
-- Highlight important findings and values
-- Note any values that may be outside normal ranges
-- Provide context for test results
-- Always recommend consulting with healthcare providers for interpretation
+Medical document analyst. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
 """
 }

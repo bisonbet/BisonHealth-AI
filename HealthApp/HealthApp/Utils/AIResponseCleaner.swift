@@ -29,20 +29,9 @@ struct AIResponseCleaner {
         "<|stop|>"
     ]
 
-    /// Unwanted phase labels or prompt artifacts that sometimes appear in responses
-    private static let unwantedPrefixes: [String] = [
-        "Empathy Phase:",
-        "Solution Phase:",
-        "Information Gathering Phase:",
-        "Response:",
-        "Assistant:",
-        "System:",
-        "Context:"
-    ]
-
     // MARK: - Public Cleaning Methods
 
-    /// Clean an AI response by removing special tokens and unwanted text
+    /// Clean an AI response by removing special tokens and fixing encoding
     /// - Parameter response: The raw AI response
     /// - Returns: Cleaned response text
     static func clean(_ response: String) -> String {
@@ -53,9 +42,6 @@ struct AIResponseCleaner {
 
         // Remove special tokens
         cleaned = removeSpecialTokens(from: cleaned)
-
-        // Remove unwanted phase labels
-        cleaned = removeUnwantedPrefixes(from: cleaned)
 
         // Clean up excessive whitespace
         cleaned = normalizeWhitespace(in: cleaned)
@@ -77,41 +63,6 @@ struct AIResponseCleaner {
         }
 
         return result
-    }
-
-    /// Remove unwanted prefixes that sometimes appear at the start of lines
-    private static func removeUnwantedPrefixes(from text: String) -> String {
-        var lines = text.components(separatedBy: .newlines)
-
-        // Process each line
-        lines = lines.map { line in
-            var processedLine = line
-
-            // Check if line starts with any unwanted prefix
-            for prefix in unwantedPrefixes {
-                if processedLine.hasPrefix(prefix) {
-                    // If the prefix is followed by content on the same line, keep the content
-                    let withoutPrefix = String(processedLine.dropFirst(prefix.count))
-                        .trimmingCharacters(in: .whitespaces)
-
-                    // Only keep the content if it's substantial (not just punctuation or whitespace)
-                    if !withoutPrefix.isEmpty && withoutPrefix.count > 3 {
-                        processedLine = withoutPrefix
-                    } else {
-                        // Otherwise, remove the entire line
-                        processedLine = ""
-                    }
-                    break
-                }
-            }
-
-            return processedLine
-        }
-
-        // Remove empty lines that resulted from prefix removal
-        lines = lines.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-        return lines.joined(separator: "\n")
     }
 
     /// Normalize whitespace by removing excessive blank lines and spaces
@@ -201,34 +152,19 @@ struct AIResponseCleaner {
 
     // MARK: - Specialized Cleaning
 
-    /// Clean response specifically for conversational AI (more aggressive)
-    /// Note: This method does NOT apply encoding fixes - those are applied at render time via clean()
+    /// Clean response specifically for conversational AI
+    /// Applies encoding fixes and removes special tokens for consistent output
     static func cleanConversational(_ response: String) -> String {
         var cleaned = response
+
+        // Fix encoding issues first (before other cleaning)
+        cleaned = fixEncodingIssues(in: cleaned)
 
         // Remove special tokens
         cleaned = removeSpecialTokens(from: cleaned)
 
-        // Remove unwanted phase labels
-        cleaned = removeUnwantedPrefixes(from: cleaned)
-
         // Clean up excessive whitespace
         cleaned = normalizeWhitespace(in: cleaned)
-
-        // Remove common conversational artifacts
-        let conversationalPrefixes = [
-            "Here's my response:",
-            "My response:",
-            "Response:",
-            "Answer:"
-        ]
-
-        for prefix in conversationalPrefixes {
-            if cleaned.hasPrefix(prefix) {
-                cleaned = String(cleaned.dropFirst(prefix.count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
 
         // Trim whitespace
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)

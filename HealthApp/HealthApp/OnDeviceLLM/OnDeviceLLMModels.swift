@@ -158,32 +158,32 @@ extension OnDeviceLLMModelInfo {
         purpose: .healthAssistant,
         contextWindow: 32768,
         defaultSettings: OnDeviceLLMDefaultSettings(
-            temperature: 0.1,
+            temperature: 0.3,
             topK: 40,
             topP: 0.9,
             minP: 0.0,
-            repeatPenalty: 1.0
+            repeatPenalty: 1.1
         )
     )
 
-    /// MediPhi MedCode - Microsoft's medical Phi model for clinical NLP
-    /// Optimized for medical coding, clinical documentation, and health questions
-    public static let mediPhiMedCode = OnDeviceLLMModelInfo(
-        id: "mediphi-medcode",
-        displayName: "MediPhi MedCode",
-        description: "Microsoft's medical Phi model. Optimized for clinical NLP, medical coding, and health documentation.",
-        filename: "MediPhi-MedCode.i1-Q4_K_M",
-        downloadURL: "https://huggingface.co/mradermacher/MediPhi-MedCode-i1-GGUF/resolve/main/MediPhi-MedCode.i1-Q4_K_M.gguf?download=true",
+    /// MediPhi Instruct - Medical Phi model for interactive health conversations
+    /// Fine-tuned for medical Q&A, health discussions, and patient communication
+    public static let mediPhiInstruct = OnDeviceLLMModelInfo(
+        id: "mediphi-instruct",
+        displayName: "MediPhi Instruct",
+        description: "Medical Phi model for interactive health conversations. Optimized for medical Q&A and patient communication.",
+        filename: "MediPhi-Instruct.i1-Q4_K_M",
+        downloadURL: "https://huggingface.co/mradermacher/MediPhi-Instruct-i1-GGUF/resolve/main/MediPhi-Instruct.i1-Q4_K_M.gguf?download=true",
         downloadSizeBytes: 2_390_000_000,
         templateType: .phi3,
         purpose: .healthAssistant,
-        contextWindow: 131072,
+        contextWindow: 32768,
         defaultSettings: OnDeviceLLMDefaultSettings(
-            temperature: 0.0,
+            temperature: 0.4,
             topK: 40,
             topP: 0.9,
             minP: 0.0,
-            repeatPenalty: 1.0
+            repeatPenalty: 1.1
         )
     )
 
@@ -192,7 +192,7 @@ extension OnDeviceLLMModelInfo {
     /// All models available for download
     public static let allModels: [OnDeviceLLMModelInfo] = [
         medGemma4B,
-        mediPhiMedCode
+        mediPhiInstruct
     ]
 
     /// Models optimized for health assistant tasks

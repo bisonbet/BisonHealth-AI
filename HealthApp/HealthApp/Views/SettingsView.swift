@@ -11,7 +11,8 @@ struct SettingsView: View {
     }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
-    @State private var navigationPath = NavigationPath()
+    // Use item-based navigation instead of path-based to prevent stacking issues on iPad
+    @State private var selectedRoute: SettingsRoute?
 
     @State private var showingResetAlert = false
     @State private var resetType: ResetType?
@@ -55,7 +56,7 @@ struct SettingsView: View {
     }
     
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack {
             settingsForm
                 .navigationTitle("Settings")
                 .toolbar { toolbarContent }
@@ -79,7 +80,8 @@ struct SettingsView: View {
                 .task {
                     await settingsManager.refreshModelsIfNeeded()
                 }
-                .navigationDestination(for: SettingsRoute.self) { destination in
+                // Use item-based navigation to prevent stacking issues on iPad
+                .navigationDestination(item: $selectedRoute) { destination in
                     navigationDestinationView(for: destination)
                 }
         }
@@ -192,7 +194,7 @@ struct SettingsView: View {
 
                 Button("Configure") {
                     print("🟠 Ollama Configure button tapped")
-                    navigationPath.append(SettingsRoute.ollamaSettings)
+                    selectedRoute = .ollamaSettings
                 }
                 .buttonStyle(.bordered)
             }
@@ -216,7 +218,7 @@ struct SettingsView: View {
 
                 Button("Configure") {
                     print("🔵 AWS Bedrock Configure button tapped")
-                    navigationPath.append(SettingsRoute.awsBedrockSettings)
+                    selectedRoute = .awsBedrockSettings
                 }
                 .buttonStyle(.bordered)
             }
@@ -240,7 +242,7 @@ struct SettingsView: View {
 
                 Button("Configure") {
                     print("🟢 OpenAI Compatible Configure button tapped")
-                    navigationPath.append(SettingsRoute.openAICompatibleSettings)
+                    selectedRoute = .openAICompatibleSettings
                 }
                 .buttonStyle(.bordered)
             }
@@ -264,7 +266,7 @@ struct SettingsView: View {
 
                 Button("Configure") {
                     print("🟣 On-Device LLM Configure button tapped")
-                    navigationPath.append(SettingsRoute.onDeviceLLMSettings)
+                    selectedRoute = .onDeviceLLMSettings
                 }
                 .buttonStyle(.bordered)
             }
@@ -344,7 +346,7 @@ struct SettingsView: View {
                     Spacer()
                     
                     Button("Configure") {
-                        navigationPath.append(SettingsRoute.doclingRemoteSettings)
+                        selectedRoute = .doclingRemoteSettings
                     }
                     .buttonStyle(.bordered)
                 }

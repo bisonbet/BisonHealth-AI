@@ -178,6 +178,7 @@ struct UnifiedContextSelectorView: View {
     // MARK: - Personal Information Section
     private var personalInfoSection: some View {
         Section {
+            // Main Personal Info toggle
             Toggle(isOn: $viewModel.personalInfoEnabled) {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.personalInfo.icon)
@@ -189,15 +190,88 @@ struct UnifiedContextSelectorView: View {
                         Text(HealthDataType.personalInfo.displayName)
                             .font(.headline)
 
-                        Text("Demographics, allergies, medications, medical history")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if viewModel.personalInfoEnabled {
+                            let selectedCount = viewModel.selectedPersonalInfoCategories.count
+                            let totalCount = PersonalInfoCategory.allCases.count
+                            Text("\(selectedCount) of \(totalCount) categories selected")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Demographics, vitals, medical history")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                }
+            }
+            .onChange(of: viewModel.personalInfoEnabled) { _, newValue in
+                // When enabling, ensure at least one category is selected
+                if newValue && viewModel.selectedPersonalInfoCategories.isEmpty {
+                    viewModel.selectedPersonalInfoCategories = Set(PersonalInfoCategory.allCases)
+                }
+            }
+
+            // Subcategory toggles (shown when Personal Info is enabled)
+            if viewModel.personalInfoEnabled {
+                ForEach(PersonalInfoCategory.allCases, id: \.self) { category in
+                    personalInfoCategoryRow(category)
                 }
             }
         } header: {
             Text("Health Data")
         }
+    }
+
+    // MARK: - Personal Info Category Row
+    private func personalInfoCategoryRow(_ category: PersonalInfoCategory) -> some View {
+        let isSelected = viewModel.isPersonalInfoCategorySelected(category)
+        let tokens = viewModel.calculateTokensForCategory(category)
+
+        return Button(action: {
+            viewModel.togglePersonalInfoCategory(category)
+        }) {
+            HStack(spacing: 12) {
+                // Indentation
+                Spacer()
+                    .frame(width: 20)
+
+                // Category icon
+                Image(systemName: category.icon)
+                    .font(.subheadline)
+                    .foregroundColor(isSelected ? .blue : .secondary)
+                    .frame(width: 24)
+
+                // Category info
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(category.displayName)
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+
+                    Text(category.description)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // Token estimate
+                Text("~\(tokens)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+
+                // Checkmark
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isSelected ? .blue : .secondary)
+                    .font(.body)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(category.displayName), \(category.description)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityHint("Double tap to toggle")
     }
 
     // MARK: - Blood Tests Section
@@ -501,6 +575,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     
     // Published properties
     @Published var personalInfoEnabled: Bool = false
+    @Published var selectedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases)
     @Published var bloodTestsEnabled: Bool = false
     @Published var imagingReportsEnabled: Bool = false
     @Published var healthCheckupsEnabled: Bool = false
@@ -630,37 +705,76 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     }
 
     /// Calculate personal info tokens based on actual data, not a fixed constant
+    /// Calculate total personal info tokens based on selected categories
     private func calculatePersonalInfoTokens() -> Int {
+        var tokens = 0
+        for category in selectedPersonalInfoCategories {
+            tokens += calculateTokensForCategory(category)
+        }
+        return tokens
+    }
+
+    /// Calculate tokens for a specific personal info category
+    func calculateTokensForCategory(_ category: PersonalInfoCategory) -> Int {
         guard let personalInfo = healthDataManager.personalInfo else {
-            return Constants.personalInfoBaseTokens
+            return category.estimatedBaseTokens
         }
 
-        var tokens = Constants.personalInfoBaseTokens
+        switch category {
+        case .basicInfo:
+            var tokens = Constants.personalInfoBaseTokens
+            tokens += personalInfo.medications.count * Constants.tokensPerMedication
+            tokens += personalInfo.supplements.count * Constants.tokensPerSupplement
+            tokens += personalInfo.allergies.count * 5
+            return tokens
 
-        // Medications
-        tokens += personalInfo.medications.count * Constants.tokensPerMedication
+        case .medicalHistory:
+            var tokens = 30 // Base structure
+            tokens += personalInfo.personalMedicalHistory.count * Constants.tokensPerCondition
+            // Add family history estimate (approx 10 tokens per non-empty field)
+            let familyHistory = personalInfo.familyHistory
+            if familyHistory.mother?.isEmpty == false { tokens += 10 }
+            if familyHistory.father?.isEmpty == false { tokens += 10 }
+            if familyHistory.siblings?.isEmpty == false { tokens += 10 }
+            if familyHistory.maternalGrandmother?.isEmpty == false { tokens += 10 }
+            if familyHistory.maternalGrandfather?.isEmpty == false { tokens += 10 }
+            if familyHistory.paternalGrandmother?.isEmpty == false { tokens += 10 }
+            if familyHistory.paternalGrandfather?.isEmpty == false { tokens += 10 }
+            if familyHistory.other?.isEmpty == false { tokens += 10 }
+            return tokens
 
-        // Conditions
-        tokens += personalInfo.personalMedicalHistory.count * Constants.tokensPerCondition
+        case .coreVitals:
+            var tokens = 0
+            tokens += min(personalInfo.bloodPressureReadings.count, 3) * Constants.tokensPerVitalReading
+            tokens += min(personalInfo.heartRateReadings.count, 3) * Constants.tokensPerVitalReading
+            return max(tokens, 20) // Minimum structure tokens
 
-        // Supplements
-        tokens += personalInfo.supplements.count * Constants.tokensPerSupplement
+        case .extendedVitals:
+            var tokens = 0
+            tokens += min(personalInfo.bodyTemperatureReadings.count, 3) * Constants.tokensPerVitalReading
+            tokens += min(personalInfo.oxygenSaturationReadings.count, 3) * Constants.tokensPerVitalReading
+            tokens += min(personalInfo.respiratoryRateReadings.count, 3) * Constants.tokensPerVitalReading
+            tokens += min(personalInfo.weightReadings.count, 5) * Constants.tokensPerVitalReading
+            tokens += min(personalInfo.sleepData.count, 7) * Constants.tokensPerSleepEntry
+            return max(tokens, 20) // Minimum structure tokens
+        }
+    }
 
-        // Vitals - each type stores up to 3-5 readings
-        tokens += min(personalInfo.bloodPressureReadings.count, 3) * Constants.tokensPerVitalReading
-        tokens += min(personalInfo.heartRateReadings.count, 3) * Constants.tokensPerVitalReading
-        tokens += min(personalInfo.bodyTemperatureReadings.count, 3) * Constants.tokensPerVitalReading
-        tokens += min(personalInfo.oxygenSaturationReadings.count, 3) * Constants.tokensPerVitalReading
-        tokens += min(personalInfo.respiratoryRateReadings.count, 3) * Constants.tokensPerVitalReading
-        tokens += min(personalInfo.weightReadings.count, 5) * Constants.tokensPerVitalReading
+    /// Toggle a personal info category selection
+    func togglePersonalInfoCategory(_ category: PersonalInfoCategory) {
+        if selectedPersonalInfoCategories.contains(category) {
+            selectedPersonalInfoCategories.remove(category)
+        } else {
+            selectedPersonalInfoCategories.insert(category)
+        }
+        // Invalidate cache when selection changes
+        _cachedEstimatedTokens = nil
+        _lastTokensCalculationHash = nil
+    }
 
-        // Sleep data (up to 7 nights)
-        tokens += min(personalInfo.sleepData.count, 7) * Constants.tokensPerSleepEntry
-
-        // Allergies (estimate 5 tokens per allergy)
-        tokens += personalInfo.allergies.count * 5
-
-        return tokens
+    /// Check if a personal info category is selected
+    func isPersonalInfoCategorySelected(_ category: PersonalInfoCategory) -> Bool {
+        selectedPersonalInfoCategories.contains(category)
     }
     
     private func isCategoryEnabled(for document: MedicalDocument) -> Bool {
@@ -682,6 +796,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     private func hashForTokensCalculation() -> Int {
         var hasher = Hasher()
         hasher.combine(personalInfoEnabled)
+        hasher.combine(selectedPersonalInfoCategories)
         hasher.combine(bloodTestsEnabled)
         hasher.combine(imagingReportsEnabled)
         hasher.combine(healthCheckupsEnabled)
@@ -751,6 +866,9 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             bloodTestsEnabled = selectedTypes.contains(.bloodTest)
             imagingReportsEnabled = selectedTypes.contains(.imagingReport)
             healthCheckupsEnabled = selectedTypes.contains(.healthCheckup)
+
+            // Load personal info category selections
+            selectedPersonalInfoCategories = chatManager.selectedPersonalInfoCategories
 
             // Load document selections
             selectedDocuments = Set(allDocuments.filter { $0.includeInAIContext }.map { $0.id })
@@ -870,7 +988,11 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             if imagingReportsEnabled { selectedTypes.insert(.imagingReport) }
             if healthCheckupsEnabled { selectedTypes.insert(.healthCheckup) }
 
-            chatManager.selectHealthDataForContext(selectedTypes)
+            // Save with personal info categories
+            chatManager.selectHealthDataForContext(
+                selectedTypes,
+                personalInfoCategories: selectedPersonalInfoCategories
+            )
 
             // Save document selections
             for document in allDocuments {

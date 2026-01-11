@@ -8,9 +8,10 @@ struct ChatConversation: Identifiable, Codable {
     let createdAt: Date
     var updatedAt: Date
     var includedHealthDataTypes: Set<HealthDataType>
+    var includedPersonalInfoCategories: Set<PersonalInfoCategory>
     var isArchived: Bool
     var tags: [String]
-    
+
     init(
         id: UUID = UUID(),
         title: String,
@@ -18,6 +19,7 @@ struct ChatConversation: Identifiable, Codable {
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         includedHealthDataTypes: Set<HealthDataType> = [],
+        includedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases),
         isArchived: Bool = false,
         tags: [String] = []
     ) {
@@ -27,8 +29,30 @@ struct ChatConversation: Identifiable, Codable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.includedHealthDataTypes = includedHealthDataTypes
+        self.includedPersonalInfoCategories = includedPersonalInfoCategories
         self.isArchived = isArchived
         self.tags = tags
+    }
+
+    // Custom Codable for backward compatibility with existing conversations
+    private enum CodingKeys: String, CodingKey {
+        case id, title, messages, createdAt, updatedAt
+        case includedHealthDataTypes, includedPersonalInfoCategories
+        case isArchived, tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        messages = try container.decode([ChatMessage].self, forKey: .messages)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        includedHealthDataTypes = try container.decode(Set<HealthDataType>.self, forKey: .includedHealthDataTypes)
+        // Default to all categories for backward compatibility
+        includedPersonalInfoCategories = try container.decodeIfPresent(Set<PersonalInfoCategory>.self, forKey: .includedPersonalInfoCategories) ?? Set(PersonalInfoCategory.allCases)
+        isArchived = try container.decode(Bool.self, forKey: .isArchived)
+        tags = try container.decode([String].self, forKey: .tags)
     }
 }
 
@@ -162,6 +186,7 @@ struct ChatContext: Codable {
     var bloodTests: [BloodTestResult]
     var medicalDocuments: [MedicalDocumentSummary]  // Medical documents selected for AI context
     var selectedDataTypes: Set<HealthDataType>
+    var selectedPersonalInfoCategories: Set<PersonalInfoCategory>
     var contextSummary: String?
     var maxTokens: Int
 
@@ -170,6 +195,7 @@ struct ChatContext: Codable {
         bloodTests: [BloodTestResult] = [],
         medicalDocuments: [MedicalDocumentSummary] = [],
         selectedDataTypes: Set<HealthDataType> = [],
+        selectedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases),
         contextSummary: String? = nil,
         maxTokens: Int = 4000
     ) {
@@ -177,6 +203,7 @@ struct ChatContext: Codable {
         self.bloodTests = bloodTests
         self.medicalDocuments = medicalDocuments
         self.selectedDataTypes = selectedDataTypes
+        self.selectedPersonalInfoCategories = selectedPersonalInfoCategories
         self.contextSummary = contextSummary
         self.maxTokens = maxTokens
     }

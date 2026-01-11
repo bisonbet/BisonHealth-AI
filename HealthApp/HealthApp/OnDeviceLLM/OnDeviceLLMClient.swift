@@ -53,6 +53,7 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
     // Context caching for faster follow-up questions
     private var cachedContextHash: Int?
     private var cachedSystemPromptHash: Int?
+    private var isSuspendedForBackground = false
 
     // MARK: - Initialization
 
@@ -364,11 +365,14 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         // Generate response
         logger.info("[OnDeviceLLMClient] Starting inference (prefill may take a few seconds for large contexts)...")
         await llm.respond(to: fullPrompt)
+        logger.info("[OnDeviceLLMClient] llm.respond() returned")
 
         let responseTime = Date().timeIntervalSince(startTime)
+        logger.info("[OnDeviceLLMClient] Raw output length: \(llm.output.count) chars")
 
         // Clean up the response
         let cleanedResult = cleanupResponse(llm.output)
+        logger.info("[OnDeviceLLMClient] Cleaned output length: \(cleanedResult.count) chars")
 
         // Get metrics
         let tokenCount = Int(llm.metrics.inferenceTokenCount)
@@ -383,7 +387,9 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
             tokensPerSecond: tokensPerSecond
         )
 
+        logger.info("[OnDeviceLLMClient] Calling onComplete callback with \(cleanedResult.count) char response")
         onComplete(response)
+        logger.info("[OnDeviceLLMClient] onComplete callback finished")
     }
 
     // MARK: - Model Management
@@ -441,6 +447,28 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         connectionStatus = .disconnected
         isConnected = false
         logger.info("[OnDeviceLLMClient] Model unloaded")
+    }
+
+    // MARK: - App Lifecycle
+
+    func suspendForBackground() async {
+        guard !isSuspendedForBackground else { return }
+        isSuspendedForBackground = true
+        logger.info("[OnDeviceLLMClient] Suspending on-device LLM for background")
+
+        if let llm = llm {
+            await llm.suspendForBackground()
+        }
+    }
+
+    func resumeAfterForeground() async {
+        guard isSuspendedForBackground else { return }
+        isSuspendedForBackground = false
+        logger.info("[OnDeviceLLMClient] Resuming on-device LLM after foreground")
+
+        if let llm = llm {
+            await llm.resumeAfterForeground()
+        }
     }
 
     /// Check if a model is loaded
@@ -546,8 +574,8 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         let tokensToRemove = [
             // ChatML / Qwen
             "<|im_end|>", "<|im_start|>",
-            // Phi-3
-            "<|end|>", "<|assistant|>", "<|user|>", "<|system|>", "<|endoftext|>",
+            // Phi-3 / MediPhi
+            "<|end|>", "<|end_of_assistant_response|>", "<|assistant|>", "<|user|>", "<|system|>", "<|endoftext|>",
             // Gemma3
             "<end_of_turn>", "<start_of_turn>", "<eos>",
             // Partial tokens that might leak

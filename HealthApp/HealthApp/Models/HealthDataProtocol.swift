@@ -15,7 +15,7 @@ enum HealthDataType: String, CaseIterable, Codable {
     case bloodTest = "blood_test"
     case imagingReport = "imaging_report"
     case healthCheckup = "health_checkup"
-    
+
     var displayName: String {
         switch self {
         case .personalInfo:
@@ -28,7 +28,7 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "Medical Visits"
         }
     }
-    
+
     var icon: String {
         switch self {
         case .personalInfo:
@@ -41,7 +41,7 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "doc.text"
         }
     }
-    
+
     var shortName: String {
         switch self {
         case .personalInfo:
@@ -54,7 +54,7 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "Visits"
         }
     }
-    
+
     /// Maps HealthDataType to corresponding DocumentCategory values for filtering medical documents
     var relatedDocumentCategories: [DocumentCategory] {
         switch self {
@@ -67,6 +67,68 @@ enum HealthDataType: String, CaseIterable, Codable {
         case .personalInfo:
             // Personal info doesn't map to document categories
             return []
+        }
+    }
+}
+
+// MARK: - Personal Info Subcategories
+/// Subcategories for granular personal information context selection
+enum PersonalInfoCategory: String, CaseIterable, Codable {
+    case basicInfo = "basic_info"
+    case medicalHistory = "medical_history"
+    case coreVitals = "core_vitals"
+    case extendedVitals = "extended_vitals"
+
+    var displayName: String {
+        switch self {
+        case .basicInfo:
+            return "Basic Info"
+        case .medicalHistory:
+            return "Medical History"
+        case .coreVitals:
+            return "Core Vitals"
+        case .extendedVitals:
+            return "Extended Vitals"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .basicInfo:
+            return "person.text.rectangle"
+        case .medicalHistory:
+            return "heart.text.square"
+        case .coreVitals:
+            return "waveform.path.ecg"
+        case .extendedVitals:
+            return "bed.double"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .basicInfo:
+            return "Demographics, allergies, medications, supplements"
+        case .medicalHistory:
+            return "Personal conditions, family history"
+        case .coreVitals:
+            return "Blood pressure, heart rate"
+        case .extendedVitals:
+            return "Sleep, temperature, oxygen, weight"
+        }
+    }
+
+    /// Estimated base tokens for this category (actual varies with data)
+    var estimatedBaseTokens: Int {
+        switch self {
+        case .basicInfo:
+            return 50  // Base demographics
+        case .medicalHistory:
+            return 30  // Base structure
+        case .coreVitals:
+            return 80  // BP + HR readings
+        case .extendedVitals:
+            return 100 // Multiple vital types + sleep
         }
     }
 }

@@ -26,10 +26,13 @@ struct HealthContextJSON {
         let selectedTypes = context.selectedDataTypes.map { $0.jsonKey }
         json["selected_types"] = selectedTypes
 
-        // Personal Information
+        // Personal Information (with category filtering)
         if let personalInfo = context.personalInfo,
            context.selectedDataTypes.contains(.personalInfo) {
-            json["personal_info"] = encodePersonalInfo(personalInfo)
+            json["personal_info"] = encodePersonalInfo(
+                personalInfo,
+                categories: context.selectedPersonalInfoCategories
+            )
         }
 
         // Blood Tests (only those marked for inclusion)
@@ -64,64 +67,125 @@ struct HealthContextJSON {
 
     // MARK: - Personal Information Encoder
 
-    private static func encodePersonalInfo(_ info: PersonalHealthInfo) -> [String: Any] {
+    private static func encodePersonalInfo(
+        _ info: PersonalHealthInfo,
+        categories: Set<PersonalInfoCategory>
+    ) -> [String: Any] {
         var json: [String: Any] = [:]
 
-        // Basic demographics
-        if let name = info.name { json["name"] = name }
+        // MARK: Basic Info Category
+        // Includes: name, DOB, age, gender, blood type, height, weight, allergies, medications, supplements
+        if categories.contains(.basicInfo) {
+            if let name = info.name { json["name"] = name }
 
-        if let dob = info.dateOfBirth {
-            json["dob"] = ISO8601DateFormatter().string(from: dob)
+            if let dob = info.dateOfBirth {
+                json["dob"] = ISO8601DateFormatter().string(from: dob)
 
-            // Calculate age
-            let calendar = Calendar.current
-            let ageComponents = calendar.dateComponents([.year], from: dob, to: Date())
-            if let age = ageComponents.year {
-                json["age"] = age
+                // Calculate age
+                let calendar = Calendar.current
+                let ageComponents = calendar.dateComponents([.year], from: dob, to: Date())
+                if let age = ageComponents.year {
+                    json["age"] = age
+                }
+            }
+
+            if let gender = info.gender { json["gender"] = gender.jsonValue }
+            if let bloodType = info.bloodType { json["blood_type"] = bloodType.jsonValue }
+
+            // Height and Weight (current values, not history)
+            if let height = info.height {
+                json["height"] = height.jsonValue
+            }
+            if let weight = info.weight {
+                json["weight"] = weight.jsonValue
+            }
+
+            // Allergies
+            if !info.allergies.isEmpty {
+                json["allergies"] = info.allergies
+            }
+
+            // Medications
+            if !info.medications.isEmpty {
+                json["medications"] = info.medications.map { encodeMedication($0) }
+            }
+
+            // Supplements
+            if !info.supplements.isEmpty {
+                json["supplements"] = info.supplements.map { encodeSupplement($0) }
             }
         }
 
-        if let gender = info.gender { json["gender"] = gender.jsonValue }
-        if let bloodType = info.bloodType { json["blood_type"] = bloodType.jsonValue }
+        // MARK: Medical History Category
+        // Includes: personal medical conditions, family history
+        if categories.contains(.medicalHistory) {
+            // Personal Medical Conditions
+            if !info.personalMedicalHistory.isEmpty {
+                json["conditions"] = info.personalMedicalHistory.map { encodeCondition($0) }
+            }
 
-        // Height and Weight
-        if let height = info.height {
-            json["height"] = height.jsonValue
-        }
-        if let weight = info.weight {
-            json["weight"] = weight.jsonValue
-        }
-
-        // Allergies
-        if !info.allergies.isEmpty {
-            json["allergies"] = info.allergies
-        }
-
-        // Medications
-        if !info.medications.isEmpty {
-            json["medications"] = info.medications.map { encodeMedication($0) }
+            // Family History
+            let familyHistory = encodeFamilyHistory(info.familyHistory)
+            if !familyHistory.isEmpty {
+                json["family_history"] = familyHistory
+            }
         }
 
-        // Supplements
-        if !info.supplements.isEmpty {
-            json["supplements"] = info.supplements.map { encodeSupplement($0) }
+        // MARK: Core Vitals Category
+        // Includes: blood pressure, heart rate
+        if categories.contains(.coreVitals) {
+            let coreVitals = encodeCoreVitals(info)
+            if !coreVitals.isEmpty {
+                json["vitals"] = coreVitals
+            }
         }
 
-        // Medical Conditions
-        if !info.personalMedicalHistory.isEmpty {
-            json["conditions"] = info.personalMedicalHistory.map { encodeCondition($0) }
+        // MARK: Extended Vitals Category
+        // Includes: body temp, oxygen saturation, respiratory rate, weight history, sleep
+        if categories.contains(.extendedVitals) {
+            let extendedVitals = encodeExtendedVitals(info)
+            if !extendedVitals.isEmpty {
+                // Merge with existing vitals if core vitals also selected
+                if var existingVitals = json["vitals"] as? [String: Any] {
+                    for (key, value) in extendedVitals {
+                        existingVitals[key] = value
+                    }
+                    json["vitals"] = existingVitals
+                } else {
+                    json["vitals"] = extendedVitals
+                }
+            }
+
+            // Sleep Data
+            if !info.sleepData.isEmpty {
+                json["sleep"] = encodeSleep(info.sleepData)
+            }
         }
 
-        // Vitals
-        let vitals = encodeVitals(info)
-        if !vitals.isEmpty {
-            json["vitals"] = vitals
-        }
+        return json
+    }
 
-        // Sleep Data
-        if !info.sleepData.isEmpty {
-            json["sleep"] = encodeSleep(info.sleepData)
+    // MARK: - Family History Encoder
+
+    private static func encodeFamilyHistory(_ history: FamilyMedicalHistory) -> [String: Any] {
+        var json: [String: Any] = [:]
+
+        if let mother = history.mother, !mother.isEmpty { json["mother"] = mother }
+        if let father = history.father, !father.isEmpty { json["father"] = father }
+        if let maternalGrandmother = history.maternalGrandmother, !maternalGrandmother.isEmpty {
+            json["maternal_grandmother"] = maternalGrandmother
         }
+        if let maternalGrandfather = history.maternalGrandfather, !maternalGrandfather.isEmpty {
+            json["maternal_grandfather"] = maternalGrandfather
+        }
+        if let paternalGrandmother = history.paternalGrandmother, !paternalGrandmother.isEmpty {
+            json["paternal_grandmother"] = paternalGrandmother
+        }
+        if let paternalGrandfather = history.paternalGrandfather, !paternalGrandfather.isEmpty {
+            json["paternal_grandfather"] = paternalGrandfather
+        }
+        if let siblings = history.siblings, !siblings.isEmpty { json["siblings"] = siblings }
+        if let other = history.other, !other.isEmpty { json["other"] = other }
 
         return json
     }
@@ -218,9 +282,9 @@ struct HealthContextJSON {
         return json
     }
 
-    // MARK: - Vitals Encoder
+    // MARK: - Core Vitals Encoder (Blood Pressure, Heart Rate)
 
-    private static func encodeVitals(_ info: PersonalHealthInfo) -> [String: Any] {
+    private static func encodeCoreVitals(_ info: PersonalHealthInfo) -> [String: Any] {
         var json: [String: Any] = [:]
 
         // Blood Pressure (last 3 readings)
@@ -272,6 +336,14 @@ struct HealthContextJSON {
 
             json["heart_rate"] = hrJson
         }
+
+        return json
+    }
+
+    // MARK: - Extended Vitals Encoder (Temp, O2, Resp Rate, Weight History)
+
+    private static func encodeExtendedVitals(_ info: PersonalHealthInfo) -> [String: Any] {
+        var json: [String: Any] = [:]
 
         // Body Temperature (last 3 readings)
         if !info.bodyTemperatureReadings.isEmpty {
@@ -329,7 +401,7 @@ struct HealthContextJSON {
             json["respiratory_rate"] = rrJson
         }
 
-        // Weight (last 5 readings)
+        // Weight History (last 5 readings)
         if !info.weightReadings.isEmpty {
             let readings = Array(info.weightReadings
                 .sorted { $0.timestamp > $1.timestamp }

@@ -7,11 +7,23 @@ struct Doctor: Identifiable, Codable, Equatable, Hashable {
     let description: String
     let systemPrompt: String
 
-    init(id: UUID = UUID(), name: String, description: String, systemPrompt: String) {
+    /// Compact system prompt for on-device LLMs (small models need concise instructions)
+    let compactSystemPrompt: String
+
+    init(id: UUID = UUID(), name: String, description: String, systemPrompt: String, compactSystemPrompt: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.systemPrompt = systemPrompt
+        // Use provided compact prompt or generate a minimal default
+        self.compactSystemPrompt = compactSystemPrompt ?? Doctor.defaultCompactPrompt(for: name)
+    }
+
+    /// Generate a minimal default compact prompt based on role name
+    private static func defaultCompactPrompt(for role: String) -> String {
+        """
+        You are a \(role). Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
+        """
     }
 }
 
@@ -52,6 +64,9 @@ extension Doctor {
             • For medical consultations: Use structured format below
               1. Initial Assessment: Acknowledge concern, ask 1-2 focused clinical questions if needed (max 300 chars)
               2. Clinical Analysis: Review relevant data → Logical explanation → Pragmatic recommendations (max 3000 chars)
+            """,
+            compactSystemPrompt: """
+            Primary Care Physician. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -87,6 +102,9 @@ extension Doctor {
             For imaging report questions: Cite specific findings from report sections → Explain clinical significance → Recommend next steps (3-6 sentences)
             For medical consultations: Assess symptoms → Differential diagnosis → Mechanism explanation → Treatment options (conservative and surgical) → Prognosis
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Orthopedic Surgeon. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -119,6 +137,9 @@ extension Doctor {
             Nutritional Approach:
             For dietary consultations: Assess current diet and health data → Evidence-based dietary recommendations → Specific meal/macro guidance → Nutrient timing if relevant → Supplement considerations if applicable
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Clinical Nutritionist. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -151,6 +172,9 @@ extension Doctor {
             Exercise Prescription:
             For exercise consultations: Name → Setup/alignment → Execution (tempo, ROM, breathing) → Sets × Reps × Intensity → Rest intervals → Common mistakes → Progression/regression
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Exercise Physiologist. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -183,6 +207,9 @@ extension Doctor {
             Clinical Approach:
             For medical consultations: Integrate all data (labs, history, meds, comorbidities) → Differential diagnosis with reasoning → Explain pathophysiology → Recommend diagnostics → Evidence-based treatment → Risk assessment
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Internist. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -215,6 +242,9 @@ extension Doctor {
             Clinical Approach:
             For dental consultations: Assess symptoms and oral health data → Differential diagnosis → Explain dental mechanisms → Treatment options (preventive, restorative, surgical) → Prognosis and maintenance
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Dentist. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -247,6 +277,9 @@ extension Doctor {
             Clinical Approach:
             For orthodontic consultations: Assess alignment and bite issues → Classification (Angle's, skeletal patterns) → Treatment options (braces, aligners, appliances, surgical) → Timeline expectations → Retention strategy
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Orthodontist. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         ),
         Doctor(
@@ -279,6 +312,9 @@ extension Doctor {
             Treatment Philosophy:
             For rehabilitation consultations: Minimal effective dose for recovery in 10-15 min/day → Address rate-limiting factor first → 2-3 high-impact interventions → Progression: ONE variable every 4-7 days
             For simple questions: Answer directly and concisely
+            """,
+            compactSystemPrompt: """
+            Physical Therapist. Some context may be JSON; respond in natural language (NOT JSON). If data missing, say so. Be concise. No disclaimers.
             """
         )
     ]
