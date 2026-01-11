@@ -6,6 +6,7 @@ struct SettingsView: View {
         case ollamaSettings
         case awsBedrockSettings
         case openAICompatibleSettings
+        case onDeviceLLMSettings
         case doclingRemoteSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
@@ -168,6 +169,12 @@ struct SettingsView: View {
                 .onAppear {
                     print("🟢 Navigated to OpenAI Compatible Settings")
                 }
+        case .onDeviceLLMSettings:
+            let _ = print("📍 Creating OnDeviceLLMSettingsView")
+            OnDeviceLLMSettingsView()
+                .onAppear {
+                    print("🟣 Navigated to On-Device LLM Settings")
+                }
         case .doclingRemoteSettings:
             DoclingRemoteSettingsView(settingsManager: settingsManager)
         }
@@ -247,6 +254,51 @@ struct SettingsView: View {
         .cornerRadius(10)
     }
 
+    private var onDeviceLLMCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("On-Device LLM", systemImage: "iphone")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    print("🟣 On-Device LLM Configure button tapped")
+                    navigationPath.append(SettingsRoute.onDeviceLLMSettings)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Run AI models directly on your device. No internet required after downloading a model.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Show model status
+            if OnDeviceLLMModelInfo.isEnabled {
+                let selectedModel = OnDeviceLLMModelInfo.selectedModel
+                HStack {
+                    if selectedModel.isDownloaded {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Ready: \(selectedModel.displayName)")
+                            .font(.caption2)
+                            .foregroundColor(.green)
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                            .foregroundColor(.orange)
+                        Text("Model not downloaded")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
     // MARK: - AI Provider Section
 
     private var aiProviderSection: some View {
@@ -271,6 +323,8 @@ struct SettingsView: View {
                     awsBedrockCard
                 case .openAICompatible:
                     openAICompatibleCard
+                case .onDeviceLLM:
+                    onDeviceLLMCard
                 }
             }
             .padding(.vertical, 8)
@@ -323,6 +377,8 @@ struct SettingsView: View {
                     extractionBedrockModelPicker
                 case .openAICompatible:
                     extractionOpenAIModelPicker
+                case .onDeviceLLM:
+                    extractionOnDeviceLLMInfo
                 }
             }
             .padding(.vertical, 8)
@@ -330,6 +386,32 @@ struct SettingsView: View {
     }
 
     // MARK: - Extraction Model Pickers
+
+    private var extractionOnDeviceLLMInfo: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("On-Device Model")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            let selectedModel = OnDeviceLLMModelInfo.selectedModel
+            if selectedModel.isDownloaded {
+                Text("Using: \(selectedModel.displayName)")
+                    .font(.caption)
+                    .foregroundColor(.green)
+            } else {
+                Text("No model downloaded. Configure On-Device LLM in AI Provider settings.")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
+            Text("On-device extraction uses the same model as chat. Good for privacy-sensitive documents.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+
 
     private var extractionOllamaModelPicker: some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -50,12 +50,24 @@
 		146E72AE2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AD2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift */; };
 		146E72B02EC2905200D20C53 /* SectionEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AF2EC2905200D20C53 /* SectionEditorView.swift */; };
 		14968C312EF4F8D8006D42C0 /* SystemPromptExceptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */; };
+		149BFDA42F13206A00505C62 /* OnDeviceLLMExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFD9F2F13206A00505C62 /* OnDeviceLLMExtensions.swift */; };
+		149BFDA52F13206A00505C62 /* OnDeviceLLMDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFD9E2F13206A00505C62 /* OnDeviceLLMDownloadManager.swift */; };
+		149BFDA62F13206A00505C62 /* OnDeviceLLMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFD9C2F13206A00505C62 /* OnDeviceLLMClient.swift */; };
+		149BFDA72F13206A00505C62 /* OnDeviceLLMTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFDA12F13206A00505C62 /* OnDeviceLLMTemplate.swift */; };
+		149BFDA82F13206A00505C62 /* OnDeviceLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFD9B2F13206A00505C62 /* OnDeviceLLM.swift */; };
+		149BFDA92F13206A00505C62 /* OnDeviceLLMTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFDA22F13206A00505C62 /* OnDeviceLLMTypes.swift */; };
+		149BFDAA2F13206A00505C62 /* OnDeviceLLMContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFD9D2F13206A00505C62 /* OnDeviceLLMContext.swift */; };
+		149BFDAB2F13206A00505C62 /* OnDeviceLLMModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFDA02F13206A00505C62 /* OnDeviceLLMModels.swift */; };
+		149BFDAE2F1320EE00505C62 /* llama.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 149BFDAC2F13209600505C62 /* llama.xcframework */; };
+		149BFDAF2F1320EE00505C62 /* llama.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 149BFDAC2F13209600505C62 /* llama.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		149BFDB22F13210600505C62 /* OnDeviceLLMSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149BFDB12F13210600505C62 /* OnDeviceLLMSettingsView.swift */; };
 		14ADE5B02EF0B90100BB7C6C /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5AF2EF0B90100BB7C6C /* HealthKitManager.swift */; };
 		14ADE5B22EF0B93F00BB7C6C /* VitalsAndSleepSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5B12EF0B93F00BB7C6C /* VitalsAndSleepSection.swift */; };
 		14ADE5B52EF0CFE000BB7C6C /* VitalEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5B42EF0CFE000BB7C6C /* VitalEntryView.swift */; };
 		14ADE5B72EF0CFF900BB7C6C /* RecentVitalsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */; };
 		14ADE5B92EF0D35700BB7C6C /* VitalsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */; };
 		14ADE5BB2EF0DC9100BB7C6C /* AIResponseCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ADE5BA2EF0DC9100BB7C6C /* AIResponseCleaner.swift */; };
+		CONVCTXB2F127A8B00UTILS2 /* ConversationContextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CONVCTXB2F127A8B00UTILS1 /* ConversationContextBuilder.swift */; };
 		14E9689D2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E9689C2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift */; };
 		14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */; };
 		14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */; };
@@ -153,6 +165,20 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		149BFDB02F1320EE00505C62 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				149BFDAF2F1320EE00505C62 /* llama.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmptyStateView.swift; sourceTree = "<group>"; };
 		0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoSection.swift; sourceTree = "<group>"; };
@@ -193,12 +219,23 @@
 		146E72AD2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+MedicalDocuments.swift"; sourceTree = "<group>"; };
 		146E72AF2EC2905200D20C53 /* SectionEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionEditorView.swift; sourceTree = "<group>"; };
 		14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPromptExceptionList.swift; sourceTree = "<group>"; };
+		149BFD9B2F13206A00505C62 /* OnDeviceLLM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLM.swift; sourceTree = "<group>"; };
+		149BFD9C2F13206A00505C62 /* OnDeviceLLMClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMClient.swift; sourceTree = "<group>"; };
+		149BFD9D2F13206A00505C62 /* OnDeviceLLMContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMContext.swift; sourceTree = "<group>"; };
+		149BFD9E2F13206A00505C62 /* OnDeviceLLMDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMDownloadManager.swift; sourceTree = "<group>"; };
+		149BFD9F2F13206A00505C62 /* OnDeviceLLMExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMExtensions.swift; sourceTree = "<group>"; };
+		149BFDA02F13206A00505C62 /* OnDeviceLLMModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMModels.swift; sourceTree = "<group>"; };
+		149BFDA12F13206A00505C62 /* OnDeviceLLMTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMTemplate.swift; sourceTree = "<group>"; };
+		149BFDA22F13206A00505C62 /* OnDeviceLLMTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMTypes.swift; sourceTree = "<group>"; };
+		149BFDAC2F13209600505C62 /* llama.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = llama.xcframework; sourceTree = "<group>"; };
+		149BFDB12F13210600505C62 /* OnDeviceLLMSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMSettingsView.swift; sourceTree = "<group>"; };
 		14ADE5AF2EF0B90100BB7C6C /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
 		14ADE5B12EF0B93F00BB7C6C /* VitalsAndSleepSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsAndSleepSection.swift; sourceTree = "<group>"; };
 		14ADE5B42EF0CFE000BB7C6C /* VitalEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalEntryView.swift; sourceTree = "<group>"; };
 		14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentVitalsSection.swift; sourceTree = "<group>"; };
 		14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsListView.swift; sourceTree = "<group>"; };
 		14ADE5BA2EF0DC9100BB7C6C /* AIResponseCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIResponseCleaner.swift; sourceTree = "<group>"; };
+		CONVCTXB2F127A8B00UTILS1 /* ConversationContextBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationContextBuilder.swift; sourceTree = "<group>"; };
 		14E9689C2EF8DF7300F75BD3 /* DatabaseManager+Recovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+Recovery.swift"; sourceTree = "<group>"; };
 		14FFBD322E7787E600FD9B75 /* Services/BloodTestMappingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BloodTestMappingService.swift; sourceTree = "<group>"; };
 		14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/BloodTestDataManager.swift; sourceTree = "<group>"; };
@@ -297,6 +334,7 @@
 				143446A22E78E36D00961754 /* AWSClientRuntime in Frameworks */,
 				146E72AD2EC2BD8D00D20C53 /* MarkdownUI in Frameworks */,
 				143446A02E78E36D00961754 /* AWSBedrockRuntime in Frameworks */,
+				149BFDAE2F1320EE00505C62 /* llama.xcframework in Frameworks */,
 				1434469E2E78E36D00961754 /* AWSBedrock in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -322,6 +360,21 @@
 			path = HealthApp/Networking;
 			sourceTree = SOURCE_ROOT;
 		};
+		149BFDA32F13206A00505C62 /* OnDeviceLLM */ = {
+			isa = PBXGroup;
+			children = (
+				149BFD9B2F13206A00505C62 /* OnDeviceLLM.swift */,
+				149BFD9C2F13206A00505C62 /* OnDeviceLLMClient.swift */,
+				149BFD9D2F13206A00505C62 /* OnDeviceLLMContext.swift */,
+				149BFD9E2F13206A00505C62 /* OnDeviceLLMDownloadManager.swift */,
+				149BFD9F2F13206A00505C62 /* OnDeviceLLMExtensions.swift */,
+				149BFDA02F13206A00505C62 /* OnDeviceLLMModels.swift */,
+				149BFDA12F13206A00505C62 /* OnDeviceLLMTemplate.swift */,
+				149BFDA22F13206A00505C62 /* OnDeviceLLMTypes.swift */,
+			);
+			path = OnDeviceLLM;
+			sourceTree = "<group>";
+		};
 		A1000000294A0000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -343,6 +396,8 @@
 		A1000003294A0000000000002 /* HealthApp */ = {
 			isa = PBXGroup;
 			children = (
+				149BFDAC2F13209600505C62 /* llama.xcframework */,
+				149BFDA32F13206A00505C62 /* OnDeviceLLM */,
 				14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */,
 				14FFBD382E77882B00FD9B75 /* Views/DropdownComponents.swift */,
 				14FFBD342E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift */,
@@ -393,6 +448,7 @@
 		A1000012294A0000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				149BFDB12F13210600505C62 /* OnDeviceLLMSettingsView.swift */,
 				14ADE5B82EF0D35700BB7C6C /* VitalsListView.swift */,
 				14ADE5B62EF0CFF900BB7C6C /* RecentVitalsSection.swift */,
 				14ADE5B42EF0CFE000BB7C6C /* VitalEntryView.swift */,
@@ -494,6 +550,7 @@
 				1414D7782F049E5700EA287A /* JSONKeyMapping.swift */,
 				14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */,
 				14ADE5BA2EF0DC9100BB7C6C /* AIResponseCleaner.swift */,
+				CONVCTXB2F127A8B00UTILS1 /* ConversationContextBuilder.swift */,
 				142348192EA07B3300059087 /* Networking */,
 				A1000055294A0000000000001 /* FileSystemManager.swift */,
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
@@ -555,6 +612,7 @@
 				A1000000294A0000000000003 /* Sources */,
 				A1000000294A0000000000000 /* Frameworks */,
 				A1000000294A0000000000004 /* Resources */,
+				149BFDB02F1320EE00505C62 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -660,6 +718,14 @@
 				1434469B2E78BCAC00961754 /* MedicalConditionEditorView.swift in Sources */,
 				143446952E78B62F00961754 /* MedicationsListView.swift in Sources */,
 				SUP001002EA12E9900999001 /* SupplementsListView.swift in Sources */,
+				149BFDA42F13206A00505C62 /* OnDeviceLLMExtensions.swift in Sources */,
+				149BFDA52F13206A00505C62 /* OnDeviceLLMDownloadManager.swift in Sources */,
+				149BFDA62F13206A00505C62 /* OnDeviceLLMClient.swift in Sources */,
+				149BFDA72F13206A00505C62 /* OnDeviceLLMTemplate.swift in Sources */,
+				149BFDA82F13206A00505C62 /* OnDeviceLLM.swift in Sources */,
+				149BFDA92F13206A00505C62 /* OnDeviceLLMTypes.swift in Sources */,
+				149BFDAA2F13206A00505C62 /* OnDeviceLLMContext.swift in Sources */,
+				149BFDAB2F13206A00505C62 /* OnDeviceLLMModels.swift in Sources */,
 				SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */,
 				SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */,
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
@@ -673,6 +739,7 @@
 				A1000055YAHI7QXGF2TWBDSYSE /* DuplicateBloodTestCandidate.swift in Sources */,
 				A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */,
 				14ADE5BB2EF0DC9100BB7C6C /* AIResponseCleaner.swift in Sources */,
+				CONVCTXB2F127A8B00UTILS2 /* ConversationContextBuilder.swift in Sources */,
 				A1000028294A0000000000001 /* HealthDocument.swift in Sources */,
 				1414D7792F049E5700EA287A /* JSONKeyMapping.swift in Sources */,
 				146E72A82EC2903F00D20C53 /* MedicalDocument.swift in Sources */,
@@ -761,6 +828,7 @@
 				D715EC3156258AF86CC36B19 /* SettingsView.swift in Sources */,
 				UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */,
 				ABC123456789BACKUP00001 /* iCloudBackupManager.swift in Sources */,
+				149BFDB22F13210600505C62 /* OnDeviceLLMSettingsView.swift in Sources */,
 				ABC123456789BACKUP00002 /* BackupManagementView.swift in Sources */,
 				HIPAA001B /* AppSettingsManager.swift in Sources */,
 				HIPAA002B /* FirstLaunchDisclaimerView.swift in Sources */,

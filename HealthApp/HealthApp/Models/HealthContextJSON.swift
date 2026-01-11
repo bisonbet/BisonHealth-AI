@@ -444,26 +444,43 @@ struct HealthContextJSON {
 
         json["priority"] = doc.contextPriority
 
-        // Sections (truncated to 500 chars per section)
-        json["sections"] = doc.sections.map { section -> [String: Any] in
-            var s: [String: Any] = [:]
+        // Include document content - prefer sections, fall back to extractedText
+        if !doc.sections.isEmpty {
+            // Sections (truncated to 500 chars per section)
+            json["sections"] = doc.sections.map { section -> [String: Any] in
+                var s: [String: Any] = [:]
 
-            s["type"] = section.sectionType
+                s["type"] = section.sectionType
 
-            // Truncate content to 500 chars at word boundary
-            let content = section.content
-            if content.count > 500 {
-                let truncated = String(content.prefix(500))
-                if let lastSpace = truncated.lastIndex(of: " ") {
-                    s["content"] = String(content[..<lastSpace]) + "..."
+                // Truncate content to 500 chars at word boundary
+                let content = section.content
+                if content.count > 500 {
+                    let truncated = String(content.prefix(500))
+                    if let lastSpace = truncated.lastIndex(of: " ") {
+                        s["content"] = String(content[..<lastSpace]) + "..."
+                    } else {
+                        s["content"] = truncated + "..."
+                    }
                 } else {
-                    s["content"] = truncated + "..."
+                    s["content"] = content
+                }
+
+                return s
+            }
+        } else if let extractedText = doc.extractedText, !extractedText.isEmpty {
+            // Fall back to extractedText if no sections available
+            // Truncate to ~4000 chars to avoid overwhelming the context
+            let maxLength = 4000
+            if extractedText.count > maxLength {
+                let truncated = String(extractedText.prefix(maxLength))
+                if let lastSpace = truncated.lastIndex(of: " ") {
+                    json["content"] = String(extractedText[..<lastSpace]) + "..."
+                } else {
+                    json["content"] = truncated + "..."
                 }
             } else {
-                s["content"] = content
+                json["content"] = extractedText
             }
-
-            return s
         }
 
         return json

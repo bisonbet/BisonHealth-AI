@@ -1086,6 +1086,12 @@ class DocumentProcessor: ObservableObject {
                 print("⚠️ DocumentProcessor: Invalid Bedrock extraction model, using config default")
             }
             aiClient = bedrockClient
+
+        case .onDeviceLLM:
+            let onDeviceClient = settingsManager.getOnDeviceLLMClient()
+            let selectedModel = OnDeviceLLMModelInfo.selectedModel
+            print("📄 DocumentProcessor: Using On-Device LLM extraction model: \(selectedModel.displayName)")
+            aiClient = onDeviceClient
         }
 
         // Log file type info

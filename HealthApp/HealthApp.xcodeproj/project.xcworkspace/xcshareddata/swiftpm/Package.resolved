@@ -1,5 +1,5 @@
 {
-  "originHash" : "585bd23c8902635f900b9a72568ef136a968e6a4174ff84e8de97bf495ec591f",
+  "originHash" : "c9edcaab0c6c20a2cbfc23a458a3bd57a9c9ddd09ffa4eaf8593973299248a75",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -200,15 +200,6 @@
       }
     },
     {
-      "identity" : "swift-jinja",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/huggingface/swift-jinja.git",
-      "state" : {
-        "revision" : "ba2364165002abe8f4f3992d74a7b547c635638e",
-        "version" : "2.2.1"
-      }
-    },
-    {
       "identity" : "swift-log",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
@@ -332,15 +323,6 @@
       "state" : {
         "revision" : "b626d3002773b1a1304166643e7f118f724b2132",
         "version" : "1.0.4"
-      }
-    },
-    {
-      "identity" : "swift-transformers",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/huggingface/swift-transformers",
-      "state" : {
-        "branch" : "573e5c9",
-        "revision" : "573e5c9036c2f136b3a8a071da8e8907322403d0"
       }
     },
     {

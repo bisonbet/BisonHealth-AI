@@ -133,7 +133,7 @@ struct UnifiedContextSelectorView: View {
                                 Circle()
                                     .fill(Color.blue)
                                     .frame(width: 4, height: 4)
-                                Text("Personal info: ~200 tokens")
+                                Text("Personal info: ~\(viewModel.personalInfoTokens) tokens")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -478,12 +478,25 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     // MARK: - Constants
     private enum Constants {
         static let defaultTokenEstimate = 500
-        static let personalInfoTokenEstimate = 200
         static let tokensPerCharacter = 4
         static let tokensPerBloodTestResult = 50  // ~50 tokens per result line
         static let bloodTestHeaderTokens = 50     // Header info (date, lab name)
         static let smallContextDisplayThreshold = 1000
         static let largeContextDisplayThreshold = 10000
+        // System prompt overhead (Doctor persona + template tags)
+        static let systemPromptTokenEstimate = 600
+        // Base personal info tokens (name, DOB, height, weight, blood type)
+        static let personalInfoBaseTokens = 50
+        // Tokens per medication entry
+        static let tokensPerMedication = 40
+        // Tokens per condition entry
+        static let tokensPerCondition = 30
+        // Tokens per supplement entry
+        static let tokensPerSupplement = 35
+        // Tokens per vital reading
+        static let tokensPerVitalReading = 25
+        // Tokens per sleep entry
+        static let tokensPerSleepEntry = 30
     }
     
     // Published properties
@@ -538,6 +551,11 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         bloodTestsEnabled ? selectedBloodTests.count : 0
     }
 
+    var personalInfoTokens: Int {
+        guard personalInfoEnabled else { return 0 }
+        return calculatePersonalInfoTokens()
+    }
+
     var estimatedBloodTestTokens: Int {
         guard bloodTestsEnabled else { return 0 }
         var tokens = 0
@@ -574,12 +592,12 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             return cached
         }
 
-        // Calculate tokens
-        var tokens = 0
+        // Calculate tokens - always include system prompt overhead
+        var tokens = Constants.systemPromptTokenEstimate
 
-        // Personal info tokens
+        // Personal info tokens - calculate based on actual data
         if personalInfoEnabled {
-            tokens += Constants.personalInfoTokenEstimate
+            tokens += calculatePersonalInfoTokens()
         }
 
         // Blood tests: estimate based on selected tests, only if enabled
@@ -610,6 +628,40 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
         return tokens
     }
+
+    /// Calculate personal info tokens based on actual data, not a fixed constant
+    private func calculatePersonalInfoTokens() -> Int {
+        guard let personalInfo = healthDataManager.personalInfo else {
+            return Constants.personalInfoBaseTokens
+        }
+
+        var tokens = Constants.personalInfoBaseTokens
+
+        // Medications
+        tokens += personalInfo.medications.count * Constants.tokensPerMedication
+
+        // Conditions
+        tokens += personalInfo.personalMedicalHistory.count * Constants.tokensPerCondition
+
+        // Supplements
+        tokens += personalInfo.supplements.count * Constants.tokensPerSupplement
+
+        // Vitals - each type stores up to 3-5 readings
+        tokens += min(personalInfo.bloodPressureReadings.count, 3) * Constants.tokensPerVitalReading
+        tokens += min(personalInfo.heartRateReadings.count, 3) * Constants.tokensPerVitalReading
+        tokens += min(personalInfo.bodyTemperatureReadings.count, 3) * Constants.tokensPerVitalReading
+        tokens += min(personalInfo.oxygenSaturationReadings.count, 3) * Constants.tokensPerVitalReading
+        tokens += min(personalInfo.respiratoryRateReadings.count, 3) * Constants.tokensPerVitalReading
+        tokens += min(personalInfo.weightReadings.count, 5) * Constants.tokensPerVitalReading
+
+        // Sleep data (up to 7 nights)
+        tokens += min(personalInfo.sleepData.count, 7) * Constants.tokensPerSleepEntry
+
+        // Allergies (estimate 5 tokens per allergy)
+        tokens += personalInfo.allergies.count * 5
+
+        return tokens
+    }
     
     private func isCategoryEnabled(for document: MedicalDocument) -> Bool {
         let category = document.documentCategory
@@ -637,11 +689,21 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         hasher.combine(selectedBloodTests)
         // Include document text lengths in hash for documents in enabled categories
         for docId in selectedDocuments {
-            if let doc = allDocuments.first(where: { $0.id == docId }), 
+            if let doc = allDocuments.first(where: { $0.id == docId }),
                isCategoryEnabled(for: doc),
                let text = doc.extractedText {
                 hasher.combine(text.count)
             }
+        }
+        // Include personal info data counts in hash for accurate cache invalidation
+        if let personalInfo = healthDataManager.personalInfo {
+            hasher.combine(personalInfo.medications.count)
+            hasher.combine(personalInfo.personalMedicalHistory.count)
+            hasher.combine(personalInfo.supplements.count)
+            hasher.combine(personalInfo.bloodPressureReadings.count)
+            hasher.combine(personalInfo.heartRateReadings.count)
+            hasher.combine(personalInfo.sleepData.count)
+            hasher.combine(personalInfo.allergies.count)
         }
         return hasher.finalize()
     }
@@ -718,11 +780,26 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             selectedDocuments.remove(document.id)
         } else {
             selectedDocuments.insert(document.id)
+            // Auto-enable the category when a document is selected
+            enableCategoryForDocument(document)
         }
         // Invalidate cache when selection changes
         _cachedEstimatedTokens = nil
         _lastTokensCalculationHash = nil
         // Note: @Published properties automatically trigger objectWillChange
+    }
+
+    /// Enables the health data type category that corresponds to the document's category
+    private func enableCategoryForDocument(_ document: MedicalDocument) {
+        let category = document.documentCategory
+
+        if HealthDataType.bloodTest.relatedDocumentCategories.contains(category) {
+            bloodTestsEnabled = true
+        } else if HealthDataType.imagingReport.relatedDocumentCategories.contains(category) {
+            imagingReportsEnabled = true
+        } else if HealthDataType.healthCheckup.relatedDocumentCategories.contains(category) {
+            healthCheckupsEnabled = true
+        }
     }
 
     // MARK: - Blood Test Management
@@ -735,6 +812,8 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             selectedBloodTests.remove(bloodTest.id)
         } else {
             selectedBloodTests.insert(bloodTest.id)
+            // Auto-enable the blood tests category when a blood test is selected
+            bloodTestsEnabled = true
         }
         // Invalidate cache when selection changes
         _cachedEstimatedTokens = nil

@@ -59,9 +59,20 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     }
     
     // MARK: - Chat Operations
-    func sendChatMessage(_ message: String, context: String = "", model: String = "llama3.2", systemPrompt: String? = nil) async throws -> OllamaChatResponse {
+    func sendChatMessage(
+        _ message: String,
+        context: String = "",
+        conversationHistory: [ChatMessage] = [],
+        model: String = "llama3.2",
+        systemPrompt: String? = nil
+    ) async throws -> OllamaChatResponse {
         do {
-            let messages = buildMessages(userMessage: message, context: context, systemPrompt: systemPrompt)
+            let messages = buildMessages(
+                userMessage: message,
+                context: context,
+                conversationHistory: conversationHistory,
+                systemPrompt: systemPrompt
+            )
 
             let startTime = Date()
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
@@ -110,6 +121,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     func sendStreamingChatMessage(
         _ message: String,
         context: String = "",
+        conversationHistory: [ChatMessage] = [],
         model: String = "llama3.2",
         systemPrompt: String? = nil,
         onUpdate: @escaping (String) -> Void,
@@ -119,7 +131,12 @@ class OllamaClient: ObservableObject, AIProviderInterface {
             isStreaming = true
             streamingContent = ""
 
-            let messages = buildMessages(userMessage: message, context: context, systemPrompt: systemPrompt)
+            let messages = buildMessages(
+                userMessage: message,
+                context: context,
+                conversationHistory: conversationHistory,
+                systemPrompt: systemPrompt
+            )
             let startTime = Date()
 
             // Get settings from SettingsManager
@@ -251,21 +268,52 @@ class OllamaClient: ObservableObject, AIProviderInterface {
     }
     
     // MARK: - Private Methods
-    private func buildMessages(userMessage: String, context: String, systemPrompt: String?) -> [Chat.Message] {
+    private func buildMessages(
+        userMessage: String,
+        context: String,
+        conversationHistory: [ChatMessage],
+        systemPrompt: String?
+    ) -> [Chat.Message] {
         var messages: [Chat.Message] = []
-        
+
         // Determine the base system prompt
         let baseSystemPrompt = systemPrompt ?? buildDefaultSystemPrompt()
-        
+
         // Append health context to the chosen system prompt
         var finalSystemPrompt = baseSystemPrompt
         if !context.isEmpty {
             finalSystemPrompt += "\n\n--- User's Health Context (JSON Format) ---\n" + context
         }
-        
+
         messages.append(.system(finalSystemPrompt))
+
+        // Use ConversationContextBuilder to get trimmed history within token limits
+        let contextResult = ConversationContextBuilder.buildContext(
+            currentMessage: userMessage,
+            healthContext: context,
+            conversationHistory: conversationHistory,
+            systemPrompt: finalSystemPrompt,
+            provider: .ollama
+        )
+
+        // Log context building results
+        ConversationContextBuilder.logContextSummary(contextResult)
+
+        // Add conversation history (already trimmed to fit)
+        for historyMessage in contextResult.conversationHistory {
+            switch historyMessage.role {
+            case .user:
+                messages.append(.user(historyMessage.content))
+            case .assistant:
+                messages.append(.assistant(historyMessage.content))
+            case .system:
+                break // System messages are handled above
+            }
+        }
+
+        // Add the current user message
         messages.append(.user(userMessage))
-        
+
         return messages
     }
     

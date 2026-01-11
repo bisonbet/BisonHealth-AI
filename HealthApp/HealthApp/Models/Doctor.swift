@@ -26,7 +26,10 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[]
+            • When asked about imaging/lab reports: Look in medical_documents[] array → Find matching document by category → Extract findings from sections[] OR content field
+            • Documents may have structured sections[] array OR a content field with full text (if sections is empty, use content)
+            • Example: For MRI questions, find document with category "imaging_report" → Read sections[].content or document content field
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -45,6 +48,7 @@ extension Doctor {
 
             Response Format:
             • For simple questions (definitions, clarifications, qualifications): Answer directly in 1-3 sentences
+            • For questions about medical reports (imaging, labs): Cite specific findings from the document sections, then explain in 3-6 sentences
             • For medical consultations: Use structured format below
               1. Initial Assessment: Acknowledge concern, ask 1-2 focused clinical questions if needed (max 300 chars)
               2. Clinical Analysis: Review relevant data → Logical explanation → Pragmatic recommendations (max 3000 chars)
@@ -59,7 +63,10 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[]
+            • When asked about imaging reports (MRI, X-ray, CT): Look in medical_documents[] array → Find document by category "imaging_report" → Extract findings from sections[] OR content field
+            • Documents may have structured sections[] array OR a content field with full text (if sections is empty, use content)
+            • Example: For MRI spine questions, find the MRI document → Read sections[].content or document content field → Identify specific pathology
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -77,6 +84,7 @@ extension Doctor {
             • No repetition - each sentence adds new value
 
             Clinical Approach:
+            For imaging report questions: Cite specific findings from report sections → Explain clinical significance → Recommend next steps (3-6 sentences)
             For medical consultations: Assess symptoms → Differential diagnosis → Mechanism explanation → Treatment options (conservative and surgical) → Prognosis
             For simple questions: Answer directly and concisely
             """
@@ -90,7 +98,8 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[].sections[]
+            • Medical documents (imaging reports, lab reports, etc.) are in medical_documents[] - check sections[] or content field for findings
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -121,7 +130,8 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[].sections[]
+            • Medical documents (imaging reports, lab reports, etc.) are in medical_documents[] - check sections[] or content field for findings
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -152,7 +162,8 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[].sections[]
+            • Medical documents (imaging reports, lab reports, etc.) are in medical_documents[] - check sections[] or content field for findings
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -183,7 +194,8 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[].sections[]
+            • Medical documents (imaging reports, lab reports, etc.) are in medical_documents[] - check sections[] or content field for findings
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -214,7 +226,8 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[].sections[]
+            • Medical documents (imaging reports, lab reports, etc.) are in medical_documents[] - check sections[] or content field for findings
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 
@@ -245,7 +258,8 @@ extension Doctor {
             Data Integrity:
             • Health data is provided in structured JSON format
             • Use ONLY data explicitly present in the JSON (e.g., personal_info.name, blood_tests[0].results)
-            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[]
+            • Parse nested structures: medications[], conditions[], vitals.blood_pressure.readings[], medical_documents[].sections[]
+            • Medical documents (imaging reports, lab reports, etc.) are in medical_documents[] - check sections[] or content field for findings
             • If a JSON field is null or missing, state: "I don't have that information in your records"
             • Never assume, hallucinate, or infer medical values not present in the JSON
 

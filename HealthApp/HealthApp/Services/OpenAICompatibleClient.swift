@@ -220,6 +220,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     func sendStreamingChatMessage(
         _ message: String,
         context: String = "",
+        conversationHistory: [ChatMessage] = [],
         model: String? = nil,
         systemPrompt: String? = nil,
         onUpdate: @escaping (String) -> Void,
@@ -261,6 +262,26 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 "content": systemContent
             ])
             print("📋 OpenAICompatibleClient: System message length: \(systemContent.count) chars")
+        }
+
+        // Use ConversationContextBuilder to get trimmed history within token limits
+        let contextResult = ConversationContextBuilder.buildContext(
+            currentMessage: message,
+            healthContext: context,
+            conversationHistory: conversationHistory,
+            systemPrompt: systemContent,
+            provider: .openAICompatible
+        )
+
+        // Log context building results
+        ConversationContextBuilder.logContextSummary(contextResult)
+
+        // Add conversation history (already trimmed to fit)
+        for historyMessage in contextResult.conversationHistory {
+            messages.append([
+                "role": historyMessage.role.rawValue,
+                "content": historyMessage.content
+            ])
         }
 
         // Add user message

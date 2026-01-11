@@ -654,9 +654,25 @@ extension ChatContext {
                         }
                         medicalDocContext += "\(sectionContent)\n"
                     }
+                } else if let extractedText = medicalDoc.extractedText, !extractedText.isEmpty {
+                    // Fall back to extractedText if no sections available
+                    print("🔍 Context Build -   Using extractedText fallback for context")
+                    medicalDocContext += "\nDocument Content:\n"
+                    // Truncate to ~4000 chars to avoid overwhelming the context
+                    let maxLength = 4000
+                    if extractedText.count > maxLength {
+                        let truncated = extractedText.prefix(maxLength)
+                        if let lastSpace = truncated.lastIndex(of: " ") {
+                            medicalDocContext += String(extractedText[..<lastSpace]) + "...\n"
+                        } else {
+                            medicalDocContext += String(truncated) + "...\n"
+                        }
+                    } else {
+                        medicalDocContext += extractedText + "\n"
+                    }
                 } else {
-                    print("⚠️ Context Build -   No sections available for document")
-                    medicalDocContext += "\n(No structured content available - please ensure document has been processed)\n"
+                    print("⚠️ Context Build -   No sections or extractedText available for document")
+                    medicalDocContext += "\n(No content available - please ensure document has been processed)\n"
                 }
             }
 

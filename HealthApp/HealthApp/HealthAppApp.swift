@@ -36,6 +36,17 @@ class AppState: ObservableObject {
         setupColorScheme()
         observeSettingsChanges()
         syncHealthKitOnLaunch()
+        preloadOnDeviceLLMIfNeeded()
+    }
+
+    private func preloadOnDeviceLLMIfNeeded() {
+        // Preload on-device LLM in background so it's ready when user opens AI chat
+        // This is done after a short delay to not compete with app launch tasks
+        Task {
+            // Small delay to let the app finish launching
+            try? await Task.sleep(for: .seconds(2))
+            settingsManager.preloadOnDeviceLLMIfNeeded()
+        }
     }
 
     private func syncHealthKitOnLaunch() {

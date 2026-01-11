@@ -48,7 +48,8 @@ class AIChatManager: ObservableObject {
 
     // MARK: - Streaming Debounce
     private var streamingUpdateTask: Task<Void, Never>?
-    private var streamingSequenceNumber: UInt64 = 0
+    private var pendingStreamingContent: String?
+    private var pendingStreamingIds: (conversationId: UUID, messageId: UUID)?
 
     // MARK: - Constants
     private enum Constants {
@@ -142,6 +143,9 @@ class AIChatManager: ObservableObject {
             // For OpenAI-compatible servers, assume connected if configuration is valid
             // User can manually test in settings if needed
             isConnected = settingsManager.hasValidOpenAICompatibleConfig()
+        case .onDeviceLLM:
+            // For on-device LLM, check if enabled and a model is downloaded
+            isConnected = OnDeviceLLMModelInfo.isEnabled && OnDeviceLLMModelInfo.selectedModel.isDownloaded
         }
     }
     
@@ -397,6 +401,8 @@ class AIChatManager: ObservableObject {
                 currentModel = settingsManager.modelPreferences.chatModel
             case .bedrock:
                 currentModel = settingsManager.modelPreferences.bedrockModel
+            case .onDeviceLLM:
+                currentModel = OnDeviceLLMModelInfo.selectedModel.displayName
             }
             let userMessageCount = updatedConversation.messages.filter({ $0.role == .user }).count
             let assistantMessageCount = updatedConversation.messages.filter({ $0.role == .assistant }).count
@@ -550,49 +556,55 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Streaming Helpers
 
-    /// Debounce streaming updates to improve UI performance during long responses
+    /// Update streaming message with throttling to prevent UI freezes
     /// - Parameters:
     ///   - content: The updated message content to display
     ///   - conversationId: ID of the conversation containing the message
     ///   - messageId: ID of the message being updated
-    /// - Note: Uses sequence numbers to prevent out-of-order updates from race conditions
+    /// - Note: Uses a throttle pattern (update at most X times per second) rather than debounce (cancel if new update comes)
+    ///   to ensure updates happen during rapid streaming
     @MainActor
     private func updateStreamingMessage(content: String, conversationId: UUID, messageId: UUID) {
-        // Cancel any pending update task
-        streamingUpdateTask?.cancel()
+        // Store the latest content and IDs
+        pendingStreamingContent = content
+        pendingStreamingIds = (conversationId, messageId)
+        
+        // If a task is already running, we don't need to do anything.
+        // It will pick up the latest 'pendingStreamingContent' when it wakes up.
+        if streamingUpdateTask != nil {
+            return
+        }
 
-        // Increment sequence number to track update ordering
-        streamingSequenceNumber += 1
-        let currentSequence = streamingSequenceNumber
-
-        // Schedule debounced UI update
-        // IMPORTANT: Use [weak self] to prevent retain cycle
+        // Start a throttling task
         streamingUpdateTask = Task { [weak self] in
             guard let self = self else { return }
 
             do {
-                // Wait for debounce interval
+                // Wait for throttle interval
                 try await Task.sleep(nanoseconds: UInt64(Constants.streamingDebounceInterval * 1_000_000_000))
-
+                
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
 
-                // Verify this is still the latest update (prevent out-of-order race condition)
-                guard currentSequence == self.streamingSequenceNumber else {
-                    logger.debug("Skipping stale update (sequence \(currentSequence) < \(self.streamingSequenceNumber))")
-                    return
+                // Apply the LATEST pending content
+                if let content = self.pendingStreamingContent,
+                   let ids = self.pendingStreamingIds {
+                    
+                    if let conversationIndex = self.conversations.firstIndex(where: { $0.id == ids.conversationId }),
+                       let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == ids.messageId }) {
+                        self.conversations[conversationIndex].messages[messageIndex].content = content
+                        self.currentConversation = self.conversations[conversationIndex]
+                    }
                 }
-
-                // Apply the update to the UI
-                if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
-                   let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
-                    self.conversations[conversationIndex].messages[messageIndex].content = content
-                    self.currentConversation = self.conversations[conversationIndex]
-                }
+                
+                // Clear the task so next update can start a new one
+                self.streamingUpdateTask = nil
+                
             } catch is CancellationError {
-                // Expected - debouncing mechanism cancels old updates when new ones arrive
+                // Expected
             } catch {
-                self.logger.debug("⚠️ Streaming debounce error: \(error)")
+                self.logger.debug("⚠️ Streaming throttle error: \(error)")
+                self.streamingUpdateTask = nil
             }
         }
     }
@@ -624,6 +636,8 @@ class AIChatManager: ObservableObject {
             currentModel = settingsManager.modelPreferences.chatModel
         case .bedrock:
             currentModel = settingsManager.modelPreferences.bedrockModel
+        case .onDeviceLLM:
+            currentModel = OnDeviceLLMModelInfo.selectedModel.displayName
         }
 
         // Get the conversation and its messages BEFORE adding the placeholder
@@ -681,9 +695,26 @@ class AIChatManager: ObservableObject {
         switch settingsManager.modelPreferences.aiProvider {
         case .ollama:
             let ollamaClient = getOllamaClient()
+
+            // Get conversation history for multi-turn support
+            let ollamaConversationHistory: [ChatMessage]
+            if let conversation = conversations.first(where: { $0.id == conversationId }) {
+                let allMessages = conversation.messages
+                if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
+                    var messagesWithoutCurrent = allMessages
+                    messagesWithoutCurrent.remove(at: lastUserMessageIndex)
+                    ollamaConversationHistory = messagesWithoutCurrent
+                } else {
+                    ollamaConversationHistory = allMessages
+                }
+            } else {
+                ollamaConversationHistory = []
+            }
+
             try await ollamaClient.sendStreamingChatMessage(
                 content,
                 context: context,
+                conversationHistory: ollamaConversationHistory,
                 model: settingsManager.modelPreferences.chatModel,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
@@ -728,9 +759,26 @@ class AIChatManager: ObservableObject {
 
         case .bedrock:
             let bedrockClient = settingsManager.getBedrockClient()
+
+            // Get conversation history for multi-turn support
+            let bedrockConversationHistory: [ChatMessage]
+            if let conversation = conversations.first(where: { $0.id == conversationId }) {
+                let allMessages = conversation.messages
+                if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
+                    var messagesWithoutCurrent = allMessages
+                    messagesWithoutCurrent.remove(at: lastUserMessageIndex)
+                    bedrockConversationHistory = messagesWithoutCurrent
+                } else {
+                    bedrockConversationHistory = allMessages
+                }
+            } else {
+                bedrockConversationHistory = []
+            }
+
             try await bedrockClient.sendStreamingMessage(
                 content,
                 context: context,
+                conversationHistory: bedrockConversationHistory,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
@@ -774,6 +822,22 @@ class AIChatManager: ObservableObject {
 
         case .openAICompatible:
             let openAIClient = settingsManager.getOpenAICompatibleClient()
+
+            // Get conversation history for multi-turn support
+            let openAIConversationHistory: [ChatMessage]
+            if let conversation = conversations.first(where: { $0.id == conversationId }) {
+                let allMessages = conversation.messages
+                if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
+                    var messagesWithoutCurrent = allMessages
+                    messagesWithoutCurrent.remove(at: lastUserMessageIndex)
+                    openAIConversationHistory = messagesWithoutCurrent
+                } else {
+                    openAIConversationHistory = allMessages
+                }
+            } else {
+                openAIConversationHistory = []
+            }
+
             print("🔍 AIChatManager: selectedDoctor = \(selectedDoctor?.name ?? "nil")")
             print("🔍 AIChatManager: shouldSendSystemPrompt = \(shouldSendSystemPrompt)")
             if shouldSendSystemPrompt {
@@ -787,7 +851,75 @@ class AIChatManager: ObservableObject {
             try await openAIClient.sendStreamingChatMessage(
                 content,
                 context: context,
+                conversationHistory: openAIConversationHistory,
                 model: settingsManager.modelPreferences.openAICompatibleModel,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
+                onUpdate: { [weak self] partialContent in
+                    guard let self = self else { return }
+                    // Use debounced update for better performance with long messages
+                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
+                    }
+                },
+                onComplete: { [weak self] finalResponse in
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+
+                        // Create final message with complete content and metadata
+                        let finalMessage = ChatMessage(
+                            id: streamingMessageId,
+                            content: finalResponse.content,
+                            role: .assistant,
+                            tokens: finalResponse.tokenCount,
+                            processingTime: finalResponse.responseTime
+                        )
+
+                        // Save final message to database
+                        do {
+                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
+
+                            // Use finalize to bypass debouncing for immediate final update
+                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
+
+                            // Generate title after first exchange if still using default title
+                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
+                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
+                            }
+                        } catch {
+                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            )
+
+        case .onDeviceLLM:
+            let onDeviceLLMClient = settingsManager.getOnDeviceLLMClient()
+
+            // Get conversation history for multi-turn support
+            // Exclude the current user message (the last one added) from history
+            let conversationHistory: [ChatMessage]
+            if let conversation = conversations.first(where: { $0.id == conversationId }) {
+                // Get all messages except the last user message (the one we just sent)
+                // This is safe because we just added the user message before calling this
+                let allMessages = conversation.messages
+                if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
+                    var messagesWithoutCurrent = allMessages
+                    messagesWithoutCurrent.remove(at: lastUserMessageIndex)
+                    conversationHistory = messagesWithoutCurrent
+                } else {
+                    conversationHistory = allMessages
+                }
+            } else {
+                conversationHistory = []
+            }
+
+            try await onDeviceLLMClient.sendStreamingChatMessage(
+                content,
+                context: context,
+                conversationHistory: conversationHistory,
+                model: nil,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }

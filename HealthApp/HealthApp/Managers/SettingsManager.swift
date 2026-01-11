@@ -70,12 +70,14 @@ enum AIProvider: String, CaseIterable {
     case ollama = "ollama"
     case bedrock = "bedrock"
     case openAICompatible = "openai_compatible"
+    case onDeviceLLM = "on_device_llm"
 
     var displayName: String {
         switch self {
         case .ollama: return "Ollama"
         case .bedrock: return "AWS Bedrock"
         case .openAICompatible: return "OpenAI Compatible"
+        case .onDeviceLLM: return "On-Device LLM"
         }
     }
 
@@ -87,6 +89,8 @@ enum AIProvider: String, CaseIterable {
             return "AWS Bedrock cloud AI service"
         case .openAICompatible:
             return "OpenAI-compatible servers (LiteLLM, LocalAI, vLLM, etc.)"
+        case .onDeviceLLM:
+            return "On-device AI using downloaded models (no internet required)"
         }
     }
 }
@@ -104,7 +108,7 @@ struct ModelPreferences: Equatable {
     var extractionOllamaModel: String = "llama3.2"
     var extractionOpenAIModel: String = ""
     var extractionBedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue
-    var contextSizeLimit: Int = 8192       // Default context size: 8k tokens (for Ollama)
+    var contextSizeLimit: Int = 16384      // Default context size: 16k tokens (for Ollama)
     var lastUpdated: Date = Date()
 }
 
@@ -192,6 +196,7 @@ class SettingsManager: ObservableObject {
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
+    private var onDeviceLLMClient: OnDeviceLLMClient?
 
     // iCloud backup manager
     @Published var backupManager: iCloudBackupManager?
@@ -378,6 +383,8 @@ class SettingsManager: ObservableObject {
             return getBedrockClient()
         case .openAICompatible:
             return getOpenAICompatibleClient()
+        case .onDeviceLLM:
+            return getOnDeviceLLMClient()
         }
     }
 
@@ -431,16 +438,61 @@ class SettingsManager: ObservableObject {
         )
         return BedrockClient(config: config)
     }
-    
+
+    func getOnDeviceLLMClient() -> OnDeviceLLMClient {
+        if onDeviceLLMClient == nil {
+            onDeviceLLMClient = OnDeviceLLMClient()
+        }
+        return onDeviceLLMClient!
+    }
+
     // Force recreation of clients when configuration changes
     func invalidateClients() {
         ollamaClient = nil
         doclingClient = nil
         openAICompatibleClient = nil
+        onDeviceLLMClient = nil
     }
 
     func invalidateOpenAICompatibleClient() {
         openAICompatibleClient = nil
+    }
+
+    // MARK: - On-Device LLM Preloading
+
+    /// Preloads the on-device LLM model in the background if enabled and downloaded.
+    /// Call this on app launch to have the model ready when the user opens AI chat.
+    func preloadOnDeviceLLMIfNeeded() {
+        // Check if on-device LLM is the selected provider
+        guard modelPreferences.aiProvider == .onDeviceLLM else {
+            print("[SettingsManager] On-device LLM not selected, skipping preload")
+            return
+        }
+
+        // Check if on-device LLM is enabled and a model is downloaded
+        guard OnDeviceLLMModelInfo.isEnabled else {
+            print("[SettingsManager] On-device LLM not enabled, skipping preload")
+            return
+        }
+
+        let selectedModel = OnDeviceLLMModelInfo.selectedModel
+        guard selectedModel.isDownloaded else {
+            print("[SettingsManager] No model downloaded, skipping preload")
+            return
+        }
+
+        print("[SettingsManager] Preloading on-device LLM model: \(selectedModel.displayName)")
+
+        // Start loading in background
+        Task {
+            do {
+                let client = getOnDeviceLLMClient()
+                try await client.loadModel()
+                print("[SettingsManager] On-device LLM model preloaded successfully")
+            } catch {
+                print("[SettingsManager] Failed to preload on-device LLM: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Validation
@@ -801,7 +853,7 @@ extension ModelPreferences: Codable {
         self.extractionOpenAIModel = try container.decodeIfPresent(String.self, forKey: .extractionOpenAIModel) ?? ""
         self.extractionBedrockModel = try container.decodeIfPresent(String.self, forKey: .extractionBedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
 
-        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 8192
+        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 16384
         self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
     }
 

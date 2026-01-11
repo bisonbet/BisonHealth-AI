@@ -294,6 +294,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
     func sendStreamingMessage(
         _ message: String,
         context: String,
+        conversationHistory: [ChatMessage] = [],
         systemPrompt: String? = nil,
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (BedrockAIResponse) -> Void
@@ -315,15 +316,35 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             }
         }
 
-        // Prepare the conversation with context if provided
-        var conversationInput = message
-        if !actualContext.isEmpty {
-            conversationInput = """
-            Context (JSON Format): \(actualContext)
+        // Use ConversationContextBuilder to get trimmed history within token limits
+        let contextResult = ConversationContextBuilder.buildContext(
+            currentMessage: message,
+            healthContext: actualContext,
+            conversationHistory: conversationHistory,
+            systemPrompt: effectiveSystemPrompt,
+            provider: .bedrock
+        )
 
-            User: \(message)
-            """
+        // Log context building results
+        ConversationContextBuilder.logContextSummary(contextResult)
+
+        // Prepare the conversation with context and history
+        var conversationInput = ""
+
+        // Add health context first (always included)
+        if !actualContext.isEmpty {
+            conversationInput += "Context (JSON Format): \(actualContext)\n\n"
         }
+
+        // Add conversation history
+        if !contextResult.conversationHistory.isEmpty {
+            conversationInput += "Previous conversation:\n"
+            conversationInput += ConversationContextBuilder.formatHistoryAsText(contextResult.conversationHistory)
+            conversationInput += "\n\n"
+        }
+
+        // Add the current user message
+        conversationInput += "User: \(message)"
 
         // Validate configuration
         guard config.isValid else {
