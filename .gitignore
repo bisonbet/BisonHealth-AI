@@ -155,6 +155,7 @@ node_modules
 .aider/
 .codeium/
 .windsurf/
+.kiro/
 
 gha-creds-*.json
 
