@@ -18,11 +18,22 @@ struct OnDeviceLLMResponse: AIResponse {
     let tokenCount: Int?
     let metadata: [String: Any]?
 
-    init(content: String, responseTime: TimeInterval, tokenCount: Int? = nil, tokensPerSecond: Double? = nil) {
+    init(
+        content: String,
+        responseTime: TimeInterval,
+        tokenCount: Int? = nil,
+        tokensPerSecond: Double? = nil,
+        metadata: [String: Any]? = nil
+    ) {
         self.content = content
         self.responseTime = responseTime
         self.tokenCount = tokenCount
-        self.metadata = tokensPerSecond != nil ? ["tokensPerSecond": tokensPerSecond!] : nil
+
+        var mergedMetadata = metadata ?? [:]
+        if let tokensPerSecond {
+            mergedMetadata["tokensPerSecond"] = tokensPerSecond
+        }
+        self.metadata = mergedMetadata.isEmpty ? nil : mergedMetadata
     }
 }
 
@@ -50,9 +61,11 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
     private var onStreamUpdate: ((String) -> Void)?
     private var onStreamComplete: ((OnDeviceLLMResponse) -> Void)?
 
-    // Context caching for faster follow-up questions
+    // Context cache scaffolding (disabled for reliability-first rollout)
     private var cachedContextHash: Int?
     private var cachedSystemPromptHash: Int?
+    private var activeConversationId: UUID?
+    private let reliabilityFirstDisableCacheReuse = true
     private var isSuspendedForBackground = false
 
     // MARK: - Initialization
@@ -128,19 +141,11 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         let preservedSystemPromptHash = cachedSystemPromptHash
         logger.debug("[OnDeviceLLMClient] Preserved conversation state for non-conversational task (state: \(preservedState != nil), contextHash: \(preservedContextHash != nil), promptHash: \(preservedSystemPromptHash != nil))")
 
-        // Build the full prompt with context
-        // Note: Don't add "User:" prefix - the template already wraps in user tags
-        let fullPrompt: String
-        if !context.isEmpty {
-            fullPrompt = """
-            Context:
-            \(context)
-
-            Question: \(message)
-            """
-        } else {
-            fullPrompt = message
-        }
+        // Build deterministic payload without leaking "Question:" markers.
+        let fullPrompt = OnDevicePromptBuilder.singleTurnPrompt(
+            healthContext: context,
+            userMessage: message
+        )
 
         // Set up template with health assistant system prompt
         llm.template = selectedModel.templateType.template(
@@ -208,6 +213,7 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
     ///   - message: The user's current message
     ///   - context: Health context in JSON format
     ///   - conversationHistory: Previous messages in the conversation (for multi-turn support)
+    ///   - conversationId: Conversation identifier for session safety
     ///   - model: Model to use (optional)
     ///   - systemPrompt: System prompt (optional, uses default if nil)
     ///   - onUpdate: Callback for streaming updates
@@ -216,6 +222,7 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         _ message: String,
         context: String,
         conversationHistory: [ChatMessage] = [],
+        conversationId: UUID,
         model: String? = nil,
         systemPrompt: String?,
         onUpdate: @escaping (String) -> Void,
@@ -235,98 +242,57 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
 
         let selectedModel = OnDeviceLLMModelInfo.selectedModel
 
-        // Set up template with provided or default system prompt FIRST (needed for hash calculation)
+        // Set up template with provided or default system prompt.
         let effectiveSystemPrompt = systemPrompt ?? LLMTemplate.healthAssistantSystemPrompt
         llm.template = selectedModel.templateType.template(systemPrompt: effectiveSystemPrompt)
 
-        // Check if context and system prompt are the same as last time (for KV cache optimization)
-        // IMPORTANT: Do this BEFORE building the prompt so we know whether to include context
-        let currentContextHash = context.hash
-        let currentSystemPromptHash = effectiveSystemPrompt.hash
-        let contextUnchanged = (cachedContextHash == currentContextHash &&
-                                cachedSystemPromptHash == currentSystemPromptHash &&
-                                !conversationHistory.isEmpty)  // Only reuse if we have history
-
-        // Debug logging for hash comparison
-        logger.debug("[OnDeviceLLMClient] Hash check: current=(\(currentContextHash),\(currentSystemPromptHash)), cached=(\(self.cachedContextHash ?? -1),\(self.cachedSystemPromptHash ?? -1)), historyEmpty=\(!conversationHistory.isEmpty)")
-
-        if contextUnchanged {
-            logger.info("[OnDeviceLLMClient] ✅ Context unchanged - will reuse KV cache from previous turn")
-            logger.info("[OnDeviceLLMClient] Skipping ~\(context.isEmpty ? 0 : llm.encode(context).count) context tokens")
-        } else {
-            logger.info("[OnDeviceLLMClient] Context changed or first turn - processing full context")
-            logger.debug("[OnDeviceLLMClient] Reason: contextHashMatch=\(self.cachedContextHash == currentContextHash), promptHashMatch=\(self.cachedSystemPromptHash == currentSystemPromptHash), hasHistory=\(!conversationHistory.isEmpty)")
-            // Clear conversation history since context changed
+        if activeConversationId != conversationId {
+            logger.info("[OnDeviceLLMClient] Conversation changed: \(self.activeConversationId?.uuidString ?? "none") -> \(conversationId.uuidString)")
+            activeConversationId = conversationId
             await llm.clearHistory()
-            // Update cached hashes
-            cachedContextHash = currentContextHash
-            cachedSystemPromptHash = currentSystemPromptHash
+            cachedContextHash = nil
+            cachedSystemPromptHash = nil
         }
 
-        // Build the prompt - optimize based on whether context is cached
-        // Note: Don't add "User:" prefix - the template already wraps in user tags
-        let fullPrompt: String
-        var promptParts: [String] = []
-
-        // If context is unchanged and we have KV cache, ONLY send the new message
-        // Otherwise, send full context + message
-        if contextUnchanged {
-            // Context is in KV cache - only send the new question
-            logger.info("[OnDeviceLLMClient] Using cached context - sending only new question")
-            promptParts.append("Question: \(message)")
+        if reliabilityFirstDisableCacheReuse {
+            await llm.clearHistory()
         } else {
-            // First turn or context changed - send everything
-            // Add health context if provided
-            if !context.isEmpty {
-                promptParts.append("Context:\n\(context)")
-
-                // Debug logging for context
-                logger.debug("[OnDeviceLLMClient] Sending context (\(context.count) chars)")
-                if context.contains("medical_documents") {
-                    logger.debug("[OnDeviceLLMClient] Context includes medical_documents")
-                } else {
-                    logger.warning("[OnDeviceLLMClient] Context does NOT include medical_documents")
-                }
-            } else {
-                logger.debug("[OnDeviceLLMClient] No context provided")
+            let currentContextHash = stableContextHash(context)
+            let currentSystemPromptHash = effectiveSystemPrompt.hashValue
+            let contextUnchanged = (cachedContextHash == currentContextHash &&
+                                    cachedSystemPromptHash == currentSystemPromptHash &&
+                                    !conversationHistory.isEmpty)
+            if !contextUnchanged {
+                await llm.clearHistory()
+                cachedContextHash = currentContextHash
+                cachedSystemPromptHash = currentSystemPromptHash
             }
-
-            // Add conversation history if provided (for multi-turn conversations)
-            if !conversationHistory.isEmpty {
-                let historyText = formatConversationHistory(conversationHistory)
-                promptParts.append("Previous conversation:\n\(historyText)")
-                logger.info("[OnDeviceLLMClient] Including \(conversationHistory.count) previous messages in context")
-            }
-
-            // Add the current question
-            promptParts.append("Question: \(message)")
         }
 
-        fullPrompt = promptParts.joined(separator: "\n\n")
+        let maxInputTokens = OnDevicePromptBuilder.maxInputTokens(
+            forContextWindow: Int(OnDeviceLLMModelInfo.configuredMaxTokens)
+        )
+        let promptResult = OnDevicePromptBuilder.build(
+            request: OnDevicePromptBuilder.Request(
+                healthContext: context,
+                conversationHistory: conversationHistory,
+                userMessage: message,
+                maxInputTokens: maxInputTokens
+            ),
+            tokenCounter: { llm.encode($0).count }
+        )
 
-        // Debug: Log token breakdown for context analysis using ACTUAL tokenization
+        logger.info(
+            "[OnDeviceLLMClient] Turn diagnostics: conversationId=\(conversationId.uuidString), promptTokens=\(promptResult.finalPromptTokens), trimmedHistory=\(promptResult.trimmedHistoryCount), shortenedHistory=\(promptResult.shortenedHistoryMessageCount), trimmedDocs=\(promptResult.trimmedDocumentCount), contextTailTrimBytes=\(promptResult.contextTailTrimmedBytes), contextBytes=\(promptResult.finalContextBytes), fitStatus=\(promptResult.fitStatus.rawValue)"
+        )
+
+        guard promptResult.fitStatus != .inputTooLargeAfterCompaction else {
+            throw OnDeviceLLMError.inferenceFailed("Input too large after compaction; reduce shared context and try again.")
+        }
+
+        let fullPrompt = promptResult.prompt
         let systemPromptTokens = llm.encode(effectiveSystemPrompt).count
-        let contextTokens = context.isEmpty ? 0 : llm.encode(context).count
-        let messageTokens = llm.encode(message).count
-        let fullPromptTokens = llm.encode(fullPrompt).count
-
-        logger.info("[OnDeviceLLMClient] Token breakdown (actual counts):")
-        logger.info("[OnDeviceLLMClient]   System prompt: \(effectiveSystemPrompt.count) chars = \(systemPromptTokens) tokens")
-        logger.info("[OnDeviceLLMClient]   Context: \(context.count) chars = \(contextTokens) tokens")
-        logger.info("[OnDeviceLLMClient]   User message: \(message.count) chars = \(messageTokens) tokens")
-        logger.info("[OnDeviceLLMClient]   Full prompt (context+message): \(fullPrompt.count) chars = \(fullPromptTokens) tokens")
-
-        // The template adds special tokens, estimate ~50-100 tokens overhead
-        let templateOverhead = 75
-        let estimatedTotal = systemPromptTokens + fullPromptTokens + templateOverhead
-        logger.info("[OnDeviceLLMClient]   Estimated total with template: ~\(estimatedTotal) tokens")
-
-        // If context unchanged, we should only process the new message (much faster!)
-        // But the current architecture processes the full prompt each time
-        // TODO: Optimize to only process new message when context is cached
-        if contextUnchanged {
-            logger.info("[OnDeviceLLMClient]   Actual tokens to process: ~\(messageTokens + templateOverhead) (context in KV cache)")
-        }
+        logger.info("[OnDeviceLLMClient] Token breakdown: system=\(systemPromptTokens), payload=\(promptResult.finalPromptTokens), maxInput=\(maxInputTokens)")
 
         // Set up streaming callbacks
         // Note: llm.update is called from InferenceActor, not MainActor
@@ -342,6 +308,18 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
             // Accumulate locally (thread-safe since this is called sequentially)
             localStreamingContent += delta
 
+            // If internal prompt markers leak into generation, stop streaming at that boundary.
+            if let leakRange = self.firstPromptLeakRange(in: localStreamingContent) {
+                let beforeLeak = String(localStreamingContent[..<leakRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                onUpdate(beforeLeak)
+                stopStreamingUpdates = true
+                Task { @InferenceActor in
+                    llm.stop()
+                }
+                self.logger.debug("[OnDeviceLLMClient] Detected prompt marker leak, stopping streaming updates")
+                return
+            }
+
             // ALWAYS send the update first (for smooth streaming)
             // The callback (from AIChatManager) will dispatch to MainActor
             onUpdate(localStreamingContent)
@@ -356,6 +334,9 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
                     onUpdate(beforeRule)
                     // Stop sending further updates
                     stopStreamingUpdates = true
+                    Task { @InferenceActor in
+                        llm.stop()
+                    }
                     self.logger.debug("[OnDeviceLLMClient] Detected horizontal rule marker, stopping streaming updates")
                     return
                 }
@@ -384,7 +365,17 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
             content: cleanedResult,
             responseTime: responseTime,
             tokenCount: tokenCount,
-            tokensPerSecond: tokensPerSecond
+            tokensPerSecond: tokensPerSecond,
+            metadata: [
+                "conversationId": conversationId.uuidString,
+                "promptTokens": promptResult.finalPromptTokens,
+                "trimmedHistoryCount": promptResult.trimmedHistoryCount,
+                "shortenedHistoryMessageCount": promptResult.shortenedHistoryMessageCount,
+                "trimmedDocumentCount": promptResult.trimmedDocumentCount,
+                "contextTailTrimmedBytes": promptResult.contextTailTrimmedBytes,
+                "contextBytes": promptResult.finalContextBytes,
+                "fitStatus": promptResult.fitStatus.rawValue
+            ]
         )
 
         logger.info("[OnDeviceLLMClient] Calling onComplete callback with \(cleanedResult.count) char response")
@@ -446,6 +437,9 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         isModelLoaded = false
         connectionStatus = .disconnected
         isConnected = false
+        activeConversationId = nil
+        cachedContextHash = nil
+        cachedSystemPromptHash = nil
         logger.info("[OnDeviceLLMClient] Model unloaded")
     }
 
@@ -502,8 +496,30 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         }
     }
 
+    private func stableContextHash(_ context: String) -> Int {
+        guard let data = context.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return context.hashValue
+        }
+
+        // Exclude volatile fields from future cache/session comparisons.
+        json.removeValue(forKey: "timestamp")
+
+        if let stableData = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]),
+           let stableString = String(data: stableData, encoding: .utf8) {
+            return stableString.hashValue
+        }
+        return context.hashValue
+    }
+
     private func cleanupResponse(_ response: String) -> String {
         var cleaned = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If internal prompt block markers leak into output, trim everything from first leak onward.
+        if let leakRange = firstPromptLeakRange(in: cleaned) {
+            cleaned = String(cleaned[..<leakRange.lowerBound])
+            logger.debug("[OnDeviceLLMClient] Trimmed leaked prompt marker content from output")
+        }
 
         // Remove meta-commentary after horizontal rules (---)
         // Some models add explanations about their own responses that aren't helpful
@@ -591,26 +607,289 @@ class OnDeviceLLMClient: ObservableObject, AIProviderInterface {
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Format conversation history for inclusion in the prompt
-    /// Limits to last N messages to avoid token overflow
-    private func formatConversationHistory(_ messages: [ChatMessage]) -> String {
-        // Limit to last 6 messages (3 exchanges) to avoid token overflow
-        // Skip system messages as they're handled separately
-        let relevantMessages = messages
-            .filter { $0.role != .system }
-            .suffix(6)
+    private func firstPromptLeakRange(in text: String) -> Range<String.Index>? {
+        let markers = [
+            "<<HEALTH_CONTEXT_JSON>>",
+            "<</HEALTH_CONTEXT_JSON>>",
+            "<<CHAT_HISTORY>>",
+            "<</CHAT_HISTORY>>",
+            "<<CURRENT_USER_MESSAGE>>",
+            "<</CURRENT_USER_MESSAGE>>",
+            "<HEALTH_CONTEXT_JSON>",
+            "</HEALTH_CONTEXT_JSON>",
+            "<CHAT_HISTORY>",
+            "</CHAT_HISTORY>",
+            "<CURRENT_USER_MESSAGE>",
+            "</CURRENT_USER_MESSAGE>",
+            "HEALTH_CONTEXT_JSON",
+            "CHAT_HISTORY",
+            "CURRENT_USER_MESSAGE"
+        ]
 
-        var historyLines: [String] = []
-        for msg in relevantMessages {
-            let roleLabel = msg.role == .user ? "User" : "Assistant"
-            // Truncate very long messages to save tokens
-            let content = msg.content.count > 500
-                ? String(msg.content.prefix(500)) + "..."
-                : msg.content
-            historyLines.append("\(roleLabel): \(content)")
+        var earliest: Range<String.Index>?
+        for marker in markers {
+            if let range = text.range(of: marker, options: [.caseInsensitive]) {
+                if let existing = earliest {
+                    if range.lowerBound < existing.lowerBound {
+                        earliest = range
+                    }
+                } else {
+                    earliest = range
+                }
+            }
+        }
+        return earliest
+    }
+
+}
+
+// MARK: - On-Device Prompt Builder
+
+struct OnDevicePromptBuilder {
+    struct Request {
+        let healthContext: String
+        let conversationHistory: [ChatMessage]
+        let userMessage: String
+        let maxInputTokens: Int
+    }
+
+    enum FitStatus: String {
+        case fitWithoutCompaction
+        case fitAfterCompaction
+        case inputTooLargeAfterCompaction
+    }
+
+    struct BuildResult {
+        let prompt: String
+        let fitStatus: FitStatus
+        let finalPromptTokens: Int
+        let trimmedHistoryCount: Int
+        let shortenedHistoryMessageCount: Int
+        let trimmedDocumentCount: Int
+        let contextTailTrimmedBytes: Int
+        let finalContextBytes: Int
+    }
+
+    static func maxInputTokens(forContextWindow contextWindow: Int) -> Int {
+        let outputReserve = min(2048, max(256, contextWindow / 10))
+        return max(256, contextWindow - outputReserve)
+    }
+
+    static func singleTurnPrompt(healthContext: String, userMessage: String) -> String {
+        buildPrompt(
+            healthContext: normalizedContext(healthContext),
+            history: [],
+            userMessage: userMessage
+        )
+    }
+
+    static func build(
+        request: Request,
+        tokenCounter: (String) -> Int
+    ) -> BuildResult {
+        var context = normalizedContext(request.healthContext)
+        var history = request.conversationHistory.filter { $0.role != .system && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let userMessage = request.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var trimmedHistoryCount = 0
+        var shortenedHistoryMessageCount = 0
+        var trimmedDocumentCount = 0
+        var contextTailTrimmedBytes = 0
+        var didCompact = false
+
+        var prompt = buildPrompt(healthContext: context, history: history, userMessage: userMessage)
+        var tokens = tokenCounter(prompt)
+
+        // 1) Trim oldest history first.
+        while tokens > request.maxInputTokens && !history.isEmpty {
+            history.removeFirst()
+            trimmedHistoryCount += 1
+            didCompact = true
+            prompt = buildPrompt(healthContext: context, history: history, userMessage: userMessage)
+            tokens = tokenCounter(prompt)
         }
 
-        return historyLines.joined(separator: "\n")
+        // 2) Compact long history message bodies.
+        if tokens > request.maxInputTokens && !history.isEmpty {
+            let thresholds = [600, 400, 250, 160]
+            var alreadyShortened = Set<UUID>()
+
+            for threshold in thresholds where tokens > request.maxInputTokens {
+                var changedInPass = false
+                for index in history.indices where tokens > request.maxInputTokens {
+                    if history[index].content.count > threshold {
+                        history[index].content = truncateForHistory(history[index].content, maxChars: threshold)
+                        if !alreadyShortened.contains(history[index].id) {
+                            alreadyShortened.insert(history[index].id)
+                            shortenedHistoryMessageCount += 1
+                        }
+                        didCompact = true
+                        changedInPass = true
+
+                        prompt = buildPrompt(healthContext: context, history: history, userMessage: userMessage)
+                        tokens = tokenCounter(prompt)
+                    }
+                }
+                if !changedInPass {
+                    break
+                }
+            }
+        }
+
+        // 3) Remove lowest-priority document content from the tail of medical_documents.
+        while tokens > request.maxInputTokens {
+            let trimResult = trimLowestPriorityDocumentContent(in: context)
+            guard trimResult.changed else {
+                break
+            }
+            context = trimResult.context
+            trimmedDocumentCount += trimResult.trimmedCount
+            didCompact = true
+
+            prompt = buildPrompt(healthContext: context, history: history, userMessage: userMessage)
+            tokens = tokenCounter(prompt)
+        }
+
+        // 4) Trim context tail if still too large.
+        if tokens > request.maxInputTokens {
+            let minContextChars = 128
+            while tokens > request.maxInputTokens && context.count > minContextChars {
+                let previousCount = context.utf8.count
+                let nextCount = max(minContextChars, context.count - 512)
+                let truncated = String(context.prefix(nextCount))
+                context = "\(truncated)\n...[context tail trimmed]"
+                contextTailTrimmedBytes += max(0, previousCount - context.utf8.count)
+                didCompact = true
+
+                prompt = buildPrompt(healthContext: context, history: history, userMessage: userMessage)
+                tokens = tokenCounter(prompt)
+            }
+        }
+
+        let fitStatus: FitStatus
+        if tokens <= request.maxInputTokens {
+            fitStatus = didCompact ? .fitAfterCompaction : .fitWithoutCompaction
+        } else {
+            fitStatus = .inputTooLargeAfterCompaction
+        }
+
+        return BuildResult(
+            prompt: prompt,
+            fitStatus: fitStatus,
+            finalPromptTokens: tokens,
+            trimmedHistoryCount: trimmedHistoryCount,
+            shortenedHistoryMessageCount: shortenedHistoryMessageCount,
+            trimmedDocumentCount: trimmedDocumentCount,
+            contextTailTrimmedBytes: contextTailTrimmedBytes,
+            finalContextBytes: context.utf8.count
+        )
+    }
+
+    private static func normalizedContext(_ context: String) -> String {
+        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "{}" : trimmed
+    }
+
+    private static func truncateForHistory(_ content: String, maxChars: Int) -> String {
+        guard content.count > maxChars else {
+            return content
+        }
+        let candidate = String(content.prefix(maxChars))
+        if let lastSpace = candidate.lastIndex(of: " ") {
+            return String(candidate[..<lastSpace]) + " ..."
+        }
+        return candidate + " ..."
+    }
+
+    private static func buildPrompt(
+        healthContext: String,
+        history: [ChatMessage],
+        userMessage: String
+    ) -> String {
+        let historyBlock: String
+        if history.isEmpty {
+            historyBlock = "(none)"
+        } else {
+            historyBlock = history.map { message in
+                """
+                <turn role="\(message.role.rawValue)">
+                \(message.content)
+                </turn>
+                """
+            }.joined(separator: "\n")
+        }
+
+        return """
+        <<INSTRUCTIONS>>
+        Answer only the current user message using the provided context and history.
+        Do not output any block labels or XML-like tags.
+        Do not echo HEALTH_CONTEXT_JSON, CHAT_HISTORY, or CURRENT_USER_MESSAGE.
+        Stop after your answer.
+        <</INSTRUCTIONS>>
+
+        <<HEALTH_CONTEXT_JSON>>
+        \(healthContext)
+        <</HEALTH_CONTEXT_JSON>>
+
+        <<CHAT_HISTORY>>
+        \(historyBlock)
+        <</CHAT_HISTORY>>
+
+        <<CURRENT_USER_MESSAGE>>
+        \(userMessage)
+        <</CURRENT_USER_MESSAGE>>
+        """
+    }
+
+    private static func trimLowestPriorityDocumentContent(in context: String) -> (context: String, trimmedCount: Int, changed: Bool) {
+        guard let data = context.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var documents = json["medical_documents"] as? [[String: Any]],
+              !documents.isEmpty else {
+            return (context, 0, false)
+        }
+
+        for docIndex in stride(from: documents.count - 1, through: 0, by: -1) {
+            var doc = documents[docIndex]
+
+            if doc["content"] != nil {
+                doc.removeValue(forKey: "content")
+                documents[docIndex] = doc
+                json["medical_documents"] = documents
+                if let serialized = serializeJSON(json) {
+                    return (serialized, 1, true)
+                }
+                return (context, 0, false)
+            }
+
+            if var sections = doc["sections"] as? [[String: Any]], !sections.isEmpty {
+                for sectionIndex in stride(from: sections.count - 1, through: 0, by: -1) {
+                    var section = sections[sectionIndex]
+                    if section["content"] != nil {
+                        section.removeValue(forKey: "content")
+                        sections[sectionIndex] = section
+                        doc["sections"] = sections
+                        documents[docIndex] = doc
+                        json["medical_documents"] = documents
+                        if let serialized = serializeJSON(json) {
+                            return (serialized, 1, true)
+                        }
+                        return (context, 0, false)
+                    }
+                }
+            }
+        }
+
+        return (context, 0, false)
+    }
+
+    private static func serializeJSON(_ object: [String: Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return json
     }
 }
 

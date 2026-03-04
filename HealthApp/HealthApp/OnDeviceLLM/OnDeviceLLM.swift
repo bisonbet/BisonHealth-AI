@@ -349,13 +349,13 @@ open class OnDeviceLLM: ObservableObject {
         guard !input.isEmpty else { return false }
         context = context ?? LLMContext(model, params)
         self.batch.clear()
-        var tokens = encode(input)
+        let tokens = encode(input)
 
         let outputReserve = min(2048, max(256, maxTokenCount / 10))
         let maxInputTokens = maxTokenCount - outputReserve
         if tokens.count > maxInputTokens {
-            print("[OnDeviceLLM] Input too long (\(tokens.count) tokens), truncating to \(maxInputTokens) (reserving \(outputReserve) for output)")
-            tokens = Array(tokens.prefix(maxInputTokens))
+            print("[OnDeviceLLM] Input too long (\(tokens.count) tokens), max allowed is \(maxInputTokens) (reserving \(outputReserve) for output)")
+            return false
         }
 
         self.inputTokenCount = Int32(tokens.count)

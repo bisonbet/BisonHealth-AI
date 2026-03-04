@@ -34,9 +34,9 @@ class AIChatManager: ObservableObject {
     private let retryManager = NetworkRetryManager.shared
     
     // MARK: - Computed Properties
-    /// Get context size limit from settings (defaults to 16k for Ollama)
+    /// Get context size limit from provider-specific settings
     var contextSizeLimit: Int {
-        settingsManager.modelPreferences.contextSizeLimit
+        AIProviderContextLimits.limit(for: settingsManager.modelPreferences.aiProvider)
     }
     
     /// Context compression threshold (90% of limit to allow some headroom)
@@ -269,9 +269,17 @@ class AIChatManager: ObservableObject {
     }
     
     private func generateConversationTitle(for conversation: ChatConversation) async throws -> String {
-        // Get the first user message and first assistant message
-        guard let userMessage = conversation.messages.first(where: { $0.role == .user }),
-              let assistantMessage = conversation.messages.first(where: { $0.role == .assistant }) else {
+        // Get the first user message
+        guard let userMessage = conversation.messages.first(where: { $0.role == .user }) else {
+            return "New Conversation"
+        }
+
+        // Reliability fix: On-device title generation should not run through the LLM client.
+        if settingsManager.modelPreferences.aiProvider == .onDeviceLLM {
+            return generateHeuristicTitle(from: userMessage.content)
+        }
+
+        guard let assistantMessage = conversation.messages.first(where: { $0.role == .assistant }) else {
             return "New Conversation"
         }
 
@@ -359,6 +367,10 @@ class AIChatManager: ObservableObject {
             throw AIChatError.noActiveConversation
         }
 
+        guard !isSendingMessage else {
+            throw AIChatError.messageInFlight
+        }
+
         guard !isOffline else {
             throw AIChatError.notConnected
         }
@@ -368,7 +380,12 @@ class AIChatManager: ObservableObject {
         }
 
         isLoading = true
+        isSendingMessage = true
         errorMessage = nil
+        defer {
+            isLoading = false
+            isSendingMessage = false
+        }
 
         // Create user message
         let userMessage = ChatMessage(
@@ -496,7 +513,6 @@ class AIChatManager: ObservableObject {
             throw error
         }
 
-        isLoading = false
     }
 
     /// Retry a failed message
@@ -686,12 +702,18 @@ class AIChatManager: ObservableObject {
         // For OpenAI Compatible/Bedrock: ALWAYS send via standard API (server handles formatting)
         // For normal models: send if context is provided
         let shouldSendSystemPrompt: Bool
-        if requiresInjection {
-            // Ollama exception models only: instructions are embedded in first message by AIChatManager
-            shouldSendSystemPrompt = false
-        } else {
-            // Normal models + OpenAI Compatible + Bedrock: send via standard API if context is provided
-            shouldSendSystemPrompt = !context.isEmpty
+        switch settingsManager.modelPreferences.aiProvider {
+        case .onDeviceLLM:
+            // Keep persona consistently active for small on-device models.
+            shouldSendSystemPrompt = true
+        default:
+            if requiresInjection {
+                // Ollama exception models only: instructions are embedded in first message by AIChatManager
+                shouldSendSystemPrompt = false
+            } else {
+                // Normal models + OpenAI Compatible + Bedrock: send via standard API if context is provided
+                shouldSendSystemPrompt = !context.isEmpty
+            }
         }
 
         // Use the selected AI provider with streaming support
@@ -924,11 +946,24 @@ class AIChatManager: ObservableObject {
                 conversationHistory = []
             }
 
+            let onDeviceContextResult = ConversationContextBuilder.buildContext(
+                currentMessage: content,
+                healthContext: context,
+                conversationHistory: conversationHistory,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
+                provider: .onDeviceLLM
+            )
+            ConversationContextBuilder.logContextSummary(onDeviceContextResult)
+            logger.info(
+                "[OnDeviceTurn] conversationId=\(conversationId.uuidString), estimatedTokens=\(onDeviceContextResult.estimatedTokens), trimmedHistory=\(onDeviceContextResult.trimmedMessageCount), contextBytes=\(context.utf8.count)"
+            )
+
             // Use compact system prompt for on-device LLM (small models need concise instructions)
             try await onDeviceLLMClient.sendStreamingChatMessage(
                 content,
                 context: context,
-                conversationHistory: conversationHistory,
+                conversationHistory: onDeviceContextResult.conversationHistory,
+                conversationId: conversationId,
                 model: nil,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
@@ -949,6 +984,7 @@ class AIChatManager: ObservableObject {
                             id: streamingMessageId,
                             content: finalResponse.content,
                             role: .assistant,
+                            metadata: self.stringifyMetadata(finalResponse.metadata),
                             tokens: finalResponse.tokenCount,
                             processingTime: finalResponse.responseTime
                         )
@@ -1243,10 +1279,46 @@ class AIChatManager: ObservableObject {
     func buildHealthDataContextForTesting() async -> String {
         return await buildHealthDataContext()
     }
+
+    func generateConversationTitleForTesting(for conversation: ChatConversation) async throws -> String {
+        try await generateConversationTitle(for: conversation)
+    }
     #endif
 
     // MARK: - Private Properties
     private var cancellables = Set<AnyCancellable>()
+
+    private func stringifyMetadata(_ metadata: [String: Any]?) -> [String: String]? {
+        guard let metadata, !metadata.isEmpty else {
+            return nil
+        }
+
+        var result: [String: String] = [:]
+        for (key, value) in metadata {
+            switch value {
+            case let string as String:
+                result[key] = string
+            case let boolValue as Bool:
+                result[key] = boolValue ? "true" : "false"
+            case let intValue as Int:
+                result[key] = String(intValue)
+            case let doubleValue as Double:
+                result[key] = String(format: "%.4f", doubleValue)
+            case let floatValue as Float:
+                result[key] = String(format: "%.4f", floatValue)
+            default:
+                if JSONSerialization.isValidJSONObject(value),
+                   let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+                   let json = String(data: data, encoding: .utf8) {
+                    result[key] = json
+                } else {
+                    result[key] = String(describing: value)
+                }
+            }
+        }
+
+        return result.isEmpty ? nil : result
+    }
 
     // MARK: - Cleanup
     deinit {
@@ -1316,10 +1388,11 @@ enum OfflineActionResult {
 }
 
 // MARK: - AI Chat Errors
-enum AIChatError: LocalizedError {
+enum AIChatError: LocalizedError, Equatable {
     case noActiveConversation
     case notConnected
     case emptyMessage
+    case messageInFlight
     case contextTooLarge
     case processingFailed(String)
     case networkError(Error)
@@ -1332,6 +1405,8 @@ enum AIChatError: LocalizedError {
             return "Not connected to AI service"
         case .emptyMessage:
             return "Message cannot be empty"
+        case .messageInFlight:
+            return "Please wait for the current response to finish before sending another message."
         case .contextTooLarge:
             return "Health data context is too large"
         case .processingFailed(let message):
@@ -1349,12 +1424,31 @@ enum AIChatError: LocalizedError {
             return "Check your internet connection and server settings"
         case .emptyMessage:
             return "Please enter a message before sending"
+        case .messageInFlight:
+            return "Wait for the current response, then send your next question."
         case .contextTooLarge:
             return "Try reducing the amount of health data included in the context"
         case .processingFailed:
             return "Please try again or check your server configuration"
         case .networkError:
             return "Check your network connection and try again"
+        }
+    }
+
+    static func == (lhs: AIChatError, rhs: AIChatError) -> Bool {
+        switch (lhs, rhs) {
+        case (.noActiveConversation, .noActiveConversation),
+             (.notConnected, .notConnected),
+             (.emptyMessage, .emptyMessage),
+             (.messageInFlight, .messageInFlight),
+             (.contextTooLarge, .contextTooLarge):
+            return true
+        case let (.processingFailed(left), .processingFailed(right)):
+            return left == right
+        case (.networkError, .networkError):
+            return true
+        default:
+            return false
         }
     }
 }

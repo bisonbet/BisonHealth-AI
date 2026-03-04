@@ -88,8 +88,12 @@
 		7ZX5UKY45TZCGS2CESWZPMPA /* DocumentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */; };
 		9CBBB35E3D9943619F51470C /* UnifiedContextSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF73574BCD254FCF859CBF45 /* UnifiedContextSelectorView.swift */; };
 		9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */; };
-		9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */; };
-		A1000001294A0000000000001 /* HealthAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002294A0000000000001 /* HealthAppApp.swift */; };
+			9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */; };
+			D0C0A1002F20000100TEST01 /* DoctorPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A1012F20000100TEST01 /* DoctorPromptTests.swift */; };
+			D0C0A1002F20000100TEST02 /* OnDevicePromptBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A1012F20000100TEST02 /* OnDevicePromptBuilderTests.swift */; };
+			D0C0A1002F20000100TEST03 /* OnDeviceTokenBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A1012F20000100TEST03 /* OnDeviceTokenBudgetTests.swift */; };
+			D0C0A1002F20000100TEST04 /* AIChatManagerReliabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A1012F20000100TEST04 /* AIChatManagerReliabilityTests.swift */; };
+			A1000001294A0000000000001 /* HealthAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002294A0000000000001 /* HealthAppApp.swift */; };
 		A1000003294A0000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004294A0000000000001 /* ContentView.swift */; };
 		A1000005294A0000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000006294A0000000000001 /* Assets.xcassets */; };
 		A1000007294A0000000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000008294A0000000000001 /* Preview Assets.xcassets */; };
@@ -293,9 +297,13 @@
 		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageInputView.swift; sourceTree = "<group>"; };
 		B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
-		C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataContextSelector.swift; sourceTree = "<group>"; };
-		CONV02002EA12E9900999004 /* ConversationExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExporter.swift; sourceTree = "<group>"; };
-		DEF123456789BACKUP00001 /* iCloudBackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupManager.swift; sourceTree = "<group>"; };
+			C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataContextSelector.swift; sourceTree = "<group>"; };
+			CONV02002EA12E9900999004 /* ConversationExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExporter.swift; sourceTree = "<group>"; };
+			D0C0A1012F20000100TEST01 /* DoctorPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoctorPromptTests.swift; sourceTree = "<group>"; };
+			D0C0A1012F20000100TEST02 /* OnDevicePromptBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDevicePromptBuilderTests.swift; sourceTree = "<group>"; };
+			D0C0A1012F20000100TEST03 /* OnDeviceTokenBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceTokenBudgetTests.swift; sourceTree = "<group>"; };
+			D0C0A1012F20000100TEST04 /* AIChatManagerReliabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManagerReliabilityTests.swift; sourceTree = "<group>"; };
+			DEF123456789BACKUP00001 /* iCloudBackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupManager.swift; sourceTree = "<group>"; };
 		DEF123456789BACKUP00002 /* BackupManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManagementView.swift; sourceTree = "<group>"; };
 		DEF123456789BACKUP00003 /* iCloudBackupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudBackupTests.swift; sourceTree = "<group>"; };
 		ENT123456789ENTITLE0001 /* HealthApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthApp.entitlements; sourceTree = "<group>"; };
@@ -575,11 +583,15 @@
 				A1000061294A0000000000001 /* FileSystemTests.swift */,
 				A1000069294A0000000000001 /* ServiceClientTests.swift */,
 				A1000075294A0000000000001 /* HealthDataManagerTests.swift */,
-				1423481F2EA07B6300059087 /* NetworkingTests.swift */,
-				TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */,
-				HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */,
-				X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */,
-				DEF123456789BACKUP00003 /* iCloudBackupTests.swift */,
+					1423481F2EA07B6300059087 /* NetworkingTests.swift */,
+					TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */,
+					D0C0A1012F20000100TEST04 /* AIChatManagerReliabilityTests.swift */,
+					D0C0A1012F20000100TEST01 /* DoctorPromptTests.swift */,
+					D0C0A1012F20000100TEST02 /* OnDevicePromptBuilderTests.swift */,
+					D0C0A1012F20000100TEST03 /* OnDeviceTokenBudgetTests.swift */,
+					HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */,
+					X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */,
+					DEF123456789BACKUP00003 /* iCloudBackupTests.swift */,
 				363235363030414442423836 /* AccessibilityTests.swift */,
 			);
 			path = HealthAppTests;
@@ -850,10 +862,14 @@
 				A1000060294A0000000000001 /* FileSystemTests.swift in Sources */,
 				142348202EA07B6300059087 /* NetworkingTests.swift in Sources */,
 				A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */,
-				A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */,
-				HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */,
-				71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */,
-				2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */,
+					A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */,
+					HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */,
+					D0C0A1002F20000100TEST04 /* AIChatManagerReliabilityTests.swift in Sources */,
+					D0C0A1002F20000100TEST01 /* DoctorPromptTests.swift in Sources */,
+					D0C0A1002F20000100TEST02 /* OnDevicePromptBuilderTests.swift in Sources */,
+					D0C0A1002F20000100TEST03 /* OnDeviceTokenBudgetTests.swift in Sources */,
+					71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */,
+					2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */,
 				ABC123456789BACKUP00003 /* iCloudBackupTests.swift in Sources */,
 				313646423741443531333141 /* AccessibilityTests.swift in Sources */,
 			);

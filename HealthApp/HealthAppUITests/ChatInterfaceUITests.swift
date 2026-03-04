@@ -83,6 +83,22 @@ final class ChatInterfaceUITests: XCTestCase {
         let sentMessage = app.staticTexts["Test message"]
         XCTAssertTrue(sentMessage.waitForExistence(timeout: 2), "Sent message should appear in chat")
     }
+
+    func testSendDisabledWhileTypingIndicatorActive() throws {
+        startNewConversationAndWait()
+
+        let messageInput = app.textFields["Type your message..."]
+        messageInput.tap()
+        messageInput.typeText("Streaming lock check")
+
+        let sendButton = app.buttons["chat.sendButton"]
+        XCTAssertTrue(sendButton.exists, "Send button should exist")
+        sendButton.tap()
+
+        let typingIndicator = app.otherElements["typingIndicator"]
+        XCTAssertTrue(typingIndicator.waitForExistence(timeout: 3), "Typing indicator should appear while streaming")
+        XCTAssertFalse(sendButton.isEnabled, "Send button must be disabled while typing indicator is visible")
+    }
     
     // MARK: - iPad Specific Tests
     

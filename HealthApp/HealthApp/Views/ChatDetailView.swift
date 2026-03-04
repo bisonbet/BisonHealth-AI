@@ -14,6 +14,7 @@ struct ChatDetailView: View {
     @State private var showingDoctorSelector = false
     @State private var showingAIDocumentSelector = false
     @State private var errorMessage: String?
+    @State private var alertTitle: String = "Error"
     @State private var showingErrorAlert = false
     @FocusState private var isMessageInputFocused: Bool
     
@@ -84,7 +85,7 @@ struct ChatDetailView: View {
                 }
             }
         }
-        .alert("Error", isPresented: $showingErrorAlert) {
+        .alert(alertTitle, isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) {
                 errorMessage = nil
             }
@@ -195,7 +196,10 @@ struct ChatDetailView: View {
     private var messageInputView: some View {
         EnhancedMessageInputView(
             text: $messageText,
-            isEnabled: chatManager.isConnected && !chatManager.isOffline,
+            isEnabled: chatManager.isConnected
+                && !chatManager.isOffline
+                && !chatManager.isLoading
+                && !chatManager.isSendingMessage,
             isIPad: isIPad,
             onSend: {
                 sendMessage()
@@ -210,6 +214,13 @@ struct ChatDetailView: View {
     private func sendMessage() {
         let message = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
+
+        guard !chatManager.isLoading && !chatManager.isSendingMessage else {
+            alertTitle = "Please Wait"
+            errorMessage = AIChatError.messageInFlight.localizedDescription
+            showingErrorAlert = true
+            return
+        }
         
         Task {
             do {
@@ -225,8 +236,13 @@ struct ChatDetailView: View {
                     }
                 }
             } catch {
-                // Show user-facing error alert
-                errorMessage = "Failed to send message: \(error.localizedDescription)"
+                if let chatError = error as? AIChatError, case .messageInFlight = chatError {
+                    alertTitle = "Please Wait"
+                    errorMessage = chatError.localizedDescription
+                } else {
+                    alertTitle = "Error"
+                    errorMessage = "Failed to send message: \(error.localizedDescription)"
+                }
                 showingErrorAlert = true
             }
         }
@@ -344,6 +360,7 @@ struct EnhancedMessageListView: View {
 
                     if isLoading {
                         TypingIndicatorView()
+                            .accessibilityIdentifier("typingIndicator")
                             .id("typing")
                     }
                 }
@@ -686,6 +703,7 @@ struct EnhancedMessageInputView: View {
                     .focused($isTextFieldFocused)
                     .disabled(!isEnabled)
                     .lineLimit(1...8)
+                    .accessibilityIdentifier("chat.messageInput")
                     .onSubmit {
                         if isIPad {
                             // On iPad, Enter sends message, Shift+Enter adds new line
@@ -711,6 +729,7 @@ struct EnhancedMessageInputView: View {
                         .font(.title2)
                         .foregroundColor(canSend ? .blue : .secondary)
                 }
+                .accessibilityIdentifier("chat.sendButton")
                 .disabled(!canSend)
             }
             .padding(.horizontal, 16)
