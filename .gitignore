@@ -161,3 +161,6 @@ gha-creds-*.json
 
 # Internal compliance work products
 HIPAA_Compliance_Remediation_Plan.md
+
+# Migration notes
+MLX_MIGRATION_SUMMARY.md

@@ -1088,10 +1088,10 @@ class DocumentProcessor: ObservableObject {
             aiClient = bedrockClient
 
         case .onDeviceLLM:
-            let onDeviceClient = settingsManager.getOnDeviceLLMClient()
-            let selectedModel = OnDeviceLLMModelInfo.selectedModel
-            print("📄 DocumentProcessor: Using On-Device LLM extraction model: \(selectedModel.displayName)")
-            aiClient = onDeviceClient
+            let mlxClient = settingsManager.getMLXOnDeviceClient()
+            let selectedModel = MLXModelInfo.selectedModel
+            print("📄 DocumentProcessor: Using MLX on-device extraction model: \(selectedModel.displayName)")
+            aiClient = mlxClient
         }
 
         // Log file type info

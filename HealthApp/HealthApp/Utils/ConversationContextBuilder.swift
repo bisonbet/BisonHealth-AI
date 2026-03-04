@@ -13,9 +13,9 @@ import Foundation
 /// Context window limits for different AI providers (in tokens)
 @MainActor
 enum AIProviderContextLimits {
-    /// On-device LLM - uses configured context size (default 16k, max 64k)
+    /// On-device LLM (MLX) - uses configured context size (default 16k, max 64k)
     static var onDeviceLLM: Int {
-        OnDeviceLLMModelInfo.configuredContextSize
+        MLXModelInfo.configuredContextSize
     }
 
     /// Ollama - configurable, uses SettingsManager value (default 16k)

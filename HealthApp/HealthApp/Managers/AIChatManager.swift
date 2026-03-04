@@ -146,7 +146,7 @@ class AIChatManager: ObservableObject {
             isConnected = settingsManager.hasValidOpenAICompatibleConfig()
         case .onDeviceLLM:
             // For on-device LLM, check if enabled and a model is downloaded
-            isConnected = OnDeviceLLMModelInfo.isEnabled && OnDeviceLLMModelInfo.selectedModel.isDownloaded
+            isConnected = MLXModelInfo.isEnabled && MLXModelDownloadManager.shared.isModelDownloaded(MLXModelInfo.selectedModel)
         }
     }
     
@@ -422,7 +422,7 @@ class AIChatManager: ObservableObject {
             case .bedrock:
                 currentModel = settingsManager.modelPreferences.bedrockModel
             case .onDeviceLLM:
-                currentModel = OnDeviceLLMModelInfo.selectedModel.displayName
+                currentModel = MLXModelInfo.selectedModel.displayName
             }
             let userMessageCount = updatedConversation.messages.filter({ $0.role == .user }).count
             let assistantMessageCount = updatedConversation.messages.filter({ $0.role == .assistant }).count
@@ -656,7 +656,7 @@ class AIChatManager: ObservableObject {
         case .bedrock:
             currentModel = settingsManager.modelPreferences.bedrockModel
         case .onDeviceLLM:
-            currentModel = OnDeviceLLMModelInfo.selectedModel.displayName
+            currentModel = MLXModelInfo.selectedModel.displayName
         }
 
         // Get the conversation and its messages BEFORE adding the placeholder
@@ -923,7 +923,7 @@ class AIChatManager: ObservableObject {
             )
 
         case .onDeviceLLM:
-            let onDeviceLLMClient = settingsManager.getOnDeviceLLMClient()
+            let mlxClient = settingsManager.getMLXOnDeviceClient()
 
             // Get conversation history for multi-turn support
             // Exclude the current user message and any empty placeholder messages
@@ -959,7 +959,7 @@ class AIChatManager: ObservableObject {
             )
 
             // Use compact system prompt for on-device LLM (small models need concise instructions)
-            try await onDeviceLLMClient.sendStreamingChatMessage(
+            try await mlxClient.sendStreamingChatMessage(
                 content,
                 context: context,
                 conversationHistory: onDeviceContextResult.conversationHistory,

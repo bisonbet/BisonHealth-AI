@@ -196,7 +196,7 @@ class SettingsManager: ObservableObject {
     private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
-    private var onDeviceLLMClient: OnDeviceLLMClient?
+    private var mlxOnDeviceClient: MLXOnDeviceClient?
 
     // iCloud backup manager
     @Published var backupManager: iCloudBackupManager?
@@ -384,7 +384,7 @@ class SettingsManager: ObservableObject {
         case .openAICompatible:
             return getOpenAICompatibleClient()
         case .onDeviceLLM:
-            return getOnDeviceLLMClient()
+            return getMLXOnDeviceClient()
         }
     }
 
@@ -439,11 +439,11 @@ class SettingsManager: ObservableObject {
         return BedrockClient(config: config)
     }
 
-    func getOnDeviceLLMClient() -> OnDeviceLLMClient {
-        if onDeviceLLMClient == nil {
-            onDeviceLLMClient = OnDeviceLLMClient()
+    func getMLXOnDeviceClient() -> MLXOnDeviceClient {
+        if mlxOnDeviceClient == nil {
+            mlxOnDeviceClient = MLXOnDeviceClient()
         }
-        return onDeviceLLMClient!
+        return mlxOnDeviceClient!
     }
 
     // Force recreation of clients when configuration changes
@@ -451,7 +451,7 @@ class SettingsManager: ObservableObject {
         ollamaClient = nil
         doclingClient = nil
         openAICompatibleClient = nil
-        onDeviceLLMClient = nil
+        mlxOnDeviceClient = nil
     }
 
     func invalidateOpenAICompatibleClient() {
@@ -470,27 +470,27 @@ class SettingsManager: ObservableObject {
         }
 
         // Check if on-device LLM is enabled and a model is downloaded
-        guard OnDeviceLLMModelInfo.isEnabled else {
+        guard MLXModelInfo.isEnabled else {
             print("[SettingsManager] On-device LLM not enabled, skipping preload")
             return
         }
 
-        let selectedModel = OnDeviceLLMModelInfo.selectedModel
-        guard selectedModel.isDownloaded else {
+        let selectedModel = MLXModelInfo.selectedModel
+        guard MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) else {
             print("[SettingsManager] No model downloaded, skipping preload")
             return
         }
 
-        print("[SettingsManager] Preloading on-device LLM model: \(selectedModel.displayName)")
+        print("[SettingsManager] Preloading MLX on-device model: \(selectedModel.displayName)")
 
         // Start loading in background
         Task {
             do {
-                let client = getOnDeviceLLMClient()
+                let client = getMLXOnDeviceClient()
                 try await client.loadModel()
-                print("[SettingsManager] On-device LLM model preloaded successfully")
+                print("[SettingsManager] MLX on-device model preloaded successfully")
             } catch {
-                print("[SettingsManager] Failed to preload on-device LLM: \(error.localizedDescription)")
+                print("[SettingsManager] Failed to preload MLX on-device model: \(error.localizedDescription)")
             }
         }
     }
@@ -498,13 +498,13 @@ class SettingsManager: ObservableObject {
     // MARK: - App Lifecycle
 
     func suspendOnDeviceLLMForBackground() async {
-        guard let onDeviceLLMClient = onDeviceLLMClient else { return }
-        await onDeviceLLMClient.suspendForBackground()
+        guard let mlxOnDeviceClient = mlxOnDeviceClient else { return }
+        await mlxOnDeviceClient.suspendForBackground()
     }
 
     func resumeOnDeviceLLMAfterForeground() async {
-        guard let onDeviceLLMClient = onDeviceLLMClient else { return }
-        await onDeviceLLMClient.resumeAfterForeground()
+        guard let mlxOnDeviceClient = mlxOnDeviceClient else { return }
+        await mlxOnDeviceClient.resumeAfterForeground()
     }
 
     // MARK: - Validation

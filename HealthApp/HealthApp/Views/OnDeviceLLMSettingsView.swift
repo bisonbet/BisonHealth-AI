@@ -2,7 +2,7 @@
 //  OnDeviceLLMSettingsView.swift
 //  HealthApp
 //
-//  Settings view for on-device LLM configuration
+//  Settings view for MLX on-device LLM configuration
 //
 
 import SwiftUI
@@ -13,25 +13,25 @@ struct OnDeviceLLMSettingsView: View {
 
     // MARK: - Properties
 
-    @ObservedObject var downloadManager = OnDeviceLLMDownloadManager.shared
-    @State private var isEnabled = OnDeviceLLMModelInfo.isEnabled
-    @State private var selectedModelId = OnDeviceLLMModelInfo.selectedModel.id
+    @ObservedObject var downloadManager = MLXModelDownloadManager.shared
+    @State private var isEnabled = MLXModelInfo.isEnabled
+    @State private var selectedModelId = MLXModelInfo.selectedModel.id
     @State private var showDeleteConfirmation = false
-    @State private var modelToDelete: OnDeviceLLMModelInfo?
+    @State private var modelToDelete: MLXModelInfo?
     @State private var showAdvancedSettings = false
 
     // Sampling parameters
-    @State private var temperature = OnDeviceLLMModelInfo.configuredTemperature
-    @State private var topK = Int(OnDeviceLLMModelInfo.configuredTopK)
-    @State private var topP = OnDeviceLLMModelInfo.configuredTopP
-    @State private var repeatPenalty = OnDeviceLLMModelInfo.configuredRepeatPenalty
-    @State private var contextSize = OnDeviceLLMModelInfo.configuredContextSize
+    @State private var temperature = MLXModelInfo.configuredTemperature
+    @State private var topP = MLXModelInfo.configuredTopP
+    @State private var maxTokens = MLXModelInfo.configuredMaxTokens
+    @State private var contextSize = MLXModelInfo.configuredContextSize
 
     // MARK: - Body
 
     var body: some View {
         List {
             enableSection
+            simulatorWarningSection
             modelSelectionSection
             downloadSection
             advancedSettingsSection
@@ -51,7 +51,7 @@ struct OnDeviceLLMSettingsView: View {
             }
         } message: {
             if let model = modelToDelete {
-                Text("Delete \(model.displayName)? This will free up \(model.downloadSize) of storage.")
+                Text("Delete \(model.displayName)? This will free up storage.")
             }
         }
         .accessibilityIdentifier("onDeviceLLMSettingsView")
@@ -63,25 +63,41 @@ struct OnDeviceLLMSettingsView: View {
         Section {
             Toggle("Enable On-Device LLM", isOn: $isEnabled)
                 .onChange(of: isEnabled) { _, newValue in
-                    UserDefaults.standard.set(newValue, forKey: OnDeviceLLMModelInfo.SettingsKeys.enableOnDeviceLLM)
+                    UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.enableOnDeviceLLM)
                     SettingsManager.shared.invalidateClients()
                 }
                 .accessibilityIdentifier("enableOnDeviceLLMToggle")
         } header: {
-            Text("On-Device AI")
+            Text("On-Device AI (MLX)")
         } footer: {
-            Text("Run AI models directly on your device. No internet required after downloading a model. Fully private - your data never leaves your device.")
+            Text("Run AI models directly on your device using Apple MLX. No internet required after downloading a model. Fully private - your data never leaves your device.")
         }
+    }
+
+    @ViewBuilder
+    private var simulatorWarningSection: some View {
+        #if targetEnvironment(simulator)
+        Section {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text("On-device LLM requires a physical device. MLX is not available in the iOS Simulator.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        #endif
     }
 
     private var modelSelectionSection: some View {
         Section {
-            ForEach(OnDeviceLLMModelInfo.allModels) { model in
-                ModelRowView(
+            ForEach(MLXModelInfo.allModels) { model in
+                MLXModelRowView(
                     model: model,
-                    isSelected: model.id == selectedModelId && model.isDownloaded,
+                    isSelected: model.id == selectedModelId && downloadManager.isModelDownloaded(model),
+                    isDownloaded: downloadManager.isModelDownloaded(model),
                     onSelect: {
-                        if model.isDownloaded {
+                        if downloadManager.isModelDownloaded(model) {
                             selectModel(model)
                         }
                     },
@@ -95,9 +111,9 @@ struct OnDeviceLLMSettingsView: View {
                 )
             }
         } header: {
-            Text("Medical AI Models")
+            Text("AI Models")
         } footer: {
-            Text("These models are specifically trained for medical and clinical applications. MedGemma excels at clinical reasoning and radiology, while MediPhi is optimized for medical coding and documentation.")
+            Text("MediPhi is optimized for medical Q&A and clinical reasoning. Qwen 3.5 Vision supports both text and image understanding.")
         }
     }
 
@@ -119,23 +135,9 @@ struct OnDeviceLLMSettingsView: View {
                         ProgressView(value: downloadManager.downloadProgress)
                             .progressViewStyle(.linear)
 
-                        HStack {
-                            Text("\(formatSize(downloadManager.downloadedSize)) / \(formatSize(downloadManager.totalSize))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                            Spacer()
-
-                            Text(downloadManager.formattedDownloadSpeed)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let timeRemaining = downloadManager.estimatedTimeRemaining {
-                            Text(timeRemaining)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                        Text("\(Int(downloadManager.downloadProgress * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 4)
                 } header: {
@@ -162,7 +164,7 @@ struct OnDeviceLLMSettingsView: View {
         Section {
             DisclosureGroup("Advanced Settings", isExpanded: $showAdvancedSettings) {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Context Size (Primary setting for medical use)
+                    // Context Size
                     VStack(alignment: .leading) {
                         HStack {
                             Text("Context Size")
@@ -173,11 +175,11 @@ struct OnDeviceLLMSettingsView: View {
                         Slider(value: Binding(
                             get: { Double(contextSize) },
                             set: { contextSize = Int($0) }
-                        ), in: Double(OnDeviceLLMModelInfo.minContextSize)...Double(OnDeviceLLMModelInfo.maxContextSize), step: 1024)
+                        ), in: Double(MLXModelInfo.minContextSize)...Double(MLXModelInfo.maxContextSize), step: 1024)
                             .onChange(of: contextSize) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: OnDeviceLLMModelInfo.SettingsKeys.contextSize)
+                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.contextSize)
                             }
-                        Text("Default: 16K. Range: 4K-64K. Larger context allows more conversation history but uses more memory.")
+                        Text("Default: 16K. Larger context allows more conversation history but uses more memory.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -192,29 +194,9 @@ struct OnDeviceLLMSettingsView: View {
                         }
                         Slider(value: $temperature, in: 0.0...1.0, step: 0.05)
                             .onChange(of: temperature) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: OnDeviceLLMModelInfo.SettingsKeys.temperature)
+                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.temperature)
                             }
-                        Text("Medical models use low temperature (0.0-0.2) for accurate, consistent responses. Higher values increase creativity but may reduce accuracy.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    // Top K
-                    VStack(alignment: .leading) {
-                        HStack {
-                            Text("Top K")
-                            Spacer()
-                            Text("\(topK)")
-                                .foregroundColor(.secondary)
-                        }
-                        Slider(value: Binding(
-                            get: { Double(topK) },
-                            set: { topK = Int($0) }
-                        ), in: 1...100, step: 1)
-                            .onChange(of: topK) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: OnDeviceLLMModelInfo.SettingsKeys.topK)
-                            }
-                        Text("Number of top tokens to consider for sampling.")
+                        Text("Medical models use low temperature (0.0-0.4) for accurate, consistent responses.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -229,34 +211,37 @@ struct OnDeviceLLMSettingsView: View {
                         }
                         Slider(value: $topP, in: 0.0...1.0, step: 0.05)
                             .onChange(of: topP) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: OnDeviceLLMModelInfo.SettingsKeys.topP)
+                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.topP)
                             }
                         Text("Nucleus sampling threshold.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
 
-                    // Repeat Penalty
+                    // Max Tokens
                     VStack(alignment: .leading) {
                         HStack {
-                            Text("Repeat Penalty")
+                            Text("Max Response Tokens")
                             Spacer()
-                            Text(String(format: "%.2f", repeatPenalty))
+                            Text("\(maxTokens)")
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $repeatPenalty, in: 1.0...2.0, step: 0.05)
-                            .onChange(of: repeatPenalty) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: OnDeviceLLMModelInfo.SettingsKeys.repeatPenalty)
+                        Slider(value: Binding(
+                            get: { Double(maxTokens) },
+                            set: { maxTokens = Int($0) }
+                        ), in: 100...4096, step: 100)
+                            .onChange(of: maxTokens) { _, newValue in
+                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.maxTokens)
                             }
-                        Text("Penalizes repetition in generated text.")
+                        Text("Maximum number of tokens in each response.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
 
                     // Reset to Defaults
                     Button("Reset to Model Defaults") {
-                        if let model = OnDeviceLLMModelInfo.model(withId: selectedModelId) {
-                            OnDeviceLLMModelInfo.applyDefaultSettings(for: model)
+                        if let model = MLXModelInfo.model(withId: selectedModelId) {
+                            MLXModelInfo.applyDefaultSettings(for: model)
                             refreshState()
                         }
                     }
@@ -269,14 +254,6 @@ struct OnDeviceLLMSettingsView: View {
 
     private var storageSection: some View {
         Section {
-            HStack {
-                Text("Models Directory")
-                Spacer()
-                Text(URL.onDeviceLLMModelsDirectory.lastPathComponent)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
             let downloadedModels = downloadManager.downloadedModels
             if !downloadedModels.isEmpty {
                 HStack {
@@ -289,9 +266,12 @@ struct OnDeviceLLMSettingsView: View {
                 HStack {
                     Text("Total Storage Used")
                     Spacer()
-                    Text(formatTotalStorage(downloadedModels))
+                    Text(downloadManager.formatSize(downloadManager.totalStorageUsed))
                         .foregroundColor(.secondary)
                 }
+            } else {
+                Text("No models downloaded")
+                    .foregroundColor(.secondary)
             }
         } header: {
             Text("Storage")
@@ -301,44 +281,29 @@ struct OnDeviceLLMSettingsView: View {
     // MARK: - Helper Methods
 
     private func refreshState() {
-        isEnabled = OnDeviceLLMModelInfo.isEnabled
-        selectedModelId = OnDeviceLLMModelInfo.selectedModel.id
-        temperature = OnDeviceLLMModelInfo.configuredTemperature
-        topK = Int(OnDeviceLLMModelInfo.configuredTopK)
-        topP = OnDeviceLLMModelInfo.configuredTopP
-        repeatPenalty = OnDeviceLLMModelInfo.configuredRepeatPenalty
-        contextSize = OnDeviceLLMModelInfo.configuredContextSize
+        isEnabled = MLXModelInfo.isEnabled
+        selectedModelId = MLXModelInfo.selectedModel.id
+        temperature = MLXModelInfo.configuredTemperature
+        topP = MLXModelInfo.configuredTopP
+        maxTokens = MLXModelInfo.configuredMaxTokens
+        contextSize = MLXModelInfo.configuredContextSize
         downloadManager.refreshModelStatus()
     }
 
-    private func selectModel(_ model: OnDeviceLLMModelInfo) {
+    private func selectModel(_ model: MLXModelInfo) {
         selectedModelId = model.id
-        UserDefaults.standard.set(model.id, forKey: OnDeviceLLMModelInfo.SettingsKeys.selectedModelId)
+        UserDefaults.standard.set(model.id, forKey: MLXModelInfo.SettingsKeys.selectedModelId)
         downloadManager.selectModel(model)
         SettingsManager.shared.invalidateClients()
-    }
-
-    private func formatSize(_ bytes: Int64) -> String {
-        let sizeInGB = Double(bytes) / 1_000_000_000.0
-        if sizeInGB >= 1.0 {
-            return String(format: "%.2f GB", sizeInGB)
-        } else {
-            let sizeInMB = Double(bytes) / 1_000_000.0
-            return String(format: "%.0f MB", sizeInMB)
-        }
-    }
-
-    private func formatTotalStorage(_ models: [OnDeviceLLMModelInfo]) -> String {
-        let totalBytes = models.compactMap { $0.downloadedFileSize }.reduce(0, +)
-        return formatSize(totalBytes)
     }
 }
 
 // MARK: - Model Row View
 
-private struct ModelRowView: View {
-    let model: OnDeviceLLMModelInfo
+private struct MLXModelRowView: View {
+    let model: MLXModelInfo
     let isSelected: Bool
+    let isDownloaded: Bool
     let onSelect: () -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
@@ -347,9 +312,19 @@ private struct ModelRowView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(model.displayName)
                             .font(.headline)
+
+                        // Model type badge
+                        Text(model.modelType.badge)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(model.modelType == .vlm ? Color.purple.opacity(0.15) : Color.blue.opacity(0.15))
+                            .foregroundColor(model.modelType == .vlm ? .purple : .blue)
+                            .clipShape(Capsule())
 
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
@@ -365,7 +340,7 @@ private struct ModelRowView: View {
 
                 Spacer()
 
-                if model.isDownloaded {
+                if isDownloaded {
                     Menu {
                         if !isSelected {
                             Button("Select") {
@@ -386,7 +361,7 @@ private struct ModelRowView: View {
                     } label: {
                         HStack {
                             Image(systemName: "arrow.down.circle")
-                            Text(model.downloadSize)
+                            Text(model.estimatedSize)
                         }
                         .font(.subheadline)
                     }
@@ -401,7 +376,7 @@ private struct ModelRowView: View {
 
                 Spacer()
 
-                if model.isDownloaded {
+                if isDownloaded {
                     Label("Downloaded", systemImage: "checkmark.circle")
                         .font(.caption2)
                         .foregroundColor(.green)
@@ -411,10 +386,12 @@ private struct ModelRowView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            if model.isDownloaded {
+            if isDownloaded {
                 onSelect()
             }
         }
+        .accessibilityLabel("\(model.displayName), \(model.modelType.displayName) model, \(isDownloaded ? "downloaded" : "not downloaded")")
+        .accessibilityHint(isDownloaded ? "Tap to select this model" : "Tap download button to get this model")
     }
 }
 

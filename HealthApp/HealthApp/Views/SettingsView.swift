@@ -276,10 +276,10 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
 
             // Show model status
-            if OnDeviceLLMModelInfo.isEnabled {
-                let selectedModel = OnDeviceLLMModelInfo.selectedModel
+            if MLXModelInfo.isEnabled {
+                let selectedModel = MLXModelInfo.selectedModel
                 HStack {
-                    if selectedModel.isDownloaded {
+                    if MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                         Text("Ready: \(selectedModel.displayName)")
@@ -397,8 +397,8 @@ struct SettingsView: View {
                 Spacer()
             }
 
-            let selectedModel = OnDeviceLLMModelInfo.selectedModel
-            if selectedModel.isDownloaded {
+            let selectedModel = MLXModelInfo.selectedModel
+            if MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) {
                 Text("Using: \(selectedModel.displayName)")
                     .font(.caption)
                     .foregroundColor(.green)

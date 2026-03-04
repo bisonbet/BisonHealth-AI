@@ -834,7 +834,7 @@ struct ConversationSettingsView: View {
         case .openAICompatible:
             return prefs.openAICompatibleModel.isEmpty ? "Not configured" : prefs.openAICompatibleModel
         case .onDeviceLLM:
-            return OnDeviceLLMModelInfo.selectedModel.displayName
+            return MLXModelInfo.selectedModel.displayName
         }
     }
     
