@@ -20,6 +20,17 @@ import MLXVLM
 @MainActor
 class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
+    private struct ChatSessionSignature: Equatable {
+        let conversationId: UUID
+        let modelId: String
+        let systemPrompt: String?
+        let maxTokens: Int?
+        let maxKVSize: Int?
+        let temperature: Float
+        let topP: Float
+        let repetitionPenalty: Float?
+    }
+
     // MARK: - Published Properties (AIProviderInterface)
 
     @Published var isConnected: Bool = false
@@ -35,8 +46,8 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     private var currentModelInfo: MLXModelInfo?
     private var isModelLoaded = false
-    private var activeConversationId: UUID?
     private var isSuspendedForBackground = false
+    private var chatSessionSignature: ChatSessionSignature?
     private let logger = Logger.shared
 
     // MARK: - AIProviderInterface Methods
@@ -56,15 +67,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         do {
             try await loadModel()
 
-            guard modelContainer != nil else {
-                throw MLXOnDeviceError.modelNotLoaded
-            }
+            let session = try makeIsolatedSession(maxTokensOverride: 10)
 
             // Quick test: generate a short response
-            let session = ChatSession(
-                modelContainer!,
-                generateParameters: GenerateParameters(maxTokens: 10)
-            )
             let testResult = try await session.respond(to: "Say OK")
 
             let success = !testResult.isEmpty
@@ -86,16 +91,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #else
         try await ensureModelLoaded()
 
-        guard let chatSession else {
-            throw MLXOnDeviceError.modelNotLoaded
-        }
+        let session = try makeIsolatedSession()
 
         let startTime = Date()
 
         // Prepend health context to the user message
         let fullMessage = context.isEmpty ? message : "Health context:\n\(context)\n\nQuestion: \(message)"
 
-        let response = try await chatSession.respond(to: fullMessage)
+        let response = try await session.respond(to: fullMessage)
         let responseTime = Date().timeIntervalSince(startTime)
 
         return MLXOnDeviceResponse(
@@ -145,40 +148,24 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             throw MLXOnDeviceError.modelNotLoaded
         }
 
-        // Handle conversation switching — clear session when conversation changes
-        if activeConversationId != conversationId {
-            logger.info("[MLXClient] Conversation changed, resetting session")
-            activeConversationId = conversationId
+        let sessionSignature = makeChatSessionSignature(
+            conversationId: conversationId,
+            systemPrompt: systemPrompt
+        )
+
+        if chatSessionSignature != sessionSignature {
+            logger.info("[MLXClient] Session inputs changed, rebuilding chat session")
             chatSession = nil
+            chatSessionSignature = sessionSignature
         }
 
         // Create or update the ChatSession with the current system prompt
         if chatSession == nil {
-            let generateParams = GenerateParameters(
-                maxTokens: MLXModelInfo.configuredMaxTokens,
-                temperature: MLXModelInfo.configuredTemperature,
-                topP: MLXModelInfo.configuredTopP,
-                repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty
-            )
-
-            // Build history from conversation messages for session rehydration
-            var history: [Chat.Message] = []
-            for msg in conversationHistory {
-                switch msg.role {
-                case .user:
-                    history.append(.user(msg.content))
-                case .assistant:
-                    history.append(.assistant(msg.content))
-                case .system:
-                    break // System messages handled via instructions parameter
-                }
-            }
-
             chatSession = ChatSession(
                 modelContainer,
                 instructions: systemPrompt,
-                history: history,
-                generateParameters: generateParams
+                history: makeChatHistory(from: conversationHistory),
+                generateParameters: currentGenerateParameters()
             )
         }
 
@@ -230,9 +217,15 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #if targetEnvironment(simulator)
         throw MLXOnDeviceError.simulatorNotSupported
         #else
-        guard !isModelLoaded else { return }
-
         let selectedModel = MLXModelInfo.selectedModel
+
+        if isModelLoaded, currentModelInfo?.id == selectedModel.id, modelContainer != nil {
+            return
+        }
+
+        if isModelLoaded {
+            await unloadModel()
+        }
 
         // Check if model is downloaded
         guard MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) else {
@@ -274,7 +267,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #endif
         currentModelInfo = nil
         isModelLoaded = false
-        activeConversationId = nil
+        chatSessionSignature = nil
         connectionStatus = .disconnected
         isConnected = false
     }
@@ -302,4 +295,57 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             try await loadModel()
         }
     }
+
+    #if !targetEnvironment(simulator)
+    private func currentGenerateParameters(maxTokensOverride: Int? = nil) -> GenerateParameters {
+        GenerateParameters(
+            maxKVSize: MLXModelInfo.configuredContextSize,
+            maxTokens: maxTokensOverride ?? MLXModelInfo.configuredMaxTokens,
+            temperature: MLXModelInfo.configuredTemperature,
+            topP: MLXModelInfo.configuredTopP,
+            repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty
+        )
+    }
+
+    private func makeIsolatedSession(maxTokensOverride: Int? = nil) throws -> ChatSession {
+        guard let modelContainer else {
+            throw MLXOnDeviceError.modelNotLoaded
+        }
+
+        return ChatSession(
+            modelContainer,
+            generateParameters: currentGenerateParameters(maxTokensOverride: maxTokensOverride)
+        )
+    }
+
+    private func makeChatHistory(from conversationHistory: [ChatMessage]) -> [Chat.Message] {
+        conversationHistory.compactMap { message in
+            switch message.role {
+            case .user:
+                return .user(message.content)
+            case .assistant:
+                return .assistant(message.content)
+            case .system:
+                return nil
+            }
+        }
+    }
+
+    private func makeChatSessionSignature(
+        conversationId: UUID,
+        systemPrompt: String?
+    ) -> ChatSessionSignature {
+        let params = currentGenerateParameters()
+        return ChatSessionSignature(
+            conversationId: conversationId,
+            modelId: MLXModelInfo.selectedModel.id,
+            systemPrompt: systemPrompt,
+            maxTokens: params.maxTokens,
+            maxKVSize: params.maxKVSize,
+            temperature: params.temperature,
+            topP: params.topP,
+            repetitionPenalty: params.repetitionPenalty
+        )
+    }
+    #endif
 }

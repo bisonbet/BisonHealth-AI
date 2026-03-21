@@ -46,7 +46,7 @@
 		146E72A82EC2903F00D20C53 /* MedicalDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72A72EC2903F00D20C53 /* MedicalDocument.swift */; };
 		146E72AA2EC2905200D20C53 /* MedicalDocumentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72A92EC2905200D20C53 /* MedicalDocumentDetailView.swift */; };
 		146E72AC2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AB2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift */; };
-		146E72AD2EC2BD8D00D20C53 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 146E72AC2EC2BD8D00D20C53 /* MarkdownUI */; };
+		146E72AD2EC2BD8D00D20C53 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 146E72AC2EC2BD8D00D20C53 /* Textual */; };
 		146E72AE2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AD2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift */; };
 		146E72B02EC2905200D20C53 /* SectionEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AF2EC2905200D20C53 /* SectionEditorView.swift */; };
 		14968C312EF4F8D8006D42C0 /* SystemPromptExceptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */; };
@@ -54,6 +54,7 @@
 		A2MLX0022F26000100MLX001 /* MLXOnDeviceResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */; };
 		A2MLX0032F26000100MLX001 /* MLXModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */; };
 		A2MLX0042F26000100MLX001 /* MLXOnDeviceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0082F26000100MLX001 /* MLXOnDeviceClient.swift */; };
+		A2MLX0112F26000100MLX001 /* OnDeviceLLMSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */; };
 		A2MLX00A2F26000100MLX001 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX00D2F26000100MLX001 /* MLXLMCommon */; };
 		A2MLX00B2F26000100MLX001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX00E2F26000100MLX001 /* MLXLLM */; };
 		A2MLX00C2F26000100MLX001 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX00F2F26000100MLX001 /* MLXVLM */; };
@@ -208,6 +209,7 @@
 		A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceResponse.swift; sourceTree = "<group>"; };
 		A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelDownloadManager.swift; sourceTree = "<group>"; };
 		A2MLX0082F26000100MLX001 /* MLXOnDeviceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceClient.swift; sourceTree = "<group>"; };
+		A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMSettingsView.swift; sourceTree = "<group>"; };
 		14ADE5AF2EF0B90100BB7C6C /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
 		14ADE5B12EF0B93F00BB7C6C /* VitalsAndSleepSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsAndSleepSection.swift; sourceTree = "<group>"; };
 		14ADE5B42EF0CFE000BB7C6C /* VitalEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalEntryView.swift; sourceTree = "<group>"; };
@@ -313,7 +315,7 @@
 				1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */,
 				A1000009294A0000000000001 /* SQLite in Frameworks */,
 				143446A22E78E36D00961754 /* AWSClientRuntime in Frameworks */,
-				146E72AD2EC2BD8D00D20C53 /* MarkdownUI in Frameworks */,
+				146E72AD2EC2BD8D00D20C53 /* Textual in Frameworks */,
 				143446A02E78E36D00961754 /* AWSBedrockRuntime in Frameworks */,
 				1434469E2E78E36D00961754 /* AWSBedrock in Frameworks */,
 				A2MLX00A2F26000100MLX001 /* MLXLMCommon in Frameworks */,
@@ -473,6 +475,7 @@
 				4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */,
 				0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */,
 				145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */,
+				A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */,
 				JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */,
 				AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */,
 				MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */,
@@ -603,7 +606,7 @@
 				1434469D2E78E36D00961754 /* AWSBedrock */,
 				1434469F2E78E36D00961754 /* AWSBedrockRuntime */,
 				143446A12E78E36D00961754 /* AWSClientRuntime */,
-				146E72AC2EC2BD8D00D20C53 /* MarkdownUI */,
+				146E72AC2EC2BD8D00D20C53 /* Textual */,
 				A2MLX00D2F26000100MLX001 /* MLXLMCommon */,
 				A2MLX00E2F26000100MLX001 /* MLXLLM */,
 				A2MLX00F2F26000100MLX001 /* MLXVLM */,
@@ -658,7 +661,7 @@
 				A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */,
 				1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */,
 				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
-				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "textual" */,
 				A2MLX0102F26000100MLX001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
@@ -760,6 +763,7 @@
 				CONV01002EA12E9900999004 /* ConversationExporter.swift in Sources */,
 				A1000062294A0000000000001 /* OllamaClient.swift in Sources */,
 				145D8D332EA1941E000BB28A /* OllamaSettingsView.swift in Sources */,
+				A2MLX0112F26000100MLX001 /* OnDeviceLLMSettingsView.swift in Sources */,
 				A1000064294A0000000000001 /* DoclingClient.swift in Sources */,
 				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
 				A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
@@ -901,7 +905,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -959,7 +963,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -994,7 +998,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1036,7 +1040,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1061,7 +1065,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1082,7 +1086,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1145,9 +1149,9 @@
 				minimumVersion = 1.5.42;
 			};
 		};
-		146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+		146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "textual" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/bisonbet/swift-markdown-ui";
+			repositoryURL = "https://github.com/bisonbet/textual";
 			requirement = {
 				branch = main;
 				kind = branch;
@@ -1192,10 +1196,10 @@
 			package = 1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
 			productName = AWSClientRuntime;
 		};
-		146E72AC2EC2BD8D00D20C53 /* MarkdownUI */ = {
+		146E72AC2EC2BD8D00D20C53 /* Textual */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
+			package = 146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "textual" */;
+			productName = Textual;
 		};
 		A1000010294A0000000000001 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
