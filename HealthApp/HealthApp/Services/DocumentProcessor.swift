@@ -58,7 +58,7 @@ class DocumentProcessor: ObservableObject {
     
     // MARK: - Queue Management
     func addToQueue(_ document: MedicalDocument, priority: ProcessingPriority = .normal) async {
-        print("📥 DocumentProcessor: Adding document '\(document.fileName)' to queue with priority \(priority.displayName)")
+        AppLog.shared.documents("Adding document '\(document.fileName)' to queue with priority \(priority.displayName)")
         
         let queueItem = ProcessingQueueItem(
             document: document,
@@ -72,22 +72,22 @@ class DocumentProcessor: ObservableObject {
         } ?? processingQueue.count
         
         processingQueue.insert(queueItem, at: insertIndex)
-        print("📥 DocumentProcessor: Document added to queue at position \(insertIndex), total queue size: \(processingQueue.count)")
+        AppLog.shared.documents("Document added to queue at position \(insertIndex), total queue size: \(processingQueue.count)")
         
         // Update document status to queued
         do {
             try await databaseManager.updateDocumentStatus(document.id, status: .queued)
-            print("✅ DocumentProcessor: Document status updated to queued")
+            AppLog.shared.documents("Document status updated to queued")
         } catch {
-            print("❌ DocumentProcessor: Failed to update document status to queued: \(error)")
+            AppLog.shared.error("Failed to update document status to queued", error: error, category: .documents)
         }
         
         // Start processing if not already running
         if !isProcessing {
-            print("🚀 DocumentProcessor: Starting processing queue")
+            AppLog.shared.documents("Starting processing queue")
             await startProcessing()
         } else {
-            print("⏳ DocumentProcessor: Processing already running, document will be processed when current tasks complete")
+            AppLog.shared.documents("Processing already running, document will be processed when current tasks complete")
         }
     }
     
@@ -180,67 +180,121 @@ class DocumentProcessor: ObservableObject {
         var currentItem = queueItem
         currentItem.startedAt = Date()
         
-        print("🔄 DocumentProcessor: Starting processing for document '\(currentItem.document.fileName)' (attempt \(currentItem.retryCount + 1)/\(maxRetryAttempts))")
-        
+        AppLog.shared.documents("Processing document '\(currentItem.document.fileName)' (attempt \(currentItem.retryCount + 1)/\(maxRetryAttempts))")
+
         do {
             // Update status to processing
-            print("📝 DocumentProcessor: Updating status to processing for document \(currentItem.document.id)")
+            AppLog.shared.documents("Updating status to processing for document \(currentItem.document.id)", level: .debug)
             try await databaseManager.updateDocumentStatus(currentItem.document.id, status: .processing)
-            print("✅ DocumentProcessor: Successfully updated status to processing")
-            
+            AppLog.shared.documents("Status updated to processing", level: .debug)
+
             // Process the document
-            print("🔧 DocumentProcessor: Starting document processing via Docling")
+            AppLog.shared.documents("Starting document processing pipeline for '\(currentItem.document.fileName)'")
             let result = try await processDocument(currentItem.document)
-            print("✅ DocumentProcessor: Document processing completed successfully")
-            
+            AppLog.shared.documents("Document text extraction completed -- \(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%")
+
             // Extract and save health data
-            print("📊 DocumentProcessor: Extracting health data from processed result")
+            AppLog.shared.documents("Extracting health data from processed result")
             let extractedHealthData = try await extractHealthData(from: result, document: currentItem.document)
-            print("✅ DocumentProcessor: Health data extraction completed, found \(extractedHealthData.count) items")
-            
+            AppLog.shared.documents("Health data extraction completed -- found \(extractedHealthData.count) items")
+
             // Extract medical document information (sections, metadata, etc.)
-            print("🏥 DocumentProcessor: Extracting medical document information")
+            AppLog.shared.documents("Starting medical document extraction (sections, metadata)")
             var medicalDocument: MedicalDocument?
-            if let rawDoclingOutput = result.rawDoclingOutput {
-                do {
-                    let extractor = MedicalDocumentExtractor()
-                    // Get AI client for enhanced extraction if available
-                    let aiClient = settingsManager.getAIClient()
-                    let extractionResult = try await extractor.extractMedicalInformation(
+
+            do {
+                let extractor = MedicalDocumentExtractor()
+                let aiClient = settingsManager.getAIClient()
+                let extractionResult: MedicalDocumentExtractor.ExtractionResult
+
+                if let rawDoclingOutput = result.rawDoclingOutput {
+                    // Docling path: parse structured JSON output
+                    AppLog.shared.documents("Medical extraction path: Docling JSON (\(rawDoclingOutput.count) bytes)")
+                    extractionResult = try await extractor.extractMedicalInformation(
                         from: rawDoclingOutput,
                         fileName: currentItem.document.fileName,
                         aiClient: aiClient
                     )
-                    
-                    // Update MedicalDocument with extracted information
-                    // Use document category from existing document if set, otherwise use extracted category
-                    let finalCategory = currentItem.document.documentCategory != .other
-                        ? currentItem.document.documentCategory
-                        : extractionResult.documentCategory
-                    
-                    // Use extracted text from extractionResult, or fallback to markdown text from Docling
-                    // Clean markdown to remove base64 image data which is not useful for AI context
-                    let rawExtractedText = extractionResult.extractedText.isEmpty ? result.extractedText : extractionResult.extractedText
-                    let extractedText = cleanMarkdownForAIContext(rawExtractedText)
-                    print("🔍 DocumentProcessor: extractionResult.extractedText length: \(extractionResult.extractedText.count)")
-                    print("🔍 DocumentProcessor: result.extractedText (markdown) length: \(result.extractedText.count)")
-                    print("🔍 DocumentProcessor: Cleaned extracted text length: \(extractedText.count)")
+                } else {
+                    // On-device path: extract from plain text (PDFKit/Vision output)
+                    AppLog.shared.documents("Medical extraction path: on-device plain text (\(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%)")
+                    extractionResult = try await extractor.extractFromText(
+                        text: result.extractedText,
+                        fileName: currentItem.document.fileName,
+                        aiClient: aiClient,
+                        extractionConfidence: result.confidence
+                    )
+                }
 
-                    medicalDocument = MedicalDocument(
+                // Use document category from existing document if set, otherwise use extracted category
+                let finalCategory = currentItem.document.documentCategory != .other
+                    ? currentItem.document.documentCategory
+                    : extractionResult.documentCategory
+
+                // Clean text for AI context (removes base64 images, etc.)
+                let rawExtractedText = extractionResult.extractedText.isEmpty ? result.extractedText : extractionResult.extractedText
+                let extractedText = cleanMarkdownForAIContext(rawExtractedText)
+                AppLog.shared.documents("Text lengths -- extraction: \(extractionResult.extractedText.count), raw: \(result.extractedText.count), cleaned: \(extractedText.count)", level: .debug)
+
+                medicalDocument = MedicalDocument(
+                    id: currentItem.document.id,
+                    fileName: currentItem.document.fileName,
+                    fileType: currentItem.document.fileType,
+                    filePath: currentItem.document.filePath,
+                    thumbnailPath: currentItem.document.thumbnailPath,
+                    processingStatus: .completed,
+                    documentDate: extractionResult.documentDate,
+                    providerName: extractionResult.providerName,
+                    providerType: extractionResult.providerType,
+                    documentCategory: finalCategory,
+                    extractedText: extractedText.isEmpty ? nil : extractedText,
+                    rawDoclingOutput: result.rawDoclingOutput, // nil for on-device path
+                    extractedSections: extractionResult.extractedSections,
+                    includeInAIContext: false, // User must explicitly enable
+                    contextPriority: 3,
+                    extractedHealthData: extractedHealthData,
+                    importedAt: currentItem.document.importedAt,
+                    processedAt: Date(),
+                    lastEditedAt: nil,
+                    fileSize: currentItem.document.fileSize,
+                    tags: currentItem.document.tags,
+                    notes: currentItem.document.notes
+                )
+
+                // Save as MedicalDocument
+                try await databaseManager.saveMedicalDocument(medicalDocument!)
+                AppLog.shared.documents("Medical document saved -- text: \(extractedText.count) chars, sections: \(extractionResult.extractedSections.count), category: \(finalCategory.rawValue)")
+
+                // CRITICAL: Verify the document is still in DB correctly AFTER potential UI interactions
+                try? await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 seconds
+                if let verifiedDoc = try? await databaseManager.fetchMedicalDocument(id: medicalDocument!.id) {
+                    AppLog.shared.documents("Post-save verification: extractedText \(verifiedDoc.extractedText?.count ?? 0) chars, isNil: \(verifiedDoc.extractedText == nil)", level: .debug)
+                    if verifiedDoc.extractedText == nil || verifiedDoc.extractedText?.isEmpty == true {
+                        AppLog.shared.documents("DATA LOST: extractedText was overwritten between save and verification", level: .critical)
+                    }
+                }
+            } catch {
+                AppLog.shared.documents("Medical document extraction failed: \(error.localizedDescription)", level: .warning)
+
+                // Fallback: Still create a MedicalDocument with at least the extracted text
+                do {
+                    let finalCategory = currentItem.document.documentCategory
+                    let cleanedText = cleanMarkdownForAIContext(result.extractedText)
+                    let fallbackDocument = MedicalDocument(
                         id: currentItem.document.id,
                         fileName: currentItem.document.fileName,
                         fileType: currentItem.document.fileType,
                         filePath: currentItem.document.filePath,
                         thumbnailPath: currentItem.document.thumbnailPath,
                         processingStatus: .completed,
-                        documentDate: extractionResult.documentDate,
-                        providerName: extractionResult.providerName,
-                        providerType: extractionResult.providerType,
+                        documentDate: nil,
+                        providerName: nil,
+                        providerType: nil,
                         documentCategory: finalCategory,
-                        extractedText: extractedText.isEmpty ? nil : extractedText,
-                        rawDoclingOutput: rawDoclingOutput,
-                        extractedSections: extractionResult.extractedSections,
-                        includeInAIContext: false, // User must explicitly enable
+                        extractedText: cleanedText.isEmpty ? nil : cleanedText,
+                        rawDoclingOutput: result.rawDoclingOutput,
+                        extractedSections: [],
+                        includeInAIContext: false,
                         contextPriority: 3,
                         extractedHealthData: extractedHealthData,
                         importedAt: currentItem.document.importedAt,
@@ -250,119 +304,68 @@ class DocumentProcessor: ObservableObject {
                         tags: currentItem.document.tags,
                         notes: currentItem.document.notes
                     )
-                    
-                    // Save as MedicalDocument
-                    try await databaseManager.saveMedicalDocument(medicalDocument!)
-                    print("✅ DocumentProcessor: Medical document information saved")
-                    print("✅ DocumentProcessor: Extracted text length: \(extractedText.count) chars, Sections: \(extractionResult.extractedSections.count)")
-
-                    // CRITICAL: Verify the document is still in DB correctly AFTER potential UI interactions
-                    try? await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 seconds
-                    if let verifiedDoc = try? await databaseManager.fetchMedicalDocument(id: medicalDocument!.id) {
-                        print("🔍 DocumentProcessor: POST-SAVE VERIFICATION (after 0.5s):")
-                        print("🔍 DocumentProcessor:   - extractedText length: \(verifiedDoc.extractedText?.count ?? 0) chars")
-                        print("🔍 DocumentProcessor:   - extractedText is nil: \(verifiedDoc.extractedText == nil)")
-                        if verifiedDoc.extractedText == nil || verifiedDoc.extractedText?.isEmpty == true {
-                            print("❌ DocumentProcessor: DATA LOST! Something overwrote extractedText between save and now!")
-                        }
-                    }
+                    try await databaseManager.saveMedicalDocument(fallbackDocument)
+                    medicalDocument = fallbackDocument
+                    AppLog.shared.documents("Saved MedicalDocument with fallback text (\(cleanedText.count) chars)")
                 } catch {
-                    print("⚠️ DocumentProcessor: Failed to extract medical document information: \(error)")
-                    print("⚠️ DocumentProcessor: Error details: \(error.localizedDescription)")
-                    
-                    // Fallback: Still create a MedicalDocument with at least the markdown text
-                    // This ensures the document can be enabled for AI context later
-                    do {
-                        let finalCategory = currentItem.document.documentCategory
-                        let cleanedText = cleanMarkdownForAIContext(result.extractedText)
-                        let fallbackDocument = MedicalDocument(
-                            id: currentItem.document.id,
-                            fileName: currentItem.document.fileName,
-                            fileType: currentItem.document.fileType,
-                            filePath: currentItem.document.filePath,
-                            thumbnailPath: currentItem.document.thumbnailPath,
-                            processingStatus: .completed,
-                            documentDate: nil,
-                            providerName: nil,
-                            providerType: nil,
-                            documentCategory: finalCategory,
-                            extractedText: cleanedText.isEmpty ? nil : cleanedText,
-                            rawDoclingOutput: rawDoclingOutput,
-                            extractedSections: [],
-                            includeInAIContext: false,
-                            contextPriority: 3,
-                            extractedHealthData: extractedHealthData,
-                            importedAt: currentItem.document.importedAt,
-                            processedAt: Date(),
-                            lastEditedAt: nil,
-                            fileSize: currentItem.document.fileSize,
-                            tags: currentItem.document.tags,
-                            notes: currentItem.document.notes
-                        )
-                        try await databaseManager.saveMedicalDocument(fallbackDocument)
-                        medicalDocument = fallbackDocument
-                        print("✅ DocumentProcessor: Saved MedicalDocument with fallback text (\(cleanedText.count) chars, cleaned from \(result.extractedText.count) chars)")
-                    } catch {
-                        print("❌ DocumentProcessor: Failed to save fallback MedicalDocument: \(error)")
-                    }
+                    AppLog.shared.error("Failed to save fallback MedicalDocument", error: error, category: .documents)
                 }
             }
             
             // Update document with extracted data (fallback if medical extraction failed)
             if medicalDocument == nil {
-                print("💾 DocumentProcessor: Saving extracted data to database (fallback)")
+                AppLog.shared.documents("Saving extracted data to database (fallback)")
                 try await databaseManager.updateDocumentExtractedData(
                     currentItem.document.id,
                     extractedData: extractedHealthData
                 )
-                print("✅ DocumentProcessor: Extracted data saved to database")
+                AppLog.shared.documents("Extracted data saved to database")
             }
             
             // Link extracted data to health data manager
-            print("🔗 DocumentProcessor: Linking extracted data to health data manager")
+            AppLog.shared.documents("Linking extracted data to health data manager")
             try await healthDataManager.linkExtractedDataToDocument(
                 currentItem.document.id,
                 extractedData: extractedHealthData
             )
-            print("✅ DocumentProcessor: Data linking completed")
+            AppLog.shared.documents("Data linking completed")
             
             currentItem.completedAt = Date()
             currentItem.status = .completed
             lastProcessedDocument = currentItem.document
             
-            print("🎉 DocumentProcessor: Document '\(currentItem.document.fileName)' processed successfully!")
+            AppLog.shared.documents("Document '\(currentItem.document.fileName)' processed successfully")
             
             // Send success notification
             await sendProcessingSuccessNotification(for: currentItem.document)
             
         } catch {
-            print("❌ DocumentProcessor: Processing failed for '\(currentItem.document.fileName)' with error: \(error)")
-            print("❌ DocumentProcessor: Error details - \(error.localizedDescription)")
+            AppLog.shared.error("Processing failed for '\(currentItem.document.fileName)': \(error.localizedDescription)", error: error, category: .documents)
             
             // Log specific error types and check for known iOS permission issues
             if let urlError = error as? URLError {
-                print("❌ DocumentProcessor: Network error - Code: \(urlError.code), Description: \(urlError.localizedDescription)")
+                AppLog.shared.documents("Network error - Code: \(urlError.code), Description: \(urlError.localizedDescription)", level: .error)
             } else if let cryptoError = error as? CryptoKitError {
-                print("❌ DocumentProcessor: CryptoKit error detected")
+                AppLog.shared.documents("CryptoKit error detected", level: .error)
                 if case .authenticationFailure = cryptoError {
-                    print("❌ DocumentProcessor: Decryption authentication failure - file may be encrypted with different key or corrupted")
-                    print("❌ DocumentProcessor: This can happen if the encryption key changed or the file was moved between devices")
+                    AppLog.shared.documents("Decryption authentication failure - file may be encrypted with different key or corrupted", level: .error)
+                    AppLog.shared.documents("This can happen if the encryption key changed or the file was moved between devices", level: .error)
                 }
-            } else if error.localizedDescription.contains("database") || 
+            } else if error.localizedDescription.contains("database") ||
                       error.localizedDescription.contains("process may not map database") ||
                       error.localizedDescription.contains("permission was denied") {
-                print("❌ DocumentProcessor: Database permission error detected!")
-                print("❌ DocumentProcessor: This is likely the iOS LaunchServices database permission issue")
+                AppLog.shared.documents("Database permission error detected", level: .error)
+                AppLog.shared.documents("This is likely the iOS LaunchServices database permission issue", level: .error)
             } else if error.localizedDescription.contains("LaunchServices") ||
                       error.localizedDescription.contains("usermanagerd") ||
                       error.localizedDescription.contains("NSCocoaErrorDomain Code=4099") {
-                print("❌ DocumentProcessor: LaunchServices system error detected!")
-                print("❌ DocumentProcessor: iOS system service connection invalidated")
+                AppLog.shared.documents("LaunchServices system error detected", level: .error)
+                AppLog.shared.documents("iOS system service connection invalidated", level: .error)
             } else if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") {
-                print("❌ DocumentProcessor: iOS database mapping error (Code -54) detected!")
-                print("❌ DocumentProcessor: This is a known iOS system issue requiring device restart")
+                AppLog.shared.documents("iOS database mapping error (Code -54) detected", level: .error)
+                AppLog.shared.documents("This is a known iOS system issue requiring device restart", level: .error)
             } else {
-                print("❌ DocumentProcessor: Unknown error type: \(type(of: error))")
+                AppLog.shared.documents("Unknown error type: \(type(of: error))", level: .error)
             }
             
             currentItem.error = error
@@ -372,7 +375,7 @@ class DocumentProcessor: ObservableObject {
                 // Retry processing
                 currentItem.status = .retrying
                 let delaySeconds = pow(2.0, Double(currentItem.retryCount))
-                print("🔄 DocumentProcessor: Retrying in \(delaySeconds) seconds (attempt \(currentItem.retryCount + 1)/\(maxRetryAttempts))")
+                AppLog.shared.documents("Retrying in \(delaySeconds) seconds (attempt \(currentItem.retryCount + 1)/\(maxRetryAttempts))", level: .warning)
                 
                 // Add back to queue with delay
                 Task {
@@ -381,14 +384,14 @@ class DocumentProcessor: ObservableObject {
                 }
             } else {
                 // Mark as failed
-                print("💀 DocumentProcessor: Maximum retry attempts reached, marking as failed")
+                AppLog.shared.documents("Maximum retry attempts reached, marking as failed", level: .error)
                 currentItem.status = .failed
                 
                 do {
                     try await databaseManager.updateDocumentStatus(currentItem.document.id, status: .failed)
-                    print("✅ DocumentProcessor: Status updated to failed")
+                    AppLog.shared.documents("Status updated to failed")
                 } catch {
-                    print("❌ DocumentProcessor: Failed to update status to failed: \(error)")
+                    AppLog.shared.error("Failed to update status to failed", error: error, category: .documents)
                 }
                 
                 let processingError = ProcessingError(
@@ -412,121 +415,187 @@ class DocumentProcessor: ObservableObject {
     }
     
     private func processDocument(_ document: MedicalDocument) async throws -> ProcessedDocumentResult {
-        print("📄 DocumentProcessor: Reading document data from \(document.filePath)")
-        
-        // Debug: Check file accessibility
-        let fileExists = FileManager.default.fileExists(atPath: document.filePath.path)
-        print("🔍 DocumentProcessor: File exists at path? \(fileExists)")
+        let processingMode = settingsManager.modelPreferences.documentProcessingMode
+        AppLog.shared.documents("Document processing mode: \(processingMode.displayName) for '\(document.fileName)'")
 
+        // Resolve file path (shared between both paths)
+        let finalFilePath = try await resolveDocumentFilePath(document)
+
+        // Read document data using proper decryption
+        let documentData = try fileSystemManager.retrieveDocument(from: finalFilePath)
+        AppLog.shared.documents("Document data read: \(documentData.count) bytes from \(finalFilePath.lastPathComponent)")
+
+        guard !documentData.isEmpty else {
+            AppLog.shared.documents("Document data is empty for '\(document.fileName)'", level: .error)
+            throw DocumentProcessingError.fileReadError
+        }
+
+        switch processingMode {
+        case .onDevice:
+            return try await processDocumentOnDevice(document: document, data: documentData, filePath: finalFilePath)
+        case .docling:
+            return try await processDocumentWithDocling(document: document, data: documentData)
+        }
+    }
+
+    // MARK: - File Path Resolution
+    private func resolveDocumentFilePath(_ document: MedicalDocument) async throws -> URL {
         var finalFilePath = document.filePath
+        let fileExists = FileManager.default.fileExists(atPath: document.filePath.path)
+        AppLog.shared.documents("File exists at path? \(fileExists)", level: .debug)
 
         if !fileExists {
-            // Try to find the file by searching for files with matching filename
-            print("🔍 DocumentProcessor: File not found at expected path, searching for file by name...")
+            AppLog.shared.documents("File not found at expected path, searching for file by name...", level: .debug)
             if let correctedPath = fileSystemManager.findDocumentByFileName(document.fileName) {
-                print("✅ DocumentProcessor: Found file at corrected path: \(correctedPath)")
+                AppLog.shared.documents("Found file at corrected path: \(correctedPath)")
                 finalFilePath = correctedPath
-
-                // Update the document record with correct path
                 try await databaseManager.updateDocumentFilePath(document.id, filePath: correctedPath)
-                print("✅ DocumentProcessor: Updated database with corrected file path")
+                AppLog.shared.documents("Updated database with corrected file path")
             } else {
-                print("❌ DocumentProcessor: Could not locate file '\(document.fileName)' in documents directory")
+                AppLog.shared.documents("Could not locate file '\(document.fileName)' in documents directory", level: .error)
                 throw DocumentProcessingError.documentNotFound(document.fileName)
             }
         }
 
         if FileManager.default.fileExists(atPath: finalFilePath.path) {
-            do {
-                let attributes = try FileManager.default.attributesOfItem(atPath: finalFilePath.path)
-                let fileSize = attributes[.size] as? Int64 ?? -1
-                print("🔍 DocumentProcessor: File system reports size: \(fileSize) bytes")
-            } catch {
-                print("❌ DocumentProcessor: Cannot get file attributes: \(error)")
+            if let attributes = try? FileManager.default.attributesOfItem(atPath: finalFilePath.path),
+               let fileSize = attributes[.size] as? Int64 {
+                AppLog.shared.documents("File system reports size: \(fileSize) bytes", level: .debug)
             }
         }
 
-        // Read document data using proper decryption
-        let documentData = try fileSystemManager.retrieveDocument(from: finalFilePath)
-        print("✅ DocumentProcessor: Document data read successfully, size: \(documentData.count) bytes")
-        
-        // Debug: Check what's actually in the data
-        let firstBytes = documentData.prefix(20)
-        let hexString = firstBytes.map { String(format: "%02x", $0) }.joined(separator: " ")
-        print("🔍 DocumentProcessor: First 20 bytes (hex): \(hexString)")
-        
-        // Check if data is all zeros
-        let isAllZeros = documentData.allSatisfy { $0 == 0 }
-        print("🔍 DocumentProcessor: Is data all zeros? \(isAllZeros)")
-        
-        // Verify data integrity before sending
-        if documentData.isEmpty {
-            print("❌ DocumentProcessor: Document data is empty before sending to Docling!")
-            throw DocumentProcessingError.fileReadError
+        return finalFilePath
+    }
+
+    // MARK: - On-Device Processing (PDFKit + Vision OCR)
+    /// Fully on-device document processing pipeline:
+    /// 1. PDFKit direct text extraction (for digital PDFs with embedded text)
+    /// 2. Vision framework OCR fallback (for scanned docs, images)
+    /// 3. Spatial text reconstruction preserving table layout
+    private func processDocumentOnDevice(document: MedicalDocument, data: Data, filePath: URL) async throws -> ProcessedDocumentResult {
+        AppLog.shared.documents("ON-DEVICE processing started for '\(document.fileName)' (\(document.fileType.rawValue), \(data.count) bytes)")
+        let startTime = Date()
+
+        let nativeExtractor = NativeDocumentExtractor()
+
+        // Extract text using best available on-device method
+        let extractionResult: NativeDocumentExtractor.ExtractionResult
+        do {
+            extractionResult = try await nativeExtractor.extractText(from: data, fileType: document.fileType, fileName: document.fileName)
+        } catch let error as NativeDocumentExtractor.NativeExtractionError {
+            AppLog.shared.error("Native extraction failed for '\(document.fileName)'", error: error, category: .documents)
+            throw DocumentProcessingError.nativeExtractionFailed(error.localizedDescription)
         }
 
-        // Configure processing options based on document type
-        // IMPORTANT: Always set extractImages to false - we only want OCR text, not image data
-        // Images in documents should be OCR'd for text extraction, but image data itself should be excluded
+        let processingTime = Date().timeIntervalSince(startTime)
+        AppLog.shared.documents("On-device extraction complete in \(String(format: "%.2f", processingTime))s -- method: \(extractionResult.method.rawValue), pages: \(extractionResult.pageCount), confidence: \(String(format: "%.0f", extractionResult.confidence * 100))%, text: \(extractionResult.text.count) chars")
+
+        guard extractionResult.isUsable else {
+            AppLog.shared.documents("Extracted text too short (\(extractionResult.text.count) chars) for '\(document.fileName)' -- document may be image-only", level: .warning)
+            throw DocumentProcessingError.nativeExtractionFailed("Extracted text too short — document may be image-only or corrupted")
+        }
+
+        // Build metadata about the extraction
+        var metadata: [String: Any] = [
+            "processing_mode": "on_device",
+            "extraction_method": extractionResult.method.rawValue,
+            "page_count": extractionResult.pageCount,
+            "extraction_confidence": extractionResult.confidence,
+            "text_length": extractionResult.text.count
+        ]
+
+        // Add per-page confidence if OCR was used
+        if extractionResult.method != .pdfKit {
+            let pageConfidences = extractionResult.perPageText.compactMap { page -> Double? in
+                guard let observations = page.observations, !observations.isEmpty else { return nil }
+                let avgConf = observations.reduce(0.0) { $0 + Double($1.confidence) } / Double(observations.count)
+                return avgConf
+            }
+            if !pageConfidences.isEmpty {
+                metadata["per_page_confidences"] = pageConfidences
+            }
+        }
+
+        return ProcessedDocumentResult(
+            extractedText: extractionResult.text,
+            structuredData: [:],
+            confidence: extractionResult.confidence,
+            processingTime: processingTime,
+            metadata: metadata,
+            rawDoclingOutput: nil // No Docling output for on-device path
+        )
+    }
+
+    // MARK: - Docling Server Processing (Original Path)
+    private func processDocumentWithDocling(document: MedicalDocument, data: Data) async throws -> ProcessedDocumentResult {
+        AppLog.shared.documents("DOCLING SERVER processing started for '\(document.fileName)' (\(document.fileType.rawValue), \(data.count) bytes)")
+
+        // Debug: Check data integrity
+        let firstBytes = data.prefix(20)
+        let hexString = firstBytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+        AppLog.shared.documents("First 20 bytes (hex): \(hexString)", level: .debug)
+
+        let isAllZeros = data.allSatisfy { $0 == 0 }
+        AppLog.shared.documents("Is data all zeros? \(isAllZeros)", level: .debug)
+
+        // Configure processing options
         let options = ProcessingOptions(
             extractText: true,
             extractStructuredData: true,
-            extractImages: false, // Never extract images - only OCR text from them
+            extractImages: false,
             ocrEnabled: true,
             language: "en",
             bloodTestExtractionHints: BloodTestResult.bloodTestExtractionHint,
             targetedLabKeys: Array(BloodTestResult.standardizedLabParameters.keys).sorted()
         )
-        print("⚙️ DocumentProcessor: Processing options configured for \(document.fileType.displayName)")
-        
+        AppLog.shared.documents("Processing options configured for \(document.fileType.displayName)")
+
         // Check Docling client connection
-        print("🔌 DocumentProcessor: Checking Docling client connection...")
-        print("🔌 DocumentProcessor: Docling client URL: \(doclingClient.baseURL)")
-        
+        AppLog.shared.documents("Checking Docling client connection...")
+        AppLog.shared.documents("Docling client URL: \(doclingClient.baseURL)")
+
         if !doclingClient.isConnected {
-            print("❌ DocumentProcessor: Docling client not connected!")
-            print("❌ DocumentProcessor: Attempting to test connection...")
-            
+            AppLog.shared.documents("Docling client not connected", level: .warning)
+            AppLog.shared.documents("Attempting to test connection...")
+
             do {
                 let isConnected = try await doclingClient.testConnection()
-                print("🔌 DocumentProcessor: Connection test result: \(isConnected)")
+                AppLog.shared.documents("Connection test result: \(isConnected)")
                 if !isConnected {
-                    print("❌ DocumentProcessor: Connection test failed")
+                    AppLog.shared.documents("Connection test failed", level: .error)
                     throw DocumentProcessingError.doclingNotConnected
                 }
             } catch {
-                print("❌ DocumentProcessor: Connection test threw error: \(error)")
+                AppLog.shared.error("Connection test threw error", error: error, category: .documents)
                 throw DocumentProcessingError.doclingNotConnected
             }
         }
-        print("✅ DocumentProcessor: Docling client is connected")
-        
+        AppLog.shared.documents("Docling client is connected")
+
         // Process with Docling
-        print("🔧 DocumentProcessor: Sending document to Docling for processing...")
-        
+        AppLog.shared.documents("Sending document to Docling for processing...")
+
         let result = try await doclingClient.processDocument(
-            documentData,
+            data,
             type: document.fileType,
             options: options
         )
-        print("✅ DocumentProcessor: Docling processing completed successfully")
-        
+        AppLog.shared.documents("Docling processing completed successfully")
+
         return result
     }
     
     private func extractHealthData(from result: ProcessedDocumentResult, document: MedicalDocument) async throws -> [AnyHealthData] {
         var extractedData: [AnyHealthData] = []
 
-        print("📄 DocumentProcessor: Starting health data extraction from document")
-        print("📄 DocumentProcessor: Extracted text length: \(result.extractedText.count) characters")
-        print("📄 DocumentProcessor: Document category: \(document.documentCategory.displayName)")
+        AppLog.shared.documents("Starting health data extraction -- text: \(result.extractedText.count) chars, category: \(document.documentCategory.displayName)")
 
         // Only extract blood tests for lab reports (or uncategorized documents for backward compatibility)
         let isLabReport = document.documentCategory == .labReport || document.documentCategory == .other
         
         // Primary approach: Use full document text for AI-powered blood test extraction (only for lab reports)
         if isLabReport && !result.extractedText.isEmpty {
-            print("🧪 DocumentProcessor: Attempting blood test extraction from full document text (lab report)")
+            AppLog.shared.documents("Attempting blood test extraction from full document text (lab report)")
             do {
                 let bloodTest = try await createBloodTestResultFromText(
                     documentText: result.extractedText,
@@ -534,18 +603,18 @@ class DocumentProcessor: ObservableObject {
                     document: document
                 )
                 extractedData.append(try AnyHealthData(bloodTest))
-                print("✅ DocumentProcessor: Successfully extracted blood test data from document text")
+                AppLog.shared.documents("Successfully extracted blood test data from document text")
             } catch {
-                print("❌ DocumentProcessor: Failed to create blood test from text: \(error)")
+                AppLog.shared.error("Failed to create blood test from text", error: error, category: .documents)
                 // Continue with fallback approaches
             }
         } else if !isLabReport {
-            print("ℹ️ DocumentProcessor: Skipping blood test extraction for \(document.documentCategory.displayName) document")
+            AppLog.shared.documents("Skipping blood test extraction for \(document.documentCategory.displayName) document")
         }
 
         // Fallback approach: Parse structured data if available (for other data types)
         let healthDataItems = result.healthDataItems
-        print("📊 DocumentProcessor: Found \(healthDataItems.count) structured health data items")
+        AppLog.shared.documents("Found \(healthDataItems.count) structured health data items")
 
         if !healthDataItems.isEmpty {
             // Group health data items by type and create appropriate health data objects
@@ -555,7 +624,7 @@ class DocumentProcessor: ObservableObject {
             if let personalInfoItems = groupedItems["Personal Information"] ?? groupedItems["Demographics"] {
                 if let personalInfo = try? createPersonalHealthInfo(from: personalInfoItems, document: document) {
                     extractedData.append(try AnyHealthData(personalInfo))
-                    print("✅ DocumentProcessor: Extracted personal information")
+                    AppLog.shared.documents("Extracted personal information")
                 }
             }
 
@@ -563,7 +632,7 @@ class DocumentProcessor: ObservableObject {
             if let vitalSignsItems = groupedItems["Vital Signs"] {
                 if let healthCheckup = try? createHealthCheckup(from: vitalSignsItems, document: document) {
                     extractedData.append(try AnyHealthData(healthCheckup))
-                    print("✅ DocumentProcessor: Extracted vital signs")
+                    AppLog.shared.documents("Extracted vital signs")
                 }
             }
 
@@ -571,21 +640,21 @@ class DocumentProcessor: ObservableObject {
             if let imagingItems = groupedItems["Imaging"] ?? groupedItems["Radiology"] {
                 if let imagingReport = try? createImagingReport(from: imagingItems, document: document) {
                     extractedData.append(try AnyHealthData(imagingReport))
-                    print("✅ DocumentProcessor: Extracted imaging report")
+                    AppLog.shared.documents("Extracted imaging report")
                 }
             }
         }
 
         // Only create basic blood test fallback for lab reports (or uncategorized for backward compatibility)
         if isLabReport && extractedData.isEmpty && !result.extractedText.isEmpty {
-            print("⚠️ DocumentProcessor: No specific data extracted, creating basic blood test placeholder")
+            AppLog.shared.documents("No specific data extracted, creating basic blood test placeholder", level: .warning)
             let basicBloodTest = createBasicBloodTestResult(document: document)
             extractedData.append(try AnyHealthData(basicBloodTest))
         } else if !isLabReport && extractedData.isEmpty {
-            print("ℹ️ DocumentProcessor: No health data extracted for \(document.documentCategory.displayName) document - this is expected")
+            AppLog.shared.documents("No health data extracted for \(document.documentCategory.displayName) document - this is expected")
         }
 
-        print("📊 DocumentProcessor: Extraction complete. Found \(extractedData.count) health data items")
+        AppLog.shared.documents("Health data extraction complete -- found \(extractedData.count) items")
         return extractedData
     }
     
@@ -630,8 +699,8 @@ class DocumentProcessor: ObservableObject {
         extractedItems: [HealthDataItem],
         document: MedicalDocument
     ) async throws -> BloodTestResult {
-        print("🧪 DocumentProcessor: Creating blood test result using enhanced AI-powered mapping...")
-        print("📄 DocumentProcessor: Full document text length: \(documentText.count) characters")
+        AppLog.shared.documents("Creating blood test result using enhanced AI-powered mapping...")
+        AppLog.shared.documents("Full document text length: \(documentText.count) characters")
 
         // Use the full document text for AI analysis
         do {
@@ -642,7 +711,7 @@ class DocumentProcessor: ObservableObject {
             // Extract suggested test date from document
             let suggestedTestDate = extractTestDate(from: document.fileName) ?? document.importedAt
 
-            print("📅 DocumentProcessor: Using test date: \(suggestedTestDate.formatted())")
+            AppLog.shared.documents("Using test date: \(suggestedTestDate.formatted())")
 
             // Perform AI mapping with full document text
             let mappingResult = try await mappingService.mapDocumentToBloodTest(
@@ -651,13 +720,13 @@ class DocumentProcessor: ObservableObject {
                 patientName: nil as String? // Could be extracted from document metadata if available
             )
 
-            print("✅ DocumentProcessor: Enhanced AI mapping completed with \(mappingResult.confidence)% confidence")
-            print("🔬 DocumentProcessor: Mapped \(mappingResult.bloodTestResult.results.count) lab values")
+            AppLog.shared.documents("Enhanced AI mapping completed with \(mappingResult.confidence)% confidence")
+            AppLog.shared.documents("Mapped \(mappingResult.bloodTestResult.results.count) lab values")
             
             // Force review for ALL imports (Pessimistic Mode)
             var finalBloodTest = mappingResult.bloodTestResult
             if mappingResult.needsReview {
-                print("⚠️ DocumentProcessor: Found \(mappingResult.importGroups.count) groups requiring review")
+                AppLog.shared.documents("Found \(mappingResult.importGroups.count) groups requiring review", level: .warning)
                 
                 // Store groups for UI review - don't save yet, wait for user selection
                 let pendingReview = PendingImportReview(
@@ -672,7 +741,7 @@ class DocumentProcessor: ObservableObject {
                     self.pendingImportReview = pendingReview
                 }
                 
-                print("📋 DocumentProcessor: Set pending import review - UI should show review sheet")
+                AppLog.shared.documents("Set pending import review - UI should show review sheet")
                 
                 // Add metadata indicating review needed
                 var enhancedMetadata = finalBloodTest.metadata ?? [:]
@@ -696,7 +765,7 @@ class DocumentProcessor: ObservableObject {
             return finalBloodTest
 
         } catch {
-            print("❌ DocumentProcessor: Enhanced AI mapping failed, trying fallback with extracted items: \(error)")
+            AppLog.shared.error("Enhanced AI mapping failed, trying fallback with extracted items", error: error, category: .documents)
 
             // Fallback to extracted items if full text analysis fails
             return try await createBloodTestResultFromItems(from: extractedItems, document: document)
@@ -705,11 +774,11 @@ class DocumentProcessor: ObservableObject {
 
     // MARK: - Blood Test Creation from Extracted Items (Fallback)
     private func createBloodTestResultFromItems(from items: [HealthDataItem], document: MedicalDocument) async throws -> BloodTestResult {
-        print("🧪 DocumentProcessor: Creating blood test result using AI-powered mapping...")
+        AppLog.shared.documents("Creating blood test result using AI-powered mapping...")
 
         // Check if we have enough data to use AI mapping
         guard !items.isEmpty else {
-            print("⚠️ DocumentProcessor: No health data items found, falling back to basic blood test result")
+            AppLog.shared.documents("No health data items found, falling back to basic blood test result", level: .warning)
             return createBasicBloodTestResult(document: document)
         }
 
@@ -718,8 +787,8 @@ class DocumentProcessor: ObservableObject {
         // For now, we'll reconstruct text from items, but ideally we'd pass the full document text
         let reconstructedText = items.map { "\($0.type): \($0.value)" }.joined(separator: "\n")
 
-        print("🤖 DocumentProcessor: Using AI mapping service with \(items.count) data items")
-        print("📄 DocumentProcessor: Reconstructed text length: \(reconstructedText.count) characters")
+        AppLog.shared.documents("Using AI mapping service with \(items.count) data items")
+        AppLog.shared.documents("Reconstructed text length: \(reconstructedText.count) characters")
 
         do {
             // Use the AI-powered mapping service
@@ -729,7 +798,7 @@ class DocumentProcessor: ObservableObject {
             // Extract suggested test date from document
             let suggestedTestDate = extractTestDate(from: document.fileName) ?? document.importedAt
 
-            print("📅 DocumentProcessor: Using test date: \(suggestedTestDate.formatted())")
+            AppLog.shared.documents("Using test date: \(suggestedTestDate.formatted())")
 
             // Perform AI mapping
             let mappingResult = try await mappingService.mapDocumentToBloodTest(
@@ -738,8 +807,8 @@ class DocumentProcessor: ObservableObject {
                 patientName: nil as String? // Could be extracted from document metadata if available
             )
 
-            print("✅ DocumentProcessor: AI mapping completed with \(mappingResult.confidence)% confidence")
-            print("🔬 DocumentProcessor: Mapped \(mappingResult.bloodTestResult.results.count) lab values")
+            AppLog.shared.documents("AI mapping completed with \(mappingResult.confidence)% confidence")
+            AppLog.shared.documents("Mapped \(mappingResult.bloodTestResult.results.count) lab values")
 
             // Add additional metadata
             var enhancedMetadata = mappingResult.bloodTestResult.metadata ?? [:]
@@ -755,7 +824,7 @@ class DocumentProcessor: ObservableObject {
             return enhancedBloodTest
 
         } catch {
-            print("❌ DocumentProcessor: AI mapping failed, falling back to legacy method: \(error)")
+            AppLog.shared.error("AI mapping failed, falling back to legacy method", error: error, category: .documents)
 
             // Fallback to legacy method if AI mapping fails
             return createLegacyBloodTestResult(from: items, document: document)
@@ -764,7 +833,7 @@ class DocumentProcessor: ObservableObject {
 
     // MARK: - Legacy Blood Test Creation (Fallback)
     private func createLegacyBloodTestResult(from items: [HealthDataItem], document: MedicalDocument) -> BloodTestResult {
-        print("🔄 DocumentProcessor: Using legacy blood test creation method")
+        AppLog.shared.documents("Using legacy blood test creation method")
 
         var bloodTest = BloodTestResult(testDate: document.importedAt, results: [])
 
@@ -796,7 +865,7 @@ class DocumentProcessor: ObservableObject {
 
     // MARK: - Basic Blood Test Creation (No Data)
     private func createBasicBloodTestResult(document: MedicalDocument) -> BloodTestResult {
-        print("📝 DocumentProcessor: Creating basic blood test result placeholder")
+        AppLog.shared.documents("Creating basic blood test result placeholder")
 
         let testDate = extractTestDate(from: document.fileName) ?? document.importedAt
 
@@ -1057,7 +1126,7 @@ class DocumentProcessor: ObservableObject {
         // Use the extraction provider settings (independent from chat)
         let extractionProvider = settingsManager.modelPreferences.extractionProvider
 
-        print("📄 DocumentProcessor: Using extraction provider: \(extractionProvider)")
+        AppLog.shared.documents("Using extraction provider: \(extractionProvider)")
 
         // Get the appropriate client based on extraction provider
         let aiClient: any AIProviderInterface
@@ -1067,39 +1136,39 @@ class DocumentProcessor: ObservableObject {
             let ollamaClient = settingsManager.getOllamaClient()
             let extractionModel = settingsManager.modelPreferences.extractionOllamaModel
             ollamaClient.currentModel = extractionModel
-            print("📄 DocumentProcessor: Using Ollama extraction model: \(extractionModel)")
+            AppLog.shared.documents("Using Ollama extraction model: \(extractionModel)")
             aiClient = ollamaClient
 
         case .openAICompatible:
             let openAIClient = settingsManager.getOpenAICompatibleClient()
             let extractionModel = settingsManager.modelPreferences.extractionOpenAIModel
             openAIClient.currentModel = extractionModel.isEmpty ? nil : extractionModel
-            print("📄 DocumentProcessor: Using OpenAI-compatible extraction model: \(extractionModel.isEmpty ? "(default)" : extractionModel)")
+            AppLog.shared.documents("Using OpenAI-compatible extraction model: \(extractionModel.isEmpty ? "(default)" : extractionModel)")
             aiClient = openAIClient
 
         case .bedrock:
             let bedrockClient = settingsManager.getBedrockClient()
             if let extractionModel = AWSBedrockModel(rawValue: settingsManager.modelPreferences.extractionBedrockModel) {
                 bedrockClient.currentModel = extractionModel
-                print("📄 DocumentProcessor: Using Bedrock extraction model: \(extractionModel.displayName)")
+                AppLog.shared.documents("Using Bedrock extraction model: \(extractionModel.displayName)")
             } else {
-                print("⚠️ DocumentProcessor: Invalid Bedrock extraction model, using config default")
+                AppLog.shared.documents("Invalid Bedrock extraction model, using config default", level: .warning)
             }
             aiClient = bedrockClient
 
         case .onDeviceLLM:
             let mlxClient = settingsManager.getMLXOnDeviceClient()
             let selectedModel = MLXModelInfo.selectedModel
-            print("📄 DocumentProcessor: Using MLX on-device extraction model: \(selectedModel.displayName)")
+            AppLog.shared.documents("Using MLX on-device extraction model: \(selectedModel.displayName)")
             aiClient = mlxClient
         }
 
         // Log file type info
         if document.fileType.isImage {
-            print("📷 DocumentProcessor: Processing image file: \(document.fileType.displayName)")
-            print("📷 DocumentProcessor: Note: Current BloodTestMappingService is optimized for text, not images")
+            AppLog.shared.documents("Processing image file: \(document.fileType.displayName)")
+            AppLog.shared.documents("Note: Current BloodTestMappingService is optimized for text, not images", level: .warning)
         } else {
-            print("📄 DocumentProcessor: Processing text file: \(document.fileType.displayName)")
+            AppLog.shared.documents("Processing text file: \(document.fileType.displayName)")
         }
 
         return aiClient
@@ -1122,7 +1191,7 @@ class DocumentProcessor: ObservableObject {
         // Request notification permissions
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
-                print("Notification permission error: \(error)")
+                AppLog.shared.error("Notification permission error", error: error, category: .documents)
             }
         }
     }
@@ -1183,7 +1252,7 @@ class DocumentProcessor: ObservableObject {
                     await addToQueue(document)
                 }
             } catch {
-                print("Failed to load pending documents: \(error)")
+                AppLog.shared.error("Failed to load pending documents", error: error, category: .documents)
             }
         }
     }
@@ -1359,7 +1428,8 @@ enum DocumentProcessingError: LocalizedError {
     case processingTimeout
     case unsupportedFileType
     case documentNotFound(String)
-    
+    case nativeExtractionFailed(String)
+
     var errorDescription: String? {
         switch self {
         case .doclingNotConnected:
@@ -1376,9 +1446,11 @@ enum DocumentProcessingError: LocalizedError {
             return "Unsupported file type for processing."
         case .documentNotFound(let fileName):
             return "Document file '\(fileName)' could not be found."
+        case .nativeExtractionFailed(let detail):
+            return "On-device document extraction failed: \(detail)"
         }
     }
-    
+
     var recoverySuggestion: String? {
         switch self {
         case .doclingNotConnected:
@@ -1395,6 +1467,8 @@ enum DocumentProcessingError: LocalizedError {
             return "Convert to PDF, DOCX, or supported image format"
         case .documentNotFound:
             return "The file may have been moved or deleted. Try re-importing the document."
+        case .nativeExtractionFailed:
+            return "Try switching to Docling server mode in Settings, or re-scan the document with better quality."
         }
     }
 }

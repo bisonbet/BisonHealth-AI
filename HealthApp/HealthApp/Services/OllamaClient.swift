@@ -79,7 +79,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
 
             // Get settings from SettingsManager
             let contextSize = SettingsManager.shared.modelPreferences.contextSizeLimit
-            print("🔧 OllamaClient: Requesting model '\(model)' with context: \(contextSize) tokens, keep_alive: forever")
+            AppLog.shared.ai("Requesting model '\(model)' with context: \(contextSize) tokens, keep_alive: forever")
 
             // Simple timeout implementation using Task.timeout equivalent
             // Use Ollama.Value to create the options dictionary with the correct type
@@ -141,7 +141,7 @@ class OllamaClient: ObservableObject, AIProviderInterface {
 
             // Get settings from SettingsManager
             let contextSize = SettingsManager.shared.modelPreferences.contextSizeLimit
-            print("🔧 OllamaClient (streaming): Using context size: \(contextSize) tokens, keep_alive: forever")
+            AppLog.shared.ai("Streaming: Using context size: \(contextSize) tokens, keep_alive: forever")
 
             let modelID = Model.ID(rawValue: model) ?? Model.ID(rawValue: "llama3.2")!
             // Use Ollama.Value to create the options dictionary with the correct type

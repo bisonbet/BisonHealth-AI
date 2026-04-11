@@ -16,7 +16,7 @@ enum ExtractionError: LocalizedError {
 }
 
 // MARK: - Medical Document Extractor
-/// Service that extracts structured medical information from docling output
+/// Service that extracts structured medical information from docling output or plain text (on-device).
 class MedicalDocumentExtractor {
 
     // MARK: - Extraction Result
@@ -30,7 +30,7 @@ class MedicalDocumentExtractor {
         var rawDoclingOutput: Data?
     }
 
-    // MARK: - Main Extraction Method
+    // MARK: - Main Extraction Method (Docling path)
     func extractMedicalInformation(
         from doclingOutput: Data,
         fileName: String,
@@ -45,7 +45,7 @@ class MedicalDocumentExtractor {
               let jsonContentDict = documentDict["json_content"] as? [String: Any] else {
             throw ExtractionError.missingJsonContent
         }
-        
+
         // Convert the json_content dictionary back to Data and decode as DoclingDocument
         let jsonContentData = try JSONSerialization.data(withJSONObject: jsonContentDict)
         let doclingDocument = try JSONDecoder().decode(DoclingDocument.self, from: jsonContentData)
@@ -89,6 +89,190 @@ class MedicalDocumentExtractor {
         }
     }
 
+    // MARK: - On-Device Extraction Method (Plain Text path)
+    /// Extract medical information from plain text (from NativeDocumentExtractor).
+    /// This is the on-device path that does not depend on Docling at all.
+    ///
+    /// - Parameters:
+    ///   - text: Plain text extracted via PDFKit/Vision OCR
+    ///   - fileName: Original document filename
+    ///   - aiClient: Optional AI client for enhanced extraction
+    ///   - extractionConfidence: Confidence from the OCR/extraction step (0-1)
+    /// - Returns: Structured extraction result
+    func extractFromText(
+        text: String,
+        fileName: String,
+        aiClient: (any AIProviderInterface)?,
+        extractionConfidence: Double = 0.9
+    ) async throws -> ExtractionResult {
+        AppLog.shared.documents("On-device medical extraction started — plain text input: \(text.count) chars, file: \(fileName)")
+
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            // Return minimal result for empty text
+            return ExtractionResult(
+                documentDate: extractDateFromFileName(fileName),
+                providerName: nil,
+                providerType: nil,
+                documentCategory: .other,
+                extractedText: "",
+                extractedSections: [],
+                rawDoclingOutput: nil
+            )
+        }
+
+        // Try to detect sections from plain text using heuristic patterns
+        let sections = extractSectionsFromPlainText(text)
+
+        // Use AI to enhance extraction if available
+        if let aiClient = aiClient {
+            do {
+                let aiEnhanced = try await enhanceWithAI(
+                    text: text,
+                    fileName: fileName,
+                    aiClient: aiClient
+                )
+
+                AppLog.shared.documents("AI-enhanced extraction complete — category: \(aiEnhanced.documentCategory.rawValue), sections: \(aiEnhanced.sections.count), provider: \(aiEnhanced.providerName ?? "unknown")")
+                return ExtractionResult(
+                    documentDate: aiEnhanced.documentDate,
+                    providerName: aiEnhanced.providerName,
+                    providerType: aiEnhanced.providerType,
+                    documentCategory: aiEnhanced.documentCategory,
+                    extractedText: text,
+                    extractedSections: aiEnhanced.sections.isEmpty ? sections : aiEnhanced.sections,
+                    rawDoclingOutput: nil
+                )
+            } catch {
+                AppLog.shared.documents("AI enhancement failed, falling back to basic extraction: \(error.localizedDescription)", level: .warning)
+                // Fall through to basic extraction
+            }
+        }
+
+        // Basic extraction without AI
+        let basicInfo = extractBasicInfo(from: text, fileName: fileName)
+
+        return ExtractionResult(
+            documentDate: basicInfo.date,
+            providerName: basicInfo.providerName,
+            providerType: basicInfo.providerType,
+            documentCategory: basicInfo.category,
+            extractedText: text,
+            extractedSections: sections,
+            rawDoclingOutput: nil
+        )
+    }
+
+    // MARK: - Section Extraction from Plain Text
+    /// Detect sections in plain text using common medical document heading patterns.
+    /// This replaces the Docling-based section extraction for the on-device path.
+    private func extractSectionsFromPlainText(_ text: String) -> [DocumentSection] {
+        var sections: [DocumentSection] = []
+        let lines = text.components(separatedBy: .newlines)
+
+        // Common medical document section headers (case-insensitive)
+        let sectionPatterns: [(pattern: String, type: String)] = [
+            // Lab report sections
+            ("(?i)^\\s*(test\\s*results?|lab(?:oratory)?\\s*results?)\\s*:?\\s*$", "Test Results"),
+            ("(?i)^\\s*(reference\\s*ranges?)\\s*:?\\s*$", "Reference Ranges"),
+            ("(?i)^\\s*(specimen\\s*(?:information|details?)?)\\s*:?\\s*$", "Specimen Information"),
+            ("(?i)^\\s*(comments?|notes?)\\s*:?\\s*$", "Comments"),
+            // Clinical note sections
+            ("(?i)^\\s*(chief\\s*complaint)\\s*:?\\s*$", "Chief Complaint"),
+            ("(?i)^\\s*(history\\s*of\\s*present\\s*illness)\\s*:?\\s*$", "History of Present Illness"),
+            ("(?i)^\\s*(physical\\s*exam(?:ination)?)\\s*:?\\s*$", "Physical Examination"),
+            ("(?i)^\\s*(assessment\\s*(?:and|&)?\\s*plan)\\s*:?\\s*$", "Assessment and Plan"),
+            ("(?i)^\\s*(vital\\s*signs?)\\s*:?\\s*$", "Vital Signs"),
+            ("(?i)^\\s*(medications?)\\s*:?\\s*$", "Medications"),
+            ("(?i)^\\s*(allergies)\\s*:?\\s*$", "Allergies"),
+            // Imaging sections
+            ("(?i)^\\s*(clinical\\s*indication)\\s*:?\\s*$", "Clinical Indication"),
+            ("(?i)^\\s*(technique)\\s*:?\\s*$", "Technique"),
+            ("(?i)^\\s*(findings?)\\s*:?\\s*$", "Findings"),
+            ("(?i)^\\s*(impression)\\s*:?\\s*$", "Impression"),
+            ("(?i)^\\s*(comparison)\\s*:?\\s*$", "Comparison"),
+            // Discharge/operative
+            ("(?i)^\\s*(hospital\\s*course)\\s*:?\\s*$", "Hospital Course"),
+            ("(?i)^\\s*(discharge\\s*(?:medications|instructions|diagnosis))\\s*:?\\s*$", "Discharge Information"),
+            ("(?i)^\\s*((?:pre|post)operative\\s*diagnosis)\\s*:?\\s*$", "Diagnosis"),
+            ("(?i)^\\s*(procedure(?:\\s*performed)?)\\s*:?\\s*$", "Procedure"),
+        ]
+
+        var currentSectionType: String? = nil
+        var currentContent: [String] = []
+        var currentStartLine = 0
+
+        for (lineIndex, line) in lines.enumerated() {
+            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedLine.isEmpty else { continue }
+
+            // Check if this line matches a section header
+            var matchedSection: String? = nil
+            for (pattern, sectionType) in sectionPatterns {
+                if let regex = try? NSRegularExpression(pattern: pattern),
+                   regex.firstMatch(in: trimmedLine, range: NSRange(trimmedLine.startIndex..., in: trimmedLine)) != nil {
+                    matchedSection = sectionType
+                    break
+                }
+            }
+
+            // Also detect ALL-CAPS lines as potential section headers (common in medical docs)
+            if matchedSection == nil && trimmedLine.count >= 3 && trimmedLine.count <= 60 {
+                let alphaOnly = trimmedLine.filter { $0.isLetter }
+                if !alphaOnly.isEmpty && alphaOnly == alphaOnly.uppercased() && alphaOnly.count >= 3 {
+                    matchedSection = trimmedLine.capitalized
+                }
+            }
+
+            if let newSection = matchedSection {
+                // Save previous section
+                if let prevType = currentSectionType, !currentContent.isEmpty {
+                    let content = currentContent.joined(separator: "\n")
+                    sections.append(DocumentSection(
+                        sectionType: prevType,
+                        content: content,
+                        confidence: 0.7,
+                        startPosition: currentStartLine
+                    ))
+                }
+                currentSectionType = newSection
+                currentContent = []
+                currentStartLine = lineIndex
+            } else if currentSectionType != nil {
+                currentContent.append(trimmedLine)
+            } else if sections.isEmpty {
+                // Content before any section header - add as "Header" or "Content"
+                if currentSectionType == nil {
+                    currentSectionType = "Content"
+                    currentStartLine = lineIndex
+                }
+                currentContent.append(trimmedLine)
+            }
+        }
+
+        // Save final section
+        if let lastType = currentSectionType, !currentContent.isEmpty {
+            let content = currentContent.joined(separator: "\n")
+            sections.append(DocumentSection(
+                sectionType: lastType,
+                content: content,
+                confidence: 0.7,
+                startPosition: currentStartLine
+            ))
+        }
+
+        // If no sections were detected, create a single "Content" section with all text
+        if sections.isEmpty && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(DocumentSection(
+                sectionType: "Content",
+                content: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                confidence: 0.5
+            ))
+        }
+
+        AppLog.shared.documents("Plain text section detection complete — found \(sections.count) sections")
+        return sections
+    }
+
     // MARK: - Extract Full Text from Docling Output
     private func extractFullText(from doclingDocument: DoclingDocument) -> String {
         var textParts: [String] = []
@@ -99,7 +283,7 @@ class MedicalDocumentExtractor {
         }
 
         let fullText = textParts.joined(separator: "\n\n")
-        print("🔍 MedicalDocumentExtractor: Extracted \(textParts.count) text parts, total length: \(fullText.count) chars")
+        AppLog.shared.documents("Docling text extraction: \(textParts.count) text parts, \(fullText.count) chars total", level: .debug)
         return fullText
     }
 

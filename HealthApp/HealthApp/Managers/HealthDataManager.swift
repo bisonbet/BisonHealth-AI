@@ -27,7 +27,6 @@ class HealthDataManager: ObservableObject {
     private let fileSystemManager: FileSystemManager
     private let healthKitManager = HealthKitManager.shared
     private let errorHandler = ErrorHandler.shared
-    private let logger = Logger.shared
     private let retryManager = NetworkRetryManager.shared
 
     // MARK: - Constants
@@ -51,24 +50,24 @@ class HealthDataManager: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        logger.info("Starting health data load")
+        AppLog.shared.healthData("Starting health data load")
 
         // Use retry manager for loading health data
         let result = await retryManager.retryNetworkOperation {
             try await self.loadHealthDataInternal()
         } onRetry: { attempt, error, delay in
-            self.logger.info("Retrying health data load, attempt \(attempt), delay \(delay)s")
+            AppLog.shared.healthData("Retrying health data load, attempt \(attempt), delay \(delay)s")
         }
 
         switch result {
         case .success:
-            logger.info("Successfully loaded health data")
+            AppLog.shared.healthData("Successfully loaded health data")
             errorMessage = nil
 
         case .failure(let error, let attempts):
             let message = "Failed to load health data after \(attempts) attempts"
             errorMessage = message
-            logger.error(message, error: error)
+            AppLog.shared.error(message, error: error, category: .healthData)
 
             // Handle error with global error handler
             errorHandler.handle(
@@ -82,7 +81,7 @@ class HealthDataManager: ObservableObject {
             )
 
         case .cancelled:
-            logger.info("Health data load cancelled")
+            AppLog.shared.healthData("Health data load cancelled")
             errorMessage = "Load cancelled"
         }
 
@@ -106,23 +105,22 @@ class HealthDataManager: ObservableObject {
             if let dbError = error as? DatabaseError,
                case .decryptionFailed = dbError {
                 // Decryption failed - run recovery scan to diagnose the issue
-                logger.warning("⚠️ Decryption failures detected. Running recovery scan...")
+                AppLog.shared.healthData("Decryption failures detected. Running recovery scan...", level: .warning)
                 do {
                     let scanResult = try await databaseManager.scanDatabaseForRecovery()
                     
                     if scanResult.corruptedRecords.count > 0 {
-                        logger.error("❌ Found \(scanResult.corruptedRecords.count) corrupted record(s) that cannot be decrypted")
-                        logger.error("   This may indicate the encryption key has changed or data is corrupted")
-                        logger.error("   Corrupted record IDs: \(scanResult.corruptedRecords.map { $0.recordId }.joined(separator: ", "))")
+                        AppLog.shared.healthData("Found \(scanResult.corruptedRecords.count) corrupted record(s) that cannot be decrypted. This may indicate the encryption key has changed or data is corrupted.", level: .error)
+                        AppLog.shared.healthData("Corrupted record IDs: \(scanResult.corruptedRecords.map { $0.recordId }.joined(separator: ", "))", level: .error)
                         
                         // If we have empty records, those are definitely lost
                         if scanResult.emptyRecords.count > 0 {
-                            logger.error("❌ Found \(scanResult.emptyRecords.count) record(s) with empty encrypted data - these are unrecoverable")
+                            AppLog.shared.healthData("Found \(scanResult.emptyRecords.count) record(s) with empty encrypted data - these are unrecoverable", level: .error)
                         }
                     }
                 } catch {
                     // If scan fails, log but continue
-                    logger.error("Failed to run recovery scan: \(error.localizedDescription)", error: error)
+                    AppLog.shared.error("Failed to run recovery scan: \(error.localizedDescription)", error: error, category: .healthData)
                 }
             }
             
@@ -178,15 +176,15 @@ class HealthDataManager: ObservableObject {
         
         // Check for potential duplicates before saving
         if let duplicate = await findDuplicateBloodTest(newResult) {
-            print("⚠️ HealthDataManager: Potential duplicate blood test found:")
-            print("   Existing: \(duplicate.testDate.formatted()) - \(duplicate.results.count) results")
-            print("   New: \(newResult.testDate.formatted()) - \(newResult.results.count) results")
+            AppLog.shared.healthData("Potential duplicate blood test found:", level: .warning)
+            AppLog.shared.healthData("   Existing: \(duplicate.testDate.formatted()) - \(duplicate.results.count) results")
+            AppLog.shared.healthData("   New: \(newResult.testDate.formatted()) - \(newResult.results.count) results")
             
             // If it's from the same document, it's definitely a duplicate
             if let newDocId = newResult.metadata?["source_document_id"],
                let existingDocId = duplicate.metadata?["source_document_id"],
                newDocId == existingDocId {
-                print("❌ HealthDataManager: Duplicate detected - same document ID, skipping save")
+                AppLog.shared.healthData("Duplicate detected - same document ID, skipping save", level: .error)
                 throw HealthDataError.validationFailed("This blood test has already been imported from this document")
             }
             
@@ -195,7 +193,7 @@ class HealthDataManager: ObservableObject {
             if dateDifference < 86400 { // Within 24 hours
                 let similarity = calculateBloodTestSimilarity(newResult, duplicate)
                 if similarity > 0.8 {
-                    print("❌ HealthDataManager: Duplicate detected - same date and \(Int(similarity * 100))% similar, skipping save")
+                    AppLog.shared.healthData("Duplicate detected - same date and \(Int(similarity * 100))% similar, skipping save", level: .error)
                     throw HealthDataError.validationFailed("A very similar blood test already exists for this date")
                 }
             }
@@ -315,7 +313,7 @@ class HealthDataManager: ObservableObject {
                     // Check if this blood test has pending duplicate review
                     // If so, don't save it yet - wait for user to review duplicates
                     if extractedBloodTest.metadata?["pending_review"] == "true" {
-                        print("⏸️ HealthDataManager: Blood test has pending duplicate review - skipping save until user reviews")
+                        AppLog.shared.healthData("Blood test has pending duplicate review - skipping save until user reviews")
                         // The blood test will be saved after user reviews duplicates in the UI
                         return
                     }
@@ -532,7 +530,7 @@ class HealthDataManager: ObservableObject {
             throw error
         }
 
-        logger.info("Starting Apple Health sync")
+        AppLog.shared.healthData("Starting Apple Health sync")
         lastSyncError = nil
 
         do {
@@ -550,10 +548,10 @@ class HealthDataManager: ObservableObject {
             // Copy sync statistics from HealthKitManager
             lastSyncStats = healthKitManager.lastSyncStats
 
-            logger.info("Apple Health sync completed successfully")
+            AppLog.shared.healthData("Apple Health sync completed successfully")
         } catch {
             lastSyncError = error
-            logger.error("Apple Health sync failed", error: error)
+            AppLog.shared.error("Apple Health sync failed", error: error, category: .healthData)
             throw error
         }
     }

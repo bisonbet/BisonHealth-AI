@@ -23,7 +23,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     private struct ChatSessionSignature: Equatable {
         let conversationId: UUID
         let modelId: String
-        let systemPrompt: String?
+        let instructionsHash: Int
         let maxTokens: Int?
         let maxKVSize: Int?
         let temperature: Float
@@ -48,7 +48,6 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     private var isModelLoaded = false
     private var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
-    private let logger = Logger.shared
 
     // MARK: - AIProviderInterface Methods
 
@@ -91,14 +90,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #else
         try await ensureModelLoaded()
 
-        let session = try makeIsolatedSession()
+        let instructions = buildInstructions(systemPrompt: nil, healthContext: context)
+        let session = try makeIsolatedSession(instructions: instructions)
 
         let startTime = Date()
 
-        // Prepend health context to the user message
-        let fullMessage = context.isEmpty ? message : "Health context:\n\(context)\n\nQuestion: \(message)"
-
-        let response = try await session.respond(to: fullMessage)
+        let response = try await session.respond(to: message)
         let responseTime = Date().timeIntervalSince(startTime)
 
         return MLXOnDeviceResponse(
@@ -128,12 +125,18 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Streaming Chat
 
+    /// Send a streaming chat message using MLX ChatSession.
+    ///
+    /// The ChatSession manages multi-turn context internally via KV cache:
+    /// - `systemPrompt` + `healthContext` become the session `instructions` (set once per session)
+    /// - `conversationHistory` is used for re-hydration when the session must be rebuilt
+    ///   (e.g., conversation switch, model change, health context change)
+    /// - `message` is passed as-is to `streamResponse(to:)` — no manual formatting needed
     func sendStreamingChatMessage(
         _ message: String,
-        context: String,
+        healthContext: String,
         conversationHistory: [ChatMessage] = [],
         conversationId: UUID,
-        model: String? = nil,
         systemPrompt: String?,
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (MLXOnDeviceResponse) -> Void
@@ -148,40 +151,53 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             throw MLXOnDeviceError.modelNotLoaded
         }
 
+        // Build instructions from system prompt + health context (the model's "system message")
+        let instructions = buildInstructions(systemPrompt: systemPrompt, healthContext: healthContext)
+
         let sessionSignature = makeChatSessionSignature(
             conversationId: conversationId,
-            systemPrompt: systemPrompt
+            instructions: instructions
         )
 
-        if chatSessionSignature != sessionSignature {
-            logger.info("[MLXClient] Session inputs changed, rebuilding chat session")
+        let needsRebuild = chatSessionSignature != sessionSignature
+        if needsRebuild {
+            AppLog.shared.mlx("[MLXClient] Session inputs changed, rebuilding chat session")
             chatSession = nil
             chatSessionSignature = sessionSignature
         }
 
-        // Create or update the ChatSession with the current system prompt
+        // Create ChatSession if needed
         if chatSession == nil {
-            chatSession = ChatSession(
-                modelContainer,
-                instructions: systemPrompt,
-                history: makeChatHistory(from: conversationHistory),
-                generateParameters: currentGenerateParameters()
-            )
+            let history = makeChatHistory(from: conversationHistory)
+            if history.isEmpty {
+                // Fresh conversation — no history to re-hydrate
+                chatSession = ChatSession(
+                    modelContainer,
+                    instructions: instructions,
+                    generateParameters: currentGenerateParameters()
+                )
+                AppLog.shared.mlx("[MLXClient] Created new ChatSession (fresh conversation)")
+            } else {
+                // Re-hydrate from saved conversation history
+                chatSession = ChatSession(
+                    modelContainer,
+                    instructions: instructions,
+                    history: history,
+                    generateParameters: currentGenerateParameters()
+                )
+                AppLog.shared.mlx("[MLXClient] Created new ChatSession (re-hydrated \(history.count) messages)")
+            }
         }
 
         guard let chatSession else {
             throw MLXOnDeviceError.modelNotLoaded
         }
 
-        // Prepend health context to the user message
-        let fullMessage = context.isEmpty ? message : "Health context:\n\(context)\n\nQuestion: \(message)"
-
-        // Stream the response
+        // Stream the response — just the raw user message; ChatSession handles the rest
         var accumulatedContent = ""
-        var completionInfo: GenerateCompletionInfo?
 
         do {
-            for try await chunk in chatSession.streamResponse(to: fullMessage) {
+            for try await chunk in chatSession.streamResponse(to: message) {
                 accumulatedContent += chunk
                 onUpdate(accumulatedContent)
             }
@@ -190,7 +206,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             if accumulatedContent.isEmpty {
                 throw MLXOnDeviceError.generationFailed(error.localizedDescription)
             }
-            logger.warning("[MLXClient] Streaming ended with error but got partial content: \(error.localizedDescription)")
+            AppLog.shared.mlx("[MLXClient] Streaming ended with error but got partial content: \(error.localizedDescription)", level: .warning)
         }
 
         let responseTime = Date().timeIntervalSince(startTime)
@@ -198,9 +214,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         let response = MLXOnDeviceResponse(
             content: accumulatedContent,
             responseTime: responseTime,
-            tokenCount: completionInfo.map { Int($0.generationTokenCount) },
-            tokensPerSecond: completionInfo?.tokensPerSecond,
-            promptTokenCount: completionInfo.map { Int($0.promptTokenCount) },
+            tokenCount: nil,
+            tokensPerSecond: nil,
+            promptTokenCount: nil,
             metadata: [
                 "conversationId": conversationId.uuidString,
                 "modelId": currentModelInfo?.huggingFaceId ?? "unknown"
@@ -232,10 +248,10 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             throw MLXOnDeviceError.modelNotDownloaded
         }
 
-        logger.info("[MLXClient] Loading model: \(selectedModel.displayName) (\(selectedModel.huggingFaceId))")
+        AppLog.shared.mlx("[MLXClient] Loading model: \(selectedModel.displayName) (\(selectedModel.huggingFaceId))")
 
         // Set GPU memory cache limit
-        MLX.GPU.set(cacheLimit: 512 * 1024 * 1024) // 512MB cache
+        MLX.Memory.cacheLimit = 512 * 1024 * 1024 // 512MB cache
 
         let configuration = ModelConfiguration(id: selectedModel.huggingFaceId)
 
@@ -256,7 +272,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         connectionStatus = .connected
         isConnected = true
 
-        logger.info("[MLXClient] Model loaded successfully: \(selectedModel.displayName)")
+        AppLog.shared.mlx("[MLXClient] Model loaded successfully: \(selectedModel.displayName)")
         #endif
     }
 
@@ -277,7 +293,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     func suspendForBackground() async {
         guard !isSuspendedForBackground else { return }
         isSuspendedForBackground = true
-        logger.info("[MLXClient] Suspended for background")
+        AppLog.shared.mlx("[MLXClient] Suspended for background")
         // MLX uses unified memory so model stays in RAM; no special action needed.
         // For memory pressure, the OS can reclaim GPU cache automatically.
     }
@@ -285,7 +301,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     func resumeAfterForeground() async {
         guard isSuspendedForBackground else { return }
         isSuspendedForBackground = false
-        logger.info("[MLXClient] Resumed from background")
+        AppLog.shared.mlx("[MLXClient] Resumed from background")
     }
 
     // MARK: - Private Helpers
@@ -296,24 +312,40 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         }
     }
 
+    /// Build the combined instructions string from system prompt and health context.
+    /// This becomes the ChatSession's system message — set once per session.
+    private func buildInstructions(systemPrompt: String?, healthContext: String) -> String? {
+        switch (systemPrompt, healthContext.isEmpty) {
+        case (let prompt?, false):
+            return "\(prompt)\n\nPatient health data:\n\(healthContext)"
+        case (let prompt?, true):
+            return prompt
+        case (nil, false):
+            return "Patient health data:\n\(healthContext)"
+        case (nil, true):
+            return nil
+        }
+    }
+
     #if !targetEnvironment(simulator)
     private func currentGenerateParameters(maxTokensOverride: Int? = nil) -> GenerateParameters {
         GenerateParameters(
-            maxKVSize: MLXModelInfo.configuredContextSize,
             maxTokens: maxTokensOverride ?? MLXModelInfo.configuredMaxTokens,
+            maxKVSize: MLXModelInfo.configuredContextSize,
             temperature: MLXModelInfo.configuredTemperature,
             topP: MLXModelInfo.configuredTopP,
             repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty
         )
     }
 
-    private func makeIsolatedSession(maxTokensOverride: Int? = nil) throws -> ChatSession {
+    private func makeIsolatedSession(instructions: String? = nil, maxTokensOverride: Int? = nil) throws -> ChatSession {
         guard let modelContainer else {
             throw MLXOnDeviceError.modelNotLoaded
         }
 
         return ChatSession(
             modelContainer,
+            instructions: instructions,
             generateParameters: currentGenerateParameters(maxTokensOverride: maxTokensOverride)
         )
     }
@@ -333,13 +365,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     private func makeChatSessionSignature(
         conversationId: UUID,
-        systemPrompt: String?
+        instructions: String?
     ) -> ChatSessionSignature {
         let params = currentGenerateParameters()
         return ChatSessionSignature(
             conversationId: conversationId,
             modelId: MLXModelInfo.selectedModel.id,
-            systemPrompt: systemPrompt,
+            instructionsHash: instructions?.hashValue ?? 0,
             maxTokens: params.maxTokens,
             maxKVSize: params.maxKVSize,
             temperature: params.temperature,

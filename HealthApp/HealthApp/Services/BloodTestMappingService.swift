@@ -30,8 +30,8 @@ class BloodTestMappingService: ObservableObject {
         patientName: String? = nil
     ) async throws -> BloodTestMappingResult {
 
-        print("🧪 BloodTestMappingService: Starting AI-powered blood test mapping...")
-        print("🧪 BloodTestMappingService: Document text length: \(documentText.count) characters")
+        AppLog.shared.healthData("Starting AI-powered blood test mapping...")
+        AppLog.shared.healthData("Document text length: \(documentText.count) characters")
 
         isProcessing = true
         processingProgress = 0.0
@@ -43,25 +43,25 @@ class BloodTestMappingService: ObservableObject {
 
         do {
             // Phase 1: Extract basic document information (20% progress)
-            print("📝 BloodTestMappingService: Phase 1 - Extracting basic document information...")
+            AppLog.shared.healthData("Phase 1 - Extracting basic document information...")
             let basicInfo = try await extractBasicInformation(from: documentText)
             processingProgress = 0.2
-            print("✅ BloodTestMappingService: Basic info extracted - Date: \(basicInfo.testDate?.formatted() ?? "unknown"), Lab: \(basicInfo.laboratoryName ?? "unknown")")
+            AppLog.shared.healthData("Basic info extracted - Date: \(basicInfo.testDate?.formatted() ?? "unknown"), Lab: \(basicInfo.laboratoryName ?? "unknown")")
 
             // Phase 2: Extract all lab values using AI (60% progress)
-            print("🔬 BloodTestMappingService: Phase 2 - Extracting lab values using AI...")
+            AppLog.shared.healthData("Phase 2 - Extracting lab values using AI...")
             let extractedValues = try await extractLabValuesWithAI(from: documentText)
             processingProgress = 0.8
-            print("✅ BloodTestMappingService: Extracted \(extractedValues.count) lab values")
+            AppLog.shared.healthData("Extracted \(extractedValues.count) lab values")
 
             // Phase 3: Map to standardized parameters (80% progress)
-            print("🗺️ BloodTestMappingService: Phase 3 - Mapping to standardized parameters...")
+            AppLog.shared.healthData("Phase 3 - Mapping to standardized parameters...")
             let importGroups = await mapToStandardizedParameters(extractedValues)
             processingProgress = 0.9
-            print("✅ BloodTestMappingService: Created \(importGroups.count) import groups for review")
+            AppLog.shared.healthData("Created \(importGroups.count) import groups for review")
 
             // Phase 4: Create final BloodTestResult (100% progress)
-            print("🏗️ BloodTestMappingService: Phase 4 - Creating draft BloodTestResult...")
+            AppLog.shared.healthData("Phase 4 - Creating draft BloodTestResult...")
             let finalTestDate = basicInfo.testDate ?? suggestedTestDate ?? Date()
             
             // Create draft results from the selected candidates in import groups
@@ -90,7 +90,7 @@ class BloodTestMappingService: ObservableObject {
                 }
             }
             
-            print("📅 BloodTestMappingService: Final test date selected: \(finalTestDate.formatted()) (AI: \(basicInfo.testDate?.formatted() ?? "none"), Suggested: \(suggestedTestDate?.formatted() ?? "none"))")
+            AppLog.shared.healthData("Final test date selected: \(finalTestDate.formatted()) (AI: \(basicInfo.testDate?.formatted() ?? "none"), Suggested: \(suggestedTestDate?.formatted() ?? "none"))")
             
             let bloodTestResult = createBloodTestResult(
                 from: draftResults,
@@ -112,13 +112,13 @@ class BloodTestMappingService: ObservableObject {
             lastMappingResult = result
             processingProgress = 1.0
 
-            print("🎉 BloodTestMappingService: Mapping completed successfully!")
-            print("🎉 BloodTestMappingService: Final result - \(bloodTestResult.results.count) test items, confidence: \(result.confidence)%")
+            AppLog.shared.healthData("Mapping completed successfully!")
+            AppLog.shared.healthData("Final result - \(bloodTestResult.results.count) test items, confidence: \(result.confidence)%")
 
             return result
 
         } catch {
-            print("❌ BloodTestMappingService: Mapping failed with error: \(error)")
+            AppLog.shared.healthData("Mapping failed with error: \(error)", level: .error)
             let mappingError = BloodTestMappingError(
                 error: error,
                 documentText: documentText.prefix(500).description,
@@ -208,13 +208,13 @@ class BloodTestMappingService: ObservableObject {
         let maxChunkSize = 2000 
         let chunks = chunkDocument(text, maxChunkSize: maxChunkSize)
         
-        print("🧪 BloodTestMappingService: Document split into \(chunks.count) chunks for processing")
+        AppLog.shared.healthData("Document split into \(chunks.count) chunks for processing")
         
         var allExtractedValues: [ExtractedLabValue] = []
         
         // Process each chunk
         for (index, chunk) in chunks.enumerated() {
-            print("🧪 BloodTestMappingService: Processing chunk \(index + 1)/\(chunks.count) (\(chunk.count) characters)")
+            AppLog.shared.healthData("Processing chunk \(index + 1)/\(chunks.count) (\(chunk.count) characters)")
             
             let chunkValues = try await extractLabValuesFromChunk(chunk, chunkIndex: index, totalChunks: chunks.count)
             allExtractedValues.append(contentsOf: chunkValues)
@@ -225,11 +225,11 @@ class BloodTestMappingService: ObservableObject {
             allExtractedValues,
             standardParams: BloodTestResult.standardizedLabParameters
         )
-        print("🧪 BloodTestMappingService: Filtered to \(validValues.count) valid values from \(allExtractedValues.count) extracted")
+        AppLog.shared.healthData("Filtered to \(validValues.count) valid values from \(allExtractedValues.count) extracted")
         
         // Deduplicate values (same test name and value)
         let deduplicatedValues = deduplicateLabValues(validValues)
-        print("🧪 BloodTestMappingService: Extracted \(allExtractedValues.count) total values, \(deduplicatedValues.count) after deduplication and validation")
+        AppLog.shared.healthData("Extracted \(allExtractedValues.count) total values, \(deduplicatedValues.count) after deduplication and validation")
         
         return deduplicatedValues
     }
@@ -321,7 +321,7 @@ class BloodTestMappingService: ObservableObject {
             let response = aiResponse.content
             return parseExtractedLabValues(from: response)
         } catch {
-            print("❌ BloodTestMappingService: Failed to extract from chunk \(chunkIndex + 1): \(error)")
+            AppLog.shared.healthData("Failed to extract from chunk \(chunkIndex + 1): \(error)", level: .error)
             // If chunk processing fails, return empty array rather than failing entirely
             // This allows other chunks to still be processed
             return []
@@ -345,7 +345,7 @@ class BloodTestMappingService: ObservableObject {
                 seen.insert(key)
                 deduplicated.append(value)
             } else {
-                print("🧪 BloodTestMappingService: Skipping duplicate: '\(value.testName)' = \(value.value)")
+                AppLog.shared.healthData("Skipping duplicate: '\(value.testName)' = \(value.value)", level: .debug)
             }
         }
         
@@ -498,13 +498,13 @@ class BloodTestMappingService: ObservableObject {
                 mappedValues.append(mappedValue)
             } else {
                 // Log unmapped values for debugging
-                print("⚠️ BloodTestMappingService: Could not map '\(extractedValue.testName)' (type: \(extractedValue.testType)) to standardized parameter")
+                AppLog.shared.healthData("Could not map '\(extractedValue.testName)' (type: \(extractedValue.testType)) to standardized parameter", level: .warning)
             }
         }
 
         // Create import groups for ALL values (both unique and duplicates)
         let importGroups = createImportGroups(mappedValues)
-        print("🧪 BloodTestMappingService: Mapped \(mappedValues.count) values to \(importGroups.count) import groups")
+        AppLog.shared.healthData("Mapped \(mappedValues.count) values to \(importGroups.count) import groups")
         
         return importGroups
     }

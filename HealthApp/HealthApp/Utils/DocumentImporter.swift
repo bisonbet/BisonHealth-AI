@@ -30,7 +30,7 @@ class DocumentImporter: NSObject, ObservableObject {
     
     // MARK: - Document Import from Files
     func importDocument(from url: URL) async throws -> MedicalDocument {
-        print("📁 DocumentImporter: Starting import from URL: \(url)")
+        AppLog.shared.documents("Starting import from URL: \(url)")
         
         isImporting = true
         importProgress = 0.0
@@ -42,13 +42,13 @@ class DocumentImporter: NSObject, ObservableObject {
         
         do {
             // Start accessing security-scoped resource
-            print("🔐 DocumentImporter: Starting security-scoped resource access")
+            AppLog.shared.documents("🔐 DocumentImporter: Starting security-scoped resource access")
             let accessing = url.startAccessingSecurityScopedResource()
-            print("🔐 DocumentImporter: Security-scoped access result: \(accessing)")
+            AppLog.shared.documents("🔐 DocumentImporter: Security-scoped access result: \(accessing)")
             
             defer {
                 if accessing {
-                    print("🔐 DocumentImporter: Stopping security-scoped resource access")
+                    AppLog.shared.documents("🔐 DocumentImporter: Stopping security-scoped resource access")
                     url.stopAccessingSecurityScopedResource()
                 }
             }
@@ -56,56 +56,56 @@ class DocumentImporter: NSObject, ObservableObject {
             importProgress = 0.2
             
             // Get file information - THIS IS WHERE LAUNCHSERVICES ERRORS OCCUR
-            print("📋 DocumentImporter: Extracting file information from URL...")
+            AppLog.shared.documents("Extracting file information from URL...")
             
-            print("📋 DocumentImporter: Getting lastPathComponent...")
+            AppLog.shared.documents("Getting lastPathComponent...")
             let fileName = url.lastPathComponent
-            print("✅ DocumentImporter: Successfully got fileName: '\(fileName)'")
+            AppLog.shared.documents("Successfully got fileName: '\(fileName)'")
             
-            print("📋 DocumentImporter: Getting pathExtension...")
+            AppLog.shared.documents("Getting pathExtension...")
             let fileExtension = url.pathExtension.lowercased()
-            print("✅ DocumentImporter: Successfully got fileExtension: '\(fileExtension)'")
+            AppLog.shared.documents("Successfully got fileExtension: '\(fileExtension)'")
             
-            print("🔍 DocumentImporter: Determining file type from extension...")
+            AppLog.shared.documents("Determining file type from extension...", level: .debug)
             let fileType = DocumentType.from(fileExtension: fileExtension)
-            print("✅ DocumentImporter: File type determined: \(fileType.displayName)")
+            AppLog.shared.documents("File type determined: \(fileType.displayName)")
             
             // Validate file type
-            print("✅ DocumentImporter: Validating file type...")
+            AppLog.shared.documents("Validating file type...")
             guard isValidDocumentType(fileType) else {
-                print("❌ DocumentImporter: Unsupported file type: \(fileType)")
+                AppLog.shared.documents("Unsupported file type: \(fileType)", level: .error)
                 throw DocumentImportError.unsupportedFileType
             }
-            print("✅ DocumentImporter: File type validation passed")
+            AppLog.shared.documents("File type validation passed")
             
             importProgress = 0.4
             
             // Get file size and validate - ANOTHER POTENTIAL LAUNCHSERVICES TRIGGER
-            print("📏 DocumentImporter: Getting file size...")
+            AppLog.shared.documents("📏 DocumentImporter: Getting file size...")
             let fileSize: Int64
             do {
                 fileSize = try getFileSize(url)
-                print("✅ DocumentImporter: File size: \(fileSize) bytes")
+                AppLog.shared.documents("File size: \(fileSize) bytes")
             } catch {
-                print("❌ DocumentImporter: Failed to get file size: \(error)")
+                AppLog.shared.documents("Failed to get file size: \(error)", level: .error)
                 // Check if this is a LaunchServices/permission error
                 if error.localizedDescription.contains("database") || 
                    error.localizedDescription.contains("permission") ||
                    error.localizedDescription.contains("LaunchServices") {
-                    print("❌ DocumentImporter: LaunchServices permission error during file size check")
+                    AppLog.shared.documents("LaunchServices permission error during file size check", level: .error)
                     throw DocumentImportError.accessDenied
                 }
                 throw error
             }
             
-            print("✅ DocumentImporter: Validating file size...")
+            AppLog.shared.documents("Validating file size...")
             try validateFileSize(fileSize)
-            print("✅ DocumentImporter: File size validation passed")
+            AppLog.shared.documents("File size validation passed")
             
             importProgress = 0.6
             
             // Copy file to secure storage
-            print("💾 DocumentImporter: Copying file to secure storage...")
+            AppLog.shared.documents("Copying file to secure storage...")
             let storedURL: URL
             do {
                 storedURL = try fileSystemManager.copyFile(
@@ -113,16 +113,16 @@ class DocumentImporter: NSObject, ObservableObject {
                     fileName: fileName,
                     fileType: fileType
                 )
-                print("✅ DocumentImporter: File copied successfully to: \(storedURL)")
+                AppLog.shared.documents("File copied successfully to: \(storedURL)")
             } catch {
-                print("❌ DocumentImporter: Failed to copy file: \(error)")
+                AppLog.shared.documents("Failed to copy file: \(error)", level: .error)
                 throw DocumentImportError.storageError
             }
             
             importProgress = 0.8
             
             // Create document record
-            print("📝 DocumentImporter: Creating document record...")
+            AppLog.shared.documents("Creating document record...")
             let document = MedicalDocument(
                 fileName: fileName,
                 fileType: fileType,
@@ -150,7 +150,7 @@ class DocumentImporter: NSObject, ObservableObject {
                     }
                 } catch {
                     // Thumbnail generation failure is not critical
-                    print("Failed to generate thumbnail: \(error)")
+                    AppLog.shared.documents("Failed to generate thumbnail: \(error)", level: .error)
                 }
             }
             
@@ -230,7 +230,7 @@ class DocumentImporter: NSObject, ObservableObject {
                         try await databaseManager.saveDocument(updatedDocument)
                     }
                 } catch {
-                    print("Failed to generate thumbnail: \(error)")
+                    AppLog.shared.documents("Failed to generate thumbnail: \(error)", level: .error)
                 }
             }
             
@@ -302,7 +302,7 @@ class DocumentImporter: NSObject, ObservableObject {
                         try await databaseManager.saveDocument(updatedDocument)
                     }
                 } catch {
-                    print("Failed to generate thumbnail: \(error)")
+                    AppLog.shared.documents("Failed to generate thumbnail: \(error)", level: .error)
                 }
             }
             
@@ -328,7 +328,7 @@ class DocumentImporter: NSObject, ObservableObject {
                 importProgress = Double(index + 1) / Double(totalFiles)
             } catch {
                 // Continue with other files even if one fails
-                print("Failed to import \(url.lastPathComponent): \(error)")
+                AppLog.shared.documents("Failed to import \(url.lastPathComponent): \(error)", level: .error)
                 lastError = error
             }
         }
@@ -359,23 +359,23 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     private func getFileSize(_ url: URL) throws -> Int64 {
-        print("📏 DocumentImporter.getFileSize: Getting file attributes for path: \(url.path)")
+        AppLog.shared.documents("📏 DocumentImporter.getFileSize: Getting file attributes for path: \(url.path)")
         
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             let fileSize = attributes[.size] as? Int64 ?? 0
-            print("✅ DocumentImporter.getFileSize: Successfully got file size: \(fileSize) bytes")
+            AppLog.shared.documents("DocumentImporter.getFileSize: Successfully got file size: \(fileSize) bytes")
             return fileSize
         } catch {
-            print("❌ DocumentImporter.getFileSize: Failed to get file attributes: \(error)")
-            print("❌ DocumentImporter.getFileSize: Error type: \(type(of: error))")
-            print("❌ DocumentImporter.getFileSize: Error description: \(error.localizedDescription)")
+            AppLog.shared.documents("DocumentImporter.getFileSize: Failed to get file attributes: \(error)", level: .error)
+            AppLog.shared.documents("DocumentImporter.getFileSize: Error type: \(type(of: error))", level: .error)
+            AppLog.shared.documents("DocumentImporter.getFileSize: Error description: \(error.localizedDescription)", level: .error)
             
             // Check for LaunchServices/permission errors
             if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") ||
                error.localizedDescription.contains("database") ||
                error.localizedDescription.contains("permission") {
-                print("❌ DocumentImporter.getFileSize: LaunchServices database permission error detected!")
+                AppLog.shared.documents("DocumentImporter.getFileSize: LaunchServices database permission error detected!", level: .error)
             }
             
             throw error
@@ -411,7 +411,7 @@ class DocumentImporter: NSObject, ObservableObject {
                 let document = try await importFromPhotoPickerResult(result)
                 importedDocuments.append(document)
             } catch {
-                print("Failed to import photo: \(error)")
+                AppLog.shared.documents("Failed to import photo: \(error)", level: .error)
                 lastError = error
             }
         }

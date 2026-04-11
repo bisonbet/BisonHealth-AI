@@ -32,10 +32,12 @@ class AppState: ObservableObject {
 
     private let settingsManager = SettingsManager.shared
     private let healthDataManager = HealthDataManager.shared
-    private let logger = Logger.shared
     private var cancellables = Set<AnyCancellable>()
 
     init() {
+        // Initialize crash detection
+        AppLog.shared.markLaunch()
+
         // Initialize app state
         setupColorScheme()
         observeSettingsChanges()
@@ -62,20 +64,20 @@ class AppState: ObservableObject {
                 if let lastSync = UserDefaults.standard.object(forKey: "healthKitLastSyncDate") as? Date {
                     let hoursSinceLastSync = Date().timeIntervalSince(lastSync) / 3600
                     if hoursSinceLastSync < 4 {
-                        logger.info("App launch: Skipping HealthKit sync (last sync was \(String(format: "%.1f", hoursSinceLastSync)) hours ago)")
+                        AppLog.shared.general("App launch: Skipping HealthKit sync (last sync was \(String(format: "%.1f", hoursSinceLastSync)) hours ago)")
                         return
                     }
                 }
 
-                logger.info("App launch: Attempting HealthKit sync")
+                AppLog.shared.general("App launch: Attempting HealthKit sync")
                 try await healthDataManager.syncFromAppleHealth()
 
                 // HealthKitManager will automatically save the sync timestamp
-                logger.info("App launch: HealthKit sync completed successfully")
+                AppLog.shared.general("App launch: HealthKit sync completed successfully")
             } catch {
                 // Silently fail if HealthKit is not available or authorized
                 // The user can manually trigger sync from settings if needed
-                logger.warning("App launch: HealthKit sync failed (this is normal if not authorized): \(error.localizedDescription)")
+                AppLog.shared.general("App launch: HealthKit sync failed (this is normal if not authorized): \(error.localizedDescription)", level: .warning)
             }
         }
     }
@@ -100,6 +102,7 @@ class AppState: ObservableObject {
                 await settingsManager.resumeOnDeviceLLMAfterForeground()
             }
         case .inactive, .background:
+            AppLog.shared.markCleanShutdown()
             Task {
                 await settingsManager.suspendOnDeviceLLMForBackground()
             }

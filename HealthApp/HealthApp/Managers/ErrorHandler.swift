@@ -93,7 +93,6 @@ class ErrorHandler: ObservableObject {
     // MARK: - Private Properties
     private var errorHistory: [HandledError] = []
     private let maxHistorySize = 50
-    private let logger = Logger.shared
 
     private init() {}
 
@@ -121,12 +120,12 @@ class ErrorHandler: ObservableObject {
 
         // Check for duplicate errors
         if shouldDeduplicateError(handledError) {
-            logger.debug("Deduplicated error: \(handledError.message) in \(context)")
+            AppLog.shared.general("Deduplicated error: \(handledError.message) in \(context)", level: .debug)
             return
         }
 
         // Log the error
-        logger.error("\(detectedSeverity.icon) [\(context)] \(handledError.message)", error: error)
+        AppLog.shared.error("[\(context)] \(handledError.message)", error: error, category: .general)
 
         // Add to history
         addToHistory(handledError)

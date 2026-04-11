@@ -28,7 +28,6 @@ class HealthKitManager: ObservableObject {
 
     // MARK: - Dependencies
     private let healthStore = HKHealthStore()
-    private let logger = Logger.shared
 
     // MARK: - Constants
     private let bloodPressureMatchingWindow: TimeInterval = 60 // 1 minute
@@ -112,7 +111,7 @@ class HealthKitManager: ObservableObject {
     /// Check current authorization status
     private func checkAuthorizationStatus() {
         guard isHealthKitAvailable() else {
-            logger.warning("HealthKit is not available on this device")
+            AppLog.shared.healthData("HealthKit is not available on this device", level: .warning)
             return
         }
 
@@ -142,7 +141,7 @@ class HealthKitManager: ObservableObject {
             throw HealthKitError.notAvailable
         }
 
-        logger.info("Requesting HealthKit authorization")
+        AppLog.shared.healthData("Requesting HealthKit authorization")
 
         // Combine all types for authorization request
         var allTypes = Set<HKObjectType>()
@@ -152,7 +151,7 @@ class HealthKitManager: ObservableObject {
         try await healthStore.requestAuthorization(toShare: [], read: allTypes)
 
         checkAuthorizationStatus()
-        logger.info("HealthKit authorization completed")
+        AppLog.shared.healthData("HealthKit authorization completed")
     }
 
     // MARK: - Data Sync
@@ -168,7 +167,7 @@ class HealthKitManager: ObservableObject {
 
         let startTime = Date()
         var stats = SyncStatistics()
-        logger.info("Starting HealthKit sync")
+        AppLog.shared.healthData("Starting HealthKit sync")
 
         do {
             var syncedData = SyncedHealthData()
@@ -180,7 +179,7 @@ class HealthKitManager: ObservableObject {
                     stats.successfulDataTypes += 1
                 }
             } catch {
-                logger.warning("Failed to read date of birth from HealthKit: \(error.localizedDescription)")
+                AppLog.shared.healthData("Failed to read date of birth from HealthKit: \(error.localizedDescription)", level: .warning)
                 stats.failedDataTypes.append("Date of Birth")
             }
 
@@ -190,7 +189,7 @@ class HealthKitManager: ObservableObject {
                     stats.successfulDataTypes += 1
                 }
             } catch {
-                logger.warning("Failed to read biological sex from HealthKit: \(error.localizedDescription)")
+                AppLog.shared.healthData("Failed to read biological sex from HealthKit: \(error.localizedDescription)", level: .warning)
                 stats.failedDataTypes.append("Biological Sex")
             }
 
@@ -200,7 +199,7 @@ class HealthKitManager: ObservableObject {
                     stats.successfulDataTypes += 1
                 }
             } catch {
-                logger.warning("Failed to read blood type from HealthKit: \(error.localizedDescription)")
+                AppLog.shared.healthData("Failed to read blood type from HealthKit: \(error.localizedDescription)", level: .warning)
                 stats.failedDataTypes.append("Blood Type")
             }
 
@@ -210,7 +209,7 @@ class HealthKitManager: ObservableObject {
                     stats.successfulDataTypes += 1
                 }
             } catch {
-                logger.warning("Failed to read height from HealthKit: \(error.localizedDescription)")
+                AppLog.shared.healthData("Failed to read height from HealthKit: \(error.localizedDescription)", level: .warning)
                 stats.failedDataTypes.append("Height")
             }
 
@@ -265,14 +264,14 @@ class HealthKitManager: ObservableObject {
                 authorizationStatus = .sharingAuthorized
             }
 
-            logger.info("HealthKit sync completed: \(stats.summary)")
+            AppLog.shared.healthData("HealthKit sync completed: \(stats.summary)")
 
             return syncedData
 
         } catch {
             isSyncing = false
             syncError = error
-            logger.error("HealthKit sync failed", error: error)
+            AppLog.shared.error("HealthKit sync failed", error: error, category: .healthData)
             throw error
         }
     }
@@ -393,7 +392,7 @@ class HealthKitManager: ObservableObject {
                         foundMatch = true
                         break
                     } else {
-                        logger.warning("Skipping invalid blood pressure reading: \(systolic)/\(diastolic) mmHg")
+                        AppLog.shared.healthData("Skipping invalid blood pressure reading: \(systolic)/\(diastolic) mmHg", level: .warning)
                     }
                 }
 
@@ -422,7 +421,7 @@ class HealthKitManager: ObservableObject {
             if reading.isValid() {
                 return reading
             } else {
-                logger.warning("Skipping invalid heart rate reading: \(bpm) bpm")
+                AppLog.shared.healthData("Skipping invalid heart rate reading: \(bpm) bpm", level: .warning)
                 return nil
             }
         }
@@ -446,7 +445,7 @@ class HealthKitManager: ObservableObject {
             if reading.isValid() {
                 return reading
             } else {
-                logger.warning("Skipping invalid body temperature reading: \(fahrenheit) °F")
+                AppLog.shared.healthData("Skipping invalid body temperature reading: \(fahrenheit) °F", level: .warning)
                 return nil
             }
         }
@@ -470,7 +469,7 @@ class HealthKitManager: ObservableObject {
             if reading.isValid() {
                 return reading
             } else {
-                logger.warning("Skipping invalid oxygen saturation reading: \(percentage) %")
+                AppLog.shared.healthData("Skipping invalid oxygen saturation reading: \(percentage) %", level: .warning)
                 return nil
             }
         }
@@ -494,7 +493,7 @@ class HealthKitManager: ObservableObject {
             if reading.isValid() {
                 return reading
             } else {
-                logger.warning("Skipping invalid respiratory rate reading: \(breathsPerMin) br/min")
+                AppLog.shared.healthData("Skipping invalid respiratory rate reading: \(breathsPerMin) br/min", level: .warning)
                 return nil
             }
         }
@@ -518,7 +517,7 @@ class HealthKitManager: ObservableObject {
             if reading.isValid() {
                 return reading
             } else {
-                logger.warning("Skipping invalid weight reading: \(pounds) lbs")
+                AppLog.shared.healthData("Skipping invalid weight reading: \(pounds) lbs", level: .warning)
                 return nil
             }
         }

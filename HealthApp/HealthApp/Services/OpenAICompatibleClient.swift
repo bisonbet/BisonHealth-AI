@@ -38,7 +38,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             config.timeoutIntervalForRequest = timeout
             self.session = URLSession(configuration: config)
 
-            print("⚠️ OpenAICompatibleClient: Invalid base URL, using default")
+            AppLog.shared.ai("Invalid base URL, using default", level: .warning)
             return
         }
 
@@ -54,7 +54,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         config.timeoutIntervalForRequest = timeout
         self.session = URLSession(configuration: config)
 
-        print("✓ OpenAICompatibleClient initialized with base URL: \(baseURL)")
+        AppLog.shared.ai("OpenAI-compatible client initialized with base URL: \(baseURL)")
     }
 
     // MARK: - Connection Management
@@ -67,14 +67,14 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
             connectionStatus = .connected
             isConnected = true
-            print("✅ OpenAICompatibleClient: Connected successfully, found \(models.count) models")
+            AppLog.shared.ai("Connected successfully, found \(models.count) models")
             return true
 
         } catch {
             connectionStatus = .disconnected
             isConnected = false
             lastError = error
-            print("❌ OpenAICompatibleClient: Connection failed: \(error.localizedDescription)")
+            AppLog.shared.ai("Connection failed: \(error.localizedDescription)", level: .error)
             throw error
         }
     }
@@ -89,10 +89,10 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         // Add API key if provided
         if let apiKey = apiKey, !apiKey.isEmpty {
-            print("🔑 OpenAICompatibleClient: Setting Authorization header with API key (length: \(apiKey.count))")
+            AppLog.shared.ai("Setting Authorization header with API key (length: \(apiKey.count))", level: .debug)
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         } else {
-            print("⚠️ OpenAICompatibleClient: No API key provided - request will be sent without Authorization header")
+            AppLog.shared.ai("No API key provided - request will be sent without Authorization header", level: .warning)
         }
 
         // Build messages array
@@ -128,8 +128,8 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Debug: Log request with sanitized headers and truncated body
-        print("📤 OpenAICompatibleClient: Sending request to \(messagesURL)")
-        print("   Model: \(currentModel ?? defaultModel ?? "(none)")")
+        AppLog.shared.ai("Sending request to \(messagesURL)")
+        AppLog.shared.ai("Model: \(currentModel ?? defaultModel ?? "(none)")", level: .debug)
 
         // Sanitize headers to hide API key
         if let headers = request.allHTTPHeaderFields {
@@ -137,7 +137,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             if sanitizedHeaders["Authorization"] != nil {
                 sanitizedHeaders["Authorization"] = "Bearer [REDACTED]"
             }
-            print("   Headers: \(sanitizedHeaders)")
+            AppLog.shared.ai("Headers: \(sanitizedHeaders)", level: .debug)
         }
 
         // Truncate body to first 200 characters
@@ -146,7 +146,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             let truncatedBody = bodyString.count > 200
                 ? String(bodyString.prefix(200)) + "... (\(bodyString.count - 200) more chars)"
                 : bodyString
-            print("   Body: \(truncatedBody)")
+            AppLog.shared.ai("Body: \(truncatedBody)", level: .debug)
         }
 
         let startTime = Date()
@@ -160,7 +160,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
             guard (200...299).contains(httpResponse.statusCode) else {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-                print("❌ OpenAICompatibleClient: Request failed (\(httpResponse.statusCode)): \(errorMessage)")
+                AppLog.shared.ai("Request failed (\(httpResponse.statusCode)): \(errorMessage)", level: .error)
                 throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
             }
 
@@ -202,7 +202,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             }
 
             if let raw = String(data: data, encoding: .utf8) {
-                print("❌ OpenAICompatibleClient: Unable to parse chat response: \(raw)")
+                AppLog.shared.ai("Unable to parse chat response: \(raw)", level: .error)
             }
             throw OpenAICompatibleError.emptyResponse
 
@@ -261,7 +261,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 "role": "system",
                 "content": systemContent
             ])
-            print("📋 OpenAICompatibleClient: System message length: \(systemContent.count) chars")
+            AppLog.shared.ai("System message length: \(systemContent.count) chars", level: .debug)
         }
 
         // Use ConversationContextBuilder to get trimmed history within token limits
@@ -304,7 +304,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        print("📡 OpenAICompatibleClient: Starting streaming request to \(messagesURL)")
+        AppLog.shared.ai("Starting streaming request to \(messagesURL)")
 
         let startTime = Date()
         var accumulatedContent = ""
@@ -324,7 +324,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 errorData.append(byte)
             }
             let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            print("❌ OpenAICompatibleClient: Streaming request failed (\(httpResponse.statusCode)): \(errorMessage)")
+            AppLog.shared.ai("Streaming request failed (\(httpResponse.statusCode)): \(errorMessage)", level: .error)
             throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
         }
 
@@ -350,7 +350,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
                     // Check for stream end
                     if dataContent == "[DONE]" {
-                        print("📡 OpenAICompatibleClient: Stream completed")
+                        AppLog.shared.ai("Stream completed")
                         break
                     }
 
@@ -374,7 +374,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                             }
                         } catch {
                             // Log but continue - some chunks might not parse
-                            print("⚠️ OpenAICompatibleClient: Failed to parse chunk: \(dataContent)")
+                            AppLog.shared.ai("Failed to parse chunk: \(dataContent)", level: .warning)
                         }
                     }
                 }
@@ -395,7 +395,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             totalTokens: nil  // Token count not available in streaming mode
         )
 
-        print("✅ OpenAICompatibleClient: Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", processingTime))s")
+        AppLog.shared.ai("Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", processingTime))s")
 
         onComplete(finalResponse)
     }
@@ -577,7 +577,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             }
 
             if let raw = String(data: data, encoding: .utf8) {
-                print("❌ OpenAICompatibleClient: Unable to parse models response: \(raw)")
+                AppLog.shared.ai("Unable to parse models response: \(raw)", level: .error)
             }
             throw OpenAICompatibleError.invalidResponse
 

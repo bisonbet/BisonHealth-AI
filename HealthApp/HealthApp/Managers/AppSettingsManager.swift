@@ -31,7 +31,7 @@ class AppSettingsManager: ObservableObject {
             needsDisclaimerReacceptance = try databaseManager.needsDisclaimerReacceptance()
             
         } catch {
-            print("❌ Failed to load app settings: \(error)")
+            AppLog.shared.settings("Failed to load app settings: \(error)", level: .error)
             // Default to showing disclaimer on error
             hasAcceptedDisclaimer = false
             isFirstLaunch = true
@@ -51,10 +51,10 @@ class AppSettingsManager: ObservableObject {
             isFirstLaunch = false
             needsDisclaimerReacceptance = false
             
-            print("✅ Disclaimer accepted and stored in database")
+            AppLog.shared.settings("Disclaimer accepted and stored in database")
             
         } catch {
-            print("❌ Failed to accept disclaimer: \(error)")
+            AppLog.shared.settings("Failed to accept disclaimer: \(error)", level: .error)
         }
     }
     
@@ -68,10 +68,10 @@ class AppSettingsManager: ObservableObject {
             isFirstLaunch = true
             needsDisclaimerReacceptance = true
             
-            print("🔄 Disclaimer acceptance reset")
+            AppLog.shared.settings("Disclaimer acceptance reset")
             
         } catch {
-            print("❌ Failed to reset disclaimer acceptance: \(error)")
+            AppLog.shared.settings("Failed to reset disclaimer acceptance: \(error)", level: .error)
         }
     }
     
@@ -87,7 +87,7 @@ class AppSettingsManager: ObservableObject {
         do {
             try databaseManager.setAppSetting(key: key, value: value)
         } catch {
-            print("❌ Failed to set app setting '\(key)': \(error)")
+            AppLog.shared.settings("Failed to set app setting '\(key)': \(error)", level: .error)
         }
     }
     
@@ -96,7 +96,7 @@ class AppSettingsManager: ObservableObject {
         do {
             return try databaseManager.getAppSetting(key: key)
         } catch {
-            print("❌ Failed to get app setting '\(key)': \(error)")
+            AppLog.shared.settings("Failed to get app setting '\(key)': \(error)", level: .error)
             return nil
         }
     }
@@ -106,7 +106,7 @@ class AppSettingsManager: ObservableObject {
         do {
             try databaseManager.deleteAppSetting(key: key)
         } catch {
-            print("❌ Failed to delete app setting '\(key)': \(error)")
+            AppLog.shared.settings("Failed to delete app setting '\(key)': \(error)", level: .error)
         }
     }
     

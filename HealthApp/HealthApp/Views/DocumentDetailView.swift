@@ -391,7 +391,7 @@ struct DocumentDetailView: View {
     
     // MARK: - Import Review Handler
     private func handleImportReviewComplete(review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
-        print("✅ DocumentDetailView: User completed import review for \(selectedGroups.count) groups")
+        AppLog.shared.ui("User completed import review for \(selectedGroups.count) groups")
         
         // Update the blood test result with user's selections
         var updatedBloodTest = review.bloodTestResult
@@ -403,9 +403,9 @@ struct DocumentDetailView: View {
             if let selectedId = group.selectedCandidateId,
                let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
                 selectedCandidatesByKey[group.standardKey] = selectedCandidate
-                print("📋 DocumentDetailView: User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
+                AppLog.shared.ui("User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
             } else {
-                print("🚫 DocumentDetailView: User ignored group '\(group.standardTestName)'")
+                AppLog.shared.ui("User ignored group '\(group.standardTestName)'")
             }
         }
         
@@ -449,14 +449,14 @@ struct DocumentDetailView: View {
         // Save the updated blood test
         do {
             try await healthDataManager.addBloodTest(updatedBloodTest)
-            print("✅ DocumentDetailView: Saved blood test after import review with \(updatedResults.count) results")
+            AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
             
             // Clear pending review
             await MainActor.run {
                 documentProcessor.pendingImportReview = nil
             }
         } catch {
-            print("❌ DocumentDetailView: Failed to save blood test after review: \(error)")
+            AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)
         }
     }
     
@@ -593,7 +593,7 @@ struct QuickLookView: UIViewControllerRepresentable {
                     let documentContainerPath = parent.url.path
 
                     if !documentContainerPath.hasPrefix(currentContainerPath.components(separatedBy: "/Documents").first ?? "") {
-                        print("🔄 QuickLookView: Container migration detected - searching in current container...")
+                        AppLog.shared.ui("QuickLookView: Container migration detected - searching in current container...")
 
                         // Try to find the file in the current container
                         let currentHealthAppDir = currentAppDocuments.appendingPathComponent("HealthApp/Documents/Imported")
@@ -601,7 +601,7 @@ struct QuickLookView: UIViewControllerRepresentable {
                         let possibleNewPath = currentHealthAppDir.appendingPathComponent(fileName)
 
                         if FileManager.default.fileExists(atPath: possibleNewPath.path) {
-                            print("✅ QuickLookView: Found file in current container, decrypting for preview...")
+                            AppLog.shared.ui("QuickLookView: Found file in current container, decrypting for preview...")
 
                             // Decrypt the found file
                             let fileManager = FileSystemManager.shared
@@ -617,7 +617,7 @@ struct QuickLookView: UIViewControllerRepresentable {
                             try decryptedData.write(to: tempURL)
                             self.tempFileURL = tempURL
 
-                            print("✅ QuickLookView: Document preview ready")
+                            AppLog.shared.ui("QuickLookView: Document preview ready")
                             return
 
                         } else {
@@ -628,7 +628,7 @@ struct QuickLookView: UIViewControllerRepresentable {
                                 if let uuid = pathComponents.first {
                                     let matchingFiles = currentContents.filter { $0.contains(uuid) }
                                     if let match = matchingFiles.first {
-                                        print("🎯 QuickLookView: Found file with matching UUID: \(match)")
+                                        AppLog.shared.ui("QuickLookView: Found file with matching UUID: \(match)")
 
                                         let matchPath = currentHealthAppDir.appendingPathComponent(match)
                                         if FileManager.default.fileExists(atPath: matchPath.path) {
@@ -644,14 +644,14 @@ struct QuickLookView: UIViewControllerRepresentable {
                                             try decryptedData.write(to: tempURL)
                                             self.tempFileURL = tempURL
 
-                                            print("✅ QuickLookView: Document preview ready from UUID match")
+                                            AppLog.shared.ui("QuickLookView: Document preview ready from UUID match")
                                             return
                                         }
                                     }
                                 }
-                                print("❌ QuickLookView: No matching files found in current container (\(currentContents.count) files)")
+                                AppLog.shared.ui("QuickLookView: No matching files found in current container (\(currentContents.count) files)", level: .error)
                             } else {
-                                print("❌ QuickLookView: Could not access current container directory")
+                                AppLog.shared.ui("QuickLookView: Could not access current container directory", level: .error)
                             }
                         }
                     }
@@ -661,7 +661,7 @@ struct QuickLookView: UIViewControllerRepresentable {
                         let fileManager = FileSystemManager.shared
                         try fileManager.ensureDirectoriesExist()
                     } catch {
-                        print("❌ QuickLookView: Failed to recreate directories: \(error)")
+                        AppLog.shared.ui("QuickLookView: Failed to recreate directories: \(error)", level: .error)
                     }
 
                     throw FileSystemError.fileNotFound
@@ -681,10 +681,10 @@ struct QuickLookView: UIViewControllerRepresentable {
                 try decryptedData.write(to: tempURL)
                 self.tempFileURL = tempURL
 
-                print("✅ QuickLookView: Document preview ready")
+                AppLog.shared.ui("QuickLookView: Document preview ready")
 
             } catch {
-                print("❌ QuickLookView: Failed to decrypt document for preview: \(error)")
+                AppLog.shared.ui("QuickLookView: Failed to decrypt document for preview: \(error)", level: .error)
             }
         }
 

@@ -151,31 +151,31 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func navigationDestinationView(for destination: SettingsRoute) -> some View {
-        let _ = print("📍 navigationDestination called with: \(destination)")
+        let _ = AppLog.shared.ui("navigationDestination called with: \(destination)", level: .debug)
         switch destination {
         case .ollamaSettings:
-            let _ = print("📍 Creating OllamaSettingsView")
+            let _ = AppLog.shared.ui("Creating OllamaSettingsView", level: .debug)
             OllamaSettingsView()
                 .onAppear {
-                    print("🟠 Navigated to Ollama Settings")
+                    AppLog.shared.ui("Navigated to Ollama Settings")
                 }
         case .awsBedrockSettings:
-            let _ = print("📍 Creating AWSBedrockSettingsView")
+            let _ = AppLog.shared.ui("Creating AWSBedrockSettingsView", level: .debug)
             AWSBedrockSettingsView()
                 .onAppear {
-                    print("🔵 Navigated to AWS Bedrock Settings")
+                    AppLog.shared.ui("Navigated to AWS Bedrock Settings")
                 }
         case .openAICompatibleSettings:
-            let _ = print("📍 Creating OpenAICompatibleSettingsView")
+            let _ = AppLog.shared.ui("Creating OpenAICompatibleSettingsView", level: .debug)
             OpenAICompatibleSettingsView(settingsManager: settingsManager)
                 .onAppear {
-                    print("🟢 Navigated to OpenAI Compatible Settings")
+                    AppLog.shared.ui("Navigated to OpenAI Compatible Settings")
                 }
         case .onDeviceLLMSettings:
-            let _ = print("📍 Creating OnDeviceLLMSettingsView")
+            let _ = AppLog.shared.ui("Creating OnDeviceLLMSettingsView", level: .debug)
             OnDeviceLLMSettingsView()
                 .onAppear {
-                    print("🟣 Navigated to On-Device LLM Settings")
+                    AppLog.shared.ui("Navigated to On-Device LLM Settings")
                 }
         case .doclingRemoteSettings:
             DoclingRemoteSettingsView(settingsManager: settingsManager)
@@ -193,7 +193,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("Configure") {
-                    print("🟠 Ollama Configure button tapped")
+                    AppLog.shared.ui("Ollama Configure button tapped")
                     selectedRoute = .ollamaSettings
                 }
                 .buttonStyle(.bordered)
@@ -217,7 +217,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("Configure") {
-                    print("🔵 AWS Bedrock Configure button tapped")
+                    AppLog.shared.ui("AWS Bedrock Configure button tapped")
                     selectedRoute = .awsBedrockSettings
                 }
                 .buttonStyle(.bordered)
@@ -241,7 +241,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("Configure") {
-                    print("🟢 OpenAI Compatible Configure button tapped")
+                    AppLog.shared.ui("OpenAI Compatible Configure button tapped")
                     selectedRoute = .openAICompatibleSettings
                 }
                 .buttonStyle(.bordered)
@@ -265,7 +265,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button("Configure") {
-                    print("🟣 On-Device LLM Configure button tapped")
+                    AppLog.shared.ui("On-Device LLM Configure button tapped")
                     selectedRoute = .onDeviceLLMSettings
                 }
                 .buttonStyle(.bordered)
@@ -793,6 +793,12 @@ struct SettingsView: View {
                 StorageUsageView()
             }
 
+            Button {
+                exportLogs()
+            } label: {
+                Label("Export Diagnostic Logs", systemImage: "doc.text.magnifyingglass")
+            }
+
             Button("Clear Cache") {
                 clearCache()
             }
@@ -1154,6 +1160,14 @@ struct SettingsView: View {
         }
     }
     
+    private func exportLogs() {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else {
+            return
+        }
+        LogExporter.exportLogs(from: rootVC)
+    }
+
     private func clearCache() {
         // Implement cache clearing logic
         // This would clear any temporary files, cached images, etc.

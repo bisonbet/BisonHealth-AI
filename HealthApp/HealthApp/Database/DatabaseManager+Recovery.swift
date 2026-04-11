@@ -34,8 +34,7 @@ extension DatabaseManager {
     func scanDatabaseForRecovery() async throws -> RecoveryScanResult {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
-        let logger = Logger.shared
-        logger.info("🔍 Starting database recovery scan...")
+        AppLog.shared.database("Starting database recovery scan...")
         
         var totalRecords = 0
         var recoverableRecords: [RecoverableRecord] = []
@@ -56,20 +55,20 @@ extension DatabaseManager {
                 let encryptedData = row[healthDataEncryptedData]
                 
                 guard let healthDataType = HealthDataType(rawValue: typeString) else {
-                    logger.warning("⚠️ Unknown health data type: \(typeString) for record \(recordId)")
+                    AppLog.shared.database("Unknown health data type: \(typeString) for record \(recordId)", level: .warning)
                     continue
                 }
                 
                 // Check if data is empty
                 if encryptedData.isEmpty {
-                    logger.warning("⚠️ Record \(recordId) has empty encrypted data")
+                    AppLog.shared.database("Record \(recordId) has empty encrypted data", level: .warning)
                     emptyRecords.append(recordId)
                     continue
                 }
                 
                 // Check minimum size
                 if encryptedData.count < 28 {
-                    logger.warning("⚠️ Record \(recordId) has invalid size (\(encryptedData.count) bytes, minimum 28)")
+                    AppLog.shared.database("Record \(recordId) has invalid size (\(encryptedData.count) bytes, minimum 28)", level: .warning)
                     corruptedRecords.append(CorruptedRecord(
                         recordId: recordId,
                         type: healthDataType,
@@ -115,14 +114,10 @@ extension DatabaseManager {
                 }
             }
             
-            logger.info("🔍 Recovery scan complete:")
-            logger.info("   Total records: \(totalRecords)")
-            logger.info("   Recoverable: \(recoverableRecords.count)")
-            logger.info("   Corrupted: \(corruptedRecords.count)")
-            logger.info("   Empty: \(emptyRecords.count)")
-            
+            AppLog.shared.database("Recovery scan complete: Total=\(totalRecords), Recoverable=\(recoverableRecords.count), Corrupted=\(corruptedRecords.count), Empty=\(emptyRecords.count)")
+
         } catch {
-            logger.error("Failed to scan database for recovery: \(error.localizedDescription)", error: error)
+            AppLog.shared.error("Failed to scan database for recovery: \(error.localizedDescription)", error: error, category: .database)
             throw error
         }
         
@@ -159,8 +154,7 @@ extension DatabaseManager {
     func attemptDataRecovery(for recordIds: [String]? = nil) async throws -> RecoveryAttemptResult {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
-        let logger = Logger.shared
-        logger.info("🔧 Attempting data recovery...")
+        AppLog.shared.database("Attempting data recovery...")
         
         var recovered: [String] = []
         var failed: [String] = []
@@ -173,14 +167,14 @@ extension DatabaseManager {
             .filter { $0.dataSize >= 28 } // Only try records with valid size
             .map { $0.recordId }
         
-        logger.info("🔧 Attempting to recover \(recordsToRecover.count) record(s)...")
+        AppLog.shared.database("Attempting to recover \(recordsToRecover.count) record(s)...")
         
         for recordId in recordsToRecover {
             do {
                 // Get the record
                 let query = healthDataTable.filter(healthDataId == recordId)
                 guard let row = try db.pluck(query) else {
-                    logger.warning("⚠️ Record \(recordId) not found")
+                    AppLog.shared.database("Record \(recordId) not found", level: .warning)
                     failed.append(recordId)
                     continue
                 }
@@ -189,7 +183,7 @@ extension DatabaseManager {
                 let encryptedData = row[healthDataEncryptedData]
                 
                 guard let healthDataType = HealthDataType(rawValue: typeString) else {
-                    logger.warning("⚠️ Unknown type for record \(recordId): \(typeString)")
+                    AppLog.shared.database("Unknown type for record \(recordId): \(typeString)", level: .warning)
                     failed.append(recordId)
                     continue
                 }
@@ -211,20 +205,20 @@ extension DatabaseManager {
                 }
                 
                 if decrypted {
-                    logger.info("✅ Successfully recovered record \(recordId)")
+                    AppLog.shared.database("Successfully recovered record \(recordId)")
                     recovered.append(recordId)
                 } else {
-                    logger.warning("❌ Could not recover record \(recordId) - data may be encrypted with different key")
+                    AppLog.shared.database("Could not recover record \(recordId) - data may be encrypted with different key", level: .warning)
                     failed.append(recordId)
                 }
                 
             } catch {
-                logger.error("❌ Error recovering record \(recordId): \(error.localizedDescription)", error: error)
+                AppLog.shared.error("Error recovering record \(recordId): \(error.localizedDescription)", error: error, category: .database)
                 failed.append(recordId)
             }
         }
         
-        logger.info("🔧 Recovery attempt complete: \(recovered.count) recovered, \(failed.count) failed")
+        AppLog.shared.database("Recovery attempt complete: \(recovered.count) recovered, \(failed.count) failed")
         
         return RecoveryAttemptResult(
             recoveredRecordIds: recovered,
@@ -268,7 +262,7 @@ extension DatabaseManager {
         
         try jsonData.write(to: fileURL)
         
-        logger.info("📤 Exported \(exports.count) corrupted records to \(fileURL.path)")
+        appLog.database("Exported \(exports.count) corrupted records to \(fileURL.path)")
         
         return fileURL
     }

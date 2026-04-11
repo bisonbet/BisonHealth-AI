@@ -53,7 +53,7 @@ class PendingOperationsManager: ObservableObject {
         
         let removedCount = initialCount - pendingOperations.count
         if removedCount > 0 {
-            print("🧹 PendingOperationsManager: Cleaned up \(removedCount) stale operations")
+            AppLog.shared.networking("🧹 PendingOperationsManager: Cleaned up \(removedCount) stale operations")
             persistOperations()
         }
     }
@@ -109,13 +109,13 @@ class PendingOperationsManager: ObservableObject {
     /// Retry all pending operations
     func retryAllOperations() async {
         guard !isProcessingQueue else {
-            print("⚠️ PendingOperationsManager: Already processing queue")
+            AppLog.shared.networking("PendingOperationsManager: Already processing queue", level: .warning)
             return
         }
 
         // Only log if there are actually pending operations to retry
         if !pendingOperations.isEmpty {
-            print("🔄 PendingOperationsManager: Retrying \(pendingOperations.count) pending operations")
+            AppLog.shared.networking("PendingOperationsManager: Retrying \(pendingOperations.count) pending operations")
         }
         await processQueue()
     }
@@ -158,12 +158,12 @@ class PendingOperationsManager: ObservableObject {
         }
 
         guard !isDuplicate else {
-            print("⚠️ PendingOperationsManager: Skipping duplicate operation")
+            AppLog.shared.networking("PendingOperationsManager: Skipping duplicate operation", level: .warning)
             return
         }
 
         pendingOperations.append(operation)
-        print("📥 PendingOperationsManager: Queued operation \(operation.type.displayName)")
+        AppLog.shared.networking("PendingOperationsManager: Queued operation \(operation.type.displayName)")
         persistOperations()
 
         // Schedule retry with exponential backoff
@@ -175,7 +175,7 @@ class PendingOperationsManager: ObservableObject {
         let baseDelay = 2.0
         let delay = min(baseDelay * pow(2.0, Double(operation.retryCount)), 60.0) // Max 60s
 
-        print("⏰ PendingOperationsManager: Scheduling retry for \(operation.type.displayName) in \(delay)s")
+        AppLog.shared.networking("⏰ PendingOperationsManager: Scheduling retry for \(operation.type.displayName) in \(delay)s")
 
         let task = Task {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -190,7 +190,7 @@ class PendingOperationsManager: ObservableObject {
 
     private func executeOperation(_ operation: PendingOperation) async {
         guard NetworkManager.shared.isConnected else {
-            print("⚠️ PendingOperationsManager: Network not available, will retry when connected")
+            AppLog.shared.networking("PendingOperationsManager: Network not available, will retry when connected", level: .warning)
             return
         }
 
@@ -198,7 +198,7 @@ class PendingOperationsManager: ObservableObject {
             return
         }
 
-        print("🚀 PendingOperationsManager: Executing operation \(operation.type.displayName)")
+        AppLog.shared.networking("PendingOperationsManager: Executing operation \(operation.type.displayName)")
 
         do {
             switch operation.type {
@@ -220,10 +220,10 @@ class PendingOperationsManager: ObservableObject {
             pendingOperations.remove(at: index)
             retryTimers.removeValue(forKey: operation.id)
             persistOperations()
-            print("✅ PendingOperationsManager: Operation completed successfully")
+            AppLog.shared.networking("PendingOperationsManager: Operation completed successfully")
 
         } catch {
-            print("❌ PendingOperationsManager: Operation failed: \(error.localizedDescription)")
+            AppLog.shared.networking("PendingOperationsManager: Operation failed: \(error.localizedDescription)", level: .error)
 
             let networkError = NetworkError.from(error: error)
 
@@ -247,7 +247,7 @@ class PendingOperationsManager: ObservableObject {
                 pendingOperations[index] = updatedOperation
                 persistOperations()
 
-                print("💀 PendingOperationsManager: Operation failed permanently after \(operation.retryCount) retries")
+                AppLog.shared.networking("💀 PendingOperationsManager: Operation failed permanently after \(operation.retryCount) retries")
             }
         }
     }
@@ -262,14 +262,14 @@ class PendingOperationsManager: ObservableObject {
     ) async throws {
         // TODO: Implement actual chat message retry
         // For now, mark as failed since this is not implemented
-        print("⚠️ PendingOperationsManager: Chat message retry not implemented, marking as failed")
+        AppLog.shared.networking("PendingOperationsManager: Chat message retry not implemented, marking as failed", level: .warning)
         throw NetworkError.notImplemented("Chat message retry is not yet implemented")
     }
 
     private func executeDocumentProcessing(documentId: UUID, immediately: Bool) async throws {
         // TODO: Implement actual document processing retry
         // For now, mark as failed since this is not implemented
-        print("⚠️ PendingOperationsManager: Document processing retry not implemented, marking as failed")
+        AppLog.shared.networking("PendingOperationsManager: Document processing retry not implemented, marking as failed", level: .warning)
         throw NetworkError.notImplemented("Document processing retry is not yet implemented")
     }
 
@@ -295,7 +295,7 @@ class PendingOperationsManager: ObservableObject {
                     
                     // Only process if network is connected, we have operations, and we're not already processing
                     if status.isConnected && !self.pendingOperations.isEmpty && !self.isProcessingQueue {
-                        print("✅ PendingOperationsManager: Network restored, processing \(self.pendingOperations.count) pending operations")
+                        AppLog.shared.networking("PendingOperationsManager: Network restored, processing \(self.pendingOperations.count) pending operations")
                         await self.processQueue()
                     }
                 }
@@ -311,7 +311,7 @@ class PendingOperationsManager: ObservableObject {
             let data = try encoder.encode(pendingOperations)
             UserDefaults.standard.set(data, forKey: persistenceKey)
         } catch {
-            print("❌ PendingOperationsManager: Failed to persist operations: \(error)")
+            AppLog.shared.networking("PendingOperationsManager: Failed to persist operations: \(error)", level: .error)
         }
     }
 
@@ -323,9 +323,9 @@ class PendingOperationsManager: ObservableObject {
         do {
             let decoder = JSONDecoder()
             pendingOperations = try decoder.decode([PendingOperation].self, from: data)
-            print("📥 PendingOperationsManager: Loaded \(pendingOperations.count) persisted operations")
+            AppLog.shared.networking("PendingOperationsManager: Loaded \(pendingOperations.count) persisted operations")
         } catch {
-            print("❌ PendingOperationsManager: Failed to load persisted operations: \(error)")
+            AppLog.shared.networking("PendingOperationsManager: Failed to load persisted operations: \(error)", level: .error)
         }
     }
 }

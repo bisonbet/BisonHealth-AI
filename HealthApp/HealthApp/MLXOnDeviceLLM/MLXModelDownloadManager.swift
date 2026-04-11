@@ -32,13 +32,15 @@ class MLXModelDownloadManager: ObservableObject {
     // MARK: - Private State
 
     private var downloadTask: Task<Void, Never>?
-    private let logger = Logger.shared
 
     // MARK: - Initialization
 
     init() {
         downloadedModelIds = loadPersistedDownloadedModelIds()
-        refreshModelStatus()
+        // Defer filesystem validation to avoid mutating @Published during view evaluation
+        Task { @MainActor in
+            self.refreshModelStatus()
+        }
     }
 
     // MARK: - Download Management
@@ -46,11 +48,11 @@ class MLXModelDownloadManager: ObservableObject {
     /// Start downloading an MLX model from HuggingFace Hub
     func startDownload(for model: MLXModelInfo) {
         guard !isDownloading else {
-            logger.warning("[MLXDownload] Already downloading a model")
+            AppLog.shared.mlx("[MLXDownload] Already downloading a model", level: .warning)
             return
         }
         guard !isModelDownloaded(model) else {
-            logger.info("[MLXDownload] Model already downloaded: \(model.displayName)")
+            AppLog.shared.mlx("[MLXDownload] Model already downloaded: \(model.displayName)")
             return
         }
 
@@ -64,7 +66,7 @@ class MLXModelDownloadManager: ObservableObject {
                 #if targetEnvironment(simulator)
                 throw MLXOnDeviceError.simulatorNotSupported
                 #else
-                logger.info("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId))")
+                AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId))")
 
                 let configuration = ModelConfiguration(id: model.huggingFaceId)
 
@@ -88,7 +90,7 @@ class MLXModelDownloadManager: ObservableObject {
                     }
                 }
 
-                logger.info("[MLXDownload] Download complete for \(model.displayName)")
+                AppLog.shared.mlx("[MLXDownload] Download complete for \(model.displayName)")
 
                 isDownloading = false
                 downloadProgress = 1.0
@@ -97,7 +99,7 @@ class MLXModelDownloadManager: ObservableObject {
                 markModelDownloaded(model)
                 #endif
             } catch is CancellationError {
-                logger.info("[MLXDownload] Download cancelled for \(model.displayName)")
+                AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model.displayName)")
                 isDownloading = false
                 downloadProgress = 0.0
                 currentlyDownloadingModel = nil
@@ -105,7 +107,7 @@ class MLXModelDownloadManager: ObservableObject {
                 cleanupIncompleteDownload(for: model)
                 removeDownloadedModel(model)
             } catch {
-                logger.error("[MLXDownload] Download failed for \(model.displayName)", error: error)
+                AppLog.shared.error("[MLXDownload] Download failed for \(model.displayName)", error: error, category: .mlx)
                 isDownloading = false
                 downloadProgress = 0.0
                 currentlyDownloadingModel = nil
@@ -132,17 +134,10 @@ class MLXModelDownloadManager: ObservableObject {
         refreshModelStatus()
     }
 
-    /// Check if a model is downloaded by looking for its files in the HuggingFace cache
+    /// Check if a model is downloaded.
+    /// This is a pure read — no side effects, safe to call from SwiftUI view bodies.
     func isModelDownloaded(_ model: MLXModelInfo) -> Bool {
-        let isDownloaded = isModelCacheValid(for: model)
-        if isDownloaded {
-            if !downloadedModelIds.contains(model.id) {
-                markModelDownloaded(model)
-            }
-        } else if downloadedModelIds.contains(model.id) {
-            removeDownloadedModel(model)
-        }
-        return isDownloaded
+        downloadedModelIds.contains(model.id)
     }
 
     /// Delete a downloaded model's cached files
@@ -152,9 +147,9 @@ class MLXModelDownloadManager: ObservableObject {
             do {
                 try FileManager.default.removeItem(at: cacheDir)
                 removeDownloadedModel(model)
-                logger.info("[MLXDownload] Deleted model cache for \(model.displayName)")
+                AppLog.shared.mlx("[MLXDownload] Deleted model cache for \(model.displayName)")
             } catch {
-                logger.error("[MLXDownload] Failed to delete model cache", error: error)
+                AppLog.shared.error("[MLXDownload] Failed to delete model cache", error: error, category: .mlx)
             }
         }
         refreshModelStatus()
@@ -169,7 +164,10 @@ class MLXModelDownloadManager: ObservableObject {
     func refreshModelStatus() {
         var downloaded = Set<String>()
         for model in MLXModelInfo.allModels {
-            if isModelCacheValid(for: model) {
+            let cacheDir = huggingFaceCacheDirectory(for: model)
+            let valid = isModelCacheValid(for: model)
+            AppLog.shared.mlx("[MLXDownload] Model \(model.displayName) cache path: \(cacheDir.path), valid: \(valid)")
+            if valid {
                 downloaded.insert(model.id)
             }
         }
@@ -207,21 +205,16 @@ class MLXModelDownloadManager: ObservableObject {
 
     // MARK: - Private Helpers
 
-    /// Get the HuggingFace cache directory for a model
-    /// MLX/HuggingFace Hub caches models in the app's cache directory under huggingface/
+    /// Get the HuggingFace Hub local directory for a model.
+    /// MLX Swift's `defaultHubApi` uses cachesDirectory as downloadBase (not documentDirectory).
+    /// HubApi.localRepoLocation then appends: models/<repoId>
+    /// Uses .appending(component:) to match HubApi's URL construction.
     private func huggingFaceCacheDirectory(for model: MLXModelInfo) -> URL {
-        // HuggingFace Hub Swift caches to:
-        // ~/Library/Caches/<bundle>/huggingface/hub/models--<org>--<name>
-        let cacheBase: URL
-        if let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            cacheBase = cachesDir
-        } else {
-            cacheBase = FileManager.default.temporaryDirectory
-        }
-
-        // HuggingFace model IDs use "/" which are converted to "--" in cache paths
-        let sanitizedId = model.huggingFaceId.replacingOccurrences(of: "/", with: "--")
-        return cacheBase.appendingPathComponent("huggingface/hub/models--\(sanitizedId)")
+        let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return cachesDir
+            .appending(component: "models")
+            .appending(component: model.huggingFaceId)
     }
 
     private func persistDownloadedModelIds() {
@@ -242,43 +235,20 @@ class MLXModelDownloadManager: ObservableObject {
         persistDownloadedModelIds()
     }
 
-    /// Check if a model's cache directory contains a complete MLX snapshot.
+    /// Check if a model's local directory contains the required MLX artifacts (config + weights).
     private func isModelCacheValid(for model: MLXModelInfo) -> Bool {
         let cacheDir = huggingFaceCacheDirectory(for: model)
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: cacheDir.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return false }
 
-        for snapshotDir in snapshotDirectories(in: cacheDir) {
-            if snapshotContainsRequiredArtifacts(at: snapshotDir) {
-                return true
-            }
-        }
-
-        return false
+        return directoryContainsRequiredArtifacts(at: cacheDir)
     }
 
-    private func snapshotDirectories(in cacheDir: URL) -> [URL] {
-        let snapshotsDirectory = cacheDir.appendingPathComponent("snapshots", isDirectory: true)
-        if let snapshotCandidates = try? FileManager.default.contentsOfDirectory(
-            at: snapshotsDirectory,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            let directories = snapshotCandidates.filter {
-                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            }
-            if !directories.isEmpty {
-                return directories
-            }
-        }
-
-        return [cacheDir]
-    }
-
-    private func snapshotContainsRequiredArtifacts(at snapshotDir: URL) -> Bool {
+    /// Recursively check for config.json and at least one .safetensors file.
+    private func directoryContainsRequiredArtifacts(at directory: URL) -> Bool {
         guard let enumerator = FileManager.default.enumerator(
-            at: snapshotDir,
+            at: directory,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
@@ -313,9 +283,9 @@ class MLXModelDownloadManager: ObservableObject {
 
         do {
             try FileManager.default.removeItem(at: cacheDir)
-            logger.info("[MLXDownload] Removed incomplete cache for \(model.displayName)")
+            AppLog.shared.mlx("[MLXDownload] Removed incomplete cache for \(model.displayName)")
         } catch {
-            logger.warning("[MLXDownload] Failed to remove incomplete cache for \(model.displayName): \(error.localizedDescription)")
+            AppLog.shared.mlx("[MLXDownload] Failed to remove incomplete cache for \(model.displayName): \(error.localizedDescription)", level: .warning)
         }
     }
 

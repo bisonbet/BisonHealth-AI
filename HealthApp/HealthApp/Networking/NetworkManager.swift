@@ -47,7 +47,7 @@ class NetworkManager: ObservableObject {
 
         monitor.start(queue: queue)
         isMonitoring = true
-        print("🌐 NetworkManager: Started monitoring network connectivity")
+        AppLog.shared.networking("🌐 NetworkManager: Started monitoring network connectivity")
     }
 
     /// Stop monitoring network connectivity
@@ -56,7 +56,7 @@ class NetworkManager: ObservableObject {
 
         monitor.cancel()
         isMonitoring = false
-        print("🌐 NetworkManager: Stopped monitoring network connectivity")
+        AppLog.shared.networking("🌐 NetworkManager: Stopped monitoring network connectivity")
     }
 
     /// Check if a specific host is reachable
@@ -138,9 +138,9 @@ class NetworkManager: ObservableObject {
                 // Log connection changes
                 if wasConnected != newIsConnected {
                     if newIsConnected {
-                        print("✅ NetworkManager: Network connection restored (\(self.connectionType.displayName))")
+                        AppLog.shared.networking("NetworkManager: Network connection restored (\(self.connectionType.displayName))")
                     } else {
-                        print("❌ NetworkManager: Network connection lost")
+                        AppLog.shared.networking("NetworkManager: Network connection lost", level: .error)
                     }
                 }
 

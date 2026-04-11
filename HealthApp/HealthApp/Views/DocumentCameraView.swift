@@ -36,7 +36,7 @@ struct DocumentCameraView: UIViewControllerRepresentable {
         }
         
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
-            print("Document scanning failed: \(error.localizedDescription)")
+            AppLog.shared.ui("Document scanning failed: \(error.localizedDescription)")
             parent.dismiss()
         }
     }
@@ -44,6 +44,6 @@ struct DocumentCameraView: UIViewControllerRepresentable {
 
 #Preview {
     DocumentCameraView { scan in
-        print("Scanned \(scan.pageCount) pages")
+        AppLog.shared.ui("Scanned \(scan.pageCount) pages")
     }
 }

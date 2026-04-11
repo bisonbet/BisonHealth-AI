@@ -97,7 +97,7 @@ struct VitalsListView: View {
         do {
             try await healthDataManager.savePersonalInfo(info)
         } catch {
-            print("Failed to delete vital reading: \(error)")
+            AppLog.shared.ui("Failed to delete vital reading: \(error)", level: .error)
         }
     }
 }

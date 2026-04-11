@@ -297,7 +297,7 @@ class AIContextSelectorViewModel: ObservableObject {
             totalCount = documents.count
             updateIncludedCount()
         } catch {
-            print("❌ Failed to load documents: \(error)")
+            AppLog.shared.ui("Failed to load documents: \(error)", level: .error)
         }
     }
 
@@ -311,7 +311,7 @@ class AIContextSelectorViewModel: ObservableObject {
             try await databaseManager.updateDocumentAIContextStatus(document.id, includeInContext: newValue)
             updateIncludedCount()
         } catch {
-            print("❌ Failed to update context status: \(error)")
+            AppLog.shared.ui("Failed to update context status: \(error)", level: .error)
             // Revert on error
             documents[index].includeInAIContext = !newValue
         }
@@ -328,7 +328,7 @@ class AIContextSelectorViewModel: ObservableObject {
                 try await databaseManager.updateDocumentsAIContextStatus(documentIds, includeInContext: true)
                 updateIncludedCount()
             } catch {
-                print("❌ Failed to select all: \(error)")
+                AppLog.shared.ui("Failed to select all: \(error)", level: .error)
             }
         }
     }
@@ -344,7 +344,7 @@ class AIContextSelectorViewModel: ObservableObject {
                 try await databaseManager.updateDocumentsAIContextStatus(documentIds, includeInContext: false)
                 updateIncludedCount()
             } catch {
-                print("❌ Failed to deselect all: \(error)")
+                AppLog.shared.ui("Failed to deselect all: \(error)", level: .error)
             }
         }
     }

@@ -45,8 +45,6 @@ enum RetryResult<T> {
 class NetworkRetryManager {
     static let shared = NetworkRetryManager()
 
-    private let logger = Logger.shared
-
     private init() {}
 
     // MARK: - Retry with Async/Await
@@ -64,7 +62,7 @@ class NetworkRetryManager {
             do {
                 let result = try await operation()
                 if attempt > 1 {
-                    logger.info("✅ Operation succeeded after \(attempt) attempts")
+                    AppLog.shared.networking("Operation succeeded after \(attempt) attempts")
                 }
                 return .success(result)
             } catch {
@@ -75,7 +73,7 @@ class NetworkRetryManager {
 
                 // If this is the last attempt or error is not retryable, fail
                 if attempt == configuration.maxAttempts || !shouldRetryError {
-                    logger.error("❌ Operation failed after \(attempt) attempts", error: error)
+                    AppLog.shared.error("Operation failed after \(attempt) attempts", error: error, category: .networking)
                     return .failure(error, attemptsMade: attempt)
                 }
 
@@ -85,7 +83,7 @@ class NetworkRetryManager {
                     configuration: configuration
                 )
 
-                logger.warning("⏳ Retry attempt \(attempt)/\(configuration.maxAttempts) after \(delay)s - Error: \(error.localizedDescription)")
+                AppLog.shared.networking("Retry attempt \(attempt)/\(configuration.maxAttempts) after \(delay)s - Error: \(error.localizedDescription)", level: .warning)
 
                 // Notify caller
                 onRetry?(attempt, error, delay)

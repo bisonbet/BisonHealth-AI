@@ -234,9 +234,9 @@ extension ConversationContextBuilder {
 
     /// Get a summary of what was included/trimmed for logging
     static func logContextSummary(_ result: ContextResult) {
-        print(result.debugInfo)
+        AppLog.shared.ai(result.debugInfo, level: .debug)
         if result.trimmedMessageCount > 0 {
-            print("[ContextBuilder] WARNING: Trimmed \(result.trimmedMessageCount) older messages to fit context limit")
+            AppLog.shared.ai("WARNING: Trimmed \(result.trimmedMessageCount) older messages to fit context limit")
         }
     }
 }

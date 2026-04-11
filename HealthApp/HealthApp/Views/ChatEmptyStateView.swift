@@ -99,6 +99,6 @@ struct FeatureHighlight: View {
 
 #Preview {
     ChatEmptyStateView {
-        print("Start new chat")
+        AppLog.shared.ui("Start new chat")
     }
 }

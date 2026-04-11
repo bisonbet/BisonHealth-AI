@@ -16,11 +16,7 @@ extension DatabaseManager {
 
             let extractedSectionsJson = try JSONEncoder().encode(document.extractedSections)
 
-            print("🔍 DatabaseManager: Saving MedicalDocument '\(document.fileName)'")
-            print("🔍 DatabaseManager:   - extractedText length: \(document.extractedText?.count ?? 0) chars")
-            print("🔍 DatabaseManager:   - extractedText is nil: \(document.extractedText == nil)")
-            print("🔍 DatabaseManager:   - extractedSections count: \(document.extractedSections.count)")
-            print("🔍 DatabaseManager:   - includeInAIContext: \(document.includeInAIContext)")
+            AppLog.shared.database("Saving MedicalDocument '\(document.fileName)' - extractedText: \(document.extractedText?.count ?? 0) chars, sections: \(document.extractedSections.count), includeInAIContext: \(document.includeInAIContext)", level: .debug)
 
             let insert = documentsTable.insert(or: .replace,
                 documentId <- document.id.uuidString,
@@ -49,23 +45,22 @@ extension DatabaseManager {
             )
 
             try db.run(insert)
-            print("✅ DatabaseManager: MedicalDocument saved successfully to database")
+            AppLog.shared.database("MedicalDocument saved successfully to database")
 
             // CRITICAL: Force a WAL checkpoint to ensure data is written to disk
             try? db.execute("PRAGMA wal_checkpoint(FULL)")
-            print("✅ DatabaseManager: Forced WAL checkpoint to disk")
+            AppLog.shared.database("Forced WAL checkpoint to disk")
 
             // Verify the save by reading it back immediately
             let verifyQuery = documentsTable.filter(self.documentId == document.id.uuidString)
             if let verifyRow = try? db.pluck(verifyQuery) {
                 let savedExtractedText = try? verifyRow.get(self.documentExtractedText)
-                print("🔍 DatabaseManager: Verification - extractedText in DB: \(savedExtractedText?.count ?? 0) chars, is nil: \(savedExtractedText == nil)")
+                AppLog.shared.database("Verification - extractedText in DB: \(savedExtractedText?.count ?? 0) chars, is nil: \(savedExtractedText == nil)", level: .debug)
             } else {
-                print("⚠️ DatabaseManager: Could not verify saved document - query returned no rows")
+                AppLog.shared.database("Could not verify saved document - query returned no rows", level: .warning)
             }
         } catch {
-            print("❌ DatabaseManager: Error saving MedicalDocument: \(error)")
-            print("❌ DatabaseManager: Error details: \(error.localizedDescription)")
+            AppLog.shared.error("Error saving MedicalDocument: \(error.localizedDescription)", error: error, category: .database)
             throw DatabaseError.encryptionFailed
         }
     }
@@ -218,8 +213,7 @@ extension DatabaseManager {
     func updateMedicalDocument(_ document: MedicalDocument) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
 
-        print("⚠️ DatabaseManager: updateMedicalDocument called for '\(document.fileName)'")
-        print("⚠️ DatabaseManager:   - extractedText being updated: \(document.extractedText?.count ?? 0) chars, is nil: \(document.extractedText == nil)")
+        AppLog.shared.database("updateMedicalDocument called for '\(document.fileName)' - extractedText: \(document.extractedText?.count ?? 0) chars, is nil: \(document.extractedText == nil)", level: .debug)
 
         do {
             let tagsJson = try JSONEncoder().encode(document.tags)
@@ -384,40 +378,7 @@ extension DatabaseManager {
         let categoryRaw = (try? row.get(self.documentCategory)) ?? "other"
         let category = DocumentCategory(rawValue: categoryRaw) ?? .other
         let extractedText = try? row.get(self.documentExtractedText)
-        print("🔍 DatabaseManager: Loading MedicalDocument '\(fileName)'")
-        print("🔍 DatabaseManager:   - extractedText from DB length: \(extractedText?.count ?? 0) chars")
-        print("🔍 DatabaseManager:   - extractedText from DB is nil: \(extractedText == nil)")
-
-        // Debug: Check if column exists using PRAGMA
-        if let db = db {
-            do {
-                // Check if extracted_text column exists
-                let columns = try db.prepare("PRAGMA table_info(documents)")
-                var extractedTextExists = false
-                for column in columns {
-                    if let columnName = column[1] as? String {
-                        if columnName == "extracted_text" {
-                            extractedTextExists = true
-                            print("✅ DatabaseManager: extracted_text column EXISTS in documents table")
-                            break
-                        }
-                    }
-                }
-                if !extractedTextExists {
-                    print("❌ DatabaseManager: extracted_text column DOES NOT EXIST in documents table!")
-                    print("❌ DatabaseManager: Migration may not have run. Current DB version should be checked.")
-                }
-
-                // If column exists, check its value
-                if extractedTextExists {
-                    let docId = row[documentId]
-                    let lengthQuery = try db.scalar("SELECT LENGTH(extracted_text) FROM documents WHERE id = ?", docId)
-                    print("🔍 DatabaseManager: Raw SQL LENGTH() result: \(lengthQuery ?? "NULL")")
-                }
-            } catch {
-                print("❌ DatabaseManager: Error checking extracted_text: \(error)")
-            }
-        }
+        AppLog.shared.database("Loading MedicalDocument '\(fileName)' - extractedText: \(extractedText?.count ?? 0) chars, is nil: \(extractedText == nil)", level: .debug)
 
         let rawDoclingOutput = try? row.get(self.documentRawDoclingOutput)
 
@@ -432,7 +393,7 @@ extension DatabaseManager {
         // IMPORTANT FIX: If extractedText is NULL but we have rawDoclingOutput, extract markdown from it
         var finalExtractedText = extractedText
         if (extractedText == nil || extractedText?.isEmpty == true) && rawDoclingOutput != nil {
-            print("🔧 DatabaseManager: extractedText is missing but rawDoclingOutput exists, extracting markdown...")
+            AppLog.shared.database("extractedText is missing but rawDoclingOutput exists, extracting markdown...")
             if let rawData = rawDoclingOutput,
                let jsonObject = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any],
                let documentDict = jsonObject["document"] as? [String: Any],
@@ -440,7 +401,7 @@ extension DatabaseManager {
                 // CRITICAL: Clean the markdown to remove base64 images before storing
                 let cleanedContent = cleanMarkdownForAIContext(mdContent)
                 finalExtractedText = cleanedContent
-                print("✅ DatabaseManager: Recovered and cleaned \(cleanedContent.count) chars from rawDoclingOutput (was \(mdContent.count) chars before cleaning)")
+                AppLog.shared.database("Recovered and cleaned \(cleanedContent.count) chars from rawDoclingOutput (was \(mdContent.count) chars before cleaning)")
 
                 // Save the CLEANED version back to avoid re-extraction next time
                 if let db = db {
@@ -448,9 +409,9 @@ extension DatabaseManager {
                         do {
                             let updateQuery = documentsTable.filter(self.documentId == id.uuidString)
                             try db.run(updateQuery.update(documentExtractedText <- cleanedContent))
-                            print("✅ DatabaseManager: Saved cleaned recovered text back to database")
+                            AppLog.shared.database("Saved cleaned recovered text back to database")
                         } catch {
-                            print("⚠️ DatabaseManager: Failed to save recovered text: \(error)")
+                            AppLog.shared.database("Failed to save recovered text: \(error)", level: .warning)
                         }
                     }
                 }

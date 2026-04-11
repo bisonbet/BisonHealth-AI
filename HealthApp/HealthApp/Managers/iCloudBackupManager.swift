@@ -196,7 +196,7 @@ class iCloudBackupManager: ObservableObject {
             let backups = try await queryAvailableBackups(limit: 20)
             availableBackups = backups // Already sorted by queryAvailableBackups
         } catch {
-            print("Failed to fetch available backups: \(error)")
+            AppLog.shared.error("Failed to fetch available backups", error: error, category: .icloud)
             availableBackups = []
         }
     }
@@ -211,7 +211,7 @@ class iCloudBackupManager: ObservableObject {
     }
 
     func cleanupCorruptedMetadata() async {
-        print("Starting cleanup of corrupted backup metadata...")
+        AppLog.shared.icloud("Starting cleanup of corrupted backup metadata...")
         let query = CKQuery(recordType: Self.metadataRecordType, predicate: NSPredicate(value: true))
         
         var recordIDsToDelete: [CKRecord.ID] = []
@@ -228,37 +228,37 @@ class iCloudBackupManager: ObservableObject {
                         do {
                             _ = try decoder.decode(BackupMetadata.self, from: metadataData)
                         } catch {
-                            print("Found corrupted metadata, marking for deletion: \(recordID.recordName)")
+                            AppLog.shared.icloud("Found corrupted metadata, marking for deletion: \(recordID.recordName)", level: .warning)
                             recordIDsToDelete.append(recordID)
                         }
                     } else {
-                        print("Found metadata record with no data, marking for deletion: \(recordID.recordName)")
+                        AppLog.shared.icloud("Found metadata record with no data, marking for deletion: \(recordID.recordName)", level: .warning)
                         recordIDsToDelete.append(recordID)
                     }
                 case .failure(let error):
-                    print("Error fetching record \(recordID.recordName): \(error.localizedDescription)")
+                    AppLog.shared.icloud("Error fetching record \(recordID.recordName): \(error.localizedDescription)", level: .error)
                 }
             }
 
             if recordIDsToDelete.isEmpty {
-                print("No corrupted metadata found.")
+                AppLog.shared.icloud("No corrupted metadata found.")
             } else {
-                print("Deleting \(recordIDsToDelete.count) corrupted metadata records...")
+                AppLog.shared.icloud("Deleting \(recordIDsToDelete.count) corrupted metadata records...")
                 let (_, deleteResults) = try await database.modifyRecords(saving: [], deleting: recordIDsToDelete)
-                print("Deletion operation completed.")
+                AppLog.shared.icloud("Deletion operation completed.")
                 var successCount = 0
                 for (recordID, result) in deleteResults {
                     if case .success = result {
                         successCount += 1
                     } else if case .failure(let error) = result {
-                        print("Failed to delete record \(recordID.recordName): \(error.localizedDescription)")
+                        AppLog.shared.icloud("Failed to delete record \(recordID.recordName): \(error.localizedDescription)", level: .error)
                     }
                 }
-                print("\(successCount) of \(recordIDsToDelete.count) corrupted records deleted successfully.")
+                AppLog.shared.icloud("\(successCount) of \(recordIDsToDelete.count) corrupted records deleted successfully.")
             }
 
         } catch {
-            print("Failed to query or delete corrupted metadata: \(error.localizedDescription)")
+            AppLog.shared.icloud("Failed to query or delete corrupted metadata: \(error.localizedDescription)", level: .error)
         }
     }
 
@@ -453,7 +453,7 @@ class iCloudBackupManager: ObservableObject {
                 }
 
             } catch {
-                print("Failed to backup document \(document.fileName): \(error)")
+                AppLog.shared.icloud("Failed to backup document \(document.fileName): \(error)", level: .error)
                 // Continue with other documents even if one fails
             }
         }
@@ -586,7 +586,7 @@ class iCloudBackupManager: ObservableObject {
                     do {
                         // Get encrypted metadata
                         guard let encryptedMetadata = record["metadata"] as? Data else {
-                            print("Document record missing metadata")
+                            AppLog.shared.icloud("Document record missing metadata", level: .warning)
                             continue
                         }
 
@@ -596,7 +596,7 @@ class iCloudBackupManager: ObservableObject {
                         // Get document asset
                         guard let documentAsset = record["documentAsset"] as? CKAsset,
                               let documentURL = documentAsset.fileURL else {
-                            print("Document record missing asset for \(document.fileName)")
+                            AppLog.shared.icloud("Document record missing asset for \(document.fileName)", level: .warning)
                             continue
                         }
 
@@ -626,7 +626,7 @@ class iCloudBackupManager: ObservableObject {
                                     forDocumentId: document.id
                                 )
                             } catch {
-                                print("⚠️ Failed to restore thumbnail for document \(document.fileName): \(error)")
+                                AppLog.shared.icloud("Failed to restore thumbnail for document \(document.fileName): \(error)", level: .warning)
                                 // Continue without thumbnail - not a fatal error
                             }
                         }
@@ -640,12 +640,12 @@ class iCloudBackupManager: ObservableObject {
                         restoredCount += 1
 
                     } catch {
-                        print("Failed to restore document: \(error)")
+                        AppLog.shared.icloud("Failed to restore document: \(error)", level: .error)
                         // Continue with other documents
                     }
 
                 case .failure(let error):
-                    print("Failed to fetch document record: \(error)")
+                    AppLog.shared.icloud("Failed to fetch document record: \(error)", level: .error)
                 }
             }
 
@@ -657,7 +657,7 @@ class iCloudBackupManager: ObservableObject {
             }
         }
 
-        print("Restored \(restoredCount) documents from backup")
+        AppLog.shared.icloud("Restored \(restoredCount) documents from backup")
     }
 
     private func restoreSettings(backupId: UUID) async throws {
@@ -790,11 +790,11 @@ class iCloudBackupManager: ObservableObject {
                                     seenIds.insert(metadata.id)
                                 }
                             } catch {
-                                print("Failed to decode backup metadata: \(error)")
+                                AppLog.shared.icloud("Failed to decode backup metadata: \(error)", level: .error)
                             }
                         }
                     case .failure(let error):
-                        print("Failed to fetch backup record: \(error)")
+                        AppLog.shared.icloud("Failed to fetch backup record: \(error)", level: .error)
                     }
                 }
 
@@ -810,10 +810,10 @@ class iCloudBackupManager: ObservableObject {
         } catch let ckError as CKError {
             switch ckError.code {
             case .unknownItem:
-                print("No backup metadata found - this is expected on first backup")
+                AppLog.shared.icloud("No backup metadata found - this is expected on first backup")
                 return []
             default:
-                print("CloudKit error querying backups: \(ckError)")
+                AppLog.shared.icloud("CloudKit error querying backups: \(ckError)", level: .error)
                 throw ckError
             }
         }
@@ -902,16 +902,16 @@ class iCloudBackupManager: ObservableObject {
 
             if sortedBackups.count > 10 {
                 let backupsToDelete = Array(sortedBackups.dropFirst(10))
-                print("Cleaning up \(backupsToDelete.count) old backup(s), keeping most recent 10")
+                AppLog.shared.icloud("Cleaning up \(backupsToDelete.count) old backup(s), keeping most recent 10")
 
                 for backup in backupsToDelete {
                     await deleteBackupFromCloud(backup)
                 }
             } else {
-                print("Only \(sortedBackups.count) backup(s) found, no cleanup needed")
+                AppLog.shared.icloud("Only \(sortedBackups.count) backup(s) found, no cleanup needed")
             }
         } catch {
-            print("Failed to cleanup old backups: \(error)")
+            AppLog.shared.icloud("Failed to cleanup old backups: \(error)", level: .error)
         }
     }
 
@@ -964,12 +964,12 @@ class iCloudBackupManager: ObservableObject {
                                     recordsToDelete.append(recordID)
                                 case .failure(let error):
                                     fetchFailures += 1
-                                    print("⚠️ Failed to fetch document record \(recordID.recordName) for deletion: \(error)")
+                                    AppLog.shared.icloud("Failed to fetch document record \(recordID.recordName) for deletion: \(error)", level: .warning)
                                 }
                             }
 
                             if fetchFailures > 0 {
-                                print("⚠️ Warning: \(fetchFailures) document records could not be fetched and may be orphaned in CloudKit")
+                                AppLog.shared.icloud("\(fetchFailures) document records could not be fetched and may be orphaned in CloudKit", level: .warning)
                             }
 
                             // Delete this batch
@@ -980,7 +980,7 @@ class iCloudBackupManager: ObservableObject {
                                     if case .success = result {
                                         successCount += 1
                                     } else if case .failure(let error) = result {
-                                        print("Failed to delete document record: \(error)")
+                                        AppLog.shared.icloud("Failed to delete document record: \(error)", level: .error)
                                     }
                                 }
                                 totalDeleted += successCount
@@ -995,10 +995,10 @@ class iCloudBackupManager: ObservableObject {
                         }
 
                         if totalDeleted > 0 {
-                            print("Deleted \(totalDeleted) document records")
+                            AppLog.shared.icloud("Deleted \(totalDeleted) document records")
                         }
                     } catch {
-                        print("Failed to query/delete document records for backup \(backup.id): \(error)")
+                        AppLog.shared.icloud("Failed to query/delete document records for backup \(backup.id): \(error)", level: .error)
                     }
                 } else {
                     // For other data types, delete single record (old format)
@@ -1008,13 +1008,13 @@ class iCloudBackupManager: ObservableObject {
                         try await database.deleteRecord(withID: dataRecordId)
                     } catch {
                         // Individual data record deletion can fail if already deleted
-                        print("Failed to delete \(dataRecordType) record for backup \(backup.id): \(error)")
+                        AppLog.shared.icloud("Failed to delete \(dataRecordType) record for backup \(backup.id): \(error)", level: .error)
                     }
                 }
             }
-            print("Successfully deleted backup from \(backup.backupDate)")
+            AppLog.shared.icloud("Successfully deleted backup from \(backup.backupDate)")
         } catch {
-            print("Failed to delete backup \(backup.id): \(error)")
+            AppLog.shared.icloud("Failed to delete backup \(backup.id): \(error)", level: .error)
         }
     }
 

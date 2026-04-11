@@ -98,15 +98,15 @@ class DoclingClient: ObservableObject {
         // Note: Connection will be tested later in this method, so no need to check isConnected here
         
         // Debug: Check data at method entry
-        print("🔧 DoclingClient: processDocument called - data size: \(document.count) bytes")
+        AppLog.shared.documents("processDocument called - data size: \(document.count) bytes")
         if document.isEmpty {
-            print("❌ DoclingClient: Received empty document data!")
+            AppLog.shared.documents("Received empty document data!", level: .error)
             throw DoclingError.invalidRequest
         }
         
         // Use async endpoint for reliable processing
         let processURL = baseURL.appendingPathComponent("v1/convert/file/async")
-        print("🔧 DoclingClient: Processing document at async endpoint: \(processURL)")
+        AppLog.shared.documents("Processing document at async endpoint: \(processURL)")
         
         var request = URLRequest(url: processURL)
         request.httpMethod = "POST"
@@ -119,16 +119,16 @@ class DoclingClient: ObservableObject {
         // TODO: Add authentication headers when needed
         
         let filename = "document.\(type.rawValue)"
-        print("🔧 DoclingClient: Sending document - filename: \(filename), size: \(document.count) bytes")
+        AppLog.shared.documents("Sending document - filename: \(filename), size: \(document.count) bytes")
         
         // Validate PDF data if it's a PDF file
         if type == .pdf {
             let pdfHeader = document.prefix(4)
             let pdfHeaderString = String(data: pdfHeader, encoding: .ascii) ?? ""
-            print("🔧 DoclingClient: PDF header check: \(pdfHeaderString)")
+            AppLog.shared.documents("PDF header check: \(pdfHeaderString)")
             
             if !pdfHeaderString.hasPrefix("%PDF") {
-                print("❌ DoclingClient: Invalid PDF header! Expected '%PDF', got: \(pdfHeaderString)")
+                AppLog.shared.documents("Invalid PDF header! Expected '%PDF', got: \(pdfHeaderString)", level: .error)
                 throw DoclingError.invalidRequest
             }
         }
@@ -143,27 +143,27 @@ class DoclingClient: ObservableObject {
         )
         
         request.httpBody = formData
-        print("🔧 DoclingClient: Request body size: \(formData.count) bytes (multipart/form-data)")
+        AppLog.shared.documents("Request body size: \(formData.count) bytes (multipart/form-data)")
         
         do {
             let startTime = Date()
-            print("🚀 DoclingClient: Sending request to server...")
+            AppLog.shared.documents("Sending request to server...")
             let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("❌ DoclingClient: Invalid response type")
+                AppLog.shared.documents("Invalid response type", level: .error)
                 throw DoclingError.invalidResponse
             }
             
             let requestTime = Date().timeIntervalSince(startTime)
-            print("📡 DoclingClient: Received response - Status: \(httpResponse.statusCode), Size: \(data.count) bytes, Request time: \(String(format: "%.2f", requestTime))s")
+            AppLog.shared.documents("Received response - Status: \(httpResponse.statusCode), Size: \(data.count) bytes, Request time: \(String(format: "%.2f", requestTime))s")
             
             // Log response body for debugging (especially for errors)
             if let responseString = String(data: data, encoding: .utf8) {
                 if (200...299).contains(httpResponse.statusCode) {
-                    print("✅ DoclingClient: Success response received")
+                    AppLog.shared.documents("Success response received")
                 } else {
-                    print("❌ DoclingClient: Error response (\(httpResponse.statusCode)): \(responseString)")
+                    AppLog.shared.documents("Error response (\(httpResponse.statusCode)): \(responseString)", level: .error)
                 }
             }
             
@@ -174,22 +174,22 @@ class DoclingClient: ObservableObject {
             // For async endpoint, we get a task submission response
             do {
                 let taskResponse: AsyncTaskResponse = try JSONDecoder().decode(AsyncTaskResponse.self, from: data)
-                print("✅ DoclingClient: Task submitted successfully, task_id: \(taskResponse.task_id)")
-                print("📊 DoclingClient: Task status: \(taskResponse.task_status), position: \(taskResponse.task_position ?? -1)")
+                AppLog.shared.documents("Task submitted successfully, task_id: \(taskResponse.task_id)")
+                AppLog.shared.documents("Task status: \(taskResponse.task_status), position: \(taskResponse.task_position ?? -1)")
                 
                 // Poll for completion
-                print("⏳ DoclingClient: Starting polling for task completion...")
+                AppLog.shared.documents("Starting polling for task completion...")
                 let finalResult = try await pollForCompletion(taskId: taskResponse.task_id, startTime: startTime)
                 
                 return finalResult
                 
             } catch {
-                print("❌ DoclingClient: Failed to decode task response JSON: \(error)")
+                AppLog.shared.documents("Failed to decode task response JSON: \(error)", level: .error)
                 throw DoclingError.invalidResponse
             }
             
         } catch {
-            print("❌ DoclingClient: Request failed with error: \(error)")
+            AppLog.shared.documents("Request failed with error: \(error)", level: .error)
             lastError = error
             throw error
         }
@@ -202,7 +202,7 @@ class DoclingClient: ObservableObject {
         
         while Date().timeIntervalSince(startTime) < maxPollingTime {
             do {
-                print("🔄 DoclingClient: Polling task status for \(taskId)...")
+                AppLog.shared.documents("Polling task status for \(taskId)...", level: .debug)
                 
                 let statusURL = baseURL.appendingPathComponent("v1/status/poll/\(taskId)")
                 var request = URLRequest(url: statusURL)
@@ -222,35 +222,35 @@ class DoclingClient: ObservableObject {
                 }
                 
                 let taskStatus = try JSONDecoder().decode(AsyncTaskResponse.self, from: data)
-                print("📊 DoclingClient: Task \(taskId) status: \(taskStatus.task_status)")
+                AppLog.shared.documents("Task \(taskId) status: \(taskStatus.task_status)")
                 
                 switch taskStatus.task_status.lowercased() {
                 case "success":
-                    print("✅ DoclingClient: Task completed successfully, fetching results...")
+                    AppLog.shared.documents("Task completed successfully, fetching results...")
                     return try await getTaskResult(taskId: taskId, startTime: startTime)
                     
                 case "failure", "failed":
-                    print("❌ DoclingClient: Task failed")
+                    AppLog.shared.documents("Task failed", level: .error)
                     throw DoclingError.processingFailed(500)
                     
                 case "pending", "started", "processing":
-                    print("⏳ DoclingClient: Task still processing, waiting \(pollInterval) seconds...")
+                    AppLog.shared.documents("Task still processing, waiting \(pollInterval) seconds...", level: .debug)
                     try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
                     continue
                     
                 default:
-                    print("❓ DoclingClient: Unknown task status: \(taskStatus.task_status)")
+                    AppLog.shared.documents("Unknown task status: \(taskStatus.task_status)", level: .warning)
                     try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
                     continue
                 }
                 
             } catch {
-                print("❌ DoclingClient: Polling error: \(error)")
+                AppLog.shared.documents("Polling error: \(error)", level: .error)
                 throw error
             }
         }
         
-        print("⏰ DoclingClient: Polling timeout after \(maxPollingTime) seconds")
+        AppLog.shared.documents("Polling timeout after \(maxPollingTime) seconds", level: .error)
         throw DoclingError.processingFailed(408) // Request timeout
     }
     
@@ -261,7 +261,7 @@ class DoclingClient: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        print("🔄 DoclingClient: Fetching result from: \(resultURL)")
+        AppLog.shared.documents("Fetching result from: \(resultURL)")
 
         let (data, response) = try await session.data(for: request)
 
@@ -269,12 +269,12 @@ class DoclingClient: ObservableObject {
             throw DoclingError.invalidResponse
         }
 
-        print("📡 DoclingClient: Result response status: \(httpResponse.statusCode), size: \(data.count) bytes")
+        AppLog.shared.documents("Result response status: \(httpResponse.statusCode), size: \(data.count) bytes")
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("❌ DoclingClient: Result endpoint failed with status \(httpResponse.statusCode)")
+            AppLog.shared.documents("Result endpoint failed with status \(httpResponse.statusCode)", level: .error)
             let errorPreview = String(data: data.prefix(200), encoding: .utf8) ?? "Invalid UTF-8"
-            print("🔍 DoclingClient: Error response: \(errorPreview)")
+            AppLog.shared.documents("Error response: \(errorPreview)", level: .debug)
             throw DoclingError.requestFailed(httpResponse.statusCode)
         }
 
@@ -282,12 +282,12 @@ class DoclingClient: ObservableObject {
         do {
             // Show a preview of the response for debugging (first 300 chars)
             let responsePreview = String(data: data.prefix(300), encoding: .utf8) ?? "Invalid UTF-8"
-            print("🔍 DoclingClient: Result preview: \(responsePreview)...")
+            AppLog.shared.documents("Result preview: \(responsePreview)...", level: .debug)
 
             // Try to parse as Docling v1 result format: {"document": {...}}
             let resultResponse = try JSONDecoder().decode(DoclingV1ResultResponse.self, from: data)
             let processingTime = Date().timeIntervalSince(startTime)
-            print("✅ DoclingClient: Successfully parsed Docling v1 result")
+            AppLog.shared.documents("Successfully parsed Docling v1 result")
 
             // Extract text content - prioritize markdown for clean, readable text
             // Markdown is preferred over plain text/html because it preserves structure better
@@ -303,8 +303,8 @@ class DoclingClient: ObservableObject {
             if resultResponse.document.html_content != nil { availableTypes.append("html") }
             if resultResponse.document.json_content != nil { availableTypes.append("json") }
 
-            print("📄 DoclingClient: Extracted text length: \(extractedText.count) chars, available formats: \(availableTypes.joined(separator: ", "))")
-            print("📄 DoclingClient: Using markdown for text content, JSON will be used for structured section extraction")
+            AppLog.shared.documents("Extracted text length: \(extractedText.count) chars, available formats: \(availableTypes.joined(separator: ", "))")
+            AppLog.shared.documents("Using markdown for text content, JSON will be used for structured section extraction")
 
             // Convert RawDoclingDocument to dictionary for structured data
             var structuredData: [String: AnyCodable] = [:]
@@ -336,16 +336,16 @@ class DoclingClient: ObservableObject {
                 rawDoclingOutput: data  // Include raw JSON for medical document extraction
             )
         } catch {
-            print("❌ DoclingClient: Failed to parse result: \(error)")
+            AppLog.shared.documents("Failed to parse result: \(error)", level: .error)
             // Show preview for debugging but don't crash the console
             let responsePreview = String(data: data.prefix(200), encoding: .utf8) ?? "Invalid UTF-8"
-            print("🔍 DoclingClient: Parse error preview: \(responsePreview)...")
+            AppLog.shared.documents("Parse error preview: \(responsePreview)...", level: .debug)
             throw DoclingError.invalidResponse
         }
     }
     
     private func getResultFromStatusResponse(taskId: String, startTime: Date) async throws -> ProcessedDocumentResult {
-        print("🔄 DoclingClient: Trying to get result from status response...")
+        AppLog.shared.documents("Trying to get result from status response...")
         
         let statusURL = baseURL.appendingPathComponent("v1/status/poll/\(taskId)")
         var request = URLRequest(url: statusURL)
@@ -365,7 +365,7 @@ class DoclingClient: ObservableObject {
         // This means the API might work differently than expected
         // For now, return a placeholder result indicating we need to investigate the API further
         let responseString = String(data: data, encoding: .utf8) ?? "Invalid UTF-8"
-        print("🔍 DoclingClient: Status response for result extraction: \(responseString)")
+        AppLog.shared.documents("Status response for result extraction: \(responseString)", level: .debug)
         
         // For now, return a success result indicating the document was processed
         // TODO: Investigate the correct Docling v1 API result format
@@ -490,9 +490,9 @@ class DoclingClient: ObservableObject {
         // Close boundary - important: double dash at end
         appendString("--\(boundary)--\(crlf)")
         
-        print("🔧 DoclingClient: Created multipart form with \(formData.count) bytes total")
-        print("🔧 DoclingClient: File data: \(fileData.count) bytes, Content-Type: \(contentType)")
-        print("🔧 DoclingClient: First 100 bytes of file data: \(fileData.prefix(100).map { String(format: "%02x", $0) }.joined(separator: " "))")
+        AppLog.shared.documents("Created multipart form with \(formData.count) bytes total")
+        AppLog.shared.documents("File data: \(fileData.count) bytes, Content-Type: \(contentType)")
+        AppLog.shared.documents("First 100 bytes of file data: \(fileData.prefix(100).map { String(format: "%02x", $0) }.joined(separator: " "))", level: .debug)
         
         return formData
     }

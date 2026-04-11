@@ -268,7 +268,7 @@ struct HealthDataView: View {
         do {
             try await healthDataManager.savePersonalInfo(info)
         } catch {
-            print("Failed to delete vital reading: \(error)")
+            AppLog.shared.ui("Failed to delete vital reading: \(error)", level: .error)
         }
     }
 }
@@ -331,15 +331,15 @@ struct DocumentsView: View {
                 if documentManager.documents.isEmpty {
                     DocumentsEmptyStateView(
                         onScanDocument: { 
-                            print("📷 ContentView: Showing camera for document scanning")
+                            AppLog.shared.ui("Showing camera for document scanning")
                             showingCamera = true 
                         },
                         onImportFile: {
-                            print("📁 ContentView: Triggering document picker (LaunchServices console errors are normal in development)")
+                            AppLog.shared.ui("Triggering document picker (LaunchServices console errors are normal in development)")
                             showingDocumentPicker = true
                         },
                         onImportPhotos: { 
-                            print("🖼️ ContentView: Showing photos picker")
+                            AppLog.shared.ui("Showing photos picker")
                             showingPhotosPicker = true 
                         }
                     )
@@ -427,7 +427,7 @@ struct DocumentsView: View {
                         )
                         Button("Import File", systemImage: "folder") {
                             HapticFeedbackManager.shared.impact()
-                            print("📁 ContentView: Import File button tapped (LaunchServices console errors are normal)")
+                            AppLog.shared.ui("Import File button tapped (LaunchServices console errors are normal)")
                             showingDocumentPicker = true
                         }
                         .voiceOverLabel(
@@ -503,19 +503,19 @@ struct DocumentsView: View {
             allowedContentTypes: [.pdf, .plainText, .image],
             allowsMultipleSelection: true
         ) { result in
-            print("📁 ContentView: File importer result received")
+            AppLog.shared.ui("File importer result received")
             
             switch result {
             case .success(let urls):
-                print("✅ ContentView: File importer successful, \(urls.count) URLs received")
+                AppLog.shared.ui("File importer successful, \(urls.count) URLs received")
                 for (index, url) in urls.enumerated() {
-                    print("📄 ContentView: URL \(index + 1): \(url)")
+                    AppLog.shared.ui("URL \(index + 1): \(url)")
                 }
                 
                 Task {
-                    print("🚀 ContentView: Starting document import process...")
+                    AppLog.shared.ui("Starting document import process...")
                     let importedDocs = await documentManager.importDocuments(from: urls)
-                    print("✅ ContentView: Document import process completed")
+                    AppLog.shared.ui("Document import process completed")
                     
                     // Show category selector for first document
                     if let firstDoc = importedDocs.first {
@@ -525,19 +525,19 @@ struct DocumentsView: View {
                 }
                 
             case .failure(let error):
-                print("❌ ContentView: File import failed with error: \(error)")
-                print("❌ ContentView: Error type: \(type(of: error))")
-                print("❌ ContentView: Error description: \(error.localizedDescription)")
+                AppLog.shared.ui("File import failed with error: \(error)", level: .error)
+                AppLog.shared.ui("Error type: \(type(of: error))", level: .error)
+                AppLog.shared.ui("Error description: \(error.localizedDescription)", level: .error)
                 
                 // Check for LaunchServices errors
                 if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") ||
                    error.localizedDescription.contains("database") ||
                    error.localizedDescription.contains("LaunchServices") ||
                    error.localizedDescription.contains("permission") {
-                    print("ℹ️ ContentView: LaunchServices error detected (normal in development/simulator environment)")
-                    print("ℹ️ ContentView: This error doesn't affect document import functionality")
+                    AppLog.shared.ui("LaunchServices error detected (normal in development/simulator environment)")
+                    AppLog.shared.ui("This error doesn't affect document import functionality")
                 } else {
-                    print("❌ ContentView: Unexpected file import error that may need attention")
+                    AppLog.shared.ui("Unexpected file import error that may need attention", level: .error)
                 }
             }
         }
@@ -559,7 +559,7 @@ struct DocumentsView: View {
                                 let doc = try await DocumentImporter.shared.importImage(image)
                                 importedDocs.append(doc)
                             } catch {
-                                print("Failed to import photo: \(error)")
+                                AppLog.shared.ui("Failed to import photo: \(error)", level: .error)
                             }
                         }
                     }
@@ -640,7 +640,7 @@ struct DocumentsView: View {
     
     // MARK: - Import Review Handler
     private func handleImportReviewComplete(review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
-        print("✅ DocumentsView: User completed import review for \(selectedGroups.count) groups")
+        AppLog.shared.ui("User completed import review for \(selectedGroups.count) groups")
         
         // Update the blood test result with user's selections
         var updatedBloodTest = review.bloodTestResult
@@ -652,9 +652,9 @@ struct DocumentsView: View {
             if let selectedId = group.selectedCandidateId,
                let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
                 selectedCandidatesByKey[group.standardKey] = selectedCandidate
-                print("📋 DocumentsView: User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
+                AppLog.shared.ui("User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
             } else {
-                print("🚫 DocumentsView: User ignored group '\(group.standardTestName)'")
+                AppLog.shared.ui("User ignored group '\(group.standardTestName)'")
             }
         }
         
@@ -707,14 +707,14 @@ struct DocumentsView: View {
         do {
             let healthDataManager = HealthDataManager.shared
             try await healthDataManager.addBloodTest(updatedBloodTest)
-            print("✅ DocumentsView: Saved blood test after import review with \(updatedResults.count) results")
+            AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
             
             // Clear pending review
             await MainActor.run {
                 documentProcessor.pendingImportReview = nil
             }
         } catch {
-            print("❌ DocumentsView: Failed to save blood test after review: \(error)")
+            AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)
         }
     }
     

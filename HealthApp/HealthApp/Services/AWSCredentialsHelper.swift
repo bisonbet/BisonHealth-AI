@@ -54,7 +54,7 @@ class AWSCredentialsHelper {
             throw AWSCredentialsError.keychainError(status)
         }
 
-        print("✅ AWSCredentialsHelper: Credentials saved securely to Keychain")
+        AppLog.shared.networking("AWSCredentialsHelper: Credentials saved securely to Keychain")
     }
 
     static func loadCredentials() throws -> AWSCredentials? {
@@ -102,7 +102,7 @@ class AWSCredentialsHelper {
             throw AWSCredentialsError.keychainError(status)
         }
 
-        print("✅ AWSCredentialsHelper: Credentials deleted from Keychain")
+        AppLog.shared.networking("AWSCredentialsHelper: Credentials deleted from Keychain")
     }
 
     // MARK: - Validation

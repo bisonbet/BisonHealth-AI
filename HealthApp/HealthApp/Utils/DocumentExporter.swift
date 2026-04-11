@@ -235,7 +235,7 @@ class DocumentExporter: ObservableObject {
                 
                 exportProgress = Double(index + 1) / Double(totalDocuments)
             } catch {
-                print("Failed to export document \(document.fileName): \(error)")
+                AppLog.shared.documents("Failed to export document \(document.fileName): \(error)", level: .error)
             }
         }
         

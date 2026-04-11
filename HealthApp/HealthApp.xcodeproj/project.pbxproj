@@ -75,7 +75,7 @@
 		2ST9LWJHY9HLN9JAUETJL7PV /* DocumentProcessingIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */; };
 		313646423741443531333141 /* AccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363235363030414442423836 /* AccessibilityTests.swift */; };
 		333132453133363839344239 /* AccessibilityModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303741434636463836313336 /* AccessibilityModifiers.swift */; };
-		3472925DE4F3A645FEBE6C53 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3EA1C9995061054A565167 /* Logger.swift */; };
+		3472925DE4F3A645FEBE6C53 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3EA1C9995061054A565167 /* AppLog.swift */; };
 		373331303130383939373544 /* AccessibilityColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304643454332314443313245 /* AccessibilityColors.swift */; };
 		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
 		463346414531383846334544 /* AccessibilityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303242343446444138303338 /* AccessibilityManager.swift */; };
@@ -107,6 +107,7 @@
 		A1000048294A0000000000001 /* DatabaseManager+Chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000049294A0000000000001 /* DatabaseManager+Chat.swift */; };
 		A1000052294A0000000000001 /* DatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000053294A0000000000001 /* DatabaseTests.swift */; };
 		A1000054294A0000000000001 /* FileSystemManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000055294A0000000000001 /* FileSystemManager.swift */; };
+		A10000LOGE0000000000000001 /* LogExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000LOGE0000000000000002 /* LogExporter.swift */; };
 		A1000055YAHI7QXGF2TWBDSYSE /* DuplicateBloodTestCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */; };
 		A1000056294A0000000000001 /* DocumentImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000057294A0000000000001 /* DocumentImporter.swift */; };
 		A1000058294A0000000000001 /* DocumentExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000059294A0000000000001 /* DocumentExporter.swift */; };
@@ -122,6 +123,7 @@
 		A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000075294A0000000000001 /* HealthDataManagerTests.swift */; };
 		A10000X6PP0AIOVJSYPSP3LJFU /* BloodTestImportReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */; };
 		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
+		NATIVEDOCEXT001 /* NativeDocumentExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */; };
 		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
 		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
 		ABC123456789BACKUP00001 /* iCloudBackupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF123456789BACKUP00001 /* iCloudBackupManager.swift */; };
@@ -232,7 +234,7 @@
 		50F48E6CF308D42C7D377B84 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
 		5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestsSection.swift; sourceTree = "<group>"; };
 		68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsOfServiceView.swift; sourceTree = "<group>"; };
-		6D3EA1C9995061054A565167 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
+		6D3EA1C9995061054A565167 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		7DBD421D8370DAE5B6FC9FB1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1000001294A0000000000000 /* HealthApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HealthApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000002294A0000000000001 /* HealthAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthAppApp.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 		A1000049294A0000000000001 /* DatabaseManager+Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+Chat.swift"; sourceTree = "<group>"; };
 		A1000053294A0000000000001 /* DatabaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseTests.swift; sourceTree = "<group>"; };
 		A1000055294A0000000000001 /* FileSystemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemManager.swift; sourceTree = "<group>"; };
+		A10000LOGE0000000000000002 /* LogExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogExporter.swift; sourceTree = "<group>"; };
 		A1000057294A0000000000001 /* DocumentImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentImporter.swift; sourceTree = "<group>"; };
 		A1000059294A0000000000001 /* DocumentExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentExporter.swift; sourceTree = "<group>"; };
 		A1000061294A0000000000001 /* FileSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemTests.swift; sourceTree = "<group>"; };
@@ -270,6 +273,7 @@
 		A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestImportReviewView.swift; sourceTree = "<group>"; };
 		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
 		AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
+		NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDocumentExtractor.swift; sourceTree = "<group>"; };
 		ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
 		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageInputView.swift; sourceTree = "<group>"; };
@@ -505,6 +509,7 @@
 				A1000065294A0000000000001 /* DoclingClient.swift */,
 				A1000067294A0000000000001 /* AIProviderInterface.swift */,
 				AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */,
+				NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */,
 				MEDDOCEXT002 /* MedicalDocumentExtractor.swift */,
 			);
 			path = Services;
@@ -533,6 +538,7 @@
 				CONVCTXB2F127A8B00UTILS1 /* ConversationContextBuilder.swift */,
 				142348192EA07B3300059087 /* Networking */,
 				A1000055294A0000000000001 /* FileSystemManager.swift */,
+				A10000LOGE0000000000000002 /* LogExporter.swift */,
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
 				A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */,
@@ -578,7 +584,7 @@
 				DEF123456789BACKUP00001 /* iCloudBackupManager.swift */,
 				HIPAA001 /* AppSettingsManager.swift */,
 				1E116E0E8FDE1B6568C46022 /* ErrorHandler.swift */,
-				6D3EA1C9995061054A565167 /* Logger.swift */,
+				6D3EA1C9995061054A565167 /* AppLog.swift */,
 				F8B3C606DD5E2444E3A41AEF /* NetworkRetryManager.swift */,
 			);
 			path = Managers;
@@ -756,6 +762,7 @@
 				1419E6312EF6EFB2009BE031 /* AIConnectionStatus.swift in Sources */,
 				14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
+				A10000LOGE0000000000000001 /* LogExporter.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
 				14ADE5B52EF0CFE000BB7C6C /* VitalEntryView.swift in Sources */,
@@ -769,11 +776,12 @@
 				A1000070294A0000000000001 /* HealthDataManager.swift in Sources */,
 				A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */,
 				B057FA8E00D31E05DA99C601 /* ErrorHandler.swift in Sources */,
-				3472925DE4F3A645FEBE6C53 /* Logger.swift in Sources */,
+				3472925DE4F3A645FEBE6C53 /* AppLog.swift in Sources */,
 				2B6FA40C09E729A5527BDCEB /* NetworkRetryManager.swift in Sources */,
 				143446912E788EE800961754 /* DoctorSelectorView.swift in Sources */,
 				A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */,
 				A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */,
+				NATIVEDOCEXT001 /* NativeDocumentExtractor.swift in Sources */,
 				MEDDOCEXT001 /* MedicalDocumentExtractor.swift in Sources */,
 				A1000072294A0000000000001 /* Keychain.swift in Sources */,
 				A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */,
@@ -1170,7 +1178,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm/";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 2.29.1;
+				minimumVersion = 2.31.3;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

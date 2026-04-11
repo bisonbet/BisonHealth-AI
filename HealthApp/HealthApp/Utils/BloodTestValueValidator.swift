@@ -171,19 +171,19 @@ struct BloodTestValueValidator {
             case .valid:
                 validValues.append(value)
             case .invalidType(let reason):
-                print("⚠️ BloodTestValueValidator: Filtering invalid value '\(value.testName)' = '\(value.value)': \(reason)")
+                AppLog.shared.healthData("BloodTestValueValidator: Filtering invalid value '\(value.testName)' = '\(value.value)': \(reason)", level: .warning)
                 invalidCount += 1
             case .outOfRange(let reason, let stdDevs):
-                print("⚠️ BloodTestValueValidator: Filtering out-of-range value '\(value.testName)' = '\(value.value)': \(reason) (\(String(format: "%.1f", stdDevs)) SD)")
+                AppLog.shared.healthData("BloodTestValueValidator: Filtering out-of-range value '\(value.testName)' = '\(value.value)': \(reason) (\(String(format: "%.1f", stdDevs)) SD)", level: .warning)
                 invalidCount += 1
             case .missingData(let reason):
-                print("⚠️ BloodTestValueValidator: Filtering incomplete value '\(value.testName)': \(reason)")
+                AppLog.shared.healthData("BloodTestValueValidator: Filtering incomplete value '\(value.testName)': \(reason)", level: .warning)
                 invalidCount += 1
             }
         }
         
         if invalidCount > 0 {
-            print("🧪 BloodTestValueValidator: Filtered \(invalidCount) invalid values, kept \(validValues.count) valid values")
+            AppLog.shared.healthData("🧪 BloodTestValueValidator: Filtered \(invalidCount) invalid values, kept \(validValues.count) valid values")
         }
         
         return validValues

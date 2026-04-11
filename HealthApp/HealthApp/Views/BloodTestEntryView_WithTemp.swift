@@ -666,6 +666,6 @@ struct BloodTestItemEditor: View {
 
 #Preview {
     BloodTestEntryView { bloodTest in
-        print("Saved blood test with \(bloodTest.results.count) results")
+        AppLog.shared.ui("Saved blood test with \(bloodTest.results.count) results")
     }
 }

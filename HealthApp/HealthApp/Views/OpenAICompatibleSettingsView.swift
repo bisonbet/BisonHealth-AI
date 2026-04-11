@@ -16,7 +16,7 @@ struct OpenAICompatibleSettingsView: View {
     @State private var isLoadingModels = false
 
     init(settingsManager: SettingsManager) {
-        print("🟢 OpenAICompatibleSettingsView.init called")
+        AppLog.shared.ui("OpenAICompatibleSettingsView.init called")
         self.settingsManager = settingsManager
         _baseURL = State(initialValue: settingsManager.openAICompatibleBaseURL)
         _apiKey = State(initialValue: settingsManager.openAICompatibleAPIKey)
@@ -37,7 +37,7 @@ struct OpenAICompatibleSettingsView: View {
                         .disableAutocorrection(true)
                         .keyboardType(.URL)
                         .onChange(of: baseURL) { _, newValue in
-                            print("💾 Auto-saving baseURL: '\(newValue)'")
+                            AppLog.shared.ui("Auto-saving baseURL: '\(newValue)'")
                             settingsManager.openAICompatibleBaseURL = newValue
                             settingsManager.invalidateOpenAICompatibleClient()
                             settingsManager.saveSettings()
@@ -58,7 +58,7 @@ struct OpenAICompatibleSettingsView: View {
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                         .onChange(of: apiKey) { _, newValue in
-                            print("💾 Auto-saving apiKey: '\(newValue.isEmpty ? "(empty)" : "(has \(newValue.count) chars)")'")
+                            AppLog.shared.ui("Auto-saving apiKey: '\(newValue.isEmpty ? "(empty)" : "(has \(newValue.count) chars)")'")
                             settingsManager.openAICompatibleAPIKey = newValue
                             settingsManager.invalidateOpenAICompatibleClient()
                             settingsManager.saveSettings()
@@ -139,7 +139,7 @@ struct OpenAICompatibleSettingsView: View {
                                 Button {
                                     selectedModel = model
                                     let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    print("💾 Auto-saving selected model: '\(normalizedModel)'")
+                                    AppLog.shared.ui("Auto-saving selected model: '\(normalizedModel)'")
                                     settingsManager.updateOpenAICompatibleModel(normalizedModel)
                                     settingsManager.invalidateOpenAICompatibleClient()
                                 } label: {

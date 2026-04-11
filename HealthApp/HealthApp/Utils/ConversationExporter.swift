@@ -60,7 +60,7 @@ class ConversationExporter: ObservableObject {
             // Performance: Log warning for large conversations
             let messageCount = conversation.messages.count
             if messageCount > 100 {
-                print("⚠️ Large conversation (\(messageCount) messages) - export may take time")
+                AppLog.shared.ai("Large conversation (\(messageCount) messages) - export may take time", level: .warning)
             }
 
             // Generate markdown content
@@ -150,7 +150,7 @@ class ConversationExporter: ObservableObject {
             // Performance: Log warning for large conversations
             let messageCount = conversation.messages.count
             if messageCount > 100 {
-                print("⚠️ Large conversation (\(messageCount) messages) - export may take time")
+                AppLog.shared.ai("Large conversation (\(messageCount) messages) - export may take time", level: .warning)
             }
 
             // Create PDF document

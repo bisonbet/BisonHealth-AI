@@ -95,6 +95,28 @@ enum AIProvider: String, CaseIterable {
     }
 }
 
+/// Controls how documents are converted to text before AI extraction
+enum DocumentProcessingMode: String, CaseIterable, Codable {
+    case onDevice = "on_device"
+    case docling = "docling"
+
+    var displayName: String {
+        switch self {
+        case .onDevice: return "On-Device (PDFKit + Vision)"
+        case .docling: return "Docling Server"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .onDevice:
+            return "Uses Apple's PDFKit and Vision framework for fully offline document processing. No server required."
+        case .docling:
+            return "Uses a Docling server for document conversion with advanced layout analysis. Requires network."
+        }
+    }
+}
+
 struct ModelPreferences: Equatable {
     var aiProvider: AIProvider = .ollama   // Default AI provider
     var chatModel: String = "llama3.2"     // Default chat model
@@ -102,7 +124,10 @@ struct ModelPreferences: Equatable {
     var documentModel: String = "llama3.2" // Default document processing model (text-only)
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
-    
+
+    // Document Processing Mode
+    var documentProcessingMode: DocumentProcessingMode = .onDevice
+
     // Extraction Settings (Independent of Chat)
     var extractionProvider: AIProvider = .ollama
     var extractionOllamaModel: String = "llama3.2"
@@ -203,7 +228,6 @@ class SettingsManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
-    private let logger = Logger.shared
 
     // Keychain keys for reinstall persistence
     private let kcOllamaKey = "settings.ollamaConfig.v1"
@@ -397,13 +421,13 @@ class SettingsManager: ObservableObject {
             let finalTemperature = temperature == 0 ? 0.1 : temperature
             let finalMaxTokens = maxTokens == 0 ? 2048 : maxTokens
 
-            print("🔧 Creating new OpenAICompatibleClient:")
-            print("   baseURL: '\(openAICompatibleBaseURL)'")
-            print("   apiKey: '\(openAICompatibleAPIKey.isEmpty ? "(empty)" : "(has \(openAICompatibleAPIKey.count) chars)")'")
-            print("   model: '\(modelPreferences.openAICompatibleModel)'")
-            print("   temperature: \(finalTemperature)")
-            print("   maxTokens: \(finalMaxTokens)")
-            print("   contextSize: \(openAICompatibleContextSize)")
+            AppLog.shared.settings("Creating new OpenAICompatibleClient:")
+            AppLog.shared.settings("   baseURL: '\(openAICompatibleBaseURL)'")
+            AppLog.shared.settings("   apiKey: '\(openAICompatibleAPIKey.isEmpty ? "(empty)" : "(has \(openAICompatibleAPIKey.count) chars)")'")
+            AppLog.shared.settings("   model: '\(modelPreferences.openAICompatibleModel)'")
+            AppLog.shared.settings("   temperature: \(finalTemperature)")
+            AppLog.shared.settings("   maxTokens: \(finalMaxTokens)")
+            AppLog.shared.settings("   contextSize: \(openAICompatibleContextSize)")
 
             openAICompatibleClient = OpenAICompatibleClient(
                 baseURL: openAICompatibleBaseURL,
@@ -415,7 +439,7 @@ class SettingsManager: ObservableObject {
                 contextSize: openAICompatibleContextSize
             )
         } else {
-            print("🔧 Reusing existing OpenAICompatibleClient, updating model to: '\(modelPreferences.openAICompatibleModel)'")
+            AppLog.shared.settings("Reusing existing OpenAICompatibleClient, updating model to: '\(modelPreferences.openAICompatibleModel)'")
             openAICompatibleClient?.updateDefaultModel(modelPreferences.openAICompatibleModel)
         }
         return openAICompatibleClient!
@@ -465,32 +489,32 @@ class SettingsManager: ObservableObject {
     func preloadOnDeviceLLMIfNeeded() {
         // Check if on-device LLM is the selected provider
         guard modelPreferences.aiProvider == .onDeviceLLM else {
-            print("[SettingsManager] On-device LLM not selected, skipping preload")
+            AppLog.shared.settings("On-device LLM not selected, skipping preload")
             return
         }
 
         // Check if on-device LLM is enabled and a model is downloaded
         guard MLXModelInfo.isEnabled else {
-            print("[SettingsManager] On-device LLM not enabled, skipping preload")
+            AppLog.shared.settings("On-device LLM not enabled, skipping preload")
             return
         }
 
         let selectedModel = MLXModelInfo.selectedModel
         guard MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) else {
-            print("[SettingsManager] No model downloaded, skipping preload")
+            AppLog.shared.settings("No model downloaded, skipping preload")
             return
         }
 
-        print("[SettingsManager] Preloading MLX on-device model: \(selectedModel.displayName)")
+        AppLog.shared.settings("Preloading MLX on-device model: \(selectedModel.displayName)")
 
         // Start loading in background
         Task {
             do {
                 let client = getMLXOnDeviceClient()
                 try await client.loadModel()
-                print("[SettingsManager] MLX on-device model preloaded successfully")
+                AppLog.shared.settings("MLX on-device model preloaded successfully")
             } catch {
-                print("[SettingsManager] Failed to preload MLX on-device model: \(error.localizedDescription)")
+                AppLog.shared.settings("Failed to preload MLX on-device model: \(error.localizedDescription)")
             }
         }
     }
@@ -840,6 +864,7 @@ extension ModelPreferences: Codable {
         case documentModel
         case openAICompatibleModel
         case bedrockModel
+        case documentProcessingMode
         case extractionProvider
         case extractionOllamaModel
         case extractionOpenAIModel
@@ -858,7 +883,10 @@ extension ModelPreferences: Codable {
         self.documentModel = try container.decode(String.self, forKey: .documentModel)
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
-        
+
+        // Document Processing Mode (defaults to onDevice for new installs, backwards-compatible)
+        self.documentProcessingMode = try container.decodeIfPresent(DocumentProcessingMode.self, forKey: .documentProcessingMode) ?? .onDevice
+
         // Extraction Settings
         self.extractionProvider = try container.decodeIfPresent(AIProvider.self, forKey: .extractionProvider) ?? .ollama
         self.extractionOllamaModel = try container.decodeIfPresent(String.self, forKey: .extractionOllamaModel) ?? "llama3.2"
@@ -878,7 +906,10 @@ extension ModelPreferences: Codable {
         try container.encode(documentModel, forKey: .documentModel)
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
-        
+
+        // Document Processing Mode
+        try container.encode(documentProcessingMode, forKey: .documentProcessingMode)
+
         // Extraction Settings
         try container.encode(extractionProvider, forKey: .extractionProvider)
         try container.encode(extractionOllamaModel, forKey: .extractionOllamaModel)

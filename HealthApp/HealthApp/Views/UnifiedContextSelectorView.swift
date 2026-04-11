@@ -882,7 +882,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
         } catch {
             errorMessage = "Failed to load context data: \(error.localizedDescription)"
-            print("❌ Failed to load context data: \(error)")
+            AppLog.shared.ui("Failed to load context data: \(error)", level: .error)
         }
         
         isLoading = false
@@ -1019,10 +1019,10 @@ class UnifiedContextSelectorViewModel: ObservableObject {
                 }
             }
 
-            print("✅ Context selections saved successfully")
+            AppLog.shared.ui("Context selections saved successfully")
         } catch {
             errorMessage = "Failed to save context selections: \(error.localizedDescription)"
-            print("❌ Failed to save context selections: \(error)")
+            AppLog.shared.ui("Failed to save context selections: \(error)", level: .error)
             throw error
         }
         

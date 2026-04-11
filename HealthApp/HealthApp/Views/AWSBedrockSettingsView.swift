@@ -61,7 +61,7 @@ struct AWSBedrockSettingsView: View {
             }
         }
         .onAppear {
-            print("🔵 AWSBedrockSettingsView.onAppear called")
+            AppLog.shared.ui("AWSBedrockSettingsView.onAppear called")
             // Initialize editing states with current credentials
             editingAccessKey = credentialsManager.credentials.accessKeyId
             editingSecretKey = credentialsManager.credentials.secretAccessKey
@@ -69,7 +69,7 @@ struct AWSBedrockSettingsView: View {
 
             // Validate and fix invalid stored model selection
             if AWSBedrockModel(rawValue: selectedModel) == nil {
-                print("⚠️ Invalid stored model '\(selectedModel)', resetting to default")
+                AppLog.shared.ui("Invalid stored model '\(selectedModel)', resetting to default", level: .warning)
                 selectedModel = AWSBedrockModel.claudeSonnet45.rawValue
             }
         }

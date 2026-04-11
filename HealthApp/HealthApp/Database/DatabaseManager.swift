@@ -17,7 +17,7 @@ class DatabaseManager: ObservableObject {
     internal var db: Connection?
     private let encryptionKey: SymmetricKey
     private let databaseURL: URL
-    internal let logger = Logger.shared
+    internal let appLog = AppLog.shared
     
     // Key fingerprint for detecting key changes
     private var encryptionKeyFingerprint: String {
@@ -110,8 +110,8 @@ class DatabaseManager: ObservableObject {
         
         self.databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
 
-        print("🗄️ DatabaseManager: Database path: \(databaseURL.path)")
-        print("🗄️ DatabaseManager: Database file exists: \(FileManager.default.fileExists(atPath: databaseURL.path))")
+        AppLog.shared.database("Database path: \(databaseURL.path)")
+        AppLog.shared.database("Database file exists: \(FileManager.default.fileExists(atPath: databaseURL.path))")
         
         // Migrate database from Documents directory if it exists (one-time migration)
         try migrateDatabaseFromDocumentsIfNeeded(newLocation: databaseURL)
@@ -224,7 +224,7 @@ class DatabaseManager: ObservableObject {
     private func migrateDatabaseFromDocumentsIfNeeded(newLocation: URL) throws {
         // Check if database already exists in new location
         if FileManager.default.fileExists(atPath: newLocation.path) {
-            print("✅ DatabaseManager: Database already in Application Support directory")
+            AppLog.shared.database("Database already in Application Support directory")
             return
         }
         
@@ -233,7 +233,7 @@ class DatabaseManager: ObservableObject {
         let oldDatabasePath = documentsPath.appendingPathComponent("HealthApp/Database/health_data.sqlite")
         
         if FileManager.default.fileExists(atPath: oldDatabasePath.path) {
-            print("🔄 DatabaseManager: Found database in Documents directory, migrating to Application Support...")
+            AppLog.shared.database("Found database in Documents directory, migrating to Application Support...")
             
             // Also check for WAL and SHM files (SQLite write-ahead logging files)
             let oldWALPath = oldDatabasePath.appendingPathExtension("wal")
@@ -242,20 +242,20 @@ class DatabaseManager: ObservableObject {
             do {
                 // Copy main database file
                 try FileManager.default.copyItem(at: oldDatabasePath, to: newLocation)
-                print("✅ DatabaseManager: Copied database file to Application Support")
+                AppLog.shared.database("Copied database file to Application Support")
                 
                 // Copy WAL file if it exists
                 if FileManager.default.fileExists(atPath: oldWALPath.path) {
                     let newWALPath = newLocation.appendingPathExtension("wal")
                     try FileManager.default.copyItem(at: oldWALPath, to: newWALPath)
-                    print("✅ DatabaseManager: Copied WAL file to Application Support")
+                    AppLog.shared.database("Copied WAL file to Application Support")
                 }
                 
                 // Copy SHM file if it exists
                 if FileManager.default.fileExists(atPath: oldSHMPath.path) {
                     let newSHMPath = newLocation.appendingPathExtension("shm")
                     try FileManager.default.copyItem(at: oldSHMPath, to: newSHMPath)
-                    print("✅ DatabaseManager: Copied SHM file to Application Support")
+                    AppLog.shared.database("Copied SHM file to Application Support")
                 }
                 
                 // Remove old files after successful migration
@@ -267,14 +267,14 @@ class DatabaseManager: ObservableObject {
                     try? FileManager.default.removeItem(at: oldSHMPath)
                 }
                 
-                print("✅ DatabaseManager: Successfully migrated database from Documents to Application Support")
+                AppLog.shared.database("Successfully migrated database from Documents to Application Support")
             } catch {
-                print("⚠️ DatabaseManager: Failed to migrate database: \(error)")
+                AppLog.shared.database("Failed to migrate database: \(error)", level: .warning)
                 // Don't throw - allow app to continue with new database location
                 // Old database will remain in Documents directory
             }
         } else {
-            print("ℹ️ DatabaseManager: No existing database found in Documents directory")
+            AppLog.shared.database("No existing database found in Documents directory")
         }
     }
 
@@ -282,18 +282,18 @@ class DatabaseManager: ObservableObject {
     private func performDatabaseMigration(db: Connection) throws {
         // Get current database version
         let currentVersion = try getCurrentDatabaseVersion(db: db)
-        print("🔧 DatabaseManager: Current DB version: \(currentVersion), Target version: \(Self.currentDatabaseVersion)")
+        AppLog.shared.database("Current DB version: \(currentVersion), Target version: \(Self.currentDatabaseVersion)")
 
         // If this is a fresh database, set the current version
         if currentVersion == 0 {
-            print("🔧 DatabaseManager: Fresh database detected, setting version to \(Self.currentDatabaseVersion)")
+            AppLog.shared.database("Fresh database detected, setting version to \(Self.currentDatabaseVersion)")
             try setDatabaseVersion(db: db, version: Self.currentDatabaseVersion)
             return
         }
 
         // Check if migration is needed
         if currentVersion < Self.currentDatabaseVersion {
-            print("⚠️ DatabaseManager: Migration needed from v\(currentVersion) to v\(Self.currentDatabaseVersion)")
+            AppLog.shared.database("Migration needed from v\(currentVersion) to v\(Self.currentDatabaseVersion)", level: .warning)
             // Perform backup before migration
             try createBackupBeforeMigration()
 
@@ -305,7 +305,7 @@ class DatabaseManager: ObservableObject {
             // Update version
             try setDatabaseVersion(db: db, version: Self.currentDatabaseVersion)
 
-            print("✅ Database migrated from version \(currentVersion) to \(Self.currentDatabaseVersion)")
+            AppLog.shared.database("Database migrated from version \(currentVersion) to \(Self.currentDatabaseVersion)")
         } else if currentVersion > Self.currentDatabaseVersion {
             // This shouldn't happen unless user downgraded the app
             throw DatabaseError.incompatibleVersion("Database version \(currentVersion) is newer than app version \(Self.currentDatabaseVersion). Please update the app.")
@@ -333,22 +333,22 @@ class DatabaseManager: ObservableObject {
     private func createBackupBeforeMigration() throws {
         let backupURL = databaseURL.appendingPathExtension("backup.\(Date().timeIntervalSince1970)")
         try FileManager.default.copyItem(at: databaseURL, to: backupURL)
-        print("📦 Database backup created at: \(backupURL.path)")
+        AppLog.shared.database("Database backup created at: \(backupURL.path)")
     }
 
     private func performMigration(db: Connection, toVersion: Int) throws {
-        print("🔄 Migrating database to version \(toVersion)...")
+        AppLog.shared.database("Migrating database to version \(toVersion)...")
 
         switch toVersion {
         case 2:
             // Migration for version 2: Added personalMedicalHistory to PersonalHealthInfo
             // This migration is data-safe since we're only adding a field with a default value
-            print("   ✓ Added support for personal medical history")
+            AppLog.shared.database("Added support for personal medical history")
             
         case 3:
             // Migration for version 3: Added app_settings table for disclaimer acceptance
             try createAppSettingsTable()
-            print("   ✓ Added app_settings table for disclaimer management")
+            AppLog.shared.database("Added app_settings table for disclaimer management")
 
         case 4:
             // Migration for version 4: Enhanced documents table with medical document fields
@@ -368,14 +368,14 @@ class DatabaseManager: ObservableObject {
             try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
 
-            print("   ✓ Added medical document fields and indexes")
+            AppLog.shared.database("Added medical document fields and indexes")
 
         case 5:
             // Migration for version 5: Added supplements array to PersonalHealthInfo
             // This migration is data-safe since PersonalHealthInfo is stored as encrypted JSON
             // and the supplements property has a default value of [] in the model.
             // The Codable decoder will automatically use the default for existing records.
-            print("   ✓ Added support for supplements in personal health info")
+            AppLog.shared.database("Added support for supplements in personal health info")
 
         case 6:
             // Migration for version 6: Added Apple Health sync with vitals and sleep data
@@ -384,12 +384,12 @@ class DatabaseManager: ObservableObject {
             // oxygenSaturationReadings, respiratoryRateReadings, weightReadings, sleepData) have
             // default values of [] in the model. The Codable decoder will automatically use the
             // defaults for existing records via decodeIfPresent.
-            print("   ✓ Added support for Apple Health sync (vitals and sleep data)")
+            AppLog.shared.database("Added support for Apple Health sync (vitals and sleep data)")
 
         case 7:
             // Migration for version 7: HealthDocument → MedicalDocument format migration
             // Ensures all existing documents have proper default values for new fields
-            print("📦 Migrating to version 7: HealthDocument → MedicalDocument format")
+            AppLog.shared.database("Migrating to version 7: HealthDocument -> MedicalDocument format")
 
             // IMPORTANT: Use separate UPDATE statements to avoid overwriting valid data
             // If we used a single UPDATE with OR conditions, a document with valid category
@@ -410,7 +410,7 @@ class DatabaseManager: ObservableObject {
                 WHERE include_in_ai_context IS NULL
             """)
 
-            print("   ✓ Migrated document format: ensured default values for MedicalDocument fields")
+            AppLog.shared.database("Migrated document format: ensured default values for MedicalDocument fields")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
@@ -436,7 +436,7 @@ class DatabaseManager: ObservableObject {
         // Recreate all tables (this will call performDatabaseMigration)
         try self.createTables()
 
-        print("🗑️ Database reset completed")
+        AppLog.shared.database("Database reset completed")
     }
 
     private func createTables() throws {
@@ -530,44 +530,44 @@ class DatabaseManager: ObservableObject {
     // MARK: - Encryption Key Management
     private static func getOrCreateEncryptionKey() throws -> SymmetricKey {
         let keychain = Keychain()
-        let logger = Logger.shared
-        
+        let log = AppLog.shared
+
         if let existingKey = try keychain.getEncryptionKey() {
             // Verify key integrity
             let keyData = existingKey.withUnsafeBytes { Data($0) }
             if keyData.count != 32 { // 256 bits = 32 bytes
-                logger.error("⚠️ Encryption key has invalid size (\(keyData.count) bytes, expected 32). This may cause data loss!")
+                log.database("Encryption key has invalid size (\(keyData.count) bytes, expected 32). This may cause data loss!", level: .error)
                 throw DatabaseError.encryptionFailed
             }
-            
+
             // Log key fingerprint for debugging (first 8 chars only for security)
             let hash = SHA256.hash(data: keyData)
             let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
-            logger.info("🔑 Using existing encryption key (fingerprint: \(fingerprint)...)")
-            
+            log.database("Using existing encryption key (fingerprint: \(fingerprint)...)")
+
             return existingKey
         } else {
             // Check if database already exists - if so, warn about potential data loss
             let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
             let databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
-            
+
             if FileManager.default.fileExists(atPath: databaseURL.path) {
-                logger.error("⚠️ CRITICAL: Database exists but encryption key is missing! Creating new key will make existing data unreadable!")
-                logger.error("⚠️ Attempting to scan database for recoverable data...")
+                log.database("CRITICAL: Database exists but encryption key is missing! Creating new key will make existing data unreadable!", level: .critical)
+                log.database("Attempting to scan database for recoverable data...", level: .error)
                 // Don't throw - let the recovery scanner handle it
             }
-            
-            logger.warning("🔑 Creating new encryption key (no existing key found)")
+
+            log.database("Creating new encryption key (no existing key found)", level: .warning)
             let newKey = SymmetricKey(size: .bits256)
             try keychain.storeEncryptionKey(newKey)
-            
+
             // Store key fingerprint for future validation
             let keyData = newKey.withUnsafeBytes { Data($0) }
             let hash = SHA256.hash(data: keyData)
             let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
-            logger.info("🔑 New encryption key created (fingerprint: \(fingerprint)...)")
-            
+            log.database("New encryption key created (fingerprint: \(fingerprint)...)")
+
             return newKey
         }
     }
@@ -578,7 +578,7 @@ class DatabaseManager: ObservableObject {
         let sealedBox = try AES.GCM.seal(jsonData, using: encryptionKey)
         
         guard let combined = sealedBox.combined else {
-            logger.error("❌ Encryption failed: sealedBox.combined is nil")
+            appLog.database("Encryption failed: sealedBox.combined is nil", level: .error)
             throw DatabaseError.encryptionFailed
         }
         
@@ -590,11 +590,11 @@ class DatabaseManager: ObservableObject {
             
             // Verify the decrypted data matches what we encrypted
             guard decrypted == jsonData else {
-                logger.error("❌ Encryption verification failed: decrypted data doesn't match original")
+                appLog.database("Encryption verification failed: decrypted data doesn't match original", level: .error)
                 throw DatabaseError.encryptionFailed
             }
         } catch {
-            logger.error("❌ Encryption verification failed: \(error.localizedDescription)", error: error)
+            appLog.error("Encryption verification failed: \(error.localizedDescription)", error: error, category: .database)
             throw DatabaseError.encryptionFailed
         }
         

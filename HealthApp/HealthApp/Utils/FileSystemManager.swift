@@ -68,10 +68,10 @@ class FileSystemManager: ObservableObject {
                 )
                 // Reduced logging - only log in debug builds
                 #if DEBUG
-                print("📁 FileSystemManager: Ensured directory exists: \(directory.lastPathComponent)")
+                AppLog.shared.fileManagement("FileSystemManager: Ensured directory exists: \(directory.lastPathComponent)")
                 #endif
             } catch {
-                print("❌ FileSystemManager: Failed to create directory \(directory.path): \(error)")
+                AppLog.shared.fileManagement("FileSystemManager: Failed to create directory \(directory.path): \(error)", level: .error)
                 throw error
             }
         }
@@ -121,8 +121,8 @@ class FileSystemManager: ObservableObject {
         } catch let error as CryptoKitError {
             // Check if this is an authentication failure (wrong key or corrupted data)
             if case .authenticationFailure = error {
-                print("⚠️ FileSystemManager: Decryption authentication failure for file: \(url.lastPathComponent)")
-                print("⚠️ FileSystemManager: This may indicate the file was encrypted with a different key or is corrupted")
+                AppLog.shared.fileManagement("FileSystemManager: Decryption authentication failure for file: \(url.lastPathComponent)", level: .warning)
+                AppLog.shared.fileManagement("FileSystemManager: This may indicate the file was encrypted with a different key or is corrupted", level: .warning)
                 
                 // Check if the file might be unencrypted by checking common file signatures
                 let firstBytes = encryptedData.prefix(8)
@@ -130,25 +130,25 @@ class FileSystemManager: ObservableObject {
                 // PDF files start with "%PDF"
                 if let pdfHeader = String(data: encryptedData.prefix(4), encoding: .utf8),
                    pdfHeader == "%PDF" {
-                    print("ℹ️ FileSystemManager: File appears to be unencrypted PDF, returning as-is")
+                    AppLog.shared.fileManagement("FileSystemManager: File appears to be unencrypted PDF, returning as-is")
                     return encryptedData
                 }
                 
                 // JPEG files start with FF D8 FF
                 if firstBytes.count >= 3 && firstBytes[0] == 0xFF && firstBytes[1] == 0xD8 && firstBytes[2] == 0xFF {
-                    print("ℹ️ FileSystemManager: File appears to be unencrypted JPEG, returning as-is")
+                    AppLog.shared.fileManagement("FileSystemManager: File appears to be unencrypted JPEG, returning as-is")
                     return encryptedData
                 }
                 
                 // PNG files start with 89 50 4E 47
                 if firstBytes.count >= 4 && firstBytes[0] == 0x89 && firstBytes[1] == 0x50 && 
                    firstBytes[2] == 0x4E && firstBytes[3] == 0x47 {
-                    print("ℹ️ FileSystemManager: File appears to be unencrypted PNG, returning as-is")
+                    AppLog.shared.fileManagement("FileSystemManager: File appears to be unencrypted PNG, returning as-is")
                     return encryptedData
                 }
                 
                 // If it's not a recognizable unencrypted format, throw the error
-                print("❌ FileSystemManager: Cannot decrypt file and it doesn't appear to be unencrypted")
+                AppLog.shared.fileManagement("FileSystemManager: Cannot decrypt file and it doesn't appear to be unencrypted", level: .error)
                 throw FileSystemError.decryptionFailed
             } else {
                 // Other CryptoKit errors
@@ -310,7 +310,7 @@ class FileSystemManager: ObservableObject {
 
             return nil
         } catch {
-            print("❌ FileSystemManager: Error searching for document '\(displayName)': \(error)")
+            AppLog.shared.fileManagement("FileSystemManager: Error searching for document '\(displayName)': \(error)", level: .error)
             return nil
         }
     }

@@ -30,7 +30,6 @@ class AIChatManager: ObservableObject {
     private let networkManager = NetworkManager.shared
     private let pendingOperationsManager = PendingOperationsManager.shared
     private let errorHandler = ErrorHandler.shared
-    private let logger = Logger.shared
     private let retryManager = NetworkRetryManager.shared
     
     // MARK: - Computed Properties
@@ -157,11 +156,11 @@ class AIChatManager: ObservableObject {
 
         do {
             conversations = try await databaseManager.fetchConversations()
-            logger.info("Loaded \(conversations.count) conversations")
+            AppLog.shared.ai("Loaded \(conversations.count) conversations")
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
             errorHandler.handle(error, context: "Load Conversations")
-            logger.error("Failed to load conversations", error: error)
+            AppLog.shared.error("Failed to load conversations", error: error, category: .ai)
         }
     }
     
@@ -239,87 +238,90 @@ class AIChatManager: ObservableObject {
         guard conversation.title == "New Conversation",
               userMessages.count >= 1,
               assistantMessages.count >= 1 else {
-            logger.debug("Title generation skipped - title: '\(conversation.title)', user messages: \(userMessages.count), assistant messages: \(assistantMessages.count)")
+            AppLog.shared.ai("Title generation skipped - title: '\(conversation.title)', user messages: \(userMessages.count), assistant messages: \(assistantMessages.count)", level: .debug)
             return
         }
 
         // Don't generate title if there's an error message
         guard !conversation.messages.contains(where: { $0.isError }) else {
-            logger.debug("Title generation skipped - conversation has error messages")
+            AppLog.shared.ai("Title generation skipped - conversation has error messages", level: .debug)
             return
         }
 
         isGeneratingTitle = true
         defer { isGeneratingTitle = false }
 
-        logger.info("Generating title for conversation with \(conversation.messages.count) messages")
+        AppLog.shared.ai("Generating title for conversation with \(conversation.messages.count) messages")
         do {
             let generatedTitle = try await generateConversationTitle(for: conversation)
-            logger.info("Generated title: '\(generatedTitle)'")
+            AppLog.shared.ai("Generated title: '\(generatedTitle)'")
             if !generatedTitle.isEmpty && generatedTitle != "New Conversation" {
                 try await updateConversationTitle(conversation, newTitle: generatedTitle)
-                logger.info("Successfully updated conversation title to: '\(generatedTitle)'")
+                AppLog.shared.ai("Successfully updated conversation title to: '\(generatedTitle)'")
             } else {
-                logger.warning("Generated title was empty or unchanged")
+                AppLog.shared.ai("Generated title was empty or unchanged", level: .warning)
             }
         } catch {
             // Log error for debugging - don't show to user (not critical)
-            logger.warning("Failed to generate conversation title: \(error.localizedDescription)")
+            AppLog.shared.ai("Failed to generate conversation title: \(error.localizedDescription)", level: .warning)
         }
     }
     
     private func generateConversationTitle(for conversation: ChatConversation) async throws -> String {
-        // Get the first user message
         guard let userMessage = conversation.messages.first(where: { $0.role == .user }) else {
             return "New Conversation"
-        }
-
-        // Reliability fix: On-device title generation should not run through the LLM client.
-        if settingsManager.modelPreferences.aiProvider == .onDeviceLLM {
-            return generateHeuristicTitle(from: userMessage.content)
         }
 
         guard let assistantMessage = conversation.messages.first(where: { $0.role == .assistant }) else {
             return "New Conversation"
         }
 
-        // Create a prompt for title generation for other providers
         let titlePrompt = """
-        Based on this conversation, generate a short, descriptive title (3-5 words) that summarizes the main topic.
+        Summarize this conversation in 3-7 words as a short title. Output ONLY the title, nothing else.
 
         User: \(userMessage.content)
-        Assistant: \(assistantMessage.content.prefix(200))
-
-        Generate only the title, nothing else. The title should be 3-5 words and capture the essence of the conversation.
+        Assistant: \(String(assistantMessage.content.prefix(300)))
         """
 
-        // Use the AI client to generate the title
+        // Uses an isolated session for on-device LLM — does not affect the chat session.
         let aiClient = getAIClient()
-        let response = try await aiClient.sendMessage(titlePrompt, context: "")
+        do {
+            let response = try await aiClient.sendMessage(titlePrompt, context: "")
 
-        // Clean up the response - remove quotes, extra whitespace, etc.
-        var title = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            var title = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Remove surrounding quotes if present
-        if title.hasPrefix("\"") && title.hasSuffix("\"") {
-            title = String(title.dropFirst().dropLast())
+            // Remove surrounding quotes if present
+            if (title.hasPrefix("\"") && title.hasSuffix("\"")) ||
+               (title.hasPrefix("'") && title.hasSuffix("'")) {
+                title = String(title.dropFirst().dropLast())
+            }
+
+            // Remove common LLM preamble patterns
+            let preambles = ["Title:", "title:", "Summary:", "summary:"]
+            for preamble in preambles {
+                if title.hasPrefix(preamble) {
+                    title = String(title.dropFirst(preamble.count)).trimmingCharacters(in: .whitespaces)
+                }
+            }
+
+            // Limit to 7 words
+            let words = title.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            if words.count > 7 {
+                title = words.prefix(7).joined(separator: " ")
+            }
+
+            // Validate — fall back to heuristic if LLM produced garbage
+            if title.isEmpty || title.count > 60 || title.count < 2 {
+                AppLog.shared.ai("LLM title was invalid ('\(title)'), falling back to heuristic", level: .warning)
+                return generateHeuristicTitle(from: userMessage.content)
+            }
+
+            return title
+        } catch {
+            // On-device models may fail on short prompts — fall back to heuristic
+            AppLog.shared.ai("LLM title generation failed: \(error.localizedDescription), using heuristic", level: .warning)
+            return generateHeuristicTitle(from: userMessage.content)
         }
-        if title.hasPrefix("'") && title.hasSuffix("'") {
-            title = String(title.dropFirst().dropLast())
-        }
-
-        // Limit to reasonable length and word count
-        let words = title.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-        if words.count > 5 {
-            title = words.prefix(5).joined(separator: " ")
-        }
-
-        // Ensure title is not empty and not too long
-        if title.isEmpty || title.count > 50 {
-            return "New Conversation"
-        }
-
-        return title
     }
 
     /// Generate a simple heuristic title from user message (fallback when LLM generation fails)
@@ -439,44 +441,30 @@ class AIChatManager: ObservableObject {
             let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
             let isFirstUserMessage = userMessageCount == 1
 
-            print("🔍 AIChatManager.sendMessage: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', userMessageCount=\(userMessageCount), assistantMessageCount=\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection)")
-            print("🔍 AIChatManager.sendMessage: All messages in conversation: \(updatedConversation.messages.count)")
-            print("🔍 AIChatManager.sendMessage: Exception patterns: \(SystemPromptExceptionList.shared.getAllPatterns())")
-            print("🔍 AIChatManager.sendMessage: Model contains 'medgemma': \(currentModel.lowercased().contains("medgemma"))")
+            AppLog.shared.ai("[Chat] sendMessage: provider=\(settingsManager.modelPreferences.aiProvider), model=\(currentModel), turn=\(userMessageCount)/\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection), messageCount=\(updatedConversation.messages.count)")
 
             // Prepare the message content (potentially formatted for exception models)
             // NOTE: OpenAI Compatible/Bedrock NEVER get injection - they use standard API format
             var messageContent = content
 
             if isFirstTurn && requiresInjection {
-                // Format with INSTRUCTIONS/CONTEXT/QUESTION for Ollama exception models only
-                print("📝 AIChatManager: Model '\(currentModel)' requires instruction injection - formatting first message")
+                AppLog.shared.ai("[Chat] Applying instruction injection for model \(currentModel)")
                 messageContent = SystemPromptExceptionList.shared.formatFirstUserMessage(
                     userMessage: content,
                     systemPrompt: selectedDoctor?.systemPrompt,
                     context: healthContext
                 )
-                print("📝 AIChatManager: Formatted message length: \(messageContent.count) chars")
+                AppLog.shared.ai("[Chat] Formatted message length: \(messageContent.count) chars", level: .debug)
             }
 
-            // Debug: Log what context is being sent
-            if !requiresInjection || !isFirstTurn {
-                print("🔍 AIChatManager: Sending message with context length: \(healthContext.count) chars")
-                if !healthContext.isEmpty {
-                    print("🔍 AIChatManager: Context preview (first 1000 chars): \(String(healthContext.prefix(1000)))")
-                } else {
-                    print("⚠️ AIChatManager: WARNING - Context is empty!")
-                }
-            }
+            AppLog.shared.ai("[Chat] Context length: \(healthContext.count) chars, hasContext=\(!healthContext.isEmpty)")
 
             if useStreaming {
-                // Use streaming for real-time response
                 if isFirstTurn && requiresInjection {
-                    // For Ollama exception models, send formatted message with empty context
-                    print("📝 AIChatManager: FIRST turn - sending formatted message (length: \(messageContent.count))")
+                    AppLog.shared.ai("[Chat] First turn (injection) - sending formatted message (\(messageContent.count) chars)")
                     try await sendStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
                 } else {
-                    print("📝 AIChatManager: SUBSEQUENT turn - sending raw message (length: \(messageContent.count)), first 200 chars: '\(String(messageContent.prefix(200)))'")
+                    AppLog.shared.ai("[Chat] Turn \(userMessageCount) - sending message (\(messageContent.count) chars)")
                     try await sendStreamingMessage(messageContent, context: healthContext, conversationId: updatedConversation.id)
                 }
             } else {
@@ -508,7 +496,7 @@ class AIChatManager: ObservableObject {
                 }
             )
 
-            logger.error("Failed to send message", error: error)
+            AppLog.shared.error("Failed to send message", error: error, category: .ai)
 
             throw error
         }
@@ -518,11 +506,11 @@ class AIChatManager: ObservableObject {
     /// Retry a failed message
     func retryFailedMessage(_ message: ChatMessage, conversationId: UUID) async {
         guard message.canRetry else {
-            logger.warning("Cannot retry message: not a failed user message")
+            AppLog.shared.ai("Cannot retry message: not a failed user message", level: .warning)
             return
         }
 
-        logger.info("Retrying failed message: \(message.id)")
+        AppLog.shared.ai("Retrying failed message: \(message.id)")
 
         // Mark message as retrying
         if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
@@ -543,7 +531,7 @@ class AIChatManager: ObservableObject {
                 conversationId: conversationId
             )
         } onRetry: { attempt, error, delay in
-            self.logger.info("Retry attempt \(attempt) for message \(message.id), waiting \(delay)s")
+            AppLog.shared.ai("Retry attempt \(attempt), waiting \(delay)s")
         }
 
         switch result {
@@ -554,7 +542,7 @@ class AIChatManager: ObservableObject {
                 conversations[convIndex].messages[msgIndex].markSent()
                 currentConversation = conversations[convIndex]
             }
-            logger.info("Successfully retried message \(message.id)")
+            AppLog.shared.ai("Successfully retried message \(message.id)")
 
         case .failure(let error, let attempts):
             // Mark as failed again
@@ -563,13 +551,13 @@ class AIChatManager: ObservableObject {
                 conversations[convIndex].messages[msgIndex].markFailed(error: "Failed after \(attempts) attempts: \(error.localizedDescription)")
                 currentConversation = conversations[convIndex]
             }
-            logger.error("Failed to retry message after \(attempts) attempts", error: error)
+            AppLog.shared.error("Failed to retry message after \(attempts) attempts", error: error, category: .ai)
 
             // Show error to user
             errorHandler.handle(error, context: "Retry Message")
 
         case .cancelled:
-            logger.info("Message retry was cancelled")
+            AppLog.shared.ai("Message retry was cancelled")
         }
     }
     
@@ -622,7 +610,7 @@ class AIChatManager: ObservableObject {
             } catch is CancellationError {
                 // Expected
             } catch {
-                self.logger.debug("⚠️ Streaming throttle error: \(error)")
+                AppLog.shared.ai("Streaming throttle error: \(error)", level: .debug)
                 self.streamingUpdateTask = nil
             }
         }
@@ -675,13 +663,7 @@ class AIChatManager: ObservableObject {
         // First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
         let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
 
-        // Debug logging for instruction injection
-        print("🔍 AIChatManager.sendStreamingMessage: Provider=\(settingsManager.modelPreferences.aiProvider), Model='\(currentModel)', userMessageCount=\(userMessageCount), assistantMessageCount=\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection), contentLength=\(content.count)")
-        if content.count > 200 {
-            print("🔍 AIChatManager.sendStreamingMessage: Content preview: \(String(content.prefix(200)))...")
-        } else {
-            print("🔍 AIChatManager.sendStreamingMessage: Full content: \(content)")
-        }
+        AppLog.shared.ai("[Chat] sendStreamingMessage: provider=\(settingsManager.modelPreferences.aiProvider), model=\(currentModel), turn=\(userMessageCount)/\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection), contentLength=\(content.count)")
 
         // Create a placeholder message for streaming content
         let streamingMessageId = UUID()
@@ -866,16 +848,7 @@ class AIChatManager: ObservableObject {
                 openAIConversationHistory = []
             }
 
-            print("🔍 AIChatManager: selectedDoctor = \(selectedDoctor?.name ?? "nil")")
-            print("🔍 AIChatManager: shouldSendSystemPrompt = \(shouldSendSystemPrompt)")
-            if shouldSendSystemPrompt {
-                print("🔍 AIChatManager: Sending systemPrompt (\(selectedDoctor?.systemPrompt.count ?? 0) chars)")
-                if let preview = selectedDoctor?.systemPrompt.prefix(200) {
-                    print("🔍 AIChatManager: systemPrompt preview: \(preview)...")
-                }
-            } else {
-                print("⚠️ AIChatManager: NOT sending systemPrompt (shouldSendSystemPrompt=false)")
-            }
+            AppLog.shared.ai("OpenAI: doctor=\(selectedDoctor?.name ?? "nil"), shouldSendSystemPrompt=\(shouldSendSystemPrompt), systemPromptLength=\(selectedDoctor?.systemPrompt.count ?? 0)")
             try await openAIClient.sendStreamingChatMessage(
                 content,
                 context: context,
@@ -925,51 +898,35 @@ class AIChatManager: ObservableObject {
         case .onDeviceLLM:
             let mlxClient = settingsManager.getMLXOnDeviceClient()
 
-            // Get conversation history for multi-turn support
-            // Exclude the current user message and any empty placeholder messages
-            let conversationHistory: [ChatMessage]
+            // Build conversation history for re-hydration (used when ChatSession must be rebuilt).
+            // Exclude the current user message and empty streaming placeholders.
+            let mlxConversationHistory: [ChatMessage]
             if let conversation = conversations.first(where: { $0.id == conversationId }) {
-                // Get all messages except:
-                // 1. The last user message (the one we just sent)
-                // 2. Any empty messages (streaming placeholders)
                 let allMessages = conversation.messages
                 if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
                     var messagesWithoutCurrent = allMessages
                     messagesWithoutCurrent.remove(at: lastUserMessageIndex)
-                    // Filter out empty messages (streaming placeholders)
-                    conversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
+                    mlxConversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
                 } else {
-                    // Filter out empty messages even if no user message found
-                    conversationHistory = allMessages.filter { !$0.content.isEmpty }
+                    mlxConversationHistory = allMessages.filter { !$0.content.isEmpty }
                 }
             } else {
-                conversationHistory = []
+                mlxConversationHistory = []
             }
 
-            let onDeviceContextResult = ConversationContextBuilder.buildContext(
-                currentMessage: content,
-                healthContext: context,
-                conversationHistory: conversationHistory,
-                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
-                provider: .onDeviceLLM
-            )
-            ConversationContextBuilder.logContextSummary(onDeviceContextResult)
-            logger.info(
-                "[OnDeviceTurn] conversationId=\(conversationId.uuidString), estimatedTokens=\(onDeviceContextResult.estimatedTokens), trimmedHistory=\(onDeviceContextResult.trimmedMessageCount), contextBytes=\(context.utf8.count)"
-            )
+            AppLog.shared.ai("OnDeviceTurn: conversationId=\(conversationId.uuidString), historyMessages=\(mlxConversationHistory.count), healthContextBytes=\(context.utf8.count)")
 
-            // Use compact system prompt for on-device LLM (small models need concise instructions)
+            // MLX ChatSession handles multi-turn context via KV cache internally.
+            // System prompt + health context are set as session instructions (once per session).
+            // Only the raw user message is passed to streamResponse(to:).
             try await mlxClient.sendStreamingChatMessage(
                 content,
-                context: context,
-                conversationHistory: onDeviceContextResult.conversationHistory,
+                healthContext: context,
+                conversationHistory: mlxConversationHistory,
                 conversationId: conversationId,
-                model: nil,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
                 onUpdate: { [weak self] partialContent in
                     guard let self = self else { return }
-                    // Use debounced update for better performance with long messages
-                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
                         self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
@@ -979,7 +936,6 @@ class AIChatManager: ObservableObject {
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
 
-                        // Create final message with complete content and metadata
                         let finalMessage = ChatMessage(
                             id: streamingMessageId,
                             content: finalResponse.content,
@@ -989,14 +945,10 @@ class AIChatManager: ObservableObject {
                             processingTime: finalResponse.responseTime
                         )
 
-                        // Save final message to database
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
-
-                            // Use finalize to bypass debouncing for immediate final update
                             await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
 
-                            // Generate title after first exchange if still using default title
                             if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
                                 await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
                             }
@@ -1055,7 +1007,7 @@ class AIChatManager: ObservableObject {
             }
             let networkError = NetworkError.from(error: error)
             if networkError.isRetryable {
-                print("⚠️ AIChatManager: Network error, queueing message for retry")
+                AppLog.shared.ai("[Chat] Network error, queueing message for retry", level: .warning)
                 await pendingOperationsManager.queueChatMessage(
                     conversationId: conversationId,
                     message: content,
@@ -1078,8 +1030,7 @@ class AIChatManager: ObservableObject {
         _ types: Set<HealthDataType>,
         personalInfoCategories: Set<PersonalInfoCategory>
     ) {
-        print("🎯 Context Selection - Selected types: \(types)")
-        print("🎯 Context Selection - Selected personal info categories: \(personalInfoCategories)")
+        AppLog.shared.ai("[Context] Selection updated: \(types.count) data types, \(personalInfoCategories.count) personal info categories")
 
         selectedHealthDataTypes = types
         selectedPersonalInfoCategories = personalInfoCategories
@@ -1091,16 +1042,13 @@ class AIChatManager: ObservableObject {
         if var conversation = currentConversation {
             conversation.includedHealthDataTypes = types
             conversation.includedPersonalInfoCategories = personalInfoCategories
-            print("🎯 Context Selection - Updating conversation: \(conversation.title)")
             Task {
                 try await databaseManager.updateConversation(conversation)
                 if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
                     conversations[index] = conversation
                 }
-                print("🎯 Context Selection - Conversation updated in database")
+                AppLog.shared.ai("[Context] Conversation context preferences saved", level: .debug)
             }
-        } else {
-            print("🎯 Context Selection - No current conversation to update")
         }
     }
     
@@ -1136,21 +1084,9 @@ class AIChatManager: ObservableObject {
             let fetchedDocs = try await databaseManager.fetchDocumentsForAIContext(categories: categoriesToFilter)
             medicalDocuments = fetchedDocs.map { MedicalDocumentSummary(from: $0) }
             
-            print("🔍 Context Debug - Selected HealthDataTypes: \(selectedHealthDataTypes.map { $0.displayName })")
-            print("🔍 Context Debug - Mapped DocumentCategories: \(documentCategories.map { $0.displayName })")
-            print("🔍 Context Debug - Fetched \(fetchedDocs.count) medical documents")
-            
-            // Debug: Log details about each fetched document
-            for doc in fetchedDocs {
-                print("🔍 Context Debug - Document: \(doc.fileName)")
-                print("🔍 Context Debug -   Category: \(doc.documentCategory.displayName)")
-                print("🔍 Context Debug -   Include in context: \(doc.includeInAIContext)")
-                print("🔍 Context Debug -   Processing status: \(doc.processingStatus.rawValue)")
-                print("🔍 Context Debug -   Sections count: \(doc.extractedSections.count)")
-                print("🔍 Context Debug -   Extracted text length: \(doc.extractedText?.count ?? 0) chars")
-            }
+            AppLog.shared.ai("[Context] Fetched \(fetchedDocs.count) medical documents for \(selectedHealthDataTypes.count) data types, \(documentCategories.count) categories")
         } catch {
-            print("⚠️ Failed to fetch medical documents for AI context: \(error)")
+            AppLog.shared.ai("[Context] Failed to fetch medical documents: \(error.localizedDescription)", level: .warning)
             medicalDocuments = []
         }
 
@@ -1172,26 +1108,15 @@ class AIChatManager: ObservableObject {
         let contextString = currentContext.buildContextJSON()
         let estimatedTokens = currentContext.estimatedTokenCountJSON
 
-        print("🔍 Context Debug - JSON format")
-        print("🔍 Context Debug - Selected types: \(selectedHealthDataTypes.map { $0.displayName })")
-        print("🔍 Context Debug - Personal info exists: \(currentContext.personalInfo != nil)")
-        print("🔍 Context Debug - Blood tests count: \(currentContext.bloodTests.count)")
-        print("🔍 Context Debug - Medical documents count: \(currentContext.medicalDocuments.count)")
-        print("🔍 Context Debug - Context string length: \(contextString.count) characters")
-        print("🔍 Context Debug - Estimated tokens: \(estimatedTokens)")
-        print("🔍 Context Debug - Context size limit: \(contextSizeLimit) tokens")
-        print("🔍 Context Debug - Compression threshold: \(contextCompressionThreshold) tokens")
+        AppLog.shared.ai("[Context] Built context: \(contextString.count) chars, ~\(estimatedTokens) tokens, limit=\(contextSizeLimit), hasPersonalInfo=\(currentContext.personalInfo != nil), bloodTests=\(currentContext.bloodTests.count), documents=\(currentContext.medicalDocuments.count)")
 
         if contextString.isEmpty || contextString == "{}" {
-            print("⚠️ Context Debug - WARNING: Context string is empty or has no data!")
-            print("⚠️ Context Debug - This may indicate no data types were selected or no data is available")
-        } else {
-            print("🔍 Context Debug - JSON context preview: \(String(contextString.prefix(500)))")
+            AppLog.shared.ai("[Context] Context is empty — no data types selected or no data available", level: .warning)
         }
 
         // If context is too large, compress it
         if estimatedTokens > contextCompressionThreshold {
-            print("🔍 Context Debug - Compressing context (tokens: \(estimatedTokens) > threshold: \(contextCompressionThreshold))")
+            AppLog.shared.ai("[Context] Compressing context (~\(estimatedTokens) tokens > threshold \(contextCompressionThreshold))")
             return compressHealthDataContext(contextString)
         }
 

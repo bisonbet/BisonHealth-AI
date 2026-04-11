@@ -74,9 +74,9 @@ class MedicalDocumentDetailViewModel: ObservableObject {
     func deleteDocument() async {
         do {
             try await databaseManager.deleteMedicalDocument(document)
-            print("✅ Document deleted successfully")
+            AppLog.shared.documents("Document deleted successfully")
         } catch {
-            print("❌ Failed to delete document: \(error)")
+            AppLog.shared.documents("Failed to delete document: \(error)", level: .error)
         }
     }
 
@@ -85,9 +85,9 @@ class MedicalDocumentDetailViewModel: ObservableObject {
         Task {
             do {
                 try await databaseManager.updateMedicalDocument(document)
-                print("✅ Document updated successfully")
+                AppLog.shared.documents("Document updated successfully")
             } catch {
-                print("❌ Failed to update document: \(error)")
+                AppLog.shared.documents("Failed to update document: \(error)", level: .error)
             }
         }
     }

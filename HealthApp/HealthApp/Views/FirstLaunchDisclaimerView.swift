@@ -260,6 +260,6 @@ struct DetailedDisclaimerView: View {
 
 #Preview {
     FirstLaunchDisclaimerView {
-        print("Disclaimer accepted")
+        AppLog.shared.ui("Disclaimer accepted")
     }
 }

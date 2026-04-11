@@ -135,7 +135,7 @@ struct BloodTestImportReviewView: View {
         .background(Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
-            print("🔘 Don't import tapped for group: \(groupId)")
+            AppLog.shared.ui("🔘 Don't import tapped for group: \(groupId)")
             // Update state dictionary
             selectedIds[groupId] = nil
             // Update binding
@@ -228,7 +228,7 @@ struct BloodTestImportReviewView: View {
         .contentShape(Rectangle())
         .clipped()
         .onTapGesture {
-            print("🔵 Candidate tapped: \(candidate.displayValue)")
+            AppLog.shared.ui("Candidate tapped: \(candidate.displayValue)")
             // Only allow selection of valid candidates
             if candidate.validationStatus == .valid {
                 // Update both the state and the binding

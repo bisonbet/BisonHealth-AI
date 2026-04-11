@@ -160,7 +160,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
         }
 
         do {
-            let clientConfig = try await BedrockRuntimeClient.BedrockRuntimeClientConfiguration(
+            let clientConfig = try await BedrockRuntimeClient.BedrockRuntimeClientConfig(
                 region: config.region
             )
 
@@ -381,7 +381,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 modelId: modelToUse.rawValue
             )
 
-            print("📡 BedrockClient: Starting streaming request for model \(modelToUse.displayName)")
+            AppLog.shared.ai("Starting streaming request for model \(modelToUse.displayName)")
 
             let response = try await client.invokeModelWithResponseStream(input: invokeRequest)
 
@@ -406,7 +406,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                     }
 
                 case .sdkUnknown(let unknown):
-                    print("⚠️ BedrockClient: Unknown stream event: \(unknown)")
+                    AppLog.shared.ai("Unknown stream event: \(unknown)", level: .warning)
                 }
             }
 
@@ -415,7 +415,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             // Clean the final response
             let cleanedContent = AIResponseCleaner.cleanConversational(accumulatedContent)
 
-            print("✅ BedrockClient: Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", responseTime))s")
+            AppLog.shared.ai("Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", responseTime))s")
 
             let finalResponse = BedrockAIResponse(
                 content: cleanedContent,

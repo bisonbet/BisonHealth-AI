@@ -656,14 +656,11 @@ extension ChatContext {
                 medicalDocContext += "File: \(medicalDoc.fileName)\n"
                 
                 // Debug logging
-                print("🔍 Context Build - Processing medical doc: \(medicalDoc.fileName)")
-                print("🔍 Context Build -   Sections count: \(medicalDoc.sections.count)")
-                print("🔍 Context Build -   Extracted text length: \(medicalDoc.extractedText?.count ?? 0)")
-                print("🔍 Context Build -   Extracted text is nil: \(medicalDoc.extractedText == nil)")
+                AppLog.shared.ai("Context Build - Processing medical doc: \(medicalDoc.fileName), sections: \(medicalDoc.sections.count), extractedText: \(medicalDoc.extractedText?.count ?? 0) chars", level: .debug)
 
                 // Only include extracted sections (NOT full text to save tokens)
                 if !medicalDoc.sections.isEmpty {
-                    print("🔍 Context Build -   Using sections for context")
+                    AppLog.shared.ai("Context Build - Using sections for context", level: .debug)
                     for section in medicalDoc.sections {
                         medicalDocContext += "\n\(section.sectionType):\n"
                         // Limit section content to prevent token overflow (max 500 chars per section)
@@ -683,7 +680,7 @@ extension ChatContext {
                     }
                 } else if let extractedText = medicalDoc.extractedText, !extractedText.isEmpty {
                     // Fall back to extractedText if no sections available
-                    print("🔍 Context Build -   Using extractedText fallback for context")
+                    AppLog.shared.ai("Context Build - Using extractedText fallback for context", level: .debug)
                     medicalDocContext += "\nDocument Content:\n"
                     // Truncate to ~4000 chars to avoid overwhelming the context
                     let maxLength = 4000
@@ -698,7 +695,7 @@ extension ChatContext {
                         medicalDocContext += extractedText + "\n"
                     }
                 } else {
-                    print("⚠️ Context Build -   No sections or extractedText available for document")
+                    AppLog.shared.ai("Context Build - No sections or extractedText available for document", level: .warning)
                     medicalDocContext += "\n(No content available - please ensure document has been processed)\n"
                 }
             }
@@ -726,12 +723,12 @@ extension ChatContext {
                 options: [.prettyPrinted, .sortedKeys]
             )
             guard let jsonString = String(data: data, encoding: .utf8) else {
-                print("⚠️ Failed to convert JSON data to string, falling back to plain text")
+                AppLog.shared.ai("Failed to convert JSON data to string, falling back to plain text", level: .warning)
                 return buildContextString()
             }
             return jsonString
         } catch {
-            print("⚠️ JSON serialization error: \(error), falling back to plain text")
+            AppLog.shared.ai("JSON serialization error: \(error), falling back to plain text", level: .warning)
             return buildContextString()
         }
     }

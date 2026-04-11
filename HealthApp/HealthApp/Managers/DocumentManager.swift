@@ -126,7 +126,7 @@ class DocumentManager: ObservableObject {
             documents = try await databaseManager.fetchDocuments()
         } catch {
             lastError = error
-            print("Failed to load documents: \(error)")
+            AppLog.shared.documents("Failed to load documents: \(error)", level: .error)
         }
     }
     
@@ -257,7 +257,7 @@ class DocumentManager: ObservableObject {
     func processDocument(_ document: MedicalDocument, immediately: Bool = false) async {
         // Check network connectivity before processing
         guard networkManager.isConnected else {
-            print("⚠️ DocumentManager: Network unavailable, queueing document for processing")
+            AppLog.shared.documents("Network unavailable, queueing document for processing", level: .warning)
             await pendingOperationsManager.queueDocumentProcessing(
                 documentId: document.id,
                 immediately: immediately
@@ -275,7 +275,7 @@ class DocumentManager: ObservableObject {
                 // Queue for retry if network error
                 let networkError = NetworkError.from(error: error)
                 if networkError.isRetryable {
-                    print("⚠️ DocumentManager: Network error, queueing document for retry")
+                    AppLog.shared.documents("Network error, queueing document for retry", level: .warning)
                     await pendingOperationsManager.queueDocumentProcessing(
                         documentId: document.id,
                         immediately: immediately
