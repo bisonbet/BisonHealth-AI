@@ -492,60 +492,47 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Storage Usage
     func getStorageUsage() async throws -> FileSystemStorageUsage {
-        let fileManager = FileManager.default
-        var totalSize: Int64 = 0
-        var documentSize: Int64 = 0
-        var thumbnailSize: Int64 = 0
-        var exportSize: Int64 = 0
-        var logSize: Int64 = 0
-        
-        // Calculate documents size
-        let documentContents = try fileManager.contentsOfDirectory(at: documentsDirectory, 
-                                                                   includingPropertiesForKeys: [.fileSizeKey])
-        for documentURL in documentContents {
-            let resourceValues = try documentURL.resourceValues(forKeys: [.fileSizeKey])
-            let size = Int64(resourceValues.fileSize ?? 0)
-            documentSize += size
-            totalSize += size
+        let docsDir = documentsDirectory
+        let thumbsDir = thumbnailsDirectory
+        let exportsDir = exportsDirectory
+        let logsDir = logsDirectory
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let fileManager = FileManager.default
+                    var totalSize: Int64 = 0
+                    var documentSize: Int64 = 0
+                    var thumbnailSize: Int64 = 0
+                    var exportSize: Int64 = 0
+                    var logSize: Int64 = 0
+
+                    func dirSize(_ url: URL) throws -> Int64 {
+                        var size: Int64 = 0
+                        let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey])
+                        for fileURL in contents {
+                            size += Int64(try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+                        }
+                        return size
+                    }
+
+                    documentSize = try dirSize(docsDir)
+                    thumbnailSize = try dirSize(thumbsDir)
+                    exportSize = try dirSize(exportsDir)
+                    logSize = try dirSize(logsDir)
+                    totalSize = documentSize + thumbnailSize + exportSize + logSize
+
+                    continuation.resume(returning: FileSystemStorageUsage(
+                        totalSize: totalSize,
+                        documentsSize: documentSize,
+                        thumbnailsSize: thumbnailSize,
+                        exportsSize: exportSize,
+                        logsSize: logSize
+                    ))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-        
-        // Calculate thumbnails size
-        let thumbnailContents = try fileManager.contentsOfDirectory(at: thumbnailsDirectory, 
-                                                                    includingPropertiesForKeys: [.fileSizeKey])
-        for thumbnailURL in thumbnailContents {
-            let resourceValues = try thumbnailURL.resourceValues(forKeys: [.fileSizeKey])
-            let size = Int64(resourceValues.fileSize ?? 0)
-            thumbnailSize += size
-            totalSize += size
-        }
-        
-        // Calculate exports size
-        let exportContents = try fileManager.contentsOfDirectory(at: exportsDirectory, 
-                                                                 includingPropertiesForKeys: [.fileSizeKey])
-        for exportURL in exportContents {
-            let resourceValues = try exportURL.resourceValues(forKeys: [.fileSizeKey])
-            let size = Int64(resourceValues.fileSize ?? 0)
-            exportSize += size
-            totalSize += size
-        }
-        
-        // Calculate logs size
-        let logContents = try fileManager.contentsOfDirectory(at: logsDirectory, 
-                                                              includingPropertiesForKeys: [.fileSizeKey])
-        for logURL in logContents {
-            let resourceValues = try logURL.resourceValues(forKeys: [.fileSizeKey])
-            let size = Int64(resourceValues.fileSize ?? 0)
-            logSize += size
-            totalSize += size
-        }
-        
-        return FileSystemStorageUsage(
-            totalSize: totalSize,
-            documentsSize: documentSize,
-            thumbnailsSize: thumbnailSize,
-            exportsSize: exportSize,
-            logsSize: logSize
-        )
     }
     
     // MARK: - Encryption/Decryption

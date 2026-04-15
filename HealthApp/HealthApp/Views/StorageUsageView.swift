@@ -19,9 +19,18 @@ struct StorageUsageView: View {
                 }
             } else if let lastErrorMessage {
                 Section {
-                    Text(lastErrorMessage)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(lastErrorMessage)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel(lastErrorMessage)
+                        Button("Retry") {
+                            Task { await loadStorageInfo() }
+                        }
+                        .accessibilityLabel("Retry loading storage information")
+                        .accessibilityHint("Attempts to reload storage usage data")
+                        .accessibilityIdentifier("retryStorageLoadButton")
+                    }
                 }
             } else {
                 Section("Storage Overview") {
