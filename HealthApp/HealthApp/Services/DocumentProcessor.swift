@@ -594,16 +594,22 @@ class DocumentProcessor: ObservableObject {
         let healthDataItems = result.healthDataItems
         AppLog.shared.documents("Found \(healthDataItems.count) structured health data items")
 
+        // Filter to lab-relevant items only to avoid importing non-lab data (vitals, demographics, etc.)
+        // as blood test results if the AI mapping fails during fallback
+        let nonLabTypes: Set<String> = ["Personal Information", "Demographics", "Vital Signs", "Imaging", "Radiology"]
+        let labOnlyItems = healthDataItems.filter { !nonLabTypes.contains($0.type) }
+        AppLog.shared.documents("Filtered to \(labOnlyItems.count) lab-specific items for blood test extraction")
+
         // Only extract blood tests for lab reports (or uncategorized documents for backward compatibility)
         let isLabReport = document.documentCategory == .labReport || document.documentCategory == .other
-        
+
         // Primary approach: Use full document text for AI-powered blood test extraction (only for lab reports)
         if isLabReport && !result.extractedText.isEmpty {
             AppLog.shared.documents("Attempting blood test extraction from full document text (lab report)")
             do {
                 let bloodTest = try await createBloodTestResultFromText(
                     documentText: result.extractedText,
-                    extractedItems: healthDataItems, // Use structured items as fallback if mapping fails
+                    extractedItems: labOnlyItems, // Lab-only items as safe fallback if AI text mapping fails
                     document: document
                 )
                 extractedData.append(try AnyHealthData(bloodTest))
