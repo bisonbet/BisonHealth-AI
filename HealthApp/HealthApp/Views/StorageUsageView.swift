@@ -1,9 +1,13 @@
 import SwiftUI
+import SQLite
 
 struct StorageUsageView: View {
     @State private var storageInfo = StorageInfo()
     @State private var isLoading = true
-    
+
+    private let databaseManager = DatabaseManager.shared
+    private let fileSystemManager = FileSystemManager.shared
+
     var body: some View {
         List {
             if isLoading {
@@ -25,39 +29,39 @@ struct StorageUsageView: View {
                         isTotal: true
                     )
                 }
-                
+
                 Section("Breakdown") {
                     StorageRowView(
                         title: "Health Data",
                         size: storageInfo.healthDataSize,
                         color: .red
                     )
-                    
+
                     StorageRowView(
                         title: "Documents",
                         size: storageInfo.documentsSize,
                         color: .green
                     )
-                    
+
                     StorageRowView(
                         title: "Thumbnails",
                         size: storageInfo.thumbnailsSize,
                         color: .orange
                     )
-                    
+
                     StorageRowView(
                         title: "Chat History",
                         size: storageInfo.chatHistorySize,
                         color: .purple
                     )
-                    
+
                     StorageRowView(
                         title: "App Cache",
                         size: storageInfo.cacheSize,
                         color: .gray
                     )
                 }
-                
+
                 Section("Statistics") {
                     HStack {
                         Text("Documents")
@@ -65,14 +69,14 @@ struct StorageUsageView: View {
                         Text("\(storageInfo.documentCount)")
                             .foregroundColor(.secondary)
                     }
-                    
+
                     HStack {
                         Text("Conversations")
                         Spacer()
                         Text("\(storageInfo.conversationCount)")
                             .foregroundColor(.secondary)
                     }
-                    
+
                     HStack {
                         Text("Average Document Size")
                         Spacer()
@@ -80,13 +84,13 @@ struct StorageUsageView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                
+
                 Section("Storage Management") {
                     Button("Clear Cache") {
                         clearCache()
                     }
                     .foregroundColor(.orange)
-                    
+
                     Button("Optimize Storage") {
                         optimizeStorage()
                     }
@@ -103,41 +107,98 @@ struct StorageUsageView: View {
             await loadStorageInfo()
         }
     }
-    
+
     private func loadStorageInfo() async {
         isLoading = true
-        
-        // Simulate loading storage information
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-        
-        // Mock storage data
-        storageInfo = StorageInfo(
-            healthDataSize: 1_024_000,      // 1 MB
-            documentsSize: 15_728_640,      // 15 MB
-            thumbnailsSize: 2_097_152,      // 2 MB
-            chatHistorySize: 512_000,       // 512 KB
-            cacheSize: 1_048_576,           // 1 MB
-            documentCount: 25,
-            conversationCount: 8
-        )
-        
-        isLoading = false
+        defer { isLoading = false }
+
+        do {
+            let fileStorage = try await fileSystemManager.getStorageUsage()
+            let databaseStorage = try await getDatabaseStorageSnapshot()
+
+            storageInfo = StorageInfo(
+                healthDataSize: databaseStorage.healthDataSize,
+                documentsSize: fileStorage.documentsSize,
+                thumbnailsSize: fileStorage.thumbnailsSize,
+                chatHistorySize: databaseStorage.chatHistorySize,
+                cacheSize: fileStorage.exportsSize + fileStorage.logsSize,
+                documentCount: databaseStorage.documentCount,
+                conversationCount: databaseStorage.conversationCount
+            )
+        } catch {
+            AppLog.shared.error("Failed to load storage info", error: error, category: .ui)
+            storageInfo = StorageInfo()
+        }
     }
-    
+
     private func clearCache() {
-        // Implement cache clearing
         Task {
-            storageInfo.cacheSize = 0
+            do {
+                try await fileSystemManager.clearCache()
+                await loadStorageInfo()
+            } catch {
+                AppLog.shared.error("Failed to clear cache", error: error, category: .fileManagement)
+            }
         }
     }
-    
+
     private func optimizeStorage() {
-        // Implement storage optimization
         Task {
-            // Simulate optimization
-            storageInfo.thumbnailsSize = Int64(Double(storageInfo.thumbnailsSize) * 0.8)
+            do {
+                try fileSystemManager.cleanupOldThumbnails(olderThan: 14)
+                try await fileSystemManager.clearCache()
+                await loadStorageInfo()
+            } catch {
+                AppLog.shared.error("Failed to optimize storage", error: error, category: .fileManagement)
+            }
         }
     }
+
+    private func getDatabaseStorageSnapshot() async throws -> DatabaseStorageSnapshot {
+        guard let db = databaseManager.db else {
+            throw DatabaseError.connectionFailed
+        }
+
+        let healthDataSize = try sizeForQuery(
+            "SELECT COALESCE(SUM(LENGTH(encrypted_data) + COALESCE(LENGTH(metadata), 0)), 0) FROM health_data",
+            db: db
+        )
+        let chatHistorySize = try sizeForQuery(
+            "SELECT COALESCE(SUM(LENGTH(content) + COALESCE(LENGTH(metadata), 0)), 0) FROM chat_messages",
+            db: db
+        )
+
+        let documentCount = try db.scalar(databaseManager.documentsTable.count)
+        let conversationCount = try db.scalar(databaseManager.chatConversationsTable.count)
+
+        return DatabaseStorageSnapshot(
+            healthDataSize: healthDataSize,
+            chatHistorySize: chatHistorySize,
+            documentCount: documentCount,
+            conversationCount: conversationCount
+        )
+    }
+
+    private func sizeForQuery(_ query: String, db: Connection) throws -> Int64 {
+        for row in try db.prepare(query) {
+            if let int64Value = row[0] as? Int64 {
+                return int64Value
+            }
+
+            if let intValue = row[0] as? Int {
+                return Int64(intValue)
+            }
+        }
+
+        return 0
+    }
+}
+
+private struct DatabaseStorageSnapshot {
+    let healthDataSize: Int64
+    let chatHistorySize: Int64
+    let documentCount: Int
+    let conversationCount: Int
 }
 
 struct StorageRowView: View {
@@ -145,20 +206,20 @@ struct StorageRowView: View {
     let size: Int64
     let color: Color
     var isTotal: Bool = false
-    
+
     var body: some View {
         HStack {
             HStack(spacing: 8) {
                 Circle()
                     .fill(color)
                     .frame(width: 12, height: 12)
-                
+
                 Text(title)
                     .fontWeight(isTotal ? .semibold : .regular)
             }
-            
+
             Spacer()
-            
+
             Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
                 .foregroundColor(isTotal ? .primary : .secondary)
                 .fontWeight(isTotal ? .semibold : .regular)
@@ -174,11 +235,11 @@ struct StorageInfo {
     var cacheSize: Int64 = 0
     var documentCount: Int = 0
     var conversationCount: Int = 0
-    
+
     var totalSize: Int64 {
         healthDataSize + documentsSize + thumbnailsSize + chatHistorySize + cacheSize
     }
-    
+
     var averageDocumentSize: Int64 {
         guard documentCount > 0 else { return 0 }
         return documentsSize / Int64(documentCount)
