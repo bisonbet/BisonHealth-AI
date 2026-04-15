@@ -639,16 +639,30 @@ class DatabaseManager: ObservableObject {
     // MARK: - Storage Estimates
     func getHealthDataPayloadSizeEstimate() async throws -> Int64 {
         guard let db = db else { throw DatabaseError.connectionFailed }
-
-        let result = try db.scalar("SELECT COALESCE(SUM(LENGTH(encrypted_data)), 0) FROM health_data")
-        return result as? Int64 ?? 0
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let result = try db.scalar("SELECT COALESCE(SUM(LENGTH(encrypted_data)), 0) FROM health_data")
+                    continuation.resume(returning: result as? Int64 ?? 0)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     func getChatPayloadSizeEstimate() async throws -> Int64 {
         guard let db = db else { throw DatabaseError.connectionFailed }
-
-        let result = try db.scalar("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chat_messages")
-        return result as? Int64 ?? 0
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let result = try db.scalar("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chat_messages")
+                    continuation.resume(returning: result as? Int64 ?? 0)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 }
 
