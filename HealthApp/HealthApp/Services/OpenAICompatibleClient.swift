@@ -54,7 +54,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         config.timeoutIntervalForRequest = timeout
         self.session = URLSession(configuration: config)
 
-        AppLog.shared.ai("OpenAI-compatible client initialized with base URL: \(baseURL)")
+        AppLog.shared.ai("OpenAI-compatible client initialized")
     }
 
     // MARK: - Connection Management
@@ -89,10 +89,9 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         // Add API key if provided
         if let apiKey = apiKey, !apiKey.isEmpty {
-            AppLog.shared.ai("Setting Authorization header with API key (length: \(apiKey.count))", level: .debug)
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         } else {
-            AppLog.shared.ai("No API key provided - request will be sent without Authorization header", level: .warning)
+            AppLog.shared.ai("No API key provided - request will be sent without Authorization header", level: .debug)
         }
 
         // Build messages array
@@ -131,22 +130,9 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         AppLog.shared.ai("Sending request to \(messagesURL)")
         AppLog.shared.ai("Model: \(currentModel ?? defaultModel ?? "(none)")", level: .debug)
 
-        // Sanitize headers to hide API key
-        if let headers = request.allHTTPHeaderFields {
-            var sanitizedHeaders = headers
-            if sanitizedHeaders["Authorization"] != nil {
-                sanitizedHeaders["Authorization"] = "Bearer [REDACTED]"
-            }
-            AppLog.shared.ai("Headers: \(sanitizedHeaders)", level: .debug)
-        }
-
-        // Truncate body to first 200 characters
-        if let bodyData = request.httpBody,
-           let bodyString = String(data: bodyData, encoding: .utf8) {
-            let truncatedBody = bodyString.count > 200
-                ? String(bodyString.prefix(200)) + "... (\(bodyString.count - 200) more chars)"
-                : bodyString
-            AppLog.shared.ai("Body: \(truncatedBody)", level: .debug)
+        // Log request metadata only (no body content — it contains health data)
+        if let bodyData = request.httpBody {
+            AppLog.shared.ai("Request body size: \(bodyData.count) bytes", level: .debug)
         }
 
         let startTime = Date()
@@ -160,7 +146,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
             guard (200...299).contains(httpResponse.statusCode) else {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-                AppLog.shared.ai("Request failed (\(httpResponse.statusCode)): \(errorMessage)", level: .error)
+                AppLog.shared.ai("Request failed with status \(httpResponse.statusCode)", level: .error)
                 throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
             }
 
@@ -201,9 +187,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 )
             }
 
-            if let raw = String(data: data, encoding: .utf8) {
-                AppLog.shared.ai("Unable to parse chat response: \(raw)", level: .error)
-            }
+            AppLog.shared.ai("Unable to parse chat response (\(data.count) bytes)", level: .error)
             throw OpenAICompatibleError.emptyResponse
 
         } catch {
@@ -324,7 +308,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 errorData.append(byte)
             }
             let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            AppLog.shared.ai("Streaming request failed (\(httpResponse.statusCode)): \(errorMessage)", level: .error)
+            AppLog.shared.ai("Streaming request failed with status \(httpResponse.statusCode)", level: .error)
             throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
         }
 
@@ -374,7 +358,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                             }
                         } catch {
                             // Log but continue - some chunks might not parse
-                            AppLog.shared.ai("Failed to parse chunk: \(dataContent)", level: .warning)
+                            AppLog.shared.ai("Failed to parse streaming chunk (\(dataContent.count) bytes)", level: .warning)
                         }
                     }
                 }
@@ -576,9 +560,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 return flexibleModels
             }
 
-            if let raw = String(data: data, encoding: .utf8) {
-                AppLog.shared.ai("Unable to parse models response: \(raw)", level: .error)
-            }
+            AppLog.shared.ai("Unable to parse models response (\(data.count) bytes)", level: .error)
             throw OpenAICompatibleError.invalidResponse
 
         } catch {

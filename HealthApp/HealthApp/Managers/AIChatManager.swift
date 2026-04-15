@@ -848,7 +848,7 @@ class AIChatManager: ObservableObject {
                 openAIConversationHistory = []
             }
 
-            AppLog.shared.ai("OpenAI: doctor=\(selectedDoctor?.name ?? "nil"), shouldSendSystemPrompt=\(shouldSendSystemPrompt), systemPromptLength=\(selectedDoctor?.systemPrompt.count ?? 0)")
+            AppLog.shared.ai("OpenAI: hasDoctor=\(selectedDoctor != nil), shouldSendSystemPrompt=\(shouldSendSystemPrompt), systemPromptLength=\(selectedDoctor?.systemPrompt.count ?? 0)")
             try await openAIClient.sendStreamingChatMessage(
                 content,
                 context: context,

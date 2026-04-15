@@ -111,7 +111,7 @@ class HealthDataManager: ObservableObject {
                     
                     if scanResult.corruptedRecords.count > 0 {
                         AppLog.shared.healthData("Found \(scanResult.corruptedRecords.count) corrupted record(s) that cannot be decrypted. This may indicate the encryption key has changed or data is corrupted.", level: .error)
-                        AppLog.shared.healthData("Corrupted record IDs: \(scanResult.corruptedRecords.map { $0.recordId }.joined(separator: ", "))", level: .error)
+                        AppLog.shared.healthData("Corrupted record count: \(scanResult.corruptedRecords.count)", level: .error)
                         
                         // If we have empty records, those are definitely lost
                         if scanResult.emptyRecords.count > 0 {
@@ -176,9 +176,7 @@ class HealthDataManager: ObservableObject {
         
         // Check for potential duplicates before saving
         if let duplicate = await findDuplicateBloodTest(newResult) {
-            AppLog.shared.healthData("Potential duplicate blood test found:", level: .warning)
-            AppLog.shared.healthData("   Existing: \(duplicate.testDate.formatted()) - \(duplicate.results.count) results")
-            AppLog.shared.healthData("   New: \(newResult.testDate.formatted()) - \(newResult.results.count) results")
+            AppLog.shared.healthData("Potential duplicate blood test found: existing has \(duplicate.results.count) results, new has \(newResult.results.count) results", level: .warning)
             
             // If it's from the same document, it's definitely a duplicate
             if let newDocId = newResult.metadata?["source_document_id"],

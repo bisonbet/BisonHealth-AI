@@ -406,7 +406,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                     }
 
                 case .sdkUnknown(let unknown):
-                    AppLog.shared.ai("Unknown stream event: \(unknown)", level: .warning)
+                    AppLog.shared.ai("Unknown stream event type received", level: .warning)
                 }
             }
 

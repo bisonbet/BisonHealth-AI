@@ -422,8 +422,8 @@ class SettingsManager: ObservableObject {
             let finalMaxTokens = maxTokens == 0 ? 2048 : maxTokens
 
             AppLog.shared.settings("Creating new OpenAICompatibleClient:")
-            AppLog.shared.settings("   baseURL: '\(openAICompatibleBaseURL)'")
-            AppLog.shared.settings("   apiKey: '\(openAICompatibleAPIKey.isEmpty ? "(empty)" : "(has \(openAICompatibleAPIKey.count) chars)")'")
+            AppLog.shared.settings("   baseURL: [configured]")
+            AppLog.shared.settings("   apiKey: \(openAICompatibleAPIKey.isEmpty ? "(empty)" : "(configured)")")
             AppLog.shared.settings("   model: '\(modelPreferences.openAICompatibleModel)'")
             AppLog.shared.settings("   temperature: \(finalTemperature)")
             AppLog.shared.settings("   maxTokens: \(finalMaxTokens)")

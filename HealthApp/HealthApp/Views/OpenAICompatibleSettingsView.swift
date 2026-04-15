@@ -37,7 +37,7 @@ struct OpenAICompatibleSettingsView: View {
                         .disableAutocorrection(true)
                         .keyboardType(.URL)
                         .onChange(of: baseURL) { _, newValue in
-                            AppLog.shared.ui("Auto-saving baseURL: '\(newValue)'")
+                            AppLog.shared.ui("Auto-saving baseURL")
                             settingsManager.openAICompatibleBaseURL = newValue
                             settingsManager.invalidateOpenAICompatibleClient()
                             settingsManager.saveSettings()
@@ -58,7 +58,7 @@ struct OpenAICompatibleSettingsView: View {
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                         .onChange(of: apiKey) { _, newValue in
-                            AppLog.shared.ui("Auto-saving apiKey: '\(newValue.isEmpty ? "(empty)" : "(has \(newValue.count) chars)")'")
+                            AppLog.shared.ui("Auto-saving apiKey")
                             settingsManager.openAICompatibleAPIKey = newValue
                             settingsManager.invalidateOpenAICompatibleClient()
                             settingsManager.saveSettings()

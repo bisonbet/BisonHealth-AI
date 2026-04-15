@@ -46,7 +46,7 @@ class BloodTestMappingService: ObservableObject {
             AppLog.shared.healthData("Phase 1 - Extracting basic document information...")
             let basicInfo = try await extractBasicInformation(from: documentText)
             processingProgress = 0.2
-            AppLog.shared.healthData("Basic info extracted - Date: \(basicInfo.testDate?.formatted() ?? "unknown"), Lab: \(basicInfo.laboratoryName ?? "unknown")")
+            AppLog.shared.healthData("Basic info extracted - hasDate: \(basicInfo.testDate != nil), hasLab: \(basicInfo.laboratoryName != nil)")
 
             // Phase 2: Extract all lab values using AI (60% progress)
             AppLog.shared.healthData("Phase 2 - Extracting lab values using AI...")
@@ -345,7 +345,7 @@ class BloodTestMappingService: ObservableObject {
                 seen.insert(key)
                 deduplicated.append(value)
             } else {
-                AppLog.shared.healthData("Skipping duplicate: '\(value.testName)' = \(value.value)", level: .debug)
+                AppLog.shared.healthData("Skipping duplicate lab value", level: .debug)
             }
         }
         
@@ -498,7 +498,7 @@ class BloodTestMappingService: ObservableObject {
                 mappedValues.append(mappedValue)
             } else {
                 // Log unmapped values for debugging
-                AppLog.shared.healthData("Could not map '\(extractedValue.testName)' (type: \(extractedValue.testType)) to standardized parameter", level: .warning)
+                AppLog.shared.healthData("Could not map extracted value (type: \(extractedValue.testType)) to standardized parameter", level: .warning)
             }
         }
 

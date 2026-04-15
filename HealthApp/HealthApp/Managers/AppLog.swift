@@ -105,7 +105,7 @@ class AppLog {
             return
         }
 
-        let logsDirectory = documentsDirectory.appendingPathComponent("Logs", isDirectory: true)
+        var logsDirectory = documentsDirectory.appendingPathComponent("Logs", isDirectory: true)
 
         if !fileManager.fileExists(atPath: logsDirectory.path) {
             do {
@@ -114,6 +114,11 @@ class AppLog {
                 return
             }
         }
+
+        // Exclude logs directory from iCloud/iTunes backup to protect privacy
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try? logsDirectory.setResourceValues(resourceValues)
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
@@ -124,11 +129,16 @@ class AppLog {
     }
 
     private func setupErrorBuffer() {
-        guard let url = errorBufferURL else { return }
+        guard var url = errorBufferURL else { return }
         let dir = url.deletingLastPathComponent()
         if !fileManager.fileExists(atPath: dir.path) {
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+
+        // Exclude error buffer from iCloud/iTunes backup to protect privacy
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try? url.setResourceValues(resourceValues)
     }
 
     // MARK: - Crash Detection
@@ -228,6 +238,11 @@ class AppLog {
 
     // MARK: - Core Logging
 
+    /// Categories that may contain sensitive health/personal data — logged as private in OSLog
+    private static let sensitiveCategories: Set<LogCategory> = [
+        .healthData, .ai, .documents, .database
+    ]
+
     func log(_ message: String, level: LogLevel = .info, category: LogCategory = .general, file: String = #file, function: String = #function, line: Int = #line) {
         guard level >= minimumLogLevel else { return }
 
@@ -236,13 +251,24 @@ class AppLog {
         let formattedMessage = "[\(timestamp)] [\(fileName):\(line)] \(message)"
 
         // Log to os.Logger (appears in Xcode console and Console.app)
+        // Sensitive categories use .private so data is redacted in Console.app on non-debug devices
         if let logger = loggers[category] {
-            switch level {
-            case .debug:    logger.debug("\(formattedMessage, privacy: .public)")
-            case .info:     logger.info("\(formattedMessage, privacy: .public)")
-            case .warning:  logger.notice("\(formattedMessage, privacy: .public)")
-            case .error:    logger.error("\(formattedMessage, privacy: .public)")
-            case .critical: logger.fault("\(formattedMessage, privacy: .public)")
+            if AppLog.sensitiveCategories.contains(category) {
+                switch level {
+                case .debug:    logger.debug("\(formattedMessage, privacy: .private)")
+                case .info:     logger.info("\(formattedMessage, privacy: .private)")
+                case .warning:  logger.notice("\(formattedMessage, privacy: .private)")
+                case .error:    logger.error("\(formattedMessage, privacy: .private)")
+                case .critical: logger.fault("\(formattedMessage, privacy: .private)")
+                }
+            } else {
+                switch level {
+                case .debug:    logger.debug("\(formattedMessage, privacy: .public)")
+                case .info:     logger.info("\(formattedMessage, privacy: .public)")
+                case .warning:  logger.notice("\(formattedMessage, privacy: .public)")
+                case .error:    logger.error("\(formattedMessage, privacy: .public)")
+                case .critical: logger.fault("\(formattedMessage, privacy: .public)")
+                }
             }
         }
 

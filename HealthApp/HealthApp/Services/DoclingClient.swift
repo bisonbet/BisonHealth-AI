@@ -163,7 +163,7 @@ class DoclingClient: ObservableObject {
                 if (200...299).contains(httpResponse.statusCode) {
                     AppLog.shared.documents("Success response received")
                 } else {
-                    AppLog.shared.documents("Error response (\(httpResponse.statusCode)): \(responseString)", level: .error)
+                    AppLog.shared.documents("Error response with status \(httpResponse.statusCode) (\(responseString.count) chars)", level: .error)
                 }
             }
             
@@ -272,17 +272,13 @@ class DoclingClient: ObservableObject {
         AppLog.shared.documents("Result response status: \(httpResponse.statusCode), size: \(data.count) bytes")
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            AppLog.shared.documents("Result endpoint failed with status \(httpResponse.statusCode)", level: .error)
-            let errorPreview = String(data: data.prefix(200), encoding: .utf8) ?? "Invalid UTF-8"
-            AppLog.shared.documents("Error response: \(errorPreview)", level: .debug)
+            AppLog.shared.documents("Result endpoint failed with status \(httpResponse.statusCode) (\(data.count) bytes)", level: .error)
             throw DoclingError.requestFailed(httpResponse.statusCode)
         }
 
         // Parse the result response from Docling v1 API
         do {
-            // Show a preview of the response for debugging (first 300 chars)
-            let responsePreview = String(data: data.prefix(300), encoding: .utf8) ?? "Invalid UTF-8"
-            AppLog.shared.documents("Result preview: \(responsePreview)...", level: .debug)
+            AppLog.shared.documents("Parsing result response (\(data.count) bytes)", level: .debug)
 
             // Try to parse as Docling v1 result format: {"document": {...}}
             let resultResponse = try JSONDecoder().decode(DoclingV1ResultResponse.self, from: data)

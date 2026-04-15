@@ -171,13 +171,13 @@ struct BloodTestValueValidator {
             case .valid:
                 validValues.append(value)
             case .invalidType(let reason):
-                AppLog.shared.healthData("BloodTestValueValidator: Filtering invalid value '\(value.testName)' = '\(value.value)': \(reason)", level: .warning)
+                AppLog.shared.healthData("BloodTestValueValidator: Filtering invalid value: \(reason)", level: .warning)
                 invalidCount += 1
             case .outOfRange(let reason, let stdDevs):
-                AppLog.shared.healthData("BloodTestValueValidator: Filtering out-of-range value '\(value.testName)' = '\(value.value)': \(reason) (\(String(format: "%.1f", stdDevs)) SD)", level: .warning)
+                AppLog.shared.healthData("BloodTestValueValidator: Filtering out-of-range value: \(reason) (\(String(format: "%.1f", stdDevs)) SD)", level: .warning)
                 invalidCount += 1
             case .missingData(let reason):
-                AppLog.shared.healthData("BloodTestValueValidator: Filtering incomplete value '\(value.testName)': \(reason)", level: .warning)
+                AppLog.shared.healthData("BloodTestValueValidator: Filtering incomplete value: \(reason)", level: .warning)
                 invalidCount += 1
             }
         }

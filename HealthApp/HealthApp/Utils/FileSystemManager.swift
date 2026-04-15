@@ -121,7 +121,7 @@ class FileSystemManager: ObservableObject {
         } catch let error as CryptoKitError {
             // Check if this is an authentication failure (wrong key or corrupted data)
             if case .authenticationFailure = error {
-                AppLog.shared.fileManagement("FileSystemManager: Decryption authentication failure for file: \(url.lastPathComponent)", level: .warning)
+                AppLog.shared.fileManagement("FileSystemManager: Decryption authentication failure for file", level: .warning)
                 AppLog.shared.fileManagement("FileSystemManager: This may indicate the file was encrypted with a different key or is corrupted", level: .warning)
                 
                 // Check if the file might be unencrypted by checking common file signatures
@@ -310,7 +310,7 @@ class FileSystemManager: ObservableObject {
 
             return nil
         } catch {
-            AppLog.shared.fileManagement("FileSystemManager: Error searching for document '\(displayName)': \(error)", level: .error)
+            AppLog.shared.fileManagement("FileSystemManager: Error searching for document: \(error.localizedDescription)", level: .error)
             return nil
         }
     }

@@ -30,7 +30,7 @@ class DocumentImporter: NSObject, ObservableObject {
     
     // MARK: - Document Import from Files
     func importDocument(from url: URL) async throws -> MedicalDocument {
-        AppLog.shared.documents("Starting import from URL: \(url)")
+        AppLog.shared.documents("Starting import from URL (extension: \(url.pathExtension))")
         
         isImporting = true
         importProgress = 0.0
@@ -60,7 +60,7 @@ class DocumentImporter: NSObject, ObservableObject {
             
             AppLog.shared.documents("Getting lastPathComponent...")
             let fileName = url.lastPathComponent
-            AppLog.shared.documents("Successfully got fileName: '\(fileName)'")
+            AppLog.shared.documents("Successfully got fileName (extension: \(fileExtension))")
             
             AppLog.shared.documents("Getting pathExtension...")
             let fileExtension = url.pathExtension.lowercased()
@@ -113,7 +113,7 @@ class DocumentImporter: NSObject, ObservableObject {
                     fileName: fileName,
                     fileType: fileType
                 )
-                AppLog.shared.documents("File copied successfully to: \(storedURL)")
+                AppLog.shared.documents("File copied successfully to secure storage")
             } catch {
                 AppLog.shared.documents("Failed to copy file: \(error)", level: .error)
                 throw DocumentImportError.storageError
@@ -328,7 +328,7 @@ class DocumentImporter: NSObject, ObservableObject {
                 importProgress = Double(index + 1) / Double(totalFiles)
             } catch {
                 // Continue with other files even if one fails
-                AppLog.shared.documents("Failed to import \(url.lastPathComponent): \(error)", level: .error)
+                AppLog.shared.documents("Failed to import document: \(error.localizedDescription)", level: .error)
                 lastError = error
             }
         }
@@ -359,7 +359,7 @@ class DocumentImporter: NSObject, ObservableObject {
     }
     
     private func getFileSize(_ url: URL) throws -> Int64 {
-        AppLog.shared.documents("📏 DocumentImporter.getFileSize: Getting file attributes for path: \(url.path)")
+        AppLog.shared.documents("DocumentImporter.getFileSize: Getting file attributes")
         
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
