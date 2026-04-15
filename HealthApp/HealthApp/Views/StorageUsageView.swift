@@ -156,17 +156,29 @@ struct StorageUsageView: View {
     }
     
     private func clearCache() {
-        // Implement cache clearing
         Task {
-            storageInfo.cacheSize = 0
+            do {
+                try await FileSystemManager.shared.clearCache()
+                await loadStorageInfo()
+            } catch {
+                lastErrorMessage = "Failed to clear cache."
+                AppLog.shared.ui("Failed to clear cache: \(error)", level: .error)
+            }
         }
     }
-    
+
     private func optimizeStorage() {
-        // Implement storage optimization
         Task {
-            // Simulate optimization
-            storageInfo.thumbnailsSize = Int64(Double(storageInfo.thumbnailsSize) * 0.8)
+            do {
+                // Only remove thumbnails older than 14 days — intentionally less aggressive
+                // than clearCache() which deletes all thumbnails. Keeping these separate
+                // preserves the semantic distinction between the two actions.
+                try FileSystemManager.shared.cleanupOldThumbnails(olderThan: 14)
+                await loadStorageInfo()
+            } catch {
+                lastErrorMessage = "Failed to optimize storage."
+                AppLog.shared.ui("Failed to optimize storage: \(error)", level: .error)
+            }
         }
     }
 }
