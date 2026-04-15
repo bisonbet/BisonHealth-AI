@@ -590,6 +590,10 @@ class DocumentProcessor: ObservableObject {
 
         AppLog.shared.documents("Starting health data extraction -- text: \(result.extractedText.count) chars, category: \(document.documentCategory.displayName)")
 
+        // Parse structured data once so we can use it as fallback context for blood test extraction
+        let healthDataItems = result.healthDataItems
+        AppLog.shared.documents("Found \(healthDataItems.count) structured health data items")
+
         // Only extract blood tests for lab reports (or uncategorized documents for backward compatibility)
         let isLabReport = document.documentCategory == .labReport || document.documentCategory == .other
         
@@ -599,7 +603,7 @@ class DocumentProcessor: ObservableObject {
             do {
                 let bloodTest = try await createBloodTestResultFromText(
                     documentText: result.extractedText,
-                    extractedItems: [], // We'll use only the text
+                    extractedItems: healthDataItems, // Use structured items as fallback if mapping fails
                     document: document
                 )
                 extractedData.append(try AnyHealthData(bloodTest))
@@ -613,8 +617,6 @@ class DocumentProcessor: ObservableObject {
         }
 
         // Fallback approach: Parse structured data if available (for other data types)
-        let healthDataItems = result.healthDataItems
-        AppLog.shared.documents("Found \(healthDataItems.count) structured health data items")
 
         if !healthDataItems.isEmpty {
             // Group health data items by type and create appropriate health data objects
@@ -810,15 +812,40 @@ class DocumentProcessor: ObservableObject {
             AppLog.shared.documents("AI mapping completed with \(mappingResult.confidence)% confidence")
             AppLog.shared.documents("Mapped \(mappingResult.bloodTestResult.results.count) lab values")
 
+            // Force review for all imports (same behavior as full-text path)
+            var finalBloodTest = mappingResult.bloodTestResult
+            if mappingResult.needsReview {
+                AppLog.shared.documents("Found \(mappingResult.importGroups.count) groups requiring review", level: .warning)
+
+                let pendingReview = PendingImportReview(
+                    documentId: document.id,
+                    documentName: document.fileName,
+                    importGroups: mappingResult.importGroups,
+                    bloodTestResult: finalBloodTest
+                )
+
+                await MainActor.run {
+                    self.pendingImportReview = pendingReview
+                }
+
+                AppLog.shared.documents("Set pending import review from item-based mapping - UI should show review sheet")
+
+                var reviewMetadata = finalBloodTest.metadata ?? [:]
+                reviewMetadata["needs_review"] = "true"
+                reviewMetadata["import_groups_count"] = String(mappingResult.importGroups.count)
+                reviewMetadata["pending_review"] = "true"
+                finalBloodTest.metadata = reviewMetadata
+            }
+
             // Add additional metadata
-            var enhancedMetadata = mappingResult.bloodTestResult.metadata ?? [:]
+            var enhancedMetadata = finalBloodTest.metadata ?? [:]
             enhancedMetadata["source_document_id"] = document.id.uuidString
             enhancedMetadata["document_filename"] = document.fileName
             enhancedMetadata["processing_method"] = "ai_powered_mapping"
             enhancedMetadata["raw_items_count"] = String(items.count)
 
             // Create enhanced blood test result
-            var enhancedBloodTest = mappingResult.bloodTestResult
+            var enhancedBloodTest = finalBloodTest
             enhancedBloodTest.metadata = enhancedMetadata
 
             return enhancedBloodTest
