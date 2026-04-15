@@ -635,6 +635,21 @@ class DatabaseManager: ObservableObject {
         let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
         return String(data: decryptedData, encoding: .utf8) ?? ""
     }
+
+    // MARK: - Storage Estimates
+    func getHealthDataPayloadSizeEstimate() async throws -> Int64 {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        let result = try db.scalar("SELECT COALESCE(SUM(LENGTH(encrypted_data)), 0) FROM health_data")
+        return result as? Int64 ?? 0
+    }
+
+    func getChatPayloadSizeEstimate() async throws -> Int64 {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        let result = try db.scalar("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chat_messages")
+        return result as? Int64 ?? 0
+    }
 }
 
 // MARK: - Database Errors

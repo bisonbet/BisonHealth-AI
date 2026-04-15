@@ -3,6 +3,7 @@ import SwiftUI
 struct StorageUsageView: View {
     @State private var storageInfo = StorageInfo()
     @State private var isLoading = true
+    @State private var lastErrorMessage: String?
     
     var body: some View {
         List {
@@ -15,6 +16,12 @@ struct StorageUsageView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 8)
+                }
+            } else if let lastErrorMessage {
+                Section {
+                    Text(lastErrorMessage)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
             } else {
                 Section("Storage Overview") {
@@ -106,21 +113,36 @@ struct StorageUsageView: View {
     
     private func loadStorageInfo() async {
         isLoading = true
-        
-        // Simulate loading storage information
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-        
-        // Mock storage data
-        storageInfo = StorageInfo(
-            healthDataSize: 1_024_000,      // 1 MB
-            documentsSize: 15_728_640,      // 15 MB
-            thumbnailsSize: 2_097_152,      // 2 MB
-            chatHistorySize: 512_000,       // 512 KB
-            cacheSize: 1_048_576,           // 1 MB
-            documentCount: 25,
-            conversationCount: 8
-        )
-        
+        lastErrorMessage = nil
+
+        do {
+            async let fileSystemUsage = FileSystemManager.shared.getStorageUsage()
+            async let documentCount = DatabaseManager.shared.getDocumentCount()
+            async let chatStats = DatabaseManager.shared.getChatStatistics()
+            async let healthDataPayloadSize = DatabaseManager.shared.getHealthDataPayloadSizeEstimate()
+            async let chatPayloadSize = DatabaseManager.shared.getChatPayloadSizeEstimate()
+
+            let usage = try await fileSystemUsage
+            let docs = try await documentCount
+            let chats = try await chatStats
+            let healthSize = try await healthDataPayloadSize
+            let chatSize = try await chatPayloadSize
+
+            storageInfo = StorageInfo(
+                healthDataSize: healthSize,
+                documentsSize: usage.documentsSize,
+                thumbnailsSize: usage.thumbnailsSize,
+                chatHistorySize: chatSize,
+                cacheSize: usage.exportsSize + usage.logsSize,
+                documentCount: docs,
+                conversationCount: chats.totalConversations
+            )
+        } catch {
+            storageInfo = StorageInfo()
+            lastErrorMessage = "Unable to load storage details right now."
+            AppLog.shared.ui("Failed to load storage usage: \(error)", level: .error)
+        }
+
         isLoading = false
     }
     
