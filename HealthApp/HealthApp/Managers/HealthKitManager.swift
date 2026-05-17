@@ -553,10 +553,11 @@ class HealthKitManager: ObservableObject {
             healthStore.execute(query)
         }
 
-        // Group sleep samples by date
+        // Group sleep samples by "sleep night" using endDate.
+        // Apple Health's nightly totals are anchored to when the sleep session ends
+        // (e.g., sleep from 11 PM to 7 AM belongs to the morning's date).
         let groupedSleep = Dictionary(grouping: samples) { sample -> Date in
-            let calendar = Calendar.current
-            return calendar.startOfDay(for: sample.startDate)
+            Calendar.current.startOfDay(for: sample.endDate)
         }
 
         // Convert to SleepData, taking the most recent 'limit' nights
@@ -577,11 +578,9 @@ class HealthKitManager: ObservableObject {
 
             guard !sleepSamples.isEmpty else { continue }
 
-            // Calculate total sleep time
-            let totalSleepSeconds = sleepSamples.reduce(0) { total, sample in
-                total + sample.endDate.timeIntervalSince(sample.startDate)
-            }
-            let totalSleepMinutes = Int(totalSleepSeconds / secondsPerMinute)
+            // Calculate total sleep time using union of intervals to avoid double-counting
+            // overlapping samples from multiple data sources.
+            let totalSleepMinutes = calculateUnionMinutes(samples: sleepSamples)
 
             // Get start and end times
             let startTime = sleepSamples.map { $0.startDate }.min() ?? date
@@ -615,10 +614,7 @@ class HealthKitManager: ObservableObject {
                 }
             }
 
-            let inBedSeconds = inBedSamples.reduce(0) { total, sample in
-                total + sample.endDate.timeIntervalSince(sample.startDate)
-            }
-            let inBedMinutes = Int(inBedSeconds / secondsPerMinute)
+            let inBedMinutes = calculateUnionMinutes(samples: inBedSamples)
 
             sleepDataArray.append(SleepData(
                 date: date,
@@ -642,9 +638,35 @@ class HealthKitManager: ObservableObject {
         let stageSamples = samples.filter { $0.value == stage.rawValue }
         guard !stageSamples.isEmpty else { return nil }
 
-        let totalSeconds = stageSamples.reduce(0) { total, sample in
-            total + sample.endDate.timeIntervalSince(sample.startDate)
+        let totalMinutes = calculateUnionMinutes(samples: stageSamples)
+        return totalMinutes > 0 ? totalMinutes : nil
+    }
+
+    private func calculateUnionMinutes(samples: [HKCategorySample]) -> Int {
+        guard !samples.isEmpty else { return 0 }
+
+        let sortedIntervals = samples
+            .map { ($0.startDate, $0.endDate) }
+            .sorted { $0.0 < $1.0 }
+
+        var merged: [(Date, Date)] = []
+        for interval in sortedIntervals {
+            guard let last = merged.last else {
+                merged.append(interval)
+                continue
+            }
+
+            if interval.0 <= last.1 {
+                merged[merged.count - 1] = (last.0, max(last.1, interval.1))
+            } else {
+                merged.append(interval)
+            }
         }
+
+        let totalSeconds = merged.reduce(0.0) { total, interval in
+            total + interval.1.timeIntervalSince(interval.0)
+        }
+
         return Int(totalSeconds / secondsPerMinute)
     }
 
