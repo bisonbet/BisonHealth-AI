@@ -642,29 +642,34 @@ class HealthKitManager: ObservableObject {
         return totalMinutes > 0 ? totalMinutes : nil
     }
 
+    // MARK: - Private Helpers
+
     private func calculateUnionMinutes(samples: [HKCategorySample]) -> Int {
         guard !samples.isEmpty else { return 0 }
 
         let sortedIntervals = samples
-            .map { ($0.startDate, $0.endDate) }
-            .sorted { $0.0 < $1.0 }
+            .compactMap { sample -> (start: Date, end: Date)? in
+                guard sample.startDate <= sample.endDate else { return nil }
+                return (start: sample.startDate, end: sample.endDate)
+            }
+            .sorted { $0.start < $1.start }
 
-        var merged: [(Date, Date)] = []
+        var merged: [(start: Date, end: Date)] = []
         for interval in sortedIntervals {
             guard let last = merged.last else {
                 merged.append(interval)
                 continue
             }
 
-            if interval.0 <= last.1 {
-                merged[merged.count - 1] = (last.0, max(last.1, interval.1))
+            if interval.start <= last.end {
+                merged[merged.count - 1] = (last.start, max(last.end, interval.end))
             } else {
                 merged.append(interval)
             }
         }
 
         let totalSeconds = merged.reduce(0.0) { total, interval in
-            total + interval.1.timeIntervalSince(interval.0)
+            total + interval.end.timeIntervalSince(interval.start)
         }
 
         return Int(totalSeconds / secondsPerMinute)
