@@ -8,7 +8,8 @@ struct BloodTestImportReviewView: View {
     let onComplete: ([BloodTestImportGroup]) -> Void
     
     @State private var showingAcceptAllConfirmation = false
-    @State private var selectedIds: [UUID: UUID?] = [:] // groupId -> candidateId (nil means ignore)
+    @State private var selectedIds: [UUID: UUID] = [:] // groupId -> candidateId
+    @State private var ignoredGroupIds: Set<UUID> = [] // explicit user choice to skip import
     
     init(importGroups: Binding<[BloodTestImportGroup]>, onComplete: @escaping ([BloodTestImportGroup]) -> Void) {
         self._importGroups = importGroups
@@ -37,8 +38,7 @@ struct BloodTestImportReviewView: View {
                             Text(group.standardTestName)
                                 .font(.headline)
                             Spacer()
-                            // Show 'Ignored' if selectedId is explicitly nil
-                            if let groupId = selectedIds[group.id], groupId == nil {
+                            if ignoredGroupIds.contains(group.id) {
                                 Text("Will Ignore")
                                     .font(.caption)
                                     .foregroundColor(.red)
@@ -50,7 +50,11 @@ struct BloodTestImportReviewView: View {
             .onAppear {
                 // Initialize selectedIds from groups' selectedCandidateId
                 for group in importGroups {
-                    selectedIds[group.id] = group.selectedCandidateId
+                    if let selectedCandidateId = group.selectedCandidateId {
+                        selectedIds[group.id] = selectedCandidateId
+                    } else {
+                        ignoredGroupIds.insert(group.id)
+                    }
                 }
             }
             .navigationTitle("Review Lab Results")
@@ -117,8 +121,7 @@ struct BloodTestImportReviewView: View {
     // MARK: - Don't Import Row
     private func dontImportRow(group: Binding<BloodTestImportGroup>) -> some View {
         let groupId = group.wrappedValue.id
-        let currentSelection = selectedIds[groupId] ?? group.wrappedValue.selectedCandidateId
-        let isSelected = currentSelection == nil
+        let isSelected = ignoredGroupIds.contains(groupId)
 
         return HStack(spacing: 12) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -137,6 +140,7 @@ struct BloodTestImportReviewView: View {
         .onTapGesture {
             AppLog.shared.ui("🔘 Don't import tapped for group: \(groupId)")
             // Update state dictionary
+            ignoredGroupIds.insert(groupId)
             selectedIds[groupId] = nil
             // Update binding
             var updatedGroup = group.wrappedValue
@@ -150,8 +154,9 @@ struct BloodTestImportReviewView: View {
     // MARK: - Candidate Row
     private func candidateRow(_ candidate: BloodTestImportCandidate, group: Binding<BloodTestImportGroup>) -> some View {
         // Use selectedIds state if available, otherwise fall back to group's selectedCandidateId
-        let currentSelection = selectedIds[group.wrappedValue.id] ?? group.wrappedValue.selectedCandidateId
-        let isSelected = currentSelection == candidate.id
+        let groupId = group.wrappedValue.id
+        let currentSelection = selectedIds[groupId] ?? group.wrappedValue.selectedCandidateId
+        let isSelected = !ignoredGroupIds.contains(groupId) && currentSelection == candidate.id
         
         // Check if this candidate is the recommended one (matches the group's recommendedCandidate)
         let isRecommended = group.wrappedValue.recommendedCandidate?.id == candidate.id
@@ -232,7 +237,8 @@ struct BloodTestImportReviewView: View {
             // Only allow selection of valid candidates
             if candidate.validationStatus == .valid {
                 // Update both the state and the binding
-                selectedIds[group.wrappedValue.id] = candidate.id
+                ignoredGroupIds.remove(groupId)
+                selectedIds[groupId] = candidate.id
                 var updatedGroup = group.wrappedValue
                 updatedGroup.selectedCandidateId = candidate.id
                 group.wrappedValue = updatedGroup
@@ -283,8 +289,14 @@ struct BloodTestImportReviewView: View {
     private func acceptSelected() {
         // Update all groups with the selected IDs from state
         for index in importGroups.indices {
-            if let selectedId = selectedIds[importGroups[index].id] {
-                // Can be nil (explicit ignore) or UUID
+            let groupId = importGroups[index].id
+
+            if ignoredGroupIds.contains(groupId) {
+                importGroups[index].selectedCandidateId = nil
+                continue
+            }
+
+            if let selectedId = selectedIds[groupId] {
                 importGroups[index].selectedCandidateId = selectedId
             }
             // If not in selectedIds, keep existing selectedCandidateId
@@ -298,8 +310,10 @@ struct BloodTestImportReviewView: View {
         for group in importGroups {
             if let recommended = group.recommendedCandidate {
                 selectedIds[group.id] = recommended.id
+                ignoredGroupIds.remove(group.id)
             } else if let firstValid = group.candidates.first(where: { $0.validationStatus == .valid }) {
                 selectedIds[group.id] = firstValid.id
+                ignoredGroupIds.remove(group.id)
             }
         }
         acceptSelected()
