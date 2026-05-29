@@ -61,3 +61,54 @@ Note: Our default Simulator target is `iPhone 16 Pro`. If that runtime isn't ins
 - Do not commit secrets or PHI. Data is local and encrypted; follow patterns in `Services/` and `Database` usage.
 - Network calls must use TLS and validate responses (see `OllamaClient.swift`, `DoclingClient.swift`).
 - For AI integration details, see `HealthApp/OLLAMA_SWIFT_INTEGRATION.md`.
+
+## Cursor Cloud specific instructions
+
+This repository is an **iOS/Xcode** project. Cursor Cloud VMs are **Linux** and cannot run `xcodebuild`, the iOS Simulator, or the SwiftUI app binary. Use the VM for Swift edits, static analysis, and optional **Ollama** (default AI backend) smoke tests; run full builds/tests on a Mac with Xcode 15+.
+
+### What works on Linux (this VM)
+
+| Task | Command / notes |
+|------|-----------------|
+| SwiftLint (style/static checks) | `cd HealthApp && swiftlint lint` — expects `swiftlint` on `PATH` (default rules; repo has no `.swiftlint.yml`) |
+| Ollama API (matches `OllamaClient` / port `11434`) | Start server, then call HTTP API (see below) |
+| Personas prompts sanity | `ls Personas-Prompts/*.txt` — static `.txt` files bundled for chat personas |
+| Git / docs / code review | Standard |
+
+### What requires macOS
+
+| Task | Command |
+|------|---------|
+| Build app | `cd HealthApp && xcodebuild -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build` |
+| Unit/UI tests | `xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` |
+| SwiftPM resolve for app | Xcode first open / `xcodebuild -resolvePackageDependencies` on Mac |
+
+### Ollama on the Cloud VM
+
+The app defaults to `localhost:11434` (`ServerConfigurationConstants`). On Linux, run the server in **tmux** (long-lived):
+
+```bash
+SESSION_NAME="ollama-server"
+tmux -f /exec-daemon/tmux.portal.conf has-session -t "=$SESSION_NAME" 2>/dev/null \
+  || tmux -f /exec-daemon/tmux.portal.conf new-session -d -s "$SESSION_NAME" -- "${SHELL:-bash}" -l
+tmux -f /exec-daemon/tmux.portal.conf send-keys -t "$SESSION_NAME:0.0" 'ollama serve' C-m
+```
+
+Smoke test (connection + chat), same API the app uses:
+
+```bash
+curl -s http://127.0.0.1:11434/api/tags
+curl -s http://127.0.0.1:11434/api/chat -d '{"model":"tinyllama","messages":[{"role":"user","content":"Hello from BisonHealth AI setup"}],"stream":false}'
+```
+
+Pull a model once per VM if needed: `ollama pull tinyllama` (or `llama3.2` to match app default). **Docling** (`localhost:5001`) is optional — default document processing is on-device; no Docling container is defined in-repo.
+
+### Mac + Linux VM workflow
+
+Develop on Linux, run the app on a Mac Simulator/device. Point **Settings → Ollama** at `http://<cloud-vm-host>:11434` when testing AI against the VM-hosted Ollama instance.
+
+### Tooling paths (VM image)
+
+- Swift: `/opt/swift/usr/bin` (add to `PATH` in shell profile if missing)
+- SwiftLint: `/usr/local/bin/swiftlint`
+- Ollama: `ollama` / `ollama serve` (system install under `/usr/local`)
