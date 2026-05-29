@@ -146,6 +146,10 @@ AuthKey_*.p8
 # Simulator specific
 **/iOS Simulator/
 node_modules
+
+# Local-only binary frameworks (too large for git; install separately — see README)
+Frameworks/
+*.xcframework
 # AI tool config directories
 .claude/
 .gemini/
