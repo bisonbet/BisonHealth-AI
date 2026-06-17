@@ -245,7 +245,7 @@ struct OnDeviceLLMSettingsView: View {
                             refreshState()
                         }
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 }
                 .padding(.vertical, 8)
             }
@@ -322,8 +322,8 @@ private struct MLXModelRowView: View {
                             .fontWeight(.medium)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(model.modelType == .vlm ? Color.purple.opacity(0.15) : Color.blue.opacity(0.15))
-                            .foregroundColor(model.modelType == .vlm ? .purple : .blue)
+                            .background(model.modelType == .vlm ? Color.purple.opacity(0.15) : BisonTheme.gold.opacity(0.15))
+                            .foregroundColor(model.modelType == .vlm ? .purple : BisonTheme.gold)
                             .clipShape(Capsule())
 
                         if isSelected {

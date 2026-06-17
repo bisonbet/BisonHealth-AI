@@ -60,7 +60,7 @@ class DocumentImporter: NSObject, ObservableObject {
             
             AppLog.shared.documents("Getting lastPathComponent...")
             let fileName = url.lastPathComponent
-            AppLog.shared.documents("Successfully got fileName (extension: \(fileExtension))")
+            AppLog.shared.documents("Successfully got fileName: \(fileName)")
             
             AppLog.shared.documents("Getting pathExtension...")
             let fileExtension = url.pathExtension.lowercased()
@@ -164,7 +164,7 @@ class DocumentImporter: NSObject, ObservableObject {
     
     // MARK: - Document Scanner Integration
     func presentDocumentScanner() -> VNDocumentCameraViewController? {
-        guard VNDocumentCameraViewController.isSupported else {
+        guard PlatformCapabilities.supportsDocumentScanning else {
             return nil
         }
         

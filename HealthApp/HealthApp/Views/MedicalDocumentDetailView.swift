@@ -185,7 +185,7 @@ struct MedicalDocumentDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: viewModel.document.documentCategory.icon)
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                             Text(viewModel.document.documentCategory.displayName)
                                 .foregroundColor(.primary)
                             Spacer()
@@ -237,7 +237,7 @@ struct MedicalDocumentDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: viewModel.document.providerType?.icon ?? "building.2")
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                             Text(viewModel.document.providerType?.displayName ?? "Select Type")
                                 .foregroundColor(viewModel.document.providerType != nil ? .primary : .secondary)
                             Spacer()
@@ -294,7 +294,7 @@ struct MedicalDocumentDetailView: View {
 
                             Text("\(viewModel.document.contextPriority) / 5")
                                 .font(.caption)
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                                 .fontWeight(.medium)
                         }
 
@@ -530,7 +530,7 @@ struct TagChipView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color.blue)
+        .background(BisonTheme.gold)
         .foregroundColor(.white)
         .cornerRadius(12)
     }

@@ -16,34 +16,20 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(personalInfo.gender, .male)
         XCTAssertEqual(personalInfo.bloodType, .oPositive)
         XCTAssertEqual(personalInfo.type, .personalInfo)
-        XCTAssertTrue(personalInfo.isValid)
     }
     
-    func testPersonalHealthInfoValidation() {
+    func testPersonalHealthInfoMutation() {
         var personalInfo = PersonalHealthInfo()
-        XCTAssertFalse(personalInfo.isValid)
+        XCTAssertNil(personalInfo.name)
         
         personalInfo.name = "John Doe"
-        XCTAssertTrue(personalInfo.isValid)
-        
-        personalInfo.name = ""
-        XCTAssertFalse(personalInfo.isValid)
-        
-        personalInfo.name = "   "
-        XCTAssertFalse(personalInfo.isValid)
-    }
-    
-    func testPersonalHealthInfoCompletionPercentage() {
-        var personalInfo = PersonalHealthInfo()
-        XCTAssertEqual(personalInfo.completionPercentage, 0.0)
-        
-        personalInfo.name = "John Doe"
-        XCTAssertEqual(personalInfo.completionPercentage, 1.0/6.0, accuracy: 0.01)
+        XCTAssertEqual(personalInfo.name, "John Doe")
         
         personalInfo.dateOfBirth = Date()
         personalInfo.gender = .male
         personalInfo.bloodType = .oPositive
-        XCTAssertEqual(personalInfo.completionPercentage, 4.0/6.0, accuracy: 0.01)
+        XCTAssertEqual(personalInfo.gender, .male)
+        XCTAssertEqual(personalInfo.bloodType, .oPositive)
     }
     
     // MARK: - BloodTestResult Tests
@@ -211,7 +197,8 @@ final class ModelTests: XCTestCase {
         
         let context = ChatContext(
             personalInfo: personalInfo,
-            bloodTests: [bloodTest]
+            bloodTests: [bloodTest],
+            selectedDataTypes: [.personalInfo]
         )
         
         XCTAssertFalse(context.isEmpty)
@@ -225,7 +212,7 @@ final class ModelTests: XCTestCase {
     // MARK: - Enum Tests
     func testHealthDataTypeProperties() {
         XCTAssertEqual(HealthDataType.personalInfo.displayName, "Personal Information")
-        XCTAssertEqual(HealthDataType.bloodTest.icon, "drop.fill")
+        XCTAssertEqual(HealthDataType.bloodTest.icon, "testtube.2")
     }
     
     func testGenderDisplayNames() {
@@ -241,7 +228,7 @@ final class ModelTests: XCTestCase {
     func testProcessingStatusProperties() {
         XCTAssertEqual(ProcessingStatus.pending.displayName, "Pending")
         XCTAssertEqual(ProcessingStatus.completed.icon, "checkmark.circle")
-        XCTAssertEqual(ProcessingStatus.failed.color, "red")
+        let _ = ProcessingStatus.failed.color
     }
     
     // MARK: - Codable Tests

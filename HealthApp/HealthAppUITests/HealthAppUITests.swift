@@ -118,12 +118,7 @@ final class HealthAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Data Management"].exists)
         XCTAssertTrue(app.staticTexts["About"].exists)
         
-        // Test Ollama server settings
-        XCTAssertTrue(app.staticTexts["Ollama Server"].exists)
-        XCTAssertTrue(app.textFields.matching(identifier: "localhost").count > 0)
-        
-        // Test connection test buttons
-        XCTAssertTrue(app.buttons["Test Connection"].exists)
+        XCTAssertTrue(app.staticTexts["On-Device LLM"].exists || app.staticTexts["OpenAI Compatible"].exists)
     }
     
     func testSettingsNavigation() throws {

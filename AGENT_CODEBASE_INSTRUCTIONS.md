@@ -31,9 +31,9 @@ BisonHealth-AI/
 #### 1. AI Integration Architecture
 - **AIChatManager.swift**: Central chat management
 - **AIProviderInterface.swift**: Protocol for AI providers
-- **OllamaClient.swift**: Local Ollama integration
 - **BedrockClient.swift**: AWS Bedrock integration
 - **OpenAICompatibleClient.swift**: OpenAI-compatible API integration
+- **MLXOnDeviceClient.swift**: On-device model integration
 
 #### 2. Data Management
 - **DatabaseManager.swift**: Core database operations
@@ -104,9 +104,9 @@ BisonHealth-AI/
 ### Specific Component Guidelines
 
 #### AI Integration
-- **Ollama**: Network-based local AI
 - **Bedrock**: AWS cloud AI with authentication
-- **OpenAI**: Compatible API endpoints
+- **OpenAI Compatible**: Compatible API endpoints
+- **On-Device LLM**: Local MLX model execution
 
 #### Database Operations
 - **Thread Safety**: All database operations must be thread-safe

@@ -1165,13 +1165,6 @@ class DocumentProcessor: ObservableObject {
         let aiClient: any AIProviderInterface
 
         switch extractionProvider {
-        case .ollama:
-            let ollamaClient = settingsManager.getOllamaClient()
-            let extractionModel = settingsManager.modelPreferences.extractionOllamaModel
-            ollamaClient.currentModel = extractionModel
-            AppLog.shared.documents("Using Ollama extraction model: \(extractionModel)")
-            aiClient = ollamaClient
-
         case .openAICompatible:
             let openAIClient = settingsManager.getOpenAICompatibleClient()
             let extractionModel = settingsManager.modelPreferences.extractionOpenAIModel

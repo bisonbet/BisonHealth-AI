@@ -1,11 +1,18 @@
 import SwiftUI
 import Combine
+#if os(iOS)
+import UIKit
+#endif
 
 @main
 struct HealthAppApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var appSettingsManager = AppSettingsManager.shared
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        AppChrome.configure()
+    }
     
     var body: some Scene {
         WindowGroup {
@@ -24,6 +31,138 @@ struct HealthAppApp: App {
         }
     }
 }
+
+// MARK: - App Chrome
+
+private enum AppChrome {
+    static func configure() {
+        #if os(iOS)
+        let navigationAppearance = UINavigationBarAppearance()
+        navigationAppearance.configureWithOpaqueBackground()
+        navigationAppearance.backgroundColor = UIColor.bisonAppBackground
+        navigationAppearance.shadowColor = UIColor.bisonSeparator
+        navigationAppearance.titleTextAttributes = [
+            .foregroundColor: UIColor.bisonPrimaryText
+        ]
+        navigationAppearance.largeTitleTextAttributes = [
+            .foregroundColor: UIColor.bisonPrimaryText
+        ]
+        navigationAppearance.buttonAppearance.normal.titleTextAttributes = [
+            .foregroundColor: UIColor.bisonGold
+        ]
+
+        UINavigationBar.appearance().standardAppearance = navigationAppearance
+        UINavigationBar.appearance().compactAppearance = navigationAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navigationAppearance
+        UINavigationBar.appearance().tintColor = UIColor.bisonGold
+
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithOpaqueBackground()
+        tabAppearance.backgroundColor = UIColor.bisonSidebarBackground
+        tabAppearance.shadowColor = UIColor.bisonSeparator
+
+        let selectedTabAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.bisonGold
+        ]
+        let normalTabAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.bisonSecondaryText
+        ]
+
+        [
+            tabAppearance.stackedLayoutAppearance,
+            tabAppearance.inlineLayoutAppearance,
+            tabAppearance.compactInlineLayoutAppearance
+        ].forEach { itemAppearance in
+            itemAppearance.selected.iconColor = UIColor.bisonGold
+            itemAppearance.selected.titleTextAttributes = selectedTabAttributes
+            itemAppearance.normal.iconColor = UIColor.bisonSecondaryText
+            itemAppearance.normal.titleTextAttributes = normalTabAttributes
+        }
+
+        UITabBar.appearance().standardAppearance = tabAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+        UITabBar.appearance().tintColor = UIColor.bisonGold
+        UITabBar.appearance().unselectedItemTintColor = UIColor.bisonSecondaryText
+
+        UISegmentedControl.appearance().selectedSegmentTintColor = UIColor.bisonGold
+        UISegmentedControl.appearance().setTitleTextAttributes(
+            [.foregroundColor: UIColor.bisonInkOnGold],
+            for: .selected
+        )
+        UISegmentedControl.appearance().setTitleTextAttributes(
+            [.foregroundColor: UIColor.bisonPrimaryText],
+            for: .normal
+        )
+
+        UISwitch.appearance().onTintColor = UIColor.bisonSage
+        UIPageControl.appearance().currentPageIndicatorTintColor = UIColor.bisonGold
+        UIPageControl.appearance().pageIndicatorTintColor = UIColor.bisonSecondaryText.withAlphaComponent(0.35)
+        #endif
+    }
+}
+
+#if os(iOS)
+private extension UIColor {
+    static var bisonPrimaryText: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.12, green: 0.11, blue: 0.10, alpha: 1.0),
+            dark: UIColor(red: 0.91, green: 0.88, blue: 0.82, alpha: 1.0)
+        )
+    }
+
+    static var bisonSecondaryText: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.30, green: 0.38, blue: 0.43, alpha: 1.0),
+            dark: UIColor(red: 0.61, green: 0.70, blue: 0.74, alpha: 1.0)
+        )
+    }
+
+    static var bisonGold: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.78, green: 0.55, blue: 0.16, alpha: 1.0),
+            dark: UIColor(red: 0.93, green: 0.70, blue: 0.28, alpha: 1.0)
+        )
+    }
+
+    static var bisonInkOnGold: UIColor {
+        UIColor(red: 0.12, green: 0.11, blue: 0.10, alpha: 1.0)
+    }
+
+    static var bisonSage: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.23, green: 0.47, blue: 0.39, alpha: 1.0),
+            dark: UIColor(red: 0.45, green: 0.69, blue: 0.58, alpha: 1.0)
+        )
+    }
+
+    static var bisonAppBackground: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.97, green: 0.97, blue: 0.95, alpha: 1.0),
+            dark: UIColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0)
+        )
+    }
+
+    static var bisonSidebarBackground: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.94, green: 0.93, blue: 0.90, alpha: 1.0),
+            dark: UIColor(red: 0.10, green: 0.09, blue: 0.08, alpha: 1.0)
+        )
+    }
+
+    static var bisonSeparator: UIColor {
+        dynamicColor(
+            light: UIColor(red: 0.48, green: 0.29, blue: 0.16, alpha: 0.18),
+            dark: UIColor(red: 0.93, green: 0.70, blue: 0.28, alpha: 0.18)
+        )
+    }
+
+    static func dynamicColor(light: UIColor, dark: UIColor) -> UIColor {
+        UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? dark : light
+        }
+    }
+}
+#endif
 
 // MARK: - App State Management
 @MainActor

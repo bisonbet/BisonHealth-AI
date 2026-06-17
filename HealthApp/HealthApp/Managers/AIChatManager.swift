@@ -109,13 +109,20 @@ class AIChatManager: ObservableObject {
     }
     
     // MARK: - Connection Management
-    
-    private func getOllamaClient() -> OllamaClient {
-        return settingsManager.getOllamaClient()
-    }
 
     private func getAIClient() -> any AIProviderInterface {
         return settingsManager.getAIClient()
+    }
+
+    private func currentModelName() -> String {
+        switch settingsManager.modelPreferences.aiProvider {
+        case .bedrock:
+            return settingsManager.modelPreferences.bedrockModel
+        case .openAICompatible:
+            return settingsManager.modelPreferences.openAICompatibleModel
+        case .onDeviceLLM:
+            return MLXModelInfo.selectedModel.displayName
+        }
     }
     
     func checkConnection() async {
@@ -124,17 +131,8 @@ class AIChatManager: ObservableObject {
             return
         }
 
-        // Only auto-check connection for Ollama and OpenAI-compatible servers
-        // Don't auto-check for cloud providers to avoid rate limiting
+        // Don't auto-check cloud providers to avoid rate limiting.
         switch settingsManager.modelPreferences.aiProvider {
-        case .ollama:
-            do {
-                let aiClient = getAIClient()
-                isConnected = try await aiClient.testConnection()
-            } catch {
-                isConnected = false
-                errorMessage = "Failed to connect to Ollama: \(error.localizedDescription)"
-            }
         case .bedrock:
             // For AWS Bedrock, assume connected if credentials are configured
             // User can manually test in settings if needed
@@ -414,67 +412,24 @@ class AIChatManager: ObservableObject {
                 throw AIChatError.noActiveConversation
             }
 
-            // Check if this is the first user message and if current model requires instruction injection
-            // IMPORTANT: Injection is ONLY for providers where WE control prompt formatting (Ollama)
-            // OpenAI Compatible and Bedrock servers handle their own chat template formatting
-            let currentModel: String
-            switch settingsManager.modelPreferences.aiProvider {
-            case .ollama, .openAICompatible:
-                currentModel = settingsManager.modelPreferences.chatModel
-            case .bedrock:
-                currentModel = settingsManager.modelPreferences.bedrockModel
-            case .onDeviceLLM:
-                currentModel = MLXModelInfo.selectedModel.displayName
-            }
+            let currentModel = currentModelName()
             let userMessageCount = updatedConversation.messages.filter({ $0.role == .user }).count
             let assistantMessageCount = updatedConversation.messages.filter({ $0.role == .assistant }).count
-
-            // CRITICAL: Only check for injection if provider requires it
-            // OpenAI Compatible servers (llama.cpp, vLLM, etc.) handle chat templates themselves
-            let providerNeedsInjection = settingsManager.modelPreferences.aiProvider == .ollama
-            let requiresInjection = providerNeedsInjection &&
-                                   SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
 
             // FIX: The logic should be:
             // - First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
             // - Subsequent turns: userMessageCount > 1 OR assistantMessageCount > 0
             let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
-            let isFirstUserMessage = userMessageCount == 1
 
-            AppLog.shared.ai("[Chat] sendMessage: provider=\(settingsManager.modelPreferences.aiProvider), model=\(currentModel), turn=\(userMessageCount)/\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection), messageCount=\(updatedConversation.messages.count)")
-
-            // Prepare the message content (potentially formatted for exception models)
-            // NOTE: OpenAI Compatible/Bedrock NEVER get injection - they use standard API format
-            var messageContent = content
-
-            if isFirstTurn && requiresInjection {
-                AppLog.shared.ai("[Chat] Applying instruction injection for model \(currentModel)")
-                messageContent = SystemPromptExceptionList.shared.formatFirstUserMessage(
-                    userMessage: content,
-                    systemPrompt: selectedDoctor?.systemPrompt,
-                    context: healthContext
-                )
-                AppLog.shared.ai("[Chat] Formatted message length: \(messageContent.count) chars", level: .debug)
-            }
+            AppLog.shared.ai("[Chat] sendMessage: provider=\(settingsManager.modelPreferences.aiProvider), model=\(currentModel), turn=\(userMessageCount)/\(assistantMessageCount), isFirstTurn=\(isFirstTurn), messageCount=\(updatedConversation.messages.count)")
 
             AppLog.shared.ai("[Chat] Context length: \(healthContext.count) chars, hasContext=\(!healthContext.isEmpty)")
 
             if useStreaming {
-                if isFirstTurn && requiresInjection {
-                    AppLog.shared.ai("[Chat] First turn (injection) - sending formatted message (\(messageContent.count) chars)")
-                    try await sendStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
-                } else {
-                    AppLog.shared.ai("[Chat] Turn \(userMessageCount) - sending message (\(messageContent.count) chars)")
-                    try await sendStreamingMessage(messageContent, context: healthContext, conversationId: updatedConversation.id)
-                }
+                AppLog.shared.ai("[Chat] Turn \(userMessageCount) - sending message (\(content.count) chars)")
+                try await sendStreamingMessage(content, context: healthContext, conversationId: updatedConversation.id)
             } else {
-                // Use non-streaming for complete response
-                if isFirstUserMessage && requiresInjection {
-                    // For Ollama exception models, send formatted message with empty context
-                    try await sendNonStreamingMessage(messageContent, context: "", conversationId: updatedConversation.id)
-                } else {
-                    try await sendNonStreamingMessage(messageContent, context: healthContext, conversationId: updatedConversation.id)
-                }
+                try await sendNonStreamingMessage(content, context: healthContext, conversationId: updatedConversation.id)
             }
             
         } catch {
@@ -639,8 +594,8 @@ class AIChatManager: ObservableObject {
         // to correctly determine if this is the first turn
         let currentModel: String
         switch settingsManager.modelPreferences.aiProvider {
-        case .ollama, .openAICompatible:
-            currentModel = settingsManager.modelPreferences.chatModel
+        case .openAICompatible:
+            currentModel = settingsManager.modelPreferences.openAICompatibleModel
         case .bedrock:
             currentModel = settingsManager.modelPreferences.bedrockModel
         case .onDeviceLLM:
@@ -654,16 +609,10 @@ class AIChatManager: ObservableObject {
         let userMessageCount = conversationMessages.filter({ $0.role == .user }).count
         let assistantMessageCount = conversationMessages.filter({ $0.role == .assistant }).count
 
-        // CRITICAL: Only check for injection if provider requires it
-        // OpenAI Compatible and Bedrock servers handle chat templates themselves
-        let providerNeedsInjection = settingsManager.modelPreferences.aiProvider == .ollama
-        let requiresInjection = providerNeedsInjection &&
-                               SystemPromptExceptionList.shared.requiresInstructionInjection(for: currentModel)
-
         // First turn: userMessageCount == 1 AND assistantMessageCount == 0 (no assistant responses yet)
         let isFirstTurn = (userMessageCount == 1 && assistantMessageCount == 0)
 
-        AppLog.shared.ai("[Chat] sendStreamingMessage: provider=\(settingsManager.modelPreferences.aiProvider), model=\(currentModel), turn=\(userMessageCount)/\(assistantMessageCount), isFirstTurn=\(isFirstTurn), requiresInjection=\(requiresInjection), contentLength=\(content.count)")
+        AppLog.shared.ai("[Chat] sendStreamingMessage: provider=\(settingsManager.modelPreferences.aiProvider), model=\(currentModel), turn=\(userMessageCount)/\(assistantMessageCount), isFirstTurn=\(isFirstTurn), contentLength=\(content.count)")
 
         // Create a placeholder message for streaming content
         let streamingMessageId = UUID()
@@ -679,92 +628,18 @@ class AIChatManager: ObservableObject {
             currentConversation = conversations[index]
         }
 
-        // Determine if we should send systemPrompt separately
-        // For Ollama exception models: never send system prompt (instructions embedded in first message)
-        // For OpenAI Compatible/Bedrock: ALWAYS send via standard API (server handles formatting)
-        // For normal models: send if context is provided
+        // Determine if we should send systemPrompt separately.
         let shouldSendSystemPrompt: Bool
         switch settingsManager.modelPreferences.aiProvider {
         case .onDeviceLLM:
             // Keep persona consistently active for small on-device models.
             shouldSendSystemPrompt = true
         default:
-            if requiresInjection {
-                // Ollama exception models only: instructions are embedded in first message by AIChatManager
-                shouldSendSystemPrompt = false
-            } else {
-                // Normal models + OpenAI Compatible + Bedrock: send via standard API if context is provided
-                shouldSendSystemPrompt = !context.isEmpty
-            }
+            shouldSendSystemPrompt = !context.isEmpty
         }
 
         // Use the selected AI provider with streaming support
         switch settingsManager.modelPreferences.aiProvider {
-        case .ollama:
-            let ollamaClient = getOllamaClient()
-
-            // Get conversation history for multi-turn support
-            // Exclude the current user message and any empty placeholder messages
-            let ollamaConversationHistory: [ChatMessage]
-            if let conversation = conversations.first(where: { $0.id == conversationId }) {
-                let allMessages = conversation.messages
-                if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
-                    var messagesWithoutCurrent = allMessages
-                    messagesWithoutCurrent.remove(at: lastUserMessageIndex)
-                    ollamaConversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
-                } else {
-                    ollamaConversationHistory = allMessages.filter { !$0.content.isEmpty }
-                }
-            } else {
-                ollamaConversationHistory = []
-            }
-
-            try await ollamaClient.sendStreamingChatMessage(
-                content,
-                context: context,
-                conversationHistory: ollamaConversationHistory,
-                model: settingsManager.modelPreferences.chatModel,
-                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.systemPrompt : nil,
-                onUpdate: { [weak self] partialContent in
-                    guard let self = self else { return }
-                    // Use debounced update for better performance with long messages
-                    // Explicitly dispatch to MainActor since onUpdate may be called from background thread
-                    Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-                        self.updateStreamingMessage(content: partialContent, conversationId: conversationId, messageId: streamingMessageId)
-                    }
-                },
-                onComplete: { [weak self] finalResponse in
-                    Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-
-                        // Create final message with complete content and metadata
-                        let finalMessage = ChatMessage(
-                            id: streamingMessageId,
-                            content: finalResponse.content,
-                            role: .assistant,
-                            tokens: finalResponse.tokenCount,
-                            processingTime: finalResponse.responseTime
-                        )
-
-                        // Save final message to database
-                        do {
-                            try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
-
-                            // Use finalize to bypass debouncing for immediate final update
-                            await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
-
-                            // Generate title after first exchange if still using default title
-                            if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }) {
-                                await self.generateTitleIfNeeded(for: self.conversations[conversationIndex])
-                            }
-                        } catch {
-                            self.errorMessage = "Failed to save message: \(error.localizedDescription)"
-                        }
-                    }
-                }
-            )
-
         case .bedrock:
             let bedrockClient = settingsManager.getBedrockClient()
 
@@ -1013,7 +888,7 @@ class AIChatManager: ObservableObject {
                     message: content,
                     context: context,
                     useStreaming: false,
-                    model: settingsManager.modelPreferences.chatModel,
+                    model: currentModelName(),
                     systemPrompt: selectedDoctor?.systemPrompt
                 )
             }

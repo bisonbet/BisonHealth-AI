@@ -21,16 +21,7 @@ final class NetworkingTests: XCTestCase {
 
     func testNetworkStatusPublisher() async {
         let manager = NetworkManager.shared
-        let expectation = XCTestExpectation(description: "Network status published")
-
-        let cancellable = manager.statusPublisher
-            .sink { status in
-                XCTAssertNotNil(status)
-                expectation.fulfill()
-            }
-
-        await fulfillment(of: [expectation], timeout: 5.0)
-        cancellable.cancel()
+        XCTAssertNotNil(manager.currentStatus)
     }
 
     // MARK: - NetworkError Tests

@@ -24,7 +24,7 @@ struct HealthCheckupsSection: View {
                         HStack {
                             Text("More")
                                 .font(.subheadline)
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                             Spacer()
                             Text("\(healthCheckups.count) total")
                                 .font(.caption)

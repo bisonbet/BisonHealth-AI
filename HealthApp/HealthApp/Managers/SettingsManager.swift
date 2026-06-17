@@ -28,8 +28,8 @@ enum Theme: String, CaseIterable {
 struct ServerConfiguration: Equatable {
     var hostname: String
     var port: Int
-    
-    init(hostname: String = ServerConfigurationConstants.defaultOllamaHostname, port: Int) {
+
+    init(hostname: String = "localhost", port: Int) {
         self.hostname = hostname
         self.port = port
     }
@@ -67,14 +67,12 @@ struct AppPreferences: Equatable {
 }
 
 enum AIProvider: String, CaseIterable {
-    case ollama = "ollama"
     case bedrock = "bedrock"
     case openAICompatible = "openai_compatible"
     case onDeviceLLM = "on_device_llm"
 
     var displayName: String {
         switch self {
-        case .ollama: return "Ollama"
         case .bedrock: return "AWS Bedrock"
         case .openAICompatible: return "OpenAI Compatible"
         case .onDeviceLLM: return "On-Device LLM"
@@ -83,8 +81,6 @@ enum AIProvider: String, CaseIterable {
 
     var description: String {
         switch self {
-        case .ollama:
-            return "Local Ollama server for privacy-focused AI"
         case .bedrock:
             return "AWS Bedrock cloud AI service"
         case .openAICompatible:
@@ -118,10 +114,7 @@ enum DocumentProcessingMode: String, CaseIterable, Codable {
 }
 
 struct ModelPreferences: Equatable {
-    var aiProvider: AIProvider = .ollama   // Default AI provider
-    var chatModel: String = "llama3.2"     // Default chat model
-    var visionModel: String = "llava"      // Default vision model for image processing
-    var documentModel: String = "llama3.2" // Default document processing model (text-only)
+    var aiProvider: AIProvider = .onDeviceLLM
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
 
@@ -129,26 +122,10 @@ struct ModelPreferences: Equatable {
     var documentProcessingMode: DocumentProcessingMode = .onDevice
 
     // Extraction Settings (Independent of Chat)
-    var extractionProvider: AIProvider = .ollama
-    var extractionOllamaModel: String = "llama3.2"
+    var extractionProvider: AIProvider = .onDeviceLLM
     var extractionOpenAIModel: String = ""
     var extractionBedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue
-    var contextSizeLimit: Int = 16384      // Default context size: 16k tokens (for Ollama)
     var lastUpdated: Date = Date()
-}
-
-struct ModelSelection: Equatable {
-    var availableModels: [OllamaModel] = []
-    var isLoading: Bool = false
-    var lastFetchTime: Date?
-    var error: String?
-    
-    static func == (lhs: ModelSelection, rhs: ModelSelection) -> Bool {
-        lhs.availableModels == rhs.availableModels &&
-        lhs.isLoading == rhs.isLoading &&
-        lhs.lastFetchTime == rhs.lastFetchTime &&
-        lhs.error == rhs.error
-    }
 }
 
 // MARK: - Connection Status
@@ -192,16 +169,14 @@ enum ConnectionStatus: Equatable {
 @MainActor
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
-    
+
     // Server configurations
-    @Published var ollamaConfig = ServerConfigurationConstants.defaultOllamaConfig
     @Published var doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
     @Published var openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
     @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
     @Published var openAICompatibleContextSize: Int = 32768  // Default: 32k tokens
 
     // Connection statuses
-    @Published var ollamaStatus: ConnectionStatus = .unknown
     @Published var doclingStatus: ConnectionStatus = .unknown
     @Published var openAICompatibleStatus: ConnectionStatus = .unknown
     
@@ -213,12 +188,8 @@ class SettingsManager: ObservableObject {
     
     // Model preferences
     @Published var modelPreferences = ModelPreferences()
-    
-    // Model selection state
-    @Published var modelSelection = ModelSelection()
-    
+
     // Service clients (lazy loaded)
-    private var ollamaClient: OllamaClient?
     private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
     private var mlxOnDeviceClient: MLXOnDeviceClient?
@@ -230,13 +201,9 @@ class SettingsManager: ObservableObject {
     private let keychain = Keychain()
 
     // Keychain keys for reinstall persistence
-    private let kcOllamaKey = "settings.ollamaConfig.v1"
     private let kcDoclingKey = "settings.doclingConfig.v1"
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
-
-    // Tracks whether model prefs were loaded from persisted storage
-    private var loadedModelPrefsFromStorage: Bool = false
     
     init() {
         loadSettings()
@@ -249,16 +216,6 @@ class SettingsManager: ObservableObject {
     // MARK: - Settings Persistence
 
     func loadSettings() {
-        // Load Ollama configuration
-        if let ollamaData = userDefaults.data(forKey: "ollamaConfig"),
-           let decoded = try? JSONDecoder().decode(ServerConfiguration.self, from: ollamaData) {
-            ollamaConfig = decoded
-        } else if let kcData = try? keychain.retrieve(for: kcOllamaKey),
-                  let decoded = try? JSONDecoder().decode(ServerConfiguration.self, from: kcData) {
-            // Fallback to Keychain on first run after reinstall
-            ollamaConfig = decoded
-        }
-        
         // Load Docling configuration
         if let doclingData = userDefaults.data(forKey: "doclingConfig"),
            let decoded = try? JSONDecoder().decode(ServerConfiguration.self, from: doclingData) {
@@ -298,25 +255,14 @@ class SettingsManager: ObservableObject {
         if let modelData = userDefaults.data(forKey: "modelPreferences"),
            let decoded = try? JSONDecoder().decode(ModelPreferences.self, from: modelData) {
             modelPreferences = decoded
-            loadedModelPrefsFromStorage = true
         } else if let kcData = try? keychain.retrieve(for: kcModelPrefsKey),
                   let decoded = try? JSONDecoder().decode(ModelPreferences.self, from: kcData) {
             modelPreferences = decoded
-            loadedModelPrefsFromStorage = true
-        } else {
-            loadedModelPrefsFromStorage = false
         }
 
     }
     
     func saveSettings() {
-        // Save Ollama configuration
-        if let encoded = try? JSONEncoder().encode(ollamaConfig) {
-            userDefaults.set(encoded, forKey: "ollamaConfig")
-            // Mirror to Keychain to survive app reinstalls
-            _ = try? keychain.store(data: encoded, for: kcOllamaKey)
-        }
-        
         // Save Docling configuration
         if let encoded = try? JSONEncoder().encode(doclingConfig) {
             userDefaults.set(encoded, forKey: "doclingConfig")
@@ -353,19 +299,7 @@ class SettingsManager: ObservableObject {
     }
     
     // MARK: - Connection Testing
-    
-    func testOllamaConnection() async {
-        ollamaStatus = .testing
-        
-        do {
-            let client = getOllamaClient()
-            let isConnected = try await client.testConnection()
-            ollamaStatus = isConnected ? .connected : .failed("Service unavailable")
-        } catch {
-            ollamaStatus = .failed(error.localizedDescription)
-        }
-    }
-    
+
     func testDoclingConnection() async {
         doclingStatus = .testing
         
@@ -380,18 +314,11 @@ class SettingsManager: ObservableObject {
     
     func testAllConnections() async {
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.testOllamaConnection() }
             group.addTask { await self.testDoclingConnection() }
         }
     }
     
     // MARK: - Service Client Management
-    
-    func getOllamaClient() -> OllamaClient {
-        // Always create new client to ensure we use the current configuration
-        ollamaClient = OllamaClient(hostname: ollamaConfig.hostname, port: ollamaConfig.port)
-        return ollamaClient!
-    }
 
     func getDoclingClient() -> DoclingClient {
         // Always create new client to ensure we use the current configuration
@@ -401,8 +328,6 @@ class SettingsManager: ObservableObject {
 
     func getAIClient() -> any AIProviderInterface {
         switch modelPreferences.aiProvider {
-        case .ollama:
-            return getOllamaClient()
         case .bedrock:
             return getBedrockClient()
         case .openAICompatible:
@@ -472,7 +397,6 @@ class SettingsManager: ObservableObject {
 
     // Force recreation of clients when configuration changes
     func invalidateClients() {
-        ollamaClient = nil
         doclingClient = nil
         openAICompatibleClient = nil
         mlxOnDeviceClient = nil
@@ -643,9 +567,7 @@ class SettingsManager: ObservableObject {
     // MARK: - Settings Reset
     
     func resetServerSettings() {
-        ollamaConfig = ServerConfigurationConstants.defaultOllamaConfig
         doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
-        ollamaStatus = .unknown
         doclingStatus = .unknown
         openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
         openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
@@ -684,124 +606,6 @@ class SettingsManager: ObservableObject {
         modelPreferences.lastUpdated = Date()
         openAICompatibleClient?.updateDefaultModel(model)
         saveSettings()
-    }
-    
-    // MARK: - Model Management
-    
-    func fetchAvailableModels() async {
-        modelSelection.isLoading = true
-        modelSelection.error = nil
-        
-        do {
-            let client = getOllamaClient()
-            // Ensure we have an active connection before listing models
-            if !client.isConnected {
-                do {
-                    _ = try await client.testConnection()
-                } catch {
-                    await MainActor.run {
-                        self.modelSelection.error = "Unable to connect to Ollama: \(error.localizedDescription)"
-                        self.modelSelection.isLoading = false
-                    }
-                    return
-                }
-            }
-            let models = try await client.getAvailableModels()
-            
-            await MainActor.run {
-                modelSelection.availableModels = models
-                modelSelection.lastFetchTime = Date()
-                modelSelection.isLoading = false
-
-                // Respect persisted selections; only auto-select on first run
-                if !loadedModelPrefsFromStorage {
-                    autoSelectDefaultModels()
-                }
-            }
-        } catch {
-            await MainActor.run {
-                modelSelection.error = error.localizedDescription
-                modelSelection.isLoading = false
-            }
-        }
-    }
-    
-    private func autoSelectDefaultModels() {
-        let visionModels = modelSelection.availableModels.filter { $0.supportsVision }
-        let allModels = modelSelection.availableModels
-        
-        // Auto-select chat model if current selection doesn't exist
-        // Chat models can be either text-only OR vision models (for multimodal conversations)
-        if !modelSelection.availableModels.contains(where: { $0.name == modelPreferences.chatModel }) {
-            if let selectedChatModel = selectBestAvailableModel(from: allModels, preferences: preferredChatModels) {
-                modelPreferences.chatModel = selectedChatModel.name
-            }
-        }
-        
-        // Auto-select vision model if current selection doesn't exist
-        if !modelSelection.availableModels.contains(where: { $0.name == modelPreferences.visionModel }) {
-            if let selectedVisionModel = selectBestAvailableModel(from: visionModels, preferences: preferredVisionModels) {
-                modelPreferences.visionModel = selectedVisionModel.name
-            }
-        }
-        
-        saveSettings()
-    }
-    
-    // MARK: - Model Selection Logic
-    
-    // Prioritized chat models (from legacy config + multimodal models)
-    private let preferredChatModels = [
-        "phi4-reasoning", // Prefix match
-        "magistral",      // Prefix match  
-        "qwen3:32b",
-        "qwen3:30b", 
-        "gemma3:27b",
-        "qwen3:14b"
-    ]
-    
-    // Prioritized vision models (from legacy config)
-    private let preferredVisionModels = [
-        "mistral-small3.2",     // Prefix match
-        "qwen2.5vl:72b",
-        "qwen2.5vl:32b", 
-        "qwen2.5vl:7b",
-        "gemma3:27b",
-        "gemma3:12b",
-        "llama3.2-vision:11b"
-    ]
-    
-    private func selectBestAvailableModel(from availableModels: [OllamaModel], preferences: [String]) -> OllamaModel? {
-        // First, try to find exact matches in preference order
-        for preferredName in preferences {
-            if let exactMatch = availableModels.first(where: { $0.name == preferredName }) {
-                return exactMatch
-            }
-        }
-        
-        // Then try prefix matches for models that support it
-        let prefixModels = ["phi4-reasoning", "magistral", "mistral-small3.2"]
-        for preferredPrefix in prefixModels {
-            if preferences.contains(preferredPrefix) {
-                if let prefixMatch = availableModels.first(where: { $0.name.lowercased().hasPrefix(preferredPrefix.lowercased()) }) {
-                    return prefixMatch
-                }
-            }
-        }
-        
-        // Finally, fall back to first available model if no preferences match
-        return availableModels.first
-    }
-    
-    func refreshModelsIfNeeded() async {
-        let cacheTimeout: TimeInterval = 300 // 5 minutes
-
-        if let lastFetch = modelSelection.lastFetchTime,
-           Date().timeIntervalSince(lastFetch) < cacheTimeout {
-            return // Cache is still valid
-        }
-
-        await fetchAvailableModels()
     }
 
     // MARK: - Backup Management
@@ -859,17 +663,12 @@ extension AppPreferences: Codable {}
 extension ModelPreferences: Codable {
     enum CodingKeys: String, CodingKey {
         case aiProvider
-        case chatModel
-        case visionModel
-        case documentModel
         case openAICompatibleModel
         case bedrockModel
         case documentProcessingMode
         case extractionProvider
-        case extractionOllamaModel
         case extractionOpenAIModel
         case extractionBedrockModel
-        case contextSizeLimit
         case lastUpdated
     }
 
@@ -877,10 +676,7 @@ extension ModelPreferences: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         // Decode with defaults for backwards compatibility
-        self.aiProvider = try container.decodeIfPresent(AIProvider.self, forKey: .aiProvider) ?? .ollama
-        self.chatModel = try container.decode(String.self, forKey: .chatModel)
-        self.visionModel = try container.decode(String.self, forKey: .visionModel)
-        self.documentModel = try container.decode(String.self, forKey: .documentModel)
+        self.aiProvider = try container.decodeIfPresent(AIProvider.self, forKey: .aiProvider) ?? .onDeviceLLM
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
 
@@ -888,22 +684,17 @@ extension ModelPreferences: Codable {
         self.documentProcessingMode = try container.decodeIfPresent(DocumentProcessingMode.self, forKey: .documentProcessingMode) ?? .onDevice
 
         // Extraction Settings
-        self.extractionProvider = try container.decodeIfPresent(AIProvider.self, forKey: .extractionProvider) ?? .ollama
-        self.extractionOllamaModel = try container.decodeIfPresent(String.self, forKey: .extractionOllamaModel) ?? "llama3.2"
+        self.extractionProvider = try container.decodeIfPresent(AIProvider.self, forKey: .extractionProvider) ?? .onDeviceLLM
         self.extractionOpenAIModel = try container.decodeIfPresent(String.self, forKey: .extractionOpenAIModel) ?? ""
         self.extractionBedrockModel = try container.decodeIfPresent(String.self, forKey: .extractionBedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
 
-        self.contextSizeLimit = try container.decodeIfPresent(Int.self, forKey: .contextSizeLimit) ?? 16384
-        self.lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
+        self.lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(aiProvider, forKey: .aiProvider)
-        try container.encode(chatModel, forKey: .chatModel)
-        try container.encode(visionModel, forKey: .visionModel)
-        try container.encode(documentModel, forKey: .documentModel)
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
 
@@ -912,11 +703,9 @@ extension ModelPreferences: Codable {
 
         // Extraction Settings
         try container.encode(extractionProvider, forKey: .extractionProvider)
-        try container.encode(extractionOllamaModel, forKey: .extractionOllamaModel)
         try container.encode(extractionOpenAIModel, forKey: .extractionOpenAIModel)
         try container.encode(extractionBedrockModel, forKey: .extractionBedrockModel)
 
-        try container.encode(contextSizeLimit, forKey: .contextSizeLimit)
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }
 }
@@ -924,7 +713,7 @@ extension AIProvider: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
-        self = AIProvider(rawValue: rawValue) ?? .ollama
+        self = AIProvider(rawValue: rawValue) ?? .onDeviceLLM
     }
 
     func encode(to encoder: Encoder) throws {

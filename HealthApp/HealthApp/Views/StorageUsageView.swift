@@ -37,7 +37,7 @@ struct StorageUsageView: View {
                     StorageRowView(
                         title: "Total Used",
                         size: storageInfo.totalSize,
-                        color: .blue,
+                        color: BisonTheme.gold,
                         isTotal: true
                     )
                 }
@@ -106,7 +106,7 @@ struct StorageUsageView: View {
                     Button("Optimize Storage") {
                         optimizeStorage()
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 }
             }
         }

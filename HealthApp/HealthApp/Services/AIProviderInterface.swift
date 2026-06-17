@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 protocol AIProviderInterface: ObservableObject {
     var isConnected: Bool { get }
-    var connectionStatus: OllamaConnectionStatus { get }
+    var connectionStatus: ProviderConnectionStatus { get }
     var lastError: Error? { get }
     
     func testConnection() async throws -> Bool
@@ -57,6 +57,26 @@ struct AIProviderConfig {
     }
 }
 
+// MARK: - Authentication
+
+struct AuthCredentials {
+    let apiKey: String?
+    let username: String?
+    let password: String?
+    let token: String?
+
+    init(
+        apiKey: String? = nil,
+        username: String? = nil,
+        password: String? = nil,
+        token: String? = nil
+    ) {
+        self.apiKey = apiKey
+        self.username = username
+        self.password = password
+        self.token = token
+    }
+}
 
 
 // MARK: - Future AI Provider Implementations
@@ -69,7 +89,7 @@ struct AIProviderConfig {
 // MARK: - Example Future Provider (Placeholder)
 class OpenAIProvider: AIProviderInterface {
     @Published var isConnected = false
-    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var connectionStatus: ProviderConnectionStatus = .disconnected
     @Published var lastError: Error?
     
     private let apiKey: String
@@ -102,7 +122,7 @@ class OpenAIProvider: AIProviderInterface {
 
 class AnthropicProvider: AIProviderInterface {
     @Published var isConnected = false
-    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var connectionStatus: ProviderConnectionStatus = .disconnected
     @Published var lastError: Error?
     
     private let apiKey: String
@@ -136,7 +156,6 @@ class AnthropicProvider: AIProviderInterface {
 // MARK: - AI Provider Factory
 class AIProviderFactory {
     enum ProviderType {
-        case ollama
         case openai
         case anthropic
         case bedrock
@@ -149,8 +168,6 @@ class AIProviderFactory {
         config: AIProviderConfig
     ) -> any AIProviderInterface {
         switch type {
-        case .ollama:
-            return OllamaClient(hostname: config.hostname, port: config.port)
         case .openai:
             return OpenAIProvider(apiKey: config.apiKey ?? "")
         case .anthropic:

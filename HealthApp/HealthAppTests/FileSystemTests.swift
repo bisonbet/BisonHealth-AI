@@ -2,6 +2,7 @@ import XCTest
 import UIKit
 @testable import HealthApp
 
+@MainActor
 final class FileSystemTests: XCTestCase {
     var fileSystemManager: FileSystemManager!
     var testDocumentData: Data!
@@ -301,6 +302,7 @@ final class FileSystemTests: XCTestCase {
 }
 
 // MARK: - Document Importer Tests
+@MainActor
 final class DocumentImporterTests: XCTestCase {
     var documentImporter: DocumentImporter!
     var fileSystemManager: FileSystemManager!
@@ -362,6 +364,7 @@ final class DocumentImporterTests: XCTestCase {
 }
 
 // MARK: - Document Exporter Tests
+@MainActor
 final class DocumentExporterTests: XCTestCase {
     var documentExporter: DocumentExporter!
     var fileSystemManager: FileSystemManager!

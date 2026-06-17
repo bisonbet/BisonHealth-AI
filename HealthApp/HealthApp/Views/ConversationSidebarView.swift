@@ -35,6 +35,8 @@ struct ConversationSidebarView: View {
                             .font(.title3)
                     }
                     .buttonStyle(.borderless)
+                    .keyboardShortcut("n", modifiers: [.command])
+                    .hoverEffect(.highlight)
                 }
                 
                 // Search bar optimized for iPad
@@ -55,7 +57,7 @@ struct ConversationSidebarView: View {
                             searchText = ""
                         }
                         .font(.caption)
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -175,13 +177,13 @@ struct ConversationSidebarRowView: View {
                             ForEach(Array(conversation.includedHealthDataTypes).prefix(3), id: \.self) { dataType in
                                 Image(systemName: dataType.icon)
                                     .font(.caption2)
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(BisonTheme.gold)
                             }
                             
                             if conversation.includedHealthDataTypes.count > 3 {
                                 Text("+\(conversation.includedHealthDataTypes.count - 3)")
                                     .font(.caption2)
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(BisonTheme.gold)
                             }
                         }
                     }
@@ -194,17 +196,18 @@ struct ConversationSidebarRowView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+                .fill(isSelected ? BisonTheme.gold.opacity(0.1) : Color.clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1)
+                .stroke(isSelected ? BisonTheme.gold : Color.clear, lineWidth: 1)
         )
         .contextMenu {
             Button("Delete Conversation", systemImage: "trash", role: .destructive) {
                 showingDeleteAlert = true
             }
         }
+        .hoverEffect(.highlight)
         .alert("Delete Conversation", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {

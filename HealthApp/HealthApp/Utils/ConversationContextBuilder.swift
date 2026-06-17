@@ -18,11 +18,6 @@ enum AIProviderContextLimits {
         MLXModelInfo.configuredContextSize
     }
 
-    /// Ollama - configurable, uses SettingsManager value (default 16k)
-    static var ollama: Int {
-        SettingsManager.shared.modelPreferences.contextSizeLimit
-    }
-
     /// OpenAI Compatible servers - uses configured context size (default 32k)
     static var openAICompatible: Int {
         SettingsManager.shared.openAICompatibleContextSize
@@ -34,8 +29,6 @@ enum AIProviderContextLimits {
     /// Get limit for a specific provider
     static func limit(for provider: AIProvider) -> Int {
         switch provider {
-        case .ollama:
-            return ollama
         case .openAICompatible:
             return openAICompatible
         case .bedrock:
@@ -208,7 +201,7 @@ struct ConversationContextBuilder {
         return lines.joined(separator: "\n")
     }
 
-    /// Format for providers that use message arrays (Ollama, OpenAI)
+    /// Format for providers that use message arrays
     static func formatHistoryAsMessages(_ messages: [ChatMessage]) -> [(role: String, content: String)] {
         return messages.map { msg in
             (role: msg.role.rawValue, content: msg.content)

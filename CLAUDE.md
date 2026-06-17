@@ -8,7 +8,7 @@
 - **Language**: Swift 5.9+ with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
 - **Database**: SQLite with CryptoKit encryption (current version: 6)
-- **AI Providers**: Ollama (local), AWS Bedrock (cloud), OpenAI-compatible
+- **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: Docling OCR service
 - **Privacy**: Local-first, optional encrypted iCloud backup
 
@@ -94,23 +94,13 @@ class AIChatManager: ObservableObject {
 
 ### 1. Build Commands
 
-⚠️ **NEVER run `xcodebuild` unless user explicitly requests it**
-
-**DO NOT build**:
-- After making code changes
-- To verify changes
-- Proactively
-- To check for errors
-
-**ONLY build when user says**: "build the project", "run a build", "compile"
-
 ```bash
-# iPhone build (when requested)
+# iPhone build
 cd HealthApp
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.6' clean build
 
-# iPad build (when requested)
+# iPad build
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
   -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=18.6' clean build
 ```
@@ -270,7 +260,7 @@ enum BloodTestCategory: String, Codable {
 
 | Service | Purpose | Default Endpoint |
 |---------|---------|------------------|
-| `OllamaClient` | Local AI chat | `localhost:11434` |
+| `MLXOnDeviceClient` | On-device AI chat | N/A (local model) |
 | `BedrockClient` | AWS Bedrock AI | AWS region-based |
 | `OpenAICompatibleClient` | OpenAI-compatible servers | User-configured |
 | `DoclingClient` | Document OCR | `localhost:5001` |
@@ -361,11 +351,10 @@ struct NewAIProviderSettingsView: View { }
 
 ## External Services
 
-### Ollama (Local AI)
-- **Default**: `localhost:11434`
-- **Models**: User-configurable (llama3.2, mistral, etc.)
-- **Features**: Chat, streaming, model management
-- **Integration**: `OllamaClient.swift`
+### On-Device LLM
+- **Default**: User-selected downloaded model
+- **Features**: Chat and streaming without a remote AI server
+- **Integration**: `MLXOnDeviceClient.swift`
 
 ### AWS Bedrock (Cloud AI)
 - **Models**: Claude Sonnet 4, Llama 4 Maverick
@@ -481,13 +470,10 @@ Emoji prefixes for filtering:
 ### Swift Packages (30+)
 
 **External**:
-- SQLite.swift (0.15.4) - Type-safe SQLite
-- ollama-swift (main) - Ollama integration
-- aws-sdk-swift (1.5.42) - AWS Bedrock
-- swift-markdown-ui (main) - Markdown rendering
-- grpc-swift (1.26.1) - gRPC communication
-- swift-crypto (3.15.0) - Encryption
-- swift-nio (2.86.0) - Network I/O
+- SQLite.swift - Type-safe SQLite
+- aws-sdk-swift - AWS Bedrock
+- textual - Text extraction
+- mlx-swift-lm - On-device LLM support
 
 **Built-in Frameworks**:
 - CryptoKit, VisionKit, PhotosUI, HealthKit, CloudKit, Combine, PDFKit
@@ -502,7 +488,6 @@ Emoji prefixes for filtering:
 - `AGENTS.md` - AI agent guidelines
 - `MEDICAL_DOCUMENTS_IMPLEMENTATION.md` - Document processing
 - `DOCLING_FORMATS_EXPLANATION.md` - Docling API reference
-- `OLLAMA_SWIFT_INTEGRATION.md` - Ollama integration guide
 
 ---
 

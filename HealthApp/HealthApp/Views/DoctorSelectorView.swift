@@ -21,7 +21,7 @@ struct DoctorSelectorView: View {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                     
                     Spacer()
                     
@@ -38,7 +38,7 @@ struct DoctorSelectorView: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -80,7 +80,7 @@ struct DoctorRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                         .font(.title2)
                 }
             }

@@ -120,7 +120,7 @@ struct SearchableDropdownWithAddNew: View {
                                     Spacer()
                                     if selectedValue == item {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(BisonTheme.gold)
                                     }
                                 }
                                 .padding(.horizontal, 12)
@@ -190,7 +190,7 @@ struct TestTypeDropdown: View {
                                         Spacer()
                                         if selectedTest?.id == test.id {
                                             Image(systemName: "checkmark")
-                                                .foregroundColor(.blue)
+                                                .foregroundColor(BisonTheme.gold)
                                         }
                                     }
 
@@ -270,7 +270,7 @@ struct UnitDropdown: View {
                                     Spacer()
                                     if selectedUnit == unit {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(BisonTheme.gold)
                                     }
                                 }
                                 .padding(.horizontal, 12)
@@ -390,8 +390,8 @@ struct BloodTestEntryView: View {
                     .font(.subheadline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.1))
-                    .foregroundColor(.blue)
+                    .background(BisonTheme.gold.opacity(0.1))
+                    .foregroundColor(BisonTheme.gold)
                     .cornerRadius(8)
                     .accessibilityIdentifier("bloodTest.addResultButton")
                     

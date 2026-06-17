@@ -116,7 +116,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Published Properties
     @Published var isConnected = false
-    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var connectionStatus: ProviderConnectionStatus = .disconnected
     @Published var lastError: Error?
     @Published var config: AWSBedrockConfig
 
@@ -405,7 +405,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                         }
                     }
 
-                case .sdkUnknown(let unknown):
+                case .sdkUnknown(_):
                     AppLog.shared.ai("Unknown stream event type received", level: .warning)
                 }
             }

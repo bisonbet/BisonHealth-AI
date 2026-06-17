@@ -88,7 +88,7 @@ struct SearchableDropdownWithAddNew: View {
                                         Spacer()
                                         if selectedValue == item {
                                             Image(systemName: "checkmark")
-                                                .foregroundColor(.blue)
+                                                .foregroundColor(BisonTheme.gold)
                                         }
                                     }
                                     .padding(.horizontal, 12)
@@ -107,9 +107,9 @@ struct SearchableDropdownWithAddNew: View {
                             }) {
                                 HStack {
                                     Image(systemName: "plus.circle")
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(BisonTheme.gold)
                                     Text("Add New \(title)")
-                                        .foregroundColor(.blue)
+                                        .foregroundColor(BisonTheme.gold)
                                     Spacer()
                                 }
                                 .padding(.horizontal, 12)
@@ -232,7 +232,7 @@ struct TestTypeDropdown: View {
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(selectedCategory == nil ? Color.blue : Color(.systemGray5))
+                                .background(selectedCategory == nil ? BisonTheme.gold : Color(.systemGray5))
                                 .foregroundColor(selectedCategory == nil ? .white : .primary)
                                 .cornerRadius(16)
 
@@ -242,7 +242,7 @@ struct TestTypeDropdown: View {
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(selectedCategory == category ? Color.blue : Color(.systemGray5))
+                                    .background(selectedCategory == category ? BisonTheme.gold : Color(.systemGray5))
                                     .foregroundColor(selectedCategory == category ? .white : .primary)
                                     .cornerRadius(16)
                                 }
@@ -291,7 +291,7 @@ struct TestTypeDropdown: View {
 
                                                 if selectedTest?.id == test.id {
                                                     Image(systemName: "checkmark")
-                                                        .foregroundColor(.blue)
+                                                        .foregroundColor(BisonTheme.gold)
                                                 }
                                             }
                                         }
@@ -374,7 +374,7 @@ struct UnitDropdown: View {
                                     Spacer()
                                     if selectedUnit == unit {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(BisonTheme.gold)
                                     }
                                 }
                                 .padding(.horizontal, 12)

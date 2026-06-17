@@ -167,7 +167,7 @@ struct BloodTestImportReviewView: View {
         return HStack(spacing: 12) {
             // Selection indicator
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isSelected ? .blue : .gray)
+                .foregroundColor(isSelected ? BisonTheme.gold : .gray)
                 .font(.title3)
             
             VStack(alignment: .leading, spacing: 4) {
@@ -188,7 +188,7 @@ struct BloodTestImportReviewView: View {
                             .font(.caption2)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.1))
+                            .background(BisonTheme.gold.opacity(0.1))
                             .cornerRadius(4)
                     }
                 }
@@ -224,11 +224,11 @@ struct BloodTestImportReviewView: View {
         .padding(.horizontal, 12)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+                .fill(isSelected ? BisonTheme.gold.opacity(0.1) : Color.clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                .stroke(isSelected ? BisonTheme.gold : Color.clear, lineWidth: 2)
         )
         .contentShape(Rectangle())
         .clipped()

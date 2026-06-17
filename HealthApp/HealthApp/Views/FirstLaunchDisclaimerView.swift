@@ -27,7 +27,7 @@ struct FirstLaunchDisclaimerView: View {
                         disclaimerCard(
                             title: "Personal Use Only",
                             icon: "person.fill",
-                            color: .blue,
+                            color: BisonTheme.gold,
                             content: "BisonHealth AI is designed exclusively for individual, personal health tracking and management."
                         )
                         
@@ -54,7 +54,7 @@ struct FirstLaunchDisclaimerView: View {
                                     .fontWeight(.medium)
                                 Image(systemName: "chevron.right")
                             }
-                            .foregroundColor(.blue)
+                            .foregroundColor(BisonTheme.gold)
                         }
                         
                         Text("By using this app, you acknowledge that you have read, understood, and agree to these terms.")
@@ -83,7 +83,7 @@ struct FirstLaunchDisclaimerView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.blue)
+                            .background(BisonTheme.gold)
                             .cornerRadius(12)
                     }
                     
@@ -242,7 +242,7 @@ struct DetailedDisclaimerView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundColor(.blue)
+                .foregroundColor(BisonTheme.gold)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 4) {

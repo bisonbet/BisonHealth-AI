@@ -9,7 +9,7 @@ struct HealthDataContextSelector: View {
     @State private var localSelection: Set<HealthDataType>
     
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
     
     init(selectedTypes: Binding<Set<HealthDataType>>, onSave: @escaping (Set<HealthDataType>) -> Void) {
@@ -26,7 +26,7 @@ struct HealthDataContextSelector: View {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                     
                     Spacer()
                     
@@ -41,7 +41,7 @@ struct HealthDataContextSelector: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -127,7 +127,7 @@ struct HealthDataTypeRow: View {
         Button(action: onToggle) {
             HStack {
                 Image(systemName: dataType.icon)
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                     .frame(width: 24)
                 
                 VStack(alignment: .leading, spacing: 2) {
@@ -144,7 +144,7 @@ struct HealthDataTypeRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                 } else {
                     Image(systemName: "circle")
                         .foregroundColor(.secondary)
@@ -179,7 +179,7 @@ struct HealthDataTypeCard: View {
                 VStack(spacing: 8) {
                     Image(systemName: dataType.icon)
                         .font(.system(size: 32))
-                        .foregroundColor(isSelected ? .white : .blue)
+                        .foregroundColor(isSelected ? .white : BisonTheme.gold)
                     
                     Text(dataType.displayName)
                         .font(.headline)
@@ -205,11 +205,11 @@ struct HealthDataTypeCard: View {
             .frame(maxWidth: .infinity, minHeight: 160)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? Color.blue : Color(.systemGray6))
+                    .fill(isSelected ? BisonTheme.gold : Color(.systemGray6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? BisonTheme.gold : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)
@@ -253,7 +253,7 @@ struct ContextSizeIndicator: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "info.circle")
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 
                 Text("Context Size Estimate")
                     .font(.headline)
@@ -326,7 +326,7 @@ enum ContextSize {
         case .small:
             return .green
         case .medium:
-            return .blue
+            return BisonTheme.gold
         case .large:
             return .orange
         case .extraLarge:

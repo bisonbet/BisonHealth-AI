@@ -1,5 +1,84 @@
 import SwiftUI
 
+// MARK: - Bison App Theme
+
+struct BisonTheme {
+    static var charcoal: Color {
+        Color.adaptive(
+            light: Color(red: 0.12, green: 0.11, blue: 0.10),
+            dark: Color(red: 0.91, green: 0.88, blue: 0.82)
+        )
+    }
+
+    static var inkOnGold: Color {
+        Color(red: 0.12, green: 0.11, blue: 0.10)
+    }
+
+    static var hideBrown: Color {
+        Color.adaptive(
+            light: Color(red: 0.48, green: 0.29, blue: 0.16),
+            dark: Color(red: 0.76, green: 0.51, blue: 0.30)
+        )
+    }
+
+    static var gold: Color {
+        Color.adaptive(
+            light: Color(red: 0.78, green: 0.55, blue: 0.16),
+            dark: Color(red: 0.93, green: 0.70, blue: 0.28)
+        )
+    }
+
+    static var sage: Color {
+        Color.adaptive(
+            light: Color(red: 0.23, green: 0.47, blue: 0.39),
+            dark: Color(red: 0.45, green: 0.69, blue: 0.58)
+        )
+    }
+
+    static var steel: Color {
+        Color.adaptive(
+            light: Color(red: 0.30, green: 0.38, blue: 0.43),
+            dark: Color(red: 0.61, green: 0.70, blue: 0.74)
+        )
+    }
+
+    static var appBackground: Color {
+        Color.adaptive(
+            light: Color(red: 0.97, green: 0.97, blue: 0.95),
+            dark: Color(red: 0.07, green: 0.07, blue: 0.07)
+        )
+    }
+
+    static var sidebarBackground: Color {
+        Color.adaptive(
+            light: Color(red: 0.94, green: 0.93, blue: 0.90),
+            dark: Color(red: 0.10, green: 0.09, blue: 0.08)
+        )
+    }
+
+    static var panelBackground: Color {
+        Color.adaptive(
+            light: Color.white,
+            dark: Color(red: 0.15, green: 0.14, blue: 0.13)
+        )
+    }
+
+    static var selectedSidebarItem: Color {
+        Color.adaptive(
+            light: Color.white.opacity(0.92),
+            dark: Color(red: 0.19, green: 0.17, blue: 0.14)
+        )
+    }
+
+    static var primaryText: Color {
+        Color.primary
+    }
+
+    static var secondaryText: Color {
+        Color.secondary
+    }
+}
+
 // MARK: - Accessibility Color System
 
 /// Provides accessibility-friendly colors with proper contrast for both light and dark modes
@@ -9,7 +88,7 @@ struct AccessibilityColors {
     
     /// Primary accent color with high contrast
     static var primary: Color {
-        Color.accentColor
+        BisonTheme.gold
     }
     
     /// Primary text color with high contrast
@@ -26,7 +105,7 @@ struct AccessibilityColors {
     
     /// Success color with high contrast
     static var success: Color {
-        Color.adaptive(light: .green, dark: .green)
+        BisonTheme.sage
     }
     
     /// Error color with high contrast
@@ -36,24 +115,24 @@ struct AccessibilityColors {
     
     /// Warning color with high contrast
     static var warning: Color {
-        Color.adaptive(light: .orange, dark: Color(red: 1.0, green: 0.6, blue: 0.0))
+        BisonTheme.gold
     }
     
     /// Info color with high contrast
     static var info: Color {
-        Color.adaptive(light: .blue, dark: Color(red: 0.3, green: 0.6, blue: 1.0))
+        BisonTheme.steel
     }
     
     // MARK: - Background Colors
     
     /// Primary background color
     static var background: Color {
-        Color(.systemBackground)
+        BisonTheme.appBackground
     }
     
     /// Secondary background color (for cards, etc.)
     static var secondaryBackground: Color {
-        Color(.secondarySystemBackground)
+        BisonTheme.panelBackground
     }
     
     /// Tertiary background color
@@ -63,7 +142,7 @@ struct AccessibilityColors {
     
     /// Grouped background color
     static var groupedBackground: Color {
-        Color(.systemGroupedBackground)
+        BisonTheme.appBackground
     }
     
     // MARK: - Border Colors
@@ -82,12 +161,12 @@ struct AccessibilityColors {
     
     /// Button background color with high contrast
     static var buttonBackground: Color {
-        Color.accentColor
+        BisonTheme.gold
     }
     
     /// Button text color with high contrast
     static var buttonText: Color {
-        Color.white
+        BisonTheme.inkOnGold
     }
     
     /// Disabled button background
@@ -114,7 +193,7 @@ struct AccessibilityColors {
     
     /// Processing status color
     static var processing: Color {
-        info
+        BisonTheme.gold
     }
     
     /// Pending status color
@@ -156,4 +235,3 @@ extension View {
         self.background(color)
     }
 }
-

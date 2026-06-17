@@ -1,16 +1,29 @@
 import SwiftUI
 
 struct DocumentsEmptyStateView: View {
+    let supportsDocumentScanning: Bool
     let onScanDocument: () -> Void
     let onImportFile: () -> Void
     let onImportPhotos: () -> Void
+
+    init(
+        supportsDocumentScanning: Bool = PlatformCapabilities.supportsDocumentScanning,
+        onScanDocument: @escaping () -> Void,
+        onImportFile: @escaping () -> Void,
+        onImportPhotos: @escaping () -> Void
+    ) {
+        self.supportsDocumentScanning = supportsDocumentScanning
+        self.onScanDocument = onScanDocument
+        self.onImportFile = onImportFile
+        self.onImportPhotos = onImportPhotos
+    }
     
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 16) {
                 Image(systemName: "doc.badge.plus")
                     .font(.system(size: 60))
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 
                 VStack(spacing: 8) {
                     Text("No Documents")
@@ -25,13 +38,15 @@ struct DocumentsEmptyStateView: View {
             }
             
             VStack(spacing: 12) {
-                ImportOptionButton(
-                    title: "Scan Document",
-                    subtitle: "Use camera to scan papers",
-                    icon: "camera.viewfinder",
-                    color: .blue,
-                    action: onScanDocument
-                )
+                if supportsDocumentScanning {
+                    ImportOptionButton(
+                        title: "Scan Document",
+                        subtitle: "Use camera to scan papers",
+                        icon: "camera.viewfinder",
+                        color: BisonTheme.gold,
+                        action: onScanDocument
+                    )
+                }
                 
                 ImportOptionButton(
                     title: "Import File",
@@ -92,6 +107,7 @@ struct ImportOptionButton: View {
             .cornerRadius(12)
         }
         .buttonStyle(PlainButtonStyle())
+        .hoverEffect(.highlight)
     }
 }
 

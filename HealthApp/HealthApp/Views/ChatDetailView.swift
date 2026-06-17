@@ -163,7 +163,7 @@ struct ChatDetailView: View {
                 }
             }
             .font(.caption)
-            .foregroundColor(.blue)
+            .foregroundColor(BisonTheme.gold)
 
             Button(action: {
                 showingDoctorSelector = true
@@ -174,7 +174,7 @@ struct ChatDetailView: View {
                 }
             }
             .font(.caption)
-            .foregroundColor(.blue)
+            .foregroundColor(BisonTheme.gold)
             .padding(.leading, 8)
             
             Spacer()
@@ -266,16 +266,19 @@ struct ChatDetailView: View {
         Button("Conversation Settings", systemImage: "gear") {
             showingConversationSettings = true
         }
+        .keyboardShortcut(",", modifiers: [.command])
 
         Button("Health Data", systemImage: "heart.text.square") {
             showingAIDocumentSelector = true
         }
+        .keyboardShortcut("h", modifiers: [.command, .shift])
 
         Divider()
 
         Button("Export Conversation", systemImage: "square.and.arrow.up") {
             showingExportOptions = true
         }
+        .keyboardShortcut("e", modifiers: [.command])
 
         Button("Clear Messages", systemImage: "trash", role: .destructive) {
             showingClearConfirmation = true
@@ -292,7 +295,7 @@ struct ContextIndicatorView: View {
             HStack(spacing: 8) {
                 Image(systemName: "heart.text.square")
                     .font(.caption)
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
 
                 Text("Sharing:")
                     .font(.caption)
@@ -304,15 +307,15 @@ struct ContextIndicatorView: View {
                             .font(.caption2)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.1))
-                            .foregroundColor(.blue)
+                            .background(BisonTheme.gold.opacity(0.1))
+                            .foregroundColor(BisonTheme.gold)
                             .cornerRadius(4)
                     }
 
                     if includedTypes.count > 4 {
                         Text("+\(includedTypes.count - 4)")
                             .font(.caption2)
-                            .foregroundColor(.blue)
+                            .foregroundColor(BisonTheme.gold)
                     }
                 }
             }
@@ -323,7 +326,7 @@ struct ContextIndicatorView: View {
                 onEditContext()
             }
             .font(.caption)
-            .foregroundColor(.blue)
+            .foregroundColor(BisonTheme.gold)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -421,16 +424,16 @@ struct EnhancedMessageBubbleView: View, Equatable {
         } else if message.status == .retrying {
             return Color.orange
         } else if message.status == .sending {
-            return Color.blue.opacity(0.7)
+            return BisonTheme.gold.opacity(0.7)
         }
-        return Color.blue
+        return BisonTheme.gold
     }
 
     private func statusColor(for status: MessageStatus) -> Color {
         switch status {
         case .sent: return .green
         case .pending: return .gray
-        case .sending: return .blue
+        case .sending: return BisonTheme.gold
         case .failed: return .red
         case .retrying: return .orange
         }
@@ -609,7 +612,7 @@ struct EnhancedMessageInputView: View {
                     Button(action: onContextTap) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.title3)
-                            .foregroundColor(.blue)
+                            .foregroundColor(BisonTheme.gold)
                     }
                     .buttonStyle(.borderless)
                 }
@@ -647,7 +650,7 @@ struct EnhancedMessageInputView: View {
                 }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(canSend ? .blue : .secondary)
+                        .foregroundColor(canSend ? BisonTheme.gold : .secondary)
                 }
                 .accessibilityIdentifier("chat.sendButton")
                 .disabled(!canSend)
@@ -747,8 +750,6 @@ struct ConversationSettingsView: View {
     private var currentModelDisplayName: String {
         let prefs = settingsManager.modelPreferences
         switch prefs.aiProvider {
-        case .ollama:
-            return prefs.chatModel
         case .bedrock:
             return prefs.bedrockModel
         case .openAICompatible:
@@ -861,7 +862,7 @@ struct ConversationExportView: View {
                     ForEach(ExportFormat.allCases, id: \.self) { format in
                         HStack {
                             Image(systemName: format.icon)
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                                 .frame(width: 30)
 
                             VStack(alignment: .leading, spacing: 4) {
@@ -876,7 +877,7 @@ struct ConversationExportView: View {
 
                             if selectedFormat == format {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(BisonTheme.gold)
                             }
                         }
                         .contentShape(Rectangle())

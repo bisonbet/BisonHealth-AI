@@ -9,7 +9,7 @@ struct MessageInputView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
     
     var body: some View {
@@ -48,7 +48,7 @@ struct MessageInputView: View {
                 }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(canSend ? .blue : .secondary)
+                        .foregroundColor(canSend ? BisonTheme.gold : .secondary)
                 }
                 .disabled(!canSend)
                 .keyboardShortcut(.return, modifiers: isIPad ? [.command] : [])

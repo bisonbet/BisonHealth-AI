@@ -42,7 +42,7 @@ struct DocumentRowView: View {
             if isEditing {
                 Button(action: onToggleSelection) {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(isSelected ? .blue : .secondary)
+                        .foregroundColor(isSelected ? BisonTheme.gold : .secondary)
                         .font(.title3)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -124,6 +124,7 @@ struct DocumentRowView: View {
                 }
             }
         }
+        .hoverEffect(.highlight)
         .accessibilityLabel("Document: \(document.fileName)")
         .accessibilityValue("Status: \(document.processingStatus.displayName), Size: \(document.formattedFileSize)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -143,7 +144,7 @@ struct DocumentThumbnailView: View {
             } else {
                 Image(systemName: document.fileType.icon)
                     .font(.title2)
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
             }
         }
         .frame(width: 50, height: 50)
@@ -177,7 +178,7 @@ struct ProcessingStatusBadge: View {
         case .pending:
             return .orange
         case .processing:
-            return .blue
+            return BisonTheme.gold
         case .completed:
             return .green
         case .failed:

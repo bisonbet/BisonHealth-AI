@@ -55,7 +55,7 @@ struct MessageBubbleView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
     
     private var markdownContentView: some View {
@@ -84,7 +84,7 @@ struct MessageBubbleView: View {
                     Text(message.content)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(Color.blue)
+                        .background(BisonTheme.gold)
                         .foregroundColor(.white)
                         .cornerRadius(18)
                         .textSelection(.enabled)
@@ -223,7 +223,7 @@ struct StreamingIndicatorView: View {
         HStack(spacing: 4) {
             ForEach(0..<3) { index in
                 Circle()
-                    .fill(Color.blue)
+                    .fill(BisonTheme.gold)
                     .frame(width: 6, height: 6)
                     .scaleEffect(isAnimating ? 1.2 : 0.8)
                     .animation(

@@ -246,13 +246,13 @@ struct BackupManagementView: View {
                     .foregroundColor(.secondary)
             case .idle:
                 Image(systemName: "icloud")
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
             case .backingUp:
                 Image(systemName: "icloud.and.arrow.up")
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
             case .restoring:
                 Image(systemName: "icloud.and.arrow.down")
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
             case .completed:
                 Image(systemName: "checkmark.icloud")
                     .foregroundColor(.green)

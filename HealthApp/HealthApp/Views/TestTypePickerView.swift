@@ -145,7 +145,7 @@ struct TestTypeRow: View {
 
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                                 .font(.title3)
                         }
                     }
@@ -258,10 +258,10 @@ struct AlphabeticalIndexView: View {
                         Text(letter)
                             .font(.caption2)
                             .fontWeight(.medium)
-                            .foregroundColor(availableLetters.contains(letter) ? .blue : .gray)
+                            .foregroundColor(availableLetters.contains(letter) ? BisonTheme.gold : .gray)
                             .frame(width: 20, height: geometry.size.height / CGFloat(alphabetLetters.count))
                             .background(
-                                selectedLetter == letter ? Color.blue.opacity(0.2) : Color.clear
+                                selectedLetter == letter ? BisonTheme.gold.opacity(0.2) : Color.clear
                             )
                             .cornerRadius(4)
                     }

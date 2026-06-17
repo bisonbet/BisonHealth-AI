@@ -63,7 +63,7 @@ struct DocumentFilterView: View {
                             FilterOptionRow(
                                 title: type.displayName,
                                 icon: type.icon,
-                                color: .blue,
+                                color: BisonTheme.gold,
                                 isSelected: documentManager.filterType == type,
                                 count: documentManager.documents.filter { $0.fileType == type }.count
                             ) {
@@ -104,12 +104,12 @@ struct DocumentFilterView: View {
                     Button("Clear All Filters") {
                         documentManager.clearAllFilters()
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                     
                     Button("Select All Visible") {
                         documentManager.selectAllDocuments()
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(BisonTheme.gold)
                 }
             }
             .navigationTitle("Filter & Sort")
@@ -162,7 +162,7 @@ struct FilterOptionRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                         .font(.caption)
                 }
             }
@@ -187,7 +187,7 @@ struct SortOptionRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                         .font(.caption)
                 }
             }
@@ -207,7 +207,7 @@ extension ProcessingStatus {
         case .queued:
             return .gray
         case .processing:
-            return .blue
+            return BisonTheme.gold
         case .completed:
             return .green
         case .failed:

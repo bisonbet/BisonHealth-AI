@@ -470,7 +470,6 @@ class iCloudBackupManager: ObservableObject {
             backupSettings: settingsManager.backupSettings,
             appPreferences: settingsManager.appPreferences,
             modelPreferences: settingsManager.modelPreferences,
-            ollamaConfig: settingsManager.ollamaConfig,
             doclingConfig: settingsManager.doclingConfig
         )
 
@@ -675,7 +674,6 @@ class iCloudBackupManager: ObservableObject {
         settingsManager?.backupSettings = settingsData.backupSettings
         settingsManager?.appPreferences = settingsData.appPreferences
         settingsManager?.modelPreferences = settingsData.modelPreferences
-        settingsManager?.ollamaConfig = settingsData.ollamaConfig
         settingsManager?.doclingConfig = settingsData.doclingConfig
 
         settingsManager?.saveSettings()
@@ -1084,6 +1082,5 @@ private struct AppSettingsBackup: Codable {
     let backupSettings: BackupSettings
     let appPreferences: AppPreferences
     let modelPreferences: ModelPreferences
-    let ollamaConfig: ServerConfiguration
     let doclingConfig: ServerConfiguration
 }

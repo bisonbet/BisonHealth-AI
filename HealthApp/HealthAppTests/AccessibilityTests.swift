@@ -137,7 +137,7 @@ final class AccessibilityTests: XCTestCase {
     // MARK: - Accessibility Traits Tests
     
     func testAccessibilityTraits() {
-        var traits = AccessibilityTraits()
+        var traits = HealthApp.AccessibilityTraits()
         XCTAssertTrue(traits.isEmpty)
         
         traits.insert(.button)
@@ -151,4 +151,3 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNotNil(swiftUITraits)
     }
 }
-

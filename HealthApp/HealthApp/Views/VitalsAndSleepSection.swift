@@ -37,7 +37,7 @@ struct VitalsAndSleepSection: View {
                                     icon: "o.circle",
                                     label: "Oxygen Saturation",
                                     readings: personalInfo.oxygenSaturationReadings,
-                                    color: .blue
+                                    color: BisonTheme.gold
                                 )
                             }
 

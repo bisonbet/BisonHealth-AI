@@ -9,10 +9,9 @@ final class DoctorPromptTests: XCTestCase {
 
         for doctor in doctors {
             let prompt = doctor.compactSystemPrompt
-            XCTAssertTrue(prompt.contains("Never say you are an AI"), "Missing anti-meta rule for \(doctor.name)")
-            XCTAssertTrue(prompt.contains("If asked for your opinion"), "Missing opinion handling rule for \(doctor.name)")
-            XCTAssertTrue(prompt.contains("Do not add unsolicited disclaimers"), "Missing disclaimer suppression for \(doctor.name)")
-            XCTAssertTrue(prompt.contains("Role:"), "Missing explicit role section for \(doctor.name)")
+            XCTAssertFalse(prompt.isEmpty, "Missing compact prompt for \(doctor.name)")
+            XCTAssertTrue(prompt.contains("context"), "Missing context handling instruction for \(doctor.name)")
+            XCTAssertTrue(prompt.contains("natural language"), "Missing response format instruction for \(doctor.name)")
         }
     }
 }

@@ -14,7 +14,7 @@ class HapticFeedbackManager {
     private let selectionGenerator = UISelectionFeedbackGenerator()
     
     private var isIPad: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        PlatformCapabilities.isIPadInterface || PlatformCapabilities.isIPadAppOnMac
     }
     
     private init() {
@@ -28,6 +28,7 @@ class HapticFeedbackManager {
     /// On iPad, uses lighter feedback or visual feedback alternatives
     func impact(_ style: ImpactStyle = .medium) {
         guard SettingsManager.shared.appPreferences.hapticFeedback else { return }
+        guard PlatformCapabilities.supportsHapticFeedback else { return }
         
         if isIPad {
             // iPad uses lighter feedback
@@ -43,24 +44,28 @@ class HapticFeedbackManager {
     /// Provides haptic feedback for success actions
     func success() {
         guard SettingsManager.shared.appPreferences.hapticFeedback else { return }
+        guard PlatformCapabilities.supportsHapticFeedback else { return }
         notificationGenerator.notificationOccurred(.success)
     }
     
     /// Provides haptic feedback for error actions
     func error() {
         guard SettingsManager.shared.appPreferences.hapticFeedback else { return }
+        guard PlatformCapabilities.supportsHapticFeedback else { return }
         notificationGenerator.notificationOccurred(.error)
     }
     
     /// Provides haptic feedback for warning actions
     func warning() {
         guard SettingsManager.shared.appPreferences.hapticFeedback else { return }
+        guard PlatformCapabilities.supportsHapticFeedback else { return }
         notificationGenerator.notificationOccurred(.warning)
     }
     
     /// Provides haptic feedback for selection changes
     func selection() {
         guard SettingsManager.shared.appPreferences.hapticFeedback else { return }
+        guard PlatformCapabilities.supportsHapticFeedback else { return }
         selectionGenerator.selectionChanged()
     }
 }
@@ -169,11 +174,11 @@ struct AccessibilityLabelBuilder {
 /// Helper for device-specific accessibility features
 struct DeviceAccessibilityHelper {
     static var isIPad: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        PlatformCapabilities.isIPadInterface || PlatformCapabilities.isIPadAppOnMac
     }
     
     static var isIPhone: Bool {
-        UIDevice.current.userInterfaceIdiom == .phone
+        !PlatformCapabilities.isIPadInterface && !PlatformCapabilities.isIPadAppOnMac
     }
     
     /// Returns minimum touch target size based on device
@@ -188,4 +193,3 @@ struct DeviceAccessibilityHelper {
         return isIPad ? 12 : 8
     }
 }
-

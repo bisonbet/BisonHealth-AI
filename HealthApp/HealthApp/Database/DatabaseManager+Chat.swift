@@ -1,5 +1,5 @@
 import Foundation
-import SQLite
+@preconcurrency import SQLite
 
 // MARK: - Chat CRUD Operations
 extension DatabaseManager {

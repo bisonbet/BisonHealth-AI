@@ -60,7 +60,7 @@ struct AIContextSelectorView: View {
                     Text("\(viewModel.includedCount)")
                         .font(.title)
                         .fontWeight(.bold)
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
 
                     Text("Included")
                         .font(.caption)
@@ -217,7 +217,7 @@ struct FilterChip: View {
                 .fontWeight(isSelected ? .semibold : .regular)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(isSelected ? Color.blue : Color(.systemGray5))
+                .background(isSelected ? BisonTheme.gold : Color(.systemGray5))
                 .foregroundColor(isSelected ? .white : .primary)
                 .cornerRadius(16)
         }
@@ -235,14 +235,14 @@ struct AIContextDocumentRow: View {
             Button(action: onToggle) {
                 Image(systemName: document.includeInAIContext ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundColor(document.includeInAIContext ? .blue : .secondary)
+                    .foregroundColor(document.includeInAIContext ? BisonTheme.gold : .secondary)
             }
             .buttonStyle(PlainButtonStyle())
 
             // Document icon
             Image(systemName: document.documentCategory.icon)
                 .font(.title3)
-                .foregroundColor(.blue)
+                .foregroundColor(BisonTheme.gold)
                 .frame(width: 30)
 
             // Document info

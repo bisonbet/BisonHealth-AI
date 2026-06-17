@@ -80,7 +80,7 @@ struct SupplementSelectorView: View {
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                             Text("Add Custom Supplement")
                                 .foregroundColor(.primary)
                         }
@@ -176,7 +176,7 @@ struct CategoryFilterButton: View {
                 .font(.subheadline)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(isSelected ? Color.blue : Color(.systemGray5))
+                .background(isSelected ? BisonTheme.gold : Color(.systemGray5))
                 .foregroundColor(isSelected ? .white : .primary)
                 .cornerRadius(20)
         }

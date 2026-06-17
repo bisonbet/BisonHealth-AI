@@ -10,7 +10,7 @@ struct RecentVitalsSection: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
 
     var body: some View {
@@ -58,7 +58,7 @@ struct RecentVitalsSection: View {
                         VitalCategoryView(
                             title: "Weight",
                             icon: "scalemass",
-                            color: .blue,
+                            color: BisonTheme.gold,
                             onAdd: { onAddVital(.weight) }
                         ) {
                             ForEach(Array(info.weightReadings.prefix(5).enumerated()), id: \.element.id) { index, reading in
@@ -222,7 +222,7 @@ struct VitalReadingRow: View {
 
                     Text(reading.source.displayName)
                         .font(.caption)
-                        .foregroundColor(reading.source == .appleHealth ? .blue : .green)
+                        .foregroundColor(reading.source == .appleHealth ? BisonTheme.gold : .green)
                 }
             }
 
@@ -281,7 +281,7 @@ struct BloodPressureReadingRow: View {
 
                     Text(reading.source.displayName)
                         .font(.caption)
-                        .foregroundColor(reading.source == .appleHealth ? .blue : .green)
+                        .foregroundColor(reading.source == .appleHealth ? BisonTheme.gold : .green)
                 }
             }
 
@@ -350,7 +350,7 @@ struct SleepDataRow: View {
 
                     Text(sleep.source.displayName)
                         .font(.caption)
-                        .foregroundColor(sleep.source == .appleHealth ? .blue : .green)
+                        .foregroundColor(sleep.source == .appleHealth ? BisonTheme.gold : .green)
                 }
             }
 

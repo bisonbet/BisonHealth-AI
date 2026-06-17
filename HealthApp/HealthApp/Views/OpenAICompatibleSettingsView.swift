@@ -147,7 +147,7 @@ struct OpenAICompatibleSettingsView: View {
                                         Image(systemName: selectedModel == model ? "checkmark.circle.fill" : "circle")
                                             .foregroundColor(selectedModel == model ? .accentColor : .secondary)
                                         Image(systemName: "cpu")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(BisonTheme.gold)
                                         Text(model)
                                             .font(.system(.body, design: .monospaced))
                                             .foregroundColor(.primary)
@@ -342,7 +342,7 @@ struct ExampleServer: View {
                         .font(.headline)
                     Text(url)
                         .font(.caption)
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                         .fontDesign(.monospaced)
                 }
 

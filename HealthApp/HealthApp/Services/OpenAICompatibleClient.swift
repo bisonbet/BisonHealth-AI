@@ -7,7 +7,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Published Properties
     @Published var isConnected = false
-    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var connectionStatus: ProviderConnectionStatus = .disconnected
     @Published var lastError: Error?
 
     // MARK: - Properties

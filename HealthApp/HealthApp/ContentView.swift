@@ -3,53 +3,28 @@ import VisionKit
 import PhotosUI
 
 // Import all view components
-// Note: These should be automatically available in the same module, 
+// Note: These should be automatically available in the same module,
 // but explicit imports help with build issues
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    
+    @State private var selectedSection: AppSection = .healthData
+
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
 
     var body: some View {
         ZStack(alignment: .top) {
-            TabView {
-                HealthDataView()
-                    .tabItem {
-                        Image(systemName: "heart.fill")
-                            .accessibilityLabel("Health Data")
-                        Text("Health Data")
-                    }
-                    .accessibilityIdentifier("tab.healthData")
-
-                DocumentsView()
-                    .tabItem {
-                        Image(systemName: "doc.fill")
-                            .accessibilityLabel("Documents")
-                        Text("Documents")
-                    }
-                    .accessibilityIdentifier("tab.documents")
-
-                ChatView()
-                    .tabItem {
-                        Image(systemName: "message.fill")
-                            .accessibilityLabel("AI Chat")
-                        Text("AI Chat")
-                    }
-                    .accessibilityIdentifier("tab.chat")
-
-                SettingsView()
-                    .tabItem {
-                        Image(systemName: "gear")
-                            .accessibilityLabel("Settings")
-                        Text("Settings")
-                    }
-                    .accessibilityIdentifier("tab.settings")
+            Group {
+                if isIPad {
+                    expandedAppShell
+                } else {
+                    compactTabShell
+                }
             }
-            .accentColor(.blue)
+            .tint(BisonTheme.gold)
             .withErrorHandling() // Add global error handling
 
             // Global offline indicator
@@ -59,6 +34,241 @@ struct ContentView: View {
             }
             .ignoresSafeArea(edges: .top)
         }
+    }
+
+    private var compactTabShell: some View {
+        TabView(selection: $selectedSection) {
+            HealthDataView()
+                .tabItem {
+                    Image(systemName: AppSection.healthData.systemImage)
+                        .accessibilityLabel(AppSection.healthData.title)
+                    Text(AppSection.healthData.title)
+                }
+                .tag(AppSection.healthData)
+                .accessibilityIdentifier("tab.healthData")
+
+            DocumentsView()
+                .tabItem {
+                    Image(systemName: AppSection.documents.systemImage)
+                        .accessibilityLabel(AppSection.documents.title)
+                    Text(AppSection.documents.title)
+                }
+                .tag(AppSection.documents)
+                .accessibilityIdentifier("tab.documents")
+
+            ChatView()
+                .tabItem {
+                    Image(systemName: AppSection.chat.systemImage)
+                        .accessibilityLabel(AppSection.chat.title)
+                    Text(AppSection.chat.title)
+                }
+                .tag(AppSection.chat)
+                .accessibilityIdentifier("tab.chat")
+
+            SettingsView()
+                .tabItem {
+                    Image(systemName: AppSection.settings.systemImage)
+                        .accessibilityLabel(AppSection.settings.title)
+                    Text(AppSection.settings.title)
+                }
+                .tag(AppSection.settings)
+                .accessibilityIdentifier("tab.settings")
+        }
+        .background(BisonTheme.appBackground)
+        .toolbarBackground(BisonTheme.sidebarBackground, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .toolbarBackground(BisonTheme.appBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    private var expandedAppShell: some View {
+        HStack(spacing: 0) {
+            AppSidebar(selectedSection: $selectedSection)
+                .frame(width: 280)
+
+            Rectangle()
+                .fill(AccessibilityColors.divider.opacity(0.5))
+                .frame(width: 1)
+
+            selectedSection.destination
+                .background(BisonTheme.appBackground)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(BisonTheme.appBackground)
+    }
+}
+
+// MARK: - App Navigation
+private enum AppSection: String, CaseIterable, Identifiable, Hashable {
+    case healthData
+    case documents
+    case chat
+    case settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .healthData: return "Health Data"
+        case .documents: return "Documents"
+        case .chat: return "AI Chat"
+        case .settings: return "Settings"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .healthData: return "heart.text.square.fill"
+        case .documents: return "doc.text.fill"
+        case .chat: return "message.fill"
+        case .settings: return "slider.horizontal.3"
+        }
+    }
+
+    var accent: Color {
+        switch self {
+        case .healthData: return BisonTheme.sage
+        case .documents: return BisonTheme.hideBrown
+        case .chat: return BisonTheme.gold
+        case .settings: return BisonTheme.steel
+        }
+    }
+
+    @ViewBuilder
+    var destination: some View {
+        switch self {
+        case .healthData:
+            HealthDataView()
+        case .documents:
+            DocumentsView()
+        case .chat:
+            ChatView()
+        case .settings:
+            SettingsView()
+        }
+    }
+}
+
+private struct AppSidebar: View {
+    @Binding var selectedSection: AppSection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            sidebarHeader
+
+            VStack(spacing: 6) {
+                ForEach(AppSection.allCases) { section in
+                    AppSidebarItem(
+                        section: section,
+                        isSelected: selectedSection == section,
+                        action: {
+                            HapticFeedbackManager.shared.selection()
+                            selectedSection = section
+                        }
+                    )
+                }
+            }
+
+            Spacer(minLength: 24)
+
+            sidebarFooter
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(BisonTheme.sidebarBackground)
+    }
+
+    private var sidebarHeader: some View {
+        HStack(spacing: 12) {
+            Image("BisonHealthAI_ProIcon_1024")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(BisonTheme.gold.opacity(0.35), lineWidth: 1)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Bison Health")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(BisonTheme.primaryText)
+                    .lineLimit(1)
+
+                Text("AI")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(BisonTheme.gold)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 4)
+    }
+
+    private var sidebarFooter: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(BisonTheme.sage)
+                .frame(width: 8, height: 8)
+
+            Text("Private by design")
+                .font(.caption)
+                .foregroundStyle(BisonTheme.secondaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BisonTheme.panelBackground.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct AppSidebarItem: View {
+    let section: AppSection
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: section.systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isSelected ? BisonTheme.inkOnGold : section.accent)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(isSelected ? BisonTheme.gold : section.accent.opacity(0.13))
+                    )
+
+                Text(section.title)
+                    .font(.callout.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? BisonTheme.primaryText : BisonTheme.secondaryText)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .background(itemBackground)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sidebar.\(section.rawValue)")
+        .accessibilityLabel(section.title)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    private var itemBackground: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(isSelected ? BisonTheme.selectedSidebarItem : Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? BisonTheme.gold.opacity(0.32) : Color.clear, lineWidth: 1)
+            )
     }
 }
 
@@ -74,7 +284,7 @@ struct HealthDataView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
 
     var body: some View {
@@ -92,9 +302,9 @@ struct HealthDataView: View {
 
                 BloodTestsSection(
                     bloodTests: $healthDataManager.bloodTests,
-                    onAddNew: { 
+                    onAddNew: {
                         HapticFeedbackManager.shared.impact()
-                        showingBloodTestEntry = true 
+                        showingBloodTestEntry = true
                     },
                     onEdit: { editingBloodTest = $0 },
                     onDelete: { bloodTest in
@@ -103,13 +313,13 @@ struct HealthDataView: View {
                         }
                     }
                 )
-                
+
                 // Imaging Reports Section
                 ImagingReportsSection(
                     imagingReports: $healthDataManager.imagingReports,
                     onDocumentTap: { _ in }
                 )
-                
+
                 // Medical Visits Section
                 HealthCheckupsSection(
                     healthCheckups: $healthDataManager.healthCheckups,
@@ -117,6 +327,7 @@ struct HealthDataView: View {
                 )
             }
             .navigationTitle("Health Data")
+            .navigationBarTitleDisplayMode(.inline)
             .dynamicType(.body, isIPad: isIPad)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -310,189 +521,38 @@ struct DocumentsView: View {
     @State private var showingPhotosPicker = false
     @State private var showingFilterView = false
     @State private var showingBatchProcessing = false
-    @State private var showingDocumentDetail = false
     @State private var selectedDocument: MedicalDocument?
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var viewMode: DocumentViewMode = .list
     @State private var showingDocumentTypeSelector = false
     @State private var pendingDocumentForCategory: MedicalDocument?
     @State private var showingImportReview = false
-    
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
-    
-    private var isIPad: Bool {
-        horizontalSizeClass == .regular
-    }
-    
-    var body: some View {
-        NavigationStack {
-            Group {
-                if documentManager.documents.isEmpty {
-                    DocumentsEmptyStateView(
-                        onScanDocument: { 
-                            AppLog.shared.ui("Showing camera for document scanning")
-                            showingCamera = true 
-                        },
-                        onImportFile: {
-                            AppLog.shared.ui("Triggering document picker (LaunchServices console errors are normal in development)")
-                            showingDocumentPicker = true
-                        },
-                        onImportPhotos: { 
-                            AppLog.shared.ui("Showing photos picker")
-                            showingPhotosPicker = true 
-                        }
-                    )
-                } else {
-                    VStack(spacing: 0) {
-                        // Search and filter bar
-                        if !documentManager.documents.isEmpty {
-                            searchAndFilterBar
-                        }
-                        
-                        // Processing progress bar
-                        if documentProcessor.isProcessing {
-                            processingProgressBar
-                        }
-                        
-                        // Document content
-                        documentContent
 
-                        // Backup info footer
-                        backupInfoFooter
-                    }
-                }
+    private var isIPad: Bool {
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
+    }
+
+    private var supportsDocumentScanning: Bool {
+        PlatformCapabilities.supportsDocumentScanning
+    }
+
+    var body: some View {
+        Group {
+            if isIPad {
+                documentsSplitView
+            } else {
+                documentsStackView
             }
-            .navigationTitle("Documents")
-            .dynamicType(.body, isIPad: isIPad)
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarLeading) {
-                    if !documentManager.documents.isEmpty {
-                        HStack {
-                            EditButton()
-                                .voiceOverLabel(
-                                    "Edit Documents",
-                                    hint: "Toggle edit mode to select documents",
-                                    traits: [.button]
-                                )
-                            
-                            if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
-                                Button("Batch") {
-                                    HapticFeedbackManager.shared.impact()
-                                    showingBatchProcessing = true
-                                }
-                                .font(.caption)
-                                .touchTarget()
-                                .voiceOverLabel(
-                                    "Batch Process",
-                                    hint: "Process selected documents together",
-                                    traits: [.button]
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    if !documentManager.documents.isEmpty {
-                        // View mode toggle (iPad only)
-                        if isIPad {
-                            Picker("View Mode", selection: $viewMode) {
-                                Image(systemName: "list.bullet")
-                                    .accessibilityLabel("List View")
-                                    .tag(DocumentViewMode.list)
-                                Image(systemName: "square.grid.2x2")
-                                    .accessibilityLabel("Grid View")
-                                    .tag(DocumentViewMode.grid)
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 100)
-                            .voiceOverLabel(
-                                "View Mode",
-                                hint: "Switch between list and grid view",
-                                traits: [.button]
-                            )
-                        }
-                    }
-                    
-                    Menu {
-                        Button("Scan Document", systemImage: "camera.viewfinder") {
-                            HapticFeedbackManager.shared.impact()
-                            showingCamera = true
-                        }
-                        .voiceOverLabel(
-                            "Scan Document",
-                            hint: "Use camera to scan a document",
-                            traits: [.button]
-                        )
-                        Button("Import File", systemImage: "folder") {
-                            HapticFeedbackManager.shared.impact()
-                            AppLog.shared.ui("Import File button tapped (LaunchServices console errors are normal)")
-                            showingDocumentPicker = true
-                        }
-                        .voiceOverLabel(
-                            "Import File",
-                            hint: "Import document from Files app",
-                            traits: [.button]
-                        )
-                        Button("Import Photos", systemImage: "photo.on.rectangle") {
-                            HapticFeedbackManager.shared.impact()
-                            showingPhotosPicker = true
-                        }
-                        .voiceOverLabel(
-                            "Import Photos",
-                            hint: "Import photos from Photos app",
-                            traits: [.button]
-                        )
-                        
-                        if !documentManager.documents.isEmpty {
-                            Divider()
-                            
-                            Button("Process All Pending", systemImage: "gearshape.2") {
-                                HapticFeedbackManager.shared.impact()
-                                Task {
-                                    await documentManager.processAllPendingDocuments()
-                                }
-                            }
-                            .voiceOverLabel(
-                                "Process All Pending",
-                                hint: "Process all documents waiting to be analyzed",
-                                traits: [.button]
-                            )
-                            
-                            Button("Retry Failed", systemImage: "arrow.clockwise") {
-                                HapticFeedbackManager.shared.impact()
-                                Task {
-                                    await documentManager.retryFailedDocuments()
-                                }
-                            }
-                            .voiceOverLabel(
-                                "Retry Failed",
-                                hint: "Retry processing documents that failed",
-                                traits: [.button]
-                            )
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                            .touchTarget()
-                    }
-                    .voiceOverLabel(
-                        "Add Document",
-                        hint: "Menu to add new documents",
-                        traits: [.button]
-                    )
-                }
-            }
-            .refreshable {
-                await documentManager.refreshDocuments()
-            }
-            .keyboardNavigable()
         }
         .fullScreenCover(isPresented: $showingCamera) {
             DocumentCameraView { scan in
                 Task {
                     if let document = await documentManager.importScannedDocument(scan) {
                         pendingDocumentForCategory = document
+                        selectedDocument = document
                         showingDocumentTypeSelector = true
                     }
                 }
@@ -503,43 +563,7 @@ struct DocumentsView: View {
             allowedContentTypes: [.pdf, .plainText, .image],
             allowsMultipleSelection: true
         ) { result in
-            AppLog.shared.ui("File importer result received")
-            
-            switch result {
-            case .success(let urls):
-                AppLog.shared.ui("File importer successful, \(urls.count) URLs received")
-                for (index, url) in urls.enumerated() {
-                    AppLog.shared.ui("URL \(index + 1): \(url)")
-                }
-                
-                Task {
-                    AppLog.shared.ui("Starting document import process...")
-                    let importedDocs = await documentManager.importDocuments(from: urls)
-                    AppLog.shared.ui("Document import process completed")
-                    
-                    // Show category selector for first document
-                    if let firstDoc = importedDocs.first {
-                        pendingDocumentForCategory = firstDoc
-                        showingDocumentTypeSelector = true
-                    }
-                }
-                
-            case .failure(let error):
-                AppLog.shared.ui("File import failed with error: \(error)", level: .error)
-                AppLog.shared.ui("Error type: \(type(of: error))", level: .error)
-                AppLog.shared.ui("Error description: \(error.localizedDescription)", level: .error)
-                
-                // Check for LaunchServices errors
-                if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") ||
-                   error.localizedDescription.contains("database") ||
-                   error.localizedDescription.contains("LaunchServices") ||
-                   error.localizedDescription.contains("permission") {
-                    AppLog.shared.ui("LaunchServices error detected (normal in development/simulator environment)")
-                    AppLog.shared.ui("This error doesn't affect document import functionality")
-                } else {
-                    AppLog.shared.ui("Unexpected file import error that may need attention", level: .error)
-                }
-            }
+            handleFileImportResult(result)
         }
         .photosPicker(
             isPresented: $showingPhotosPicker,
@@ -548,35 +572,7 @@ struct DocumentsView: View {
             matching: .images
         )
         .onChange(of: selectedPhotos) { _, photos in
-            if !photos.isEmpty {
-                Task {
-                    var importedDocs: [MedicalDocument] = []
-                    
-                    for photo in photos {
-                        if let data = try? await photo.loadTransferable(type: Data.self),
-                           let image = UIImage(data: data) {
-                            do {
-                                let doc = try await DocumentImporter.shared.importImage(image)
-                                importedDocs.append(doc)
-                            } catch {
-                                AppLog.shared.ui("Failed to import photo: \(error)", level: .error)
-                            }
-                        }
-                    }
-                    
-                    // Add to document manager
-                    documentManager.documents.append(contentsOf: importedDocs)
-                    documentManager.documents.sort { $0.importedAt > $1.importedAt }
-                    
-                    // Show category selector for first document
-                    if let firstDoc = importedDocs.first {
-                        pendingDocumentForCategory = firstDoc
-                        showingDocumentTypeSelector = true
-                    }
-                    
-                    selectedPhotos = []
-                }
-            }
+            handleSelectedPhotos(photos)
         }
         .sheet(isPresented: $showingFilterView) {
             DocumentFilterView(documentManager: documentManager)
@@ -587,7 +583,10 @@ struct DocumentsView: View {
                 documentProcessor: documentProcessor
             )
         }
-        .sheet(item: $selectedDocument) { document in
+        .sheet(item: Binding(
+            get: { isIPad ? nil : selectedDocument },
+            set: { selectedDocument = $0 }
+        )) { document in
             DocumentDetailView(
                 document: document,
                 documentManager: documentManager,
@@ -635,16 +634,297 @@ struct DocumentsView: View {
                 )
             }
         }
-
     }
-    
+
+    private var documentsStackView: some View {
+        NavigationStack {
+            documentsPrimaryContent
+        }
+    }
+
+    private var documentsSplitView: some View {
+        NavigationSplitView {
+            documentsPrimaryContent
+                .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 520)
+        } detail: {
+            if let selectedDocument {
+                DocumentDetailView(
+                    document: selectedDocument,
+                    documentManager: documentManager,
+                    documentProcessor: documentProcessor,
+                    showsCloseButton: false
+                )
+            } else {
+                ContentUnavailableView(
+                    "Select a Document",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("Choose a document to preview details and extracted health data.")
+                )
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var documentsPrimaryContent: some View {
+        Group {
+            if documentManager.documents.isEmpty {
+                DocumentsEmptyStateView(
+                    supportsDocumentScanning: supportsDocumentScanning,
+                    onScanDocument: showDocumentScanner,
+                    onImportFile: showDocumentPicker,
+                    onImportPhotos: showPhotosPicker
+                )
+            } else {
+                VStack(spacing: 0) {
+                    // Search and filter bar
+                    if !documentManager.documents.isEmpty {
+                        searchAndFilterBar
+                    }
+
+                    // Processing progress bar
+                    if documentProcessor.isProcessing {
+                        processingProgressBar
+                    }
+
+                    // Document content
+                    documentContent
+
+                    // Backup info footer
+                    backupInfoFooter
+                }
+            }
+        }
+        .navigationTitle("Documents")
+        .navigationBarTitleDisplayMode(.inline)
+        .dynamicType(.body, isIPad: isIPad)
+        .toolbar {
+                ToolbarItemGroup(placement: .navigationBarLeading) {
+                    if !documentManager.documents.isEmpty {
+                        HStack {
+                            EditButton()
+                                .voiceOverLabel(
+                                    "Edit Documents",
+                                    hint: "Toggle edit mode to select documents",
+                                    traits: [.button]
+                                )
+
+                            if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
+                                Button("Batch") {
+                                    HapticFeedbackManager.shared.impact()
+                                    showingBatchProcessing = true
+                                }
+                                .font(.caption)
+                                .touchTarget()
+                                .voiceOverLabel(
+                                    "Batch Process",
+                                    hint: "Process selected documents together",
+                                    traits: [.button]
+                                )
+                            }
+                        }
+                    }
+                }
+
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    if !documentManager.documents.isEmpty {
+                        // View mode toggle (iPad only)
+                        if isIPad {
+                            Picker("View Mode", selection: $viewMode) {
+                                Image(systemName: "list.bullet")
+                                    .accessibilityLabel("List View")
+                                    .tag(DocumentViewMode.list)
+                                Image(systemName: "square.grid.2x2")
+                                    .accessibilityLabel("Grid View")
+                                    .tag(DocumentViewMode.grid)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 100)
+                            .voiceOverLabel(
+                                "View Mode",
+                                hint: "Switch between list and grid view",
+                                traits: [.button]
+                            )
+                        }
+                    }
+
+                    Menu {
+                        if supportsDocumentScanning {
+                            Button("Scan Document", systemImage: "camera.viewfinder") {
+                                showDocumentScanner()
+                            }
+                            .keyboardShortcut("s", modifiers: [.command, .shift])
+                            .voiceOverLabel(
+                                "Scan Document",
+                                hint: "Use camera to scan a document",
+                                traits: [.button]
+                            )
+                        }
+                        Button("Import File", systemImage: "folder") {
+                            showDocumentPicker()
+                        }
+                        .keyboardShortcut("o", modifiers: [.command])
+                        .voiceOverLabel(
+                            "Import File",
+                            hint: "Import document from Files app",
+                            traits: [.button]
+                        )
+                        Button("Import Photos", systemImage: "photo.on.rectangle") {
+                            showPhotosPicker()
+                        }
+                        .voiceOverLabel(
+                            "Import Photos",
+                            hint: "Import photos from Photos app",
+                            traits: [.button]
+                        )
+
+                        if !documentManager.documents.isEmpty {
+                            Divider()
+
+                            Button("Process All Pending", systemImage: "gearshape.2") {
+                                HapticFeedbackManager.shared.impact()
+                                Task {
+                                    await documentManager.processAllPendingDocuments()
+                                }
+                            }
+                            .voiceOverLabel(
+                                "Process All Pending",
+                                hint: "Process all documents waiting to be analyzed",
+                                traits: [.button]
+                            )
+
+                            Button("Retry Failed", systemImage: "arrow.clockwise") {
+                                HapticFeedbackManager.shared.impact()
+                                Task {
+                                    await documentManager.retryFailedDocuments()
+                                }
+                            }
+                            .voiceOverLabel(
+                                "Retry Failed",
+                                hint: "Retry processing documents that failed",
+                                traits: [.button]
+                            )
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .touchTarget()
+                    }
+                    .voiceOverLabel(
+                        "Add Document",
+                        hint: "Menu to add new documents",
+                        traits: [.button]
+                    )
+                }
+            }
+            .refreshable {
+                await documentManager.refreshDocuments()
+            }
+            .keyboardNavigable()
+    }
+
     // MARK: - Import Review Handler
+    private func showDocumentScanner() {
+        guard supportsDocumentScanning else {
+            AppLog.shared.ui("Document scanner is unavailable on this platform", level: .warning)
+            return
+        }
+
+        HapticFeedbackManager.shared.impact()
+        AppLog.shared.ui("Showing camera for document scanning")
+        showingCamera = true
+    }
+
+    private func showDocumentPicker() {
+        HapticFeedbackManager.shared.impact()
+        AppLog.shared.ui("Triggering document picker (LaunchServices console errors are normal in development)")
+        showingDocumentPicker = true
+    }
+
+    private func showPhotosPicker() {
+        HapticFeedbackManager.shared.impact()
+        AppLog.shared.ui("Showing photos picker")
+        showingPhotosPicker = true
+    }
+
+    private func handleFileImportResult(_ result: Result<[URL], Error>) {
+        AppLog.shared.ui("File importer result received")
+
+        switch result {
+        case .success(let urls):
+            AppLog.shared.ui("File importer successful, \(urls.count) URLs received")
+            for (index, url) in urls.enumerated() {
+                AppLog.shared.ui("URL \(index + 1): \(url)")
+            }
+
+            Task {
+                AppLog.shared.ui("Starting document import process...")
+                let importedDocs = await documentManager.importDocuments(from: urls)
+                AppLog.shared.ui("Document import process completed")
+
+                // Show category selector for first document
+                if let firstDoc = importedDocs.first {
+                    pendingDocumentForCategory = firstDoc
+                    selectedDocument = firstDoc
+                    showingDocumentTypeSelector = true
+                }
+            }
+
+        case .failure(let error):
+            AppLog.shared.ui("File import failed with error: \(error)", level: .error)
+            AppLog.shared.ui("Error type: \(type(of: error))", level: .error)
+            AppLog.shared.ui("Error description: \(error.localizedDescription)", level: .error)
+
+            // Check for LaunchServices errors
+            if error.localizedDescription.contains("OSStatusErrorDomain Code=-54") ||
+                error.localizedDescription.contains("database") ||
+                error.localizedDescription.contains("LaunchServices") ||
+                error.localizedDescription.contains("permission") {
+                AppLog.shared.ui("LaunchServices error detected (normal in development/simulator environment)")
+                AppLog.shared.ui("This error doesn't affect document import functionality")
+            } else {
+                AppLog.shared.ui("Unexpected file import error that may need attention", level: .error)
+            }
+        }
+    }
+
+    private func handleSelectedPhotos(_ photos: [PhotosPickerItem]) {
+        guard !photos.isEmpty else { return }
+
+        Task {
+            var importedDocs: [MedicalDocument] = []
+
+            for photo in photos {
+                if let data = try? await photo.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    do {
+                        let doc = try await DocumentImporter.shared.importImage(image)
+                        importedDocs.append(doc)
+                    } catch {
+                        AppLog.shared.ui("Failed to import photo: \(error)", level: .error)
+                    }
+                }
+            }
+
+            // Add to document manager
+            documentManager.documents.append(contentsOf: importedDocs)
+            documentManager.documents.sort { $0.importedAt > $1.importedAt }
+
+            // Show category selector for first document
+            if let firstDoc = importedDocs.first {
+                pendingDocumentForCategory = firstDoc
+                selectedDocument = firstDoc
+                showingDocumentTypeSelector = true
+            }
+
+            selectedPhotos = []
+        }
+    }
+
     private func handleImportReviewComplete(review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
         AppLog.shared.ui("User completed import review for \(selectedGroups.count) groups")
-        
+
         // Update the blood test result with user's selections
         var updatedBloodTest = review.bloodTestResult
-        
+
         // Create a map of selected candidates by standard key
         // Only include non-nil selections (nil means ignore)
         var selectedCandidatesByKey: [String: BloodTestImportCandidate] = [:]
@@ -657,22 +937,22 @@ struct DocumentsView: View {
                 AppLog.shared.ui("User ignored group '\(group.standardTestName)'")
             }
         }
-        
+
         // Reconstruct the results list based ONLY on selected candidates
         var updatedResults: [BloodTestItem] = []
         var processedKeys: Set<String> = []
-        
+
         // In the new flow, we can just iterate through the selected candidates map
         // because we want to discard anything that wasn't selected.
         // However, we need to map back to BloodTestItem which needs category info.
         // The candidate doesn't have category, but the StandardizedLabParameters do.
-        
+
         for (standardKey, selectedCandidate) in selectedCandidatesByKey {
              if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
-                
+
                 // Check if this was an update to an existing item (preserve ID if possible? not strictly necessary)
                 // or just create new items. Creating new is cleaner here since we are "Importing".
-                
+
                 var notes = selectedCandidate.originalTestName != standardParam.name ? "Original: \(selectedCandidate.originalTestName)" : nil
                 if selectedCandidate.originalTestName.lowercased().contains("calc") {
                     notes = (notes == nil ? "" : notes! + "\n") + "Calculated"
@@ -692,9 +972,9 @@ struct DocumentsView: View {
                 processedKeys.insert(standardKey)
             }
         }
-        
+
         updatedBloodTest.results = updatedResults
-        
+
         // Remove pending review flag
         var metadata = updatedBloodTest.metadata ?? [:]
         metadata.removeValue(forKey: "pending_review")
@@ -702,13 +982,13 @@ struct DocumentsView: View {
         metadata["reviewed_groups_count"] = String(selectedGroups.count)
         metadata["imported_items_count"] = String(updatedResults.count)
         updatedBloodTest.metadata = metadata
-        
+
         // Save the updated blood test
         do {
             let healthDataManager = HealthDataManager.shared
             try await healthDataManager.addBloodTest(updatedBloodTest)
             AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
-            
+
             // Clear pending review
             await MainActor.run {
                 documentProcessor.pendingImportReview = nil
@@ -717,7 +997,7 @@ struct DocumentsView: View {
             AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)
         }
     }
-    
+
     private func findStandardKey(for testName: String) -> String? {
         // Try to find the standard key for this test name
         let normalized = testName.lowercased()
@@ -725,19 +1005,19 @@ struct DocumentsView: View {
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: "(", with: "")
             .replacingOccurrences(of: ")", with: "")
-        
+
         // Direct match
         if BloodTestResult.standardizedLabParameters[normalized] != nil {
             return normalized
         }
-        
+
         // Check if it matches any standard parameter name
         for (key, param) in BloodTestResult.standardizedLabParameters {
             if param.name.lowercased() == testName.lowercased() {
                 return key
             }
         }
-        
+
         // Partial match
         for (key, param) in BloodTestResult.standardizedLabParameters {
             let paramNameNormalized = param.name.lowercased().replacingOccurrences(of: " ", with: "_")
@@ -745,12 +1025,12 @@ struct DocumentsView: View {
                 return key
             }
         }
-        
+
         return nil
     }
-    
+
     // MARK: - Search and Filter Bar
-    
+
     private var searchAndFilterBar: some View {
         VStack(spacing: 8) {
             HStack {
@@ -758,7 +1038,7 @@ struct DocumentsView: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(AccessibilityColors.secondaryText)
                             .accessibilityHidden(true)
-                        
+
                         TextField("Search documents...", text: $documentManager.searchText)
                             .textFieldStyle(PlainTextFieldStyle())
                             .autocorrectionDisabled(true)
@@ -770,7 +1050,7 @@ struct DocumentsView: View {
                                 traits: [.searchField]
                             )
                             .accessibilityIdentifier("documents.searchField")
-                        
+
                         if !documentManager.searchText.isEmpty {
                             Button("Clear") {
                                 HapticFeedbackManager.shared.selection()
@@ -790,7 +1070,7 @@ struct DocumentsView: View {
                 .padding(.vertical, 8)
                 .background(Color(.systemGray6))
                 .cornerRadius(8)
-                
+
                 Button("Filter") {
                     HapticFeedbackManager.shared.impact()
                     showingFilterView = true
@@ -809,7 +1089,7 @@ struct DocumentsView: View {
                     traits: [.button]
                 )
             }
-            
+
             // Active filters display
             if hasActiveFilters {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -819,13 +1099,13 @@ struct DocumentsView: View {
                                 documentManager.filterStatus = nil
                             }
                         }
-                        
+
                         if let type = documentManager.filterType {
                             ActiveFilterChip(title: type.rawValue.capitalized) {
                                 documentManager.filterType = nil
                             }
                         }
-                        
+
                         if documentManager.sortOrder != .dateDescending {
                             ActiveFilterChip(title: documentManager.sortOrder.displayName) {
                                 documentManager.sortOrder = .dateDescending
@@ -839,32 +1119,32 @@ struct DocumentsView: View {
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
-    
+
     // MARK: - Processing Progress Bar
-    
+
     private var processingProgressBar: some View {
         VStack(spacing: 4) {
             HStack {
                 Text("Processing documents...")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 Spacer()
-                
+
                 Text("\(Int(documentProcessor.processingProgress * 100))%")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            
+
             ProgressView(value: documentProcessor.processingProgress)
                 .progressViewStyle(LinearProgressViewStyle())
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
-    
+
     // MARK: - Document Content
-    
+
     @ViewBuilder
     private var documentContent: some View {
         switch viewMode {
@@ -886,7 +1166,7 @@ struct DocumentsView: View {
             )
         }
     }
-    
+
     // MARK: - Backup Info Footer
 
     private var backupInfoFooter: some View {
@@ -922,7 +1202,7 @@ struct DocumentsView: View {
                         if SettingsManager.shared.backupSettings.backupDocuments {
                             Text("Included in backup")
                                 .font(.caption2)
-                                .foregroundColor(.blue)
+                                .foregroundColor(BisonTheme.gold)
                         } else {
                             Text("Not backed up")
                                 .font(.caption2)
@@ -978,12 +1258,12 @@ enum DocumentViewMode {
 struct ActiveFilterChip: View {
     let title: String
     let onRemove: () -> Void
-    
+
     var body: some View {
         HStack(spacing: 4) {
             Text(title)
                 .font(.caption)
-            
+
             Button(action: onRemove) {
                 Image(systemName: "xmark")
                     .font(.caption2)
@@ -991,7 +1271,7 @@ struct ActiveFilterChip: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color.blue)
+        .background(BisonTheme.gold)
         .foregroundColor(.white)
         .cornerRadius(12)
     }
@@ -1007,18 +1287,17 @@ struct ChatView: View {
     @State private var showingConversationList = false
     @State private var searchText = ""
     @State private var selectedConversationId: UUID?
-    
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    
+
     private var isIPad: Bool {
-        horizontalSizeClass == .regular
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
-    
+
     private var shouldUseSplitView: Bool {
-        isIPad && verticalSizeClass == .regular
+        isIPad
     }
-    
+
     var body: some View {
         Group {
             if shouldUseSplitView {
@@ -1043,7 +1322,7 @@ struct ChatView: View {
             // Handle keyboard dismissal for iPad
         }
     }
-    
+
     // MARK: - iPad Split View
     private var iPadSplitView: some View {
         NavigationSplitView {
@@ -1082,7 +1361,7 @@ struct ChatView: View {
         }
         .navigationSplitViewStyle(.balanced)
     }
-    
+
     // MARK: - iPhone View
     private var iPhoneView: some View {
         NavigationStack {
@@ -1096,14 +1375,16 @@ struct ChatView: View {
                         Button("Conversations") {
                             showingConversationList = true
                         }
+                        .keyboardShortcut("l", modifiers: [.command])
                     }
-                    
+
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("New Chat") {
                             Task {
                                 _ = try await chatManager.startNewConversation()
                             }
                         }
+                        .keyboardShortcut("n", modifiers: [.command])
                     }
                 }
                 .sheet(isPresented: $showingConversationList) {

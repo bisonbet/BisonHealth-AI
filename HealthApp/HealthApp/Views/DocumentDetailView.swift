@@ -6,6 +6,7 @@ struct DocumentDetailView: View {
     let document: MedicalDocument
     @ObservedObject var documentManager: DocumentManager
     @ObservedObject var documentProcessor: DocumentProcessor
+    let showsCloseButton: Bool
     
     @Environment(\.dismiss) private var dismiss
     @State private var showingQuickLook = false
@@ -16,6 +17,18 @@ struct DocumentDetailView: View {
     @State private var showingImportReview = false
     @State private var newTag = ""
     @State private var editedNotes = ""
+
+    init(
+        document: MedicalDocument,
+        documentManager: DocumentManager,
+        documentProcessor: DocumentProcessor,
+        showsCloseButton: Bool = true
+    ) {
+        self.document = document
+        self.documentManager = documentManager
+        self.documentProcessor = documentProcessor
+        self.showsCloseButton = showsCloseButton
+    }
     
     var body: some View {
         NavigationStack {
@@ -49,9 +62,11 @@ struct DocumentDetailView: View {
             .navigationTitle(document.fileName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") {
-                        dismiss()
+                if showsCloseButton {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Close") {
+                            dismiss()
+                        }
                     }
                 }
                 
@@ -154,7 +169,7 @@ struct DocumentDetailView: View {
                     } else {
                         Image(systemName: document.fileType.icon)
                             .font(.system(size: 40))
-                            .foregroundColor(.blue)
+                            .foregroundColor(BisonTheme.gold)
                             .frame(width: 80, height: 80)
                             .background(Color(.systemGray6))
                             .cornerRadius(8)
@@ -177,7 +192,7 @@ struct DocumentDetailView: View {
                     Spacer()
                     
                     Image(systemName: "eye")
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                 }
                 .padding()
                 .background(Color(.systemGray6))
@@ -299,8 +314,8 @@ struct DocumentDetailView: View {
                             .font(.caption)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.2))
-                            .foregroundColor(.blue)
+                            .background(BisonTheme.gold.opacity(0.2))
+                            .foregroundColor(BisonTheme.gold)
                             .cornerRadius(8)
                     }
                 }
@@ -535,8 +550,8 @@ struct ExtractedDataRow: View {
                     .font(.caption)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.blue.opacity(0.2))
-                    .foregroundColor(.blue)
+                    .background(BisonTheme.gold.opacity(0.2))
+                    .foregroundColor(BisonTheme.gold)
                     .cornerRadius(4)
             }
             
@@ -703,7 +718,20 @@ struct DocumentShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = controller.view
+            popover.sourceRect = CGRect(
+                x: controller.view.bounds.midX,
+                y: controller.view.bounds.midY,
+                width: 0,
+                height: 0
+            )
+            popover.permittedArrowDirections = []
+        }
+
+        return controller
     }
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}

@@ -30,16 +30,16 @@ public enum AIConnectionStatus: Equatable {
     }
 }
 
-// MARK: - Ollama-specific Connection Status (for backward compatibility)
+// MARK: - Provider Connection Status
 
-/// Ollama connection status - wraps generic AIConnectionStatus
-public enum OllamaConnectionStatus: Equatable {
+/// Provider connection status - wraps generic AIConnectionStatus
+public enum ProviderConnectionStatus: Equatable {
     case disconnected
     case connecting
     case connected
     case error(Error)
 
-    public static func == (lhs: OllamaConnectionStatus, rhs: OllamaConnectionStatus) -> Bool {
+    public static func == (lhs: ProviderConnectionStatus, rhs: ProviderConnectionStatus) -> Bool {
         switch (lhs, rhs) {
         case (.disconnected, .disconnected),
              (.connecting, .connecting),
@@ -93,7 +93,7 @@ public enum OllamaConnectionStatus: Equatable {
     }
 
     /// Create from generic AIConnectionStatus
-    public static func from(_ status: AIConnectionStatus) -> OllamaConnectionStatus {
+    public static func from(_ status: AIConnectionStatus) -> ProviderConnectionStatus {
         switch status {
         case .disconnected:
             return .disconnected

@@ -25,7 +25,7 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 17+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally with optional iCloud backup
-- 🤖 **Multiple AI Providers** - Support for Ollama, AWS Bedrock, and OpenAI-compatible servers
+- 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
 - 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Primary Care, Chronic Health AI, and more)
 - 📄 **Smart Document Processing** - Automatic OCR and extraction of health data from documents using Docling
 - 🏥 **Medical Document Management** - Support for 11 document types including imaging reports, lab reports, prescriptions, discharge summaries, and more
@@ -76,7 +76,7 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 ├─────────────────────────────────────────────────────────────┤
 │  External Service Layer                                     │
 │  ├── AI Provider Interface (Protocol)                       │
-│  │   ├── Ollama Client                                      │
+│  │   ├── On-Device MLX Client                               │
 │  │   ├── AWS Bedrock Client                                 │
 │  │   └── OpenAI-Compatible Client                           │
 │  ├── Docling Client (Document Processing)                   │
@@ -92,8 +92,8 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 - iOS 17.0+ deployment target
 - Swift 5.9+
 - `llama.xcframework` for on-device inference (see [Install the llama framework](#install-the-llama-framework) — required to build, not included in the repo)
-- Access to Ollama server for AI functionality
-- Access to Docling server for document processing
+- Optional AWS Bedrock or OpenAI-compatible endpoint for remote AI functionality
+- Optional Docling server for document processing
 
 ### Installation
 
@@ -126,9 +126,9 @@ BisonHealth AI follows a modular, privacy-focused architecture:
    - The Xcode project links against this path, so a missing or misplaced framework will cause build/link failures.
 
 5. **Configure External Services:**
-   - Set up your Ollama server for AI chat functionality
-   - Set up your Docling server for document processing
-   - Configure server endpoints in the app settings
+   - Download an on-device model, or configure AWS Bedrock / an OpenAI-compatible endpoint for AI chat functionality
+   - Set up your Docling server for document processing if you want remote document conversion
+   - Configure providers and optional server endpoints in the app settings
 
 ### Building and Running
 
@@ -173,11 +173,10 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 
 BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 
-1. **Ollama** (Default) - Local AI server for maximum privacy
-   - Install and run Ollama on your local network or remote server
-   - Configure hostname and port in app settings
-   - Supports any Ollama-compatible models (llama3.2, mistral, etc.)
-   - Supports streaming responses for real-time chat
+1. **On-Device LLM** (Default) - Local model execution for maximum privacy
+   - Download a supported model from Settings
+   - Runs directly on device after model download
+   - No remote AI server required
 
 2. **AWS Bedrock** - Cloud AI service
    - Configure AWS credentials (access key, secret key, region)
@@ -243,7 +242,7 @@ HealthApp/
 │   │   ├── AIChatManager.swift
 │   │   └── SettingsManager.swift
 │   ├── Services/            # External service clients
-│   │   ├── OllamaClient.swift
+│   │   ├── MLXOnDeviceClient.swift
 │   │   ├── BedrockClient.swift
 │   │   ├── OpenAICompatibleClient.swift
 │   │   ├── DoclingClient.swift
@@ -290,7 +289,6 @@ Note: Default simulator target is `iPhone 16 Pro`. If not available, use another
 Detailed documentation is available in the repository:
 
 - **[Medical Documents Implementation](MEDICAL_DOCUMENTS_IMPLEMENTATION.md)** - Comprehensive guide to medical document processing
-- **[Ollama Integration Guide](HealthApp/OLLAMA_SWIFT_INTEGRATION.md)** - Setup and usage of Ollama AI provider
 - **[Docling Formats Explanation](DOCLING_FORMATS_EXPLANATION.md)** - Understanding Docling output formats
 - **[Agent Guidelines](AGENTS.md)** - Development guidelines and coding standards
 - **[Requirements](.kiro/specs/ios-health-app/requirements.md)** - Detailed user stories and acceptance criteria
@@ -333,7 +331,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### ✅ Completed
 - [x] **Phase 1** - Core health data management and AI chat
 - [x] **Phase 2** - Advanced document processing and medical document management
-- [x] **Phase 2.5** - Multiple AI provider support (Ollama, AWS Bedrock, OpenAI-compatible)
+- [x] **Phase 2.5** - Multiple AI provider support (on-device, AWS Bedrock, OpenAI-compatible)
 - [x] **Phase 2.6** - AI doctor personas and specialized prompts
 - [x] **Phase 2.7** - Medical document OCR and structured extraction
 - [x] **Phase 2.8** - Context selection and priority management

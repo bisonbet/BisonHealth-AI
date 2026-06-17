@@ -51,7 +51,7 @@ struct ChatEmptyStateView: View {
                 .foregroundColor(.white)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
-                .background(Color.blue)
+                .background(BisonTheme.gold)
                 .cornerRadius(25)
             }
             
@@ -76,7 +76,7 @@ struct FeatureHighlight: View {
         HStack(spacing: 16) {
             Image(systemName: icon)
                 .font(.title2)
-                .foregroundColor(.blue)
+                .foregroundColor(BisonTheme.gold)
                 .frame(width: 32)
             
             VStack(alignment: .leading, spacing: 4) {

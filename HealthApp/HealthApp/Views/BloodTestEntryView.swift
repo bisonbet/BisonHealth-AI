@@ -110,8 +110,8 @@ struct BloodTestEntryView: View {
                     .font(.subheadline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.1))
-                    .foregroundColor(.blue)
+                    .background(BisonTheme.gold.opacity(0.1))
+                    .foregroundColor(BisonTheme.gold)
                     .cornerRadius(8)
                     .accessibilityIdentifier("bloodTest.addResultButton")
 

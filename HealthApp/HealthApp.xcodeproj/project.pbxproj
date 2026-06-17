@@ -20,7 +20,6 @@
 		142348242EA07F6D00059087 /* OpenAICompatibleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348232EA07F6D00059087 /* OpenAICompatibleClient.swift */; };
 		142348262EA07F5D00059087 /* AIContextSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348252EA07F5D00059087 /* AIContextSelectorView.swift */; };
 		1427C64B12E66847000EBEFB0 /* DocumentTypeSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64B02E66847000EBEFB0 /* DocumentTypeSelectorView.swift */; };
-		1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */ = {isa = PBXBuildFile; productRef = 1427C64A2E667B2500EBEFB0 /* Ollama */; };
 		1427C6532E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6522E66847000EBEFB0 /* DocumentKeyboardShortcuts.swift */; };
 		1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */; };
 		1427C6552E66847000EBEFB0 /* DocumentFilterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1427C6502E66847000EBEFB0 /* DocumentFilterView.swift */; };
@@ -42,14 +41,12 @@
 		143446AC2E78E6FC00961754 /* AWSCredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */; };
 		143446AD2E78E6FC00961754 /* BedrockClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A92E78E6FC00961754 /* BedrockClient.swift */; };
 		143446AE2E78E6FC00961754 /* AWSCredentialsHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */; };
-		145D8D332EA1941E000BB28A /* OllamaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */; };
 		146E72A82EC2903F00D20C53 /* MedicalDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72A72EC2903F00D20C53 /* MedicalDocument.swift */; };
 		146E72AA2EC2905200D20C53 /* MedicalDocumentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72A92EC2905200D20C53 /* MedicalDocumentDetailView.swift */; };
 		146E72AC2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AB2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift */; };
 		146E72AD2EC2BD8D00D20C53 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 146E72AC2EC2BD8D00D20C53 /* Textual */; };
 		146E72AE2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AD2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift */; };
 		146E72B02EC2905200D20C53 /* SectionEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146E72AF2EC2905200D20C53 /* SectionEditorView.swift */; };
-		14968C312EF4F8D8006D42C0 /* SystemPromptExceptionList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */; };
 		A2MLX0012F26000100MLX001 /* MLXOnDeviceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0052F26000100MLX001 /* MLXOnDeviceModels.swift */; };
 		A2MLX0022F26000100MLX001 /* MLXOnDeviceResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */; };
 		A2MLX0032F26000100MLX001 /* MLXModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */; };
@@ -79,6 +76,7 @@
 		373331303130383939373544 /* AccessibilityColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304643454332314443313245 /* AccessibilityColors.swift */; };
 		43HH0I3NMSX1CRM70BL8CI6S /* DocumentsEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */; };
 		463346414531383846334544 /* AccessibilityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303242343446444138303338 /* AccessibilityManager.swift */; };
+		4D504C4154464F524D303031 /* PlatformCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D504C4154464F524D303030 /* PlatformCapabilities.swift */; };
 		55083952F69E6067ECDDADD5 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F48E6CF308D42C7D377B84 /* SettingsManager.swift */; };
 		71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */; };
 		7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */; };
@@ -113,7 +111,6 @@
 		A1000058294A0000000000001 /* DocumentExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000059294A0000000000001 /* DocumentExporter.swift */; };
 		A100005GBD03QSQI2B4SK0KVT0 /* BloodTestValueValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */; };
 		A1000060294A0000000000001 /* FileSystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000061294A0000000000001 /* FileSystemTests.swift */; };
-		A1000062294A0000000000001 /* OllamaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000063294A0000000000001 /* OllamaClient.swift */; };
 		A1000064294A0000000000001 /* DoclingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000065294A0000000000001 /* DoclingClient.swift */; };
 		A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000067294A0000000000001 /* AIProviderInterface.swift */; };
 		A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000069294A0000000000001 /* ServiceClientTests.swift */; };
@@ -200,13 +197,11 @@
 		143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsHelper.swift; sourceTree = "<group>"; };
 		143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AWSCredentialsManager.swift; sourceTree = "<group>"; };
 		143446A92E78E6FC00961754 /* BedrockClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BedrockClient.swift; sourceTree = "<group>"; };
-		145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaSettingsView.swift; sourceTree = "<group>"; };
 		146E72A72EC2903F00D20C53 /* MedicalDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalDocument.swift; sourceTree = "<group>"; };
 		146E72A92EC2905200D20C53 /* MedicalDocumentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalDocumentDetailView.swift; sourceTree = "<group>"; };
 		146E72AB2EC2905200D20C53 /* MedicalDocumentDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalDocumentDetailViewModel.swift; sourceTree = "<group>"; };
 		146E72AD2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+MedicalDocuments.swift"; sourceTree = "<group>"; };
 		146E72AF2EC2905200D20C53 /* SectionEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionEditorView.swift; sourceTree = "<group>"; };
-		14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPromptExceptionList.swift; sourceTree = "<group>"; };
 		A2MLX0052F26000100MLX001 /* MLXOnDeviceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceModels.swift; sourceTree = "<group>"; };
 		A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceResponse.swift; sourceTree = "<group>"; };
 		A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelDownloadManager.swift; sourceTree = "<group>"; };
@@ -228,6 +223,7 @@
 		303242343446444138303338 /* AccessibilityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityManager.swift; sourceTree = "<group>"; };
 		303741434636463836313336 /* AccessibilityModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityModifiers.swift; sourceTree = "<group>"; };
 		304643454332314443313245 /* AccessibilityColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityColors.swift; sourceTree = "<group>"; };
+		4D504C4154464F524D303030 /* PlatformCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformCapabilities.swift; sourceTree = "<group>"; };
 		363235363030414442423836 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };
 		4BW5WUU6KGW4FW27P56OH0SP /* BloodTestEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryView.swift; sourceTree = "<group>"; };
 		4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorView.swift; sourceTree = "<group>"; };
@@ -261,7 +257,6 @@
 		A1000057294A0000000000001 /* DocumentImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentImporter.swift; sourceTree = "<group>"; };
 		A1000059294A0000000000001 /* DocumentExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentExporter.swift; sourceTree = "<group>"; };
 		A1000061294A0000000000001 /* FileSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemTests.swift; sourceTree = "<group>"; };
-		A1000063294A0000000000001 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
 		A1000065294A0000000000001 /* DoclingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoclingClient.swift; sourceTree = "<group>"; };
 		A1000067294A0000000000001 /* AIProviderInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderInterface.swift; sourceTree = "<group>"; };
 		A1000069294A0000000000001 /* ServiceClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceClientTests.swift; sourceTree = "<group>"; };
@@ -316,7 +311,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1427C64B2E667B2500EBEFB0 /* Ollama in Frameworks */,
 				A1000009294A0000000000001 /* SQLite in Frameworks */,
 				143446A22E78E36D00961754 /* AWSClientRuntime in Frameworks */,
 				146E72AD2EC2BD8D00D20C53 /* Textual in Frameworks */,
@@ -478,7 +472,6 @@
 				1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */,
 				4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */,
 				0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */,
-				145D8D322EA1941E000BB28A /* OllamaSettingsView.swift */,
 				A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */,
 				JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */,
 				AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */,
@@ -504,7 +497,6 @@
 				143446A72E78E6FC00961754 /* AWSCredentialsHelper.swift */,
 				143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */,
 				143446A92E78E6FC00961754 /* BedrockClient.swift */,
-				A1000063294A0000000000001 /* OllamaClient.swift */,
 				142348232EA07F6D00059087 /* OpenAICompatibleClient.swift */,
 				A1000065294A0000000000001 /* DoclingClient.swift */,
 				A1000067294A0000000000001 /* AIProviderInterface.swift */,
@@ -533,7 +525,6 @@
 			isa = PBXGroup;
 			children = (
 				1414D7782F049E5700EA287A /* JSONKeyMapping.swift */,
-				14968C302EF4F8D8006D42C0 /* SystemPromptExceptionList.swift */,
 				14ADE5BA2EF0DC9100BB7C6C /* AIResponseCleaner.swift */,
 				CONVCTXB2F127A8B00UTILS1 /* ConversationContextBuilder.swift */,
 				142348192EA07B3300059087 /* Networking */,
@@ -546,6 +537,7 @@
 				A1000073294A0000000000001 /* Keychain.swift */,
 				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
 				HIPAA004 /* UserDefaults+FirstLaunch.swift */,
+				4D504C4154464F524D303030 /* PlatformCapabilities.swift */,
 				303242343446444138303338 /* AccessibilityManager.swift */,
 				304643454332314443313245 /* AccessibilityColors.swift */,
 				303741434636463836313336 /* AccessibilityModifiers.swift */,
@@ -608,7 +600,6 @@
 			name = HealthApp;
 			packageProductDependencies = (
 				A1000010294A0000000000001 /* SQLite */,
-				1427C64A2E667B2500EBEFB0 /* Ollama */,
 				1434469D2E78E36D00961754 /* AWSBedrock */,
 				1434469F2E78E36D00961754 /* AWSBedrockRuntime */,
 				143446A12E78E36D00961754 /* AWSClientRuntime */,
@@ -665,7 +656,6 @@
 			mainGroup = A1000000294A0000000000002;
 			packageReferences = (
 				A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */,
-				1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */,
 				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "textual" */,
 				A2MLX0102F26000100MLX001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
@@ -768,8 +758,6 @@
 				14ADE5B52EF0CFE000BB7C6C /* VitalEntryView.swift in Sources */,
 				A100005GBD03QSQI2B4SK0KVT0 /* BloodTestValueValidator.swift in Sources */,
 				CONV01002EA12E9900999004 /* ConversationExporter.swift in Sources */,
-				A1000062294A0000000000001 /* OllamaClient.swift in Sources */,
-				145D8D332EA1941E000BB28A /* OllamaSettingsView.swift in Sources */,
 				A2MLX0112F26000100MLX001 /* OnDeviceLLMSettingsView.swift in Sources */,
 				A1000064294A0000000000001 /* DoclingClient.swift in Sources */,
 				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
@@ -794,7 +782,6 @@
 				9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */,
 				XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */,
 				9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */,
-				14968C312EF4F8D8006D42C0 /* SystemPromptExceptionList.swift in Sources */,
 				14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */,
 				1414D77B2F049E6F00EA287A /* HealthContextJSON.swift in Sources */,
 				14FFBD332E7787E600FD9B75 /* Services/BloodTestMappingService.swift in Sources */,
@@ -824,6 +811,7 @@
 				HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */,
 				146E72AE2EC2905200D20C53 /* DatabaseManager+MedicalDocuments.swift in Sources */,
 				HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */,
+				4D504C4154464F524D303031 /* PlatformCapabilities.swift in Sources */,
 				463346414531383846334544 /* AccessibilityManager.swift in Sources */,
 				373331303130383939373544 /* AccessibilityColors.swift in Sources */,
 				333132453133363839344239 /* AccessibilityModifiers.swift in Sources */,
@@ -1016,7 +1004,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -1058,7 +1046,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -1141,14 +1129,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/bisonbet/ollama-swift.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
 		1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/awslabs/aws-sdk-swift";
@@ -1184,11 +1164,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		1427C64A2E667B2500EBEFB0 /* Ollama */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 1427C6492E667B2500EBEFB0 /* XCRemoteSwiftPackageReference "ollama-swift" */;
-			productName = Ollama;
-		};
 		1434469D2E78E36D00961754 /* AWSBedrock */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;

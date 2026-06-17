@@ -9,7 +9,7 @@ struct DocumentGridView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     private var columns: [GridItem] {
-        let isCompact = horizontalSizeClass == .compact
+        let isCompact = !PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
         let columnCount = isCompact ? 2 : 4
         return Array(repeating: GridItem(.flexible(), spacing: 16), count: columnCount)
     }
@@ -48,7 +48,7 @@ struct DocumentGridItem: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     private var itemSize: CGFloat {
-        horizontalSizeClass == .compact ? 160 : 200
+        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass) ? 200 : 160
     }
     
     var body: some View {
@@ -63,7 +63,7 @@ struct DocumentGridItem: View {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                             .font(.title3)
                             .foregroundColor(isSelected ? .white : .secondary)
-                            .background(isSelected ? Color.blue : Color.white)
+                            .background(isSelected ? BisonTheme.gold : Color.white)
                             .clipShape(Circle())
                     }
                     .padding(8)
@@ -91,7 +91,7 @@ struct DocumentGridItem: View {
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
+                    .stroke(isSelected ? BisonTheme.gold : Color.clear, lineWidth: 3)
             )
             
             // Document info
@@ -149,6 +149,7 @@ struct DocumentGridItem: View {
                 }
             }
         }
+        .hoverEffect(.highlight)
         .accessibilityLabel("Document: \(document.fileName)")
         .accessibilityValue("Status: \(document.processingStatus.displayName), Size: \(document.formattedFileSize)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -168,7 +169,7 @@ struct DocumentGridItem: View {
                 VStack(spacing: 8) {
                     Image(systemName: document.fileType.icon)
                         .font(.system(size: 32))
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                     
                     Text(document.fileType.displayName)
                         .font(.caption)
@@ -193,7 +194,7 @@ struct ProcessingStatusIndicator: View {
         case .pending:
             return .orange
         case .processing:
-            return .blue
+            return BisonTheme.gold
         case .completed:
             return .green
         case .failed:

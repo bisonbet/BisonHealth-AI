@@ -34,7 +34,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     // MARK: - Published Properties (AIProviderInterface)
 
     @Published var isConnected: Bool = false
-    @Published var connectionStatus: OllamaConnectionStatus = .disconnected
+    @Published var connectionStatus: ProviderConnectionStatus = .disconnected
     @Published var lastError: Error?
 
     // MARK: - Private Properties

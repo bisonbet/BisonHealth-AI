@@ -3,7 +3,6 @@ import Combine
 
 struct SettingsView: View {
     enum SettingsRoute: Hashable {
-        case ollamaSettings
         case awsBedrockSettings
         case openAICompatibleSettings
         case onDeviceLLMSettings
@@ -59,6 +58,7 @@ struct SettingsView: View {
         NavigationStack {
             settingsForm
                 .navigationTitle("Settings")
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(AlertsModifier(
@@ -77,9 +77,6 @@ struct SettingsView: View {
                     appState: appState,
                     validateAndSave: validateAndSave
                 ))
-                .task {
-                    await settingsManager.refreshModelsIfNeeded()
-                }
                 // Use item-based navigation to prevent stacking issues on iPad
                 .navigationDestination(item: $selectedRoute) { destination in
                     navigationDestinationView(for: destination)
@@ -153,12 +150,6 @@ struct SettingsView: View {
     private func navigationDestinationView(for destination: SettingsRoute) -> some View {
         let _ = AppLog.shared.ui("navigationDestination called with: \(destination)", level: .debug)
         switch destination {
-        case .ollamaSettings:
-            let _ = AppLog.shared.ui("Creating OllamaSettingsView", level: .debug)
-            OllamaSettingsView()
-                .onAppear {
-                    AppLog.shared.ui("Navigated to Ollama Settings")
-                }
         case .awsBedrockSettings:
             let _ = AppLog.shared.ui("Creating AWSBedrockSettingsView", level: .debug)
             AWSBedrockSettingsView()
@@ -181,32 +172,8 @@ struct SettingsView: View {
             DoclingRemoteSettingsView(settingsManager: settingsManager)
         }
     }
-    
+
     // MARK: - Provider Configuration Cards
-
-    private var ollamaServerCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Ollama Server", systemImage: "brain.head.profile")
-                    .font(.headline)
-
-                Spacer()
-
-                Button("Configure") {
-                    AppLog.shared.ui("Ollama Configure button tapped")
-                    selectedRoute = .ollamaSettings
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Text("Local AI models for chat, document processing, and vision tasks")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(16)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-    }
 
     private var awsBedrockCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -319,8 +286,6 @@ struct SettingsView: View {
 
                 // Show only the selected provider's configuration card
                 switch settingsManager.modelPreferences.aiProvider {
-                case .ollama:
-                    ollamaServerCard
                 case .bedrock:
                     awsBedrockCard
                 case .openAICompatible:
@@ -373,8 +338,6 @@ struct SettingsView: View {
 
                 // Show model selection based on extraction provider
                 switch settingsManager.modelPreferences.extractionProvider {
-                case .ollama:
-                    extractionOllamaModelPicker
                 case .bedrock:
                     extractionBedrockModelPicker
                 case .openAICompatible:
@@ -411,51 +374,6 @@ struct SettingsView: View {
             Text("On-device extraction uses the same model as chat. Good for privacy-sensitive documents.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-        }
-    }
-
-
-    private var extractionOllamaModelPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Ollama Model")
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-
-            let availableModels = settingsManager.modelSelection.availableModels
-
-            if availableModels.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("No models available. Configure Ollama server first.")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-
-                    Button("Refresh Models") {
-                        Task {
-                            await settingsManager.fetchAvailableModels()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            } else {
-                Picker("Model", selection: $settingsManager.modelPreferences.extractionOllamaModel) {
-                    ForEach(availableModels, id: \.id) { model in
-                        Text(model.displayName).tag(model.name)
-                    }
-                    // Add currently selected model if it's not in the available list
-                    if !availableModels.contains(where: { $0.name == settingsManager.modelPreferences.extractionOllamaModel }) &&
-                       !settingsManager.modelPreferences.extractionOllamaModel.isEmpty {
-                        Text("\(settingsManager.modelPreferences.extractionOllamaModel) (not available)")
-                            .tag(settingsManager.modelPreferences.extractionOllamaModel)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                Text("Recommended: Fast, lightweight models (llama3.2:1b, qwen2.5:1.5b)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
         }
     }
 
@@ -586,7 +504,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(.blue)
+                        .foregroundColor(BisonTheme.gold)
                         .font(.title3)
                     
                     Text("iCloud Backup Notice")
@@ -602,7 +520,7 @@ struct SettingsView: View {
                     .padding(.leading, 24)
             }
             .padding(.vertical, 8)
-            .background(Color.blue.opacity(0.1))
+            .background(BisonTheme.gold.opacity(0.1))
             .cornerRadius(8)
             
             // Main backup toggle with status
@@ -744,9 +662,9 @@ struct SettingsView: View {
         case .disabled:
             return .secondary
         case .idle:
-            return .blue
+            return BisonTheme.gold
         case .backingUp, .restoring:
-            return .blue
+            return BisonTheme.gold
         case .completed:
             return .green
         case .failed:
@@ -944,7 +862,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
-                    TextField(ServerConfigurationConstants.defaultOllamaHostname, text: config.hostname, onEditingChanged: { isEditing in
+                    TextField("localhost", text: config.hostname, onEditingChanged: { isEditing in
                         if !isEditing {
                             validateConfiguration()
                         }
@@ -1111,25 +1029,7 @@ struct SettingsView: View {
     }
 
     // MARK: - Connection Testing with Enhanced Feedback
-    
-    private func testOllamaConnection() async {
-        await settingsManager.testOllamaConnection()
-        
-        // Provide user feedback based on connection result
-        await MainActor.run {
-            switch settingsManager.ollamaStatus {
-            case .connected:
-                successMessage = "Successfully connected to Ollama server"
-                showingSuccessMessage = true
-            case .failed(let error):
-                connectionError = "Failed to connect to Ollama server: \(error)"
-                showingConnectionError = true
-            default:
-                break
-            }
-        }
-    }
-    
+
     private func testDoclingConnection() async {
         await settingsManager.testDoclingConnection()
         
@@ -1149,11 +1049,8 @@ struct SettingsView: View {
     }
     
     private func testAllConnections() async {
-        // Test both connections concurrently
+        // Test configured remote services concurrently.
         await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await self.testOllamaConnection()
-            }
             group.addTask {
                 await self.testDoclingConnection()
             }
@@ -1266,13 +1163,6 @@ struct ChangeObserversModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(
-                settingsManager.$ollamaConfig
-                    .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            ) { _ in
-                settingsManager.invalidateClients()
-                validateAndSave()
-            }
-            .onReceive(
                 settingsManager.$doclingConfig
                     .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
             ) { _ in
@@ -1374,7 +1264,7 @@ struct DoclingRemoteSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Hostname").font(.caption).foregroundColor(.secondary)
-                    TextField(ServerConfigurationConstants.defaultOllamaHostname, text: config.hostname)
+                    TextField("localhost", text: config.hostname)
                         .onChange(of: config.hostname.wrappedValue) { _, newValue in
                             var updated = config.wrappedValue
                             updated.hostname = newValue
