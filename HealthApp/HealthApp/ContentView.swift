@@ -9,7 +9,7 @@ import PhotosUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var selectedSection: AppSection = .healthData
+    @State private var selectedSection: AppSection = .health
 
     private var isIPad: Bool {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
@@ -38,23 +38,23 @@ struct ContentView: View {
 
     private var compactTabShell: some View {
         TabView(selection: $selectedSection) {
-            HealthDataView()
+            HealthTabView()
                 .tabItem {
-                    Image(systemName: AppSection.healthData.systemImage)
-                        .accessibilityLabel(AppSection.healthData.title)
-                    Text(AppSection.healthData.title)
+                    Image(systemName: AppSection.health.systemImage)
+                        .accessibilityLabel(AppSection.health.title)
+                    Text(AppSection.health.title)
                 }
-                .tag(AppSection.healthData)
-                .accessibilityIdentifier("tab.healthData")
+                .tag(AppSection.health)
+                .accessibilityIdentifier("tab.health")
 
-            DocumentsView()
+            AppointmentPrepView()
                 .tabItem {
-                    Image(systemName: AppSection.documents.systemImage)
-                        .accessibilityLabel(AppSection.documents.title)
-                    Text(AppSection.documents.title)
+                    Image(systemName: AppSection.appointmentPrep.systemImage)
+                        .accessibilityLabel(AppSection.appointmentPrep.title)
+                    Text(AppSection.appointmentPrep.title)
                 }
-                .tag(AppSection.documents)
-                .accessibilityIdentifier("tab.documents")
+                .tag(AppSection.appointmentPrep)
+                .accessibilityIdentifier("tab.appointmentPrep")
 
             ChatView()
                 .tabItem {
@@ -101,8 +101,8 @@ struct ContentView: View {
 
 // MARK: - App Navigation
 private enum AppSection: String, CaseIterable, Identifiable, Hashable {
-    case healthData
-    case documents
+    case health
+    case appointmentPrep
     case chat
     case settings
 
@@ -110,8 +110,8 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .healthData: return "Health Data"
-        case .documents: return "Documents"
+        case .health: return "Health"
+        case .appointmentPrep: return "Prep"
         case .chat: return "AI Chat"
         case .settings: return "Settings"
         }
@@ -119,8 +119,8 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .healthData: return "heart.text.square.fill"
-        case .documents: return "doc.text.fill"
+        case .health: return "heart.text.square.fill"
+        case .appointmentPrep: return "stethoscope"
         case .chat: return "message.fill"
         case .settings: return "slider.horizontal.3"
         }
@@ -128,8 +128,8 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
 
     var accent: Color {
         switch self {
-        case .healthData: return BisonTheme.sage
-        case .documents: return BisonTheme.hideBrown
+        case .health: return BisonTheme.sage
+        case .appointmentPrep: return BisonTheme.hideBrown
         case .chat: return BisonTheme.gold
         case .settings: return BisonTheme.steel
         }
@@ -138,10 +138,10 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
     @ViewBuilder
     var destination: some View {
         switch self {
-        case .healthData:
-            HealthDataView()
-        case .documents:
-            DocumentsView()
+        case .health:
+            HealthTabView()
+        case .appointmentPrep:
+            AppointmentPrepView()
         case .chat:
             ChatView()
         case .settings:
@@ -287,8 +287,19 @@ struct HealthDataView: View {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
 
+    /// When false (e.g. embedded in HealthTabView), renders content without its
+    /// own NavigationStack so a parent can own the navigation bar.
+    var embedInNavigation: Bool = true
+
     var body: some View {
-        NavigationStack {
+        if embedInNavigation {
+            NavigationStack { healthContent }
+        } else {
+            healthContent
+        }
+    }
+
+    private var healthContent: some View {
             List {
                 PersonalInfoSection(
                     personalInfo: healthDataManager.personalInfo,
@@ -438,7 +449,6 @@ struct HealthDataView: View {
                 )
             }
             .keyboardNavigable()
-        }
     }
 
     // MARK: - Vital Management Helpers
@@ -531,8 +541,17 @@ struct DocumentsView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
 
+    /// When false (e.g. embedded in HealthTabView), renders content without its
+    /// own NavigationStack/SplitView and uses sheet-based detail on all devices.
+    var embedInNavigation: Bool = true
+
     private var isIPad: Bool {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
+    }
+
+    /// The two-column split is only used when this view owns its navigation.
+    private var usesSplitView: Bool {
+        isIPad && embedInNavigation
     }
 
     private var supportsDocumentScanning: Bool {
@@ -541,10 +560,12 @@ struct DocumentsView: View {
 
     var body: some View {
         Group {
-            if isIPad {
+            if usesSplitView {
                 documentsSplitView
-            } else {
+            } else if embedInNavigation {
                 documentsStackView
+            } else {
+                documentsPrimaryContent
             }
         }
         .fullScreenCover(isPresented: $showingCamera) {
@@ -584,7 +605,7 @@ struct DocumentsView: View {
             )
         }
         .sheet(item: Binding(
-            get: { isIPad ? nil : selectedDocument },
+            get: { usesSplitView ? nil : selectedDocument },
             set: { selectedDocument = $0 }
         )) { document in
             DocumentDetailView(
