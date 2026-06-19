@@ -183,6 +183,27 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(message.isFromAssistant)
         XCTAssertEqual(message.wordCount, 2)
     }
+
+    func testAppointmentPrepClearGeneratedContent() {
+        var prep = AppointmentPrep(
+            symptoms: "Headache and dizziness for several days",
+            timeline: "- Old timeline",
+            questions: "- Old question?",
+            relevantInfo: "- Old relevant info",
+            status: .complete
+        )
+
+        XCTAssertTrue(prep.hasGeneratedContent)
+
+        prep.clearGeneratedContent()
+
+        XCTAssertEqual(prep.timeline, "")
+        XCTAssertEqual(prep.questions, "")
+        XCTAssertEqual(prep.relevantInfo, "")
+        XCTAssertFalse(prep.hasGeneratedContent)
+        XCTAssertEqual(prep.symptoms, "Headache and dizziness for several days")
+        XCTAssertEqual(prep.status, .complete)
+    }
     
     // MARK: - ChatContext Tests
     func testChatContextEmpty() {

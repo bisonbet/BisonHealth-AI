@@ -137,6 +137,12 @@ struct AppointmentPrep: Identifiable, Codable, Equatable, Hashable {
 
 // MARK: - Convenience
 extension AppointmentPrep {
+    mutating func clearGeneratedContent() {
+        timeline = ""
+        questions = ""
+        relevantInfo = ""
+    }
+
     /// A display title that falls back to provider/date when the user hasn't set one.
     var resolvedTitle: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -122,6 +122,7 @@ final class AppointmentPrepManager: ObservableObject {
         generationStage = .idle
 
         var prep = input
+        prep.clearGeneratedContent()
         prep.status = .generating
         prep.lastModified = Date()
         currentPrep = prep
