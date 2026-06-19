@@ -31,7 +31,6 @@ BisonHealth-AI/
 │   ├── HealthAppTests/           # 13 unit test files
 │   ├── HealthAppUITests/         # 6 UI test files
 │   └── HealthApp.xcodeproj/      # Xcode project
-├── .github/workflows/            # CI/CD (Gemini & Claude agents)
 ├── .claude/                      # Claude AI configuration
 └── *.md                          # 17+ documentation files
 ```
