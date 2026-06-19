@@ -27,13 +27,14 @@ class DatabaseManager: ObservableObject {
     }
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 7 // Increment when making schema changes
+    private static let currentDatabaseVersion = 8 // Increment when making schema changes
 
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
     internal let documentsTable = Table("documents")
     internal let chatConversationsTable = Table("chat_conversations")
     internal let chatMessagesTable = Table("chat_messages")
+    internal let appointmentPrepsTable = Table("appointment_preps")
     internal let databaseVersionTable = Table("database_version")
     
     // MARK: - Column Definitions
@@ -89,6 +90,13 @@ class DatabaseManager: ObservableObject {
     internal let messageIsError = Expression<Bool>("is_error")
     internal let messageTokens = Expression<Int?>("tokens")
     internal let messageProcessingTime = Expression<Double?>("processing_time")
+
+    // Appointment Preps Table
+    internal let prepId = Expression<String>("id")
+    internal let prepEncryptedData = Expression<Data>("encrypted_data")
+    internal let prepStatus = Expression<String>("status")
+    internal let prepCreatedAt = Expression<Int64>("created_at")
+    internal let prepUpdatedAt = Expression<Int64>("updated_at")
 
     // Database Version Table
     internal let versionNumber = Expression<Int>("version")
@@ -191,12 +199,21 @@ class DatabaseManager: ObservableObject {
                 t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
             })
 
+            // Create appointment_preps table
+            try db.run(appointmentPrepsTable.create(ifNotExists: true) { t in
+                t.column(prepId, primaryKey: true)
+                t.column(prepEncryptedData)
+                t.column(prepStatus, defaultValue: "draft")
+                t.column(prepCreatedAt)
+                t.column(prepUpdatedAt)
+            })
+
             // Create database_version table
             try db.run(databaseVersionTable.create(ifNotExists: true) { t in
                 t.column(versionNumber, primaryKey: true)
                 t.column(versionCreatedAt)
             })
-            
+
             // Create app_settings table
             try createAppSettingsTable()
 
@@ -215,7 +232,8 @@ class DatabaseManager: ObservableObject {
             try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
             try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
-            
+            try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
+
         }
     }
 
@@ -412,6 +430,19 @@ class DatabaseManager: ObservableObject {
 
             AppLog.shared.database("Migrated document format: ensured default values for MedicalDocument fields")
 
+        case 8:
+            // Migration for version 8: Added appointment_preps table for "Prep for Doctor Appointment"
+            // Stores encrypted AppointmentPrep records (symptoms, notes, medications + generated report).
+            try db.run(appointmentPrepsTable.create(ifNotExists: true) { t in
+                t.column(prepId, primaryKey: true)
+                t.column(prepEncryptedData)
+                t.column(prepStatus, defaultValue: "draft")
+                t.column(prepCreatedAt)
+                t.column(prepUpdatedAt)
+            })
+            try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
+            AppLog.shared.database("Added appointment_preps table for appointment prep feature")
+
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
         }
@@ -504,12 +535,21 @@ class DatabaseManager: ObservableObject {
             t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
         })
 
+        // Create appointment_preps table
+        try db.run(appointmentPrepsTable.create(ifNotExists: true) { t in
+            t.column(prepId, primaryKey: true)
+            t.column(prepEncryptedData)
+            t.column(prepStatus, defaultValue: "draft")
+            t.column(prepCreatedAt)
+            t.column(prepUpdatedAt)
+        })
+
         // Create database_version table
         try db.run(databaseVersionTable.create(ifNotExists: true) { t in
             t.column(versionNumber, primaryKey: true)
             t.column(versionCreatedAt)
         })
-        
+
         // Create app_settings table
         try createAppSettingsTable()
 
@@ -525,6 +565,7 @@ class DatabaseManager: ObservableObject {
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
     }
 
     // MARK: - Encryption Key Management

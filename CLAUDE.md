@@ -7,7 +7,7 @@
 - **Platform**: iOS 17.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 5.9+ with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
-- **Database**: SQLite with CryptoKit encryption (current version: 6)
+- **Database**: SQLite with CryptoKit encryption (current version: 8)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: Docling OCR service
 - **Privacy**: Local-first, optional encrypted iCloud backup
@@ -108,7 +108,7 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 6 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 8 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -254,6 +254,7 @@ enum BloodTestCategory: String, Codable {
 | `DocumentManager` | Document processing | `importDocument()`, `processDocument()` |
 | `SettingsManager` | App settings | `saveSettings()`, `loadSettings()` |
 | `iCloudBackupManager` | Backup/restore | `createBackup()`, `restoreBackup()` |
+| `AppointmentPrepManager` | Doctor appointment prep | `generate()`, `loadPreps()`, `prefillMedications()` |
 
 ### Services (External Integrations)
 
@@ -504,9 +505,9 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Statistics**:
-- 113 Swift files (Models: 10, Views: 54, Managers: 10, Services: 10, Database: 7, Utils: 14)
-- 19 test files (13 unit, 6 UI)
-- Database version: 6
+- 122 Swift files (Models: 11, Views: 58, Managers: 11, Services: 12, Database: 8, Utils: 14)
+- 20 test files (14 unit, 6 UI)
+- Database version: 8
 - iOS 17.0+ deployment target
 
 ---

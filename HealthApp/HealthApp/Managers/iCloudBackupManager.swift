@@ -352,10 +352,12 @@ class iCloudBackupManager: ObservableObject {
     private func backupHealthData(backupId: UUID) async throws -> Int64 {
         let personalInfo = try await databaseManager.fetchPersonalHealthInfo()
         let bloodTests = try await databaseManager.fetchBloodTestResults()
+        let appointmentPreps = try await databaseManager.fetchAppointmentPreps()
 
         let healthData = HealthDataBackup(
             personalInfo: personalInfo,
-            bloodTests: bloodTests
+            bloodTests: bloodTests,
+            appointmentPreps: appointmentPreps
         )
 
         let encryptedData = try await encryptData(healthData)
@@ -536,6 +538,10 @@ class iCloudBackupManager: ObservableObject {
 
         for bloodTest in healthData.bloodTests {
             try await databaseManager.save(bloodTest)
+        }
+
+        for prep in healthData.appointmentPreps ?? [] {
+            try await databaseManager.saveAppointmentPrep(prep)
         }
     }
 
@@ -1062,6 +1068,7 @@ class iCloudBackupManager: ObservableObject {
 private struct HealthDataBackup: Codable {
     let personalInfo: PersonalHealthInfo?
     let bloodTests: [BloodTestResult]
+    let appointmentPreps: [AppointmentPrep]?
 }
 
 private struct ChatDataBackup: Codable {
