@@ -198,6 +198,13 @@ final class AppointmentPrepManager: ObservableObject {
             // Preserve any partial output that was produced.
             prep.status = prep.hasGeneratedContent ? .complete : .draft
             currentPrep = prep
+            if prep.hasGeneratedContent {
+                do {
+                    try await save(prep)
+                } catch {
+                    AppLog.shared.error("Failed to save partial appointment prep: \(error.localizedDescription)", error: error, category: .database)
+                }
+            }
             AppLog.shared.error("Appointment prep generation failed: \(message)", error: error, category: .ai)
         }
 
