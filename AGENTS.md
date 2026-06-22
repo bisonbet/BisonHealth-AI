@@ -14,11 +14,11 @@
 
 ## Build, Test, and Development Commands
 - Open in Xcode: `open HealthApp/HealthApp.xcodeproj`
-- Build (CLI, Simulator default): `xcodebuild -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build`
-- Unit/UI tests (Simulator): `xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro'`
+- Build (CLI, Simulator default): `xcodebuild -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- Unit/UI tests (Simulator): `xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'`
 - Legacy web-app (optional, reference only): `cd legacy/web-app && npm i && npm run dev` (unsupported)
 
-Note: Our default Simulator target is `iPhone 16 Pro`. If that runtime isn't installed locally, either install it via Xcode > Settings > Platforms or temporarily substitute another available device (e.g., `iPhone 15`).
+Note: Our default Simulator target is `iPhone 17 Pro`. If that runtime isn't installed locally, either install it via Xcode > Settings > Platforms or temporarily substitute another available device (e.g., `iPhone 17`, `iPhone Air`).
 
 ## Coding Style & Naming Conventions
 - Swift: follow Apple's Swift API Design Guidelines; 4‑space indentation; no force‑unwraps.

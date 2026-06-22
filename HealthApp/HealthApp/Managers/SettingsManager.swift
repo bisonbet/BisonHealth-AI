@@ -35,6 +35,10 @@ struct ServerConfiguration: Equatable {
     }
 }
 
+// Inert legacy state, retained until a non-iCloud backup mechanism is designed.
+// These fields are still persisted but no longer drive any behavior (the
+// iCloud/CloudKit backup feature was removed). A future local/self-hosted
+// backup mechanism will likely redefine this struct.
 struct BackupSettings: Equatable {
     var iCloudEnabled: Bool = false
     var backupHealthData: Bool = true
@@ -185,7 +189,7 @@ class SettingsManager: ObservableObject {
     
     // App preferences
     @Published var appPreferences = AppPreferences()
-    
+
     // Model preferences
     @Published var modelPreferences = ModelPreferences()
 
@@ -194,9 +198,6 @@ class SettingsManager: ObservableObject {
     private var openAICompatibleClient: OpenAICompatibleClient?
     private var mlxOnDeviceClient: MLXOnDeviceClient?
 
-    // iCloud backup manager
-    @Published var backupManager: iCloudBackupManager?
-    
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
 
@@ -207,10 +208,6 @@ class SettingsManager: ObservableObject {
     
     init() {
         loadSettings()
-        // Defer backup manager setup to avoid circular dependency
-        Task { @MainActor in
-            await setupBackupManager()
-        }
     }
 
     // MARK: - Settings Persistence
@@ -606,52 +603,6 @@ class SettingsManager: ObservableObject {
         modelPreferences.lastUpdated = Date()
         openAICompatibleClient?.updateDefaultModel(model)
         saveSettings()
-    }
-
-    // MARK: - Backup Management
-
-    private func setupBackupManager() async {
-        backupManager = iCloudBackupManager.shared
-
-        // Configure the backup manager with this settings manager to avoid circular dependency
-        backupManager?.configure(with: self)
-
-        // Enable/disable backup based on settings
-        Task { @MainActor in
-            if backupSettings.iCloudEnabled {
-                try? await backupManager?.enableBackup()
-            } else {
-                backupManager?.disableBackup()
-            }
-        }
-    }
-
-    func enableiCloudBackup() async throws {
-        guard let backupManager = backupManager else { return }
-
-        try await backupManager.enableBackup()
-        backupSettings.iCloudEnabled = true
-        saveSettings()
-    }
-
-    func disableiCloudBackup() {
-        guard let backupManager = backupManager else { return }
-
-        backupManager.disableBackup()
-        backupSettings.iCloudEnabled = false
-        saveSettings()
-    }
-
-    func performManualBackup() async {
-        await backupManager?.performManualBackup()
-    }
-
-    func fetchAvailableBackups() async {
-        await backupManager?.fetchAvailableBackups()
-    }
-
-    func restoreFromBackup(_ metadata: BackupMetadata) async {
-        await backupManager?.restoreFromBackup(metadata)
     }
 }
 
