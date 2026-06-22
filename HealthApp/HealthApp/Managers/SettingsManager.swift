@@ -35,6 +35,10 @@ struct ServerConfiguration: Equatable {
     }
 }
 
+// Inert legacy state, retained until a non-iCloud backup mechanism is designed.
+// These fields are still persisted but no longer drive any behavior (the
+// iCloud/CloudKit backup feature was removed). A future local/self-hosted
+// backup mechanism will likely redefine this struct.
 struct BackupSettings: Equatable {
     var iCloudEnabled: Bool = false
     var backupHealthData: Bool = true
