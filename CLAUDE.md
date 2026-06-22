@@ -10,7 +10,7 @@
 - **Database**: SQLite with CryptoKit encryption (current version: 8)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: Docling OCR service
-- **Privacy**: Local-first, optional encrypted iCloud backup
+- **Privacy**: Local-first, all data on-device (no iCloud/CloudKit backup)
 
 ---
 
@@ -253,7 +253,6 @@ enum BloodTestCategory: String, Codable {
 | `AIChatManager` | Chat management | `sendMessage()`, `loadConversations()` |
 | `DocumentManager` | Document processing | `importDocument()`, `processDocument()` |
 | `SettingsManager` | App settings | `saveSettings()`, `loadSettings()` |
-| `iCloudBackupManager` | Backup/restore | `createBackup()`, `restoreBackup()` |
 | `AppointmentPrepManager` | Doctor appointment prep | `generate()`, `loadPreps()`, `prefillMedications()` |
 
 ### Services (External Integrations)
@@ -408,7 +407,7 @@ xcodebuild test -scheme HealthApp \
 - **Encryption**: CryptoKit for all health data
 - **Storage**: SQLite with encrypted blobs
 - **Secrets**: Keychain for credentials
-- **Backup**: Optional encrypted iCloud
+- **Backup**: On-device only (iCloud/CloudKit backup removed — no BAA available)
 - **Network**: TLS 1.2+ only
 
 ### .gitignore Protection
@@ -476,7 +475,7 @@ Emoji prefixes for filtering:
 - mlx-swift-lm - On-device LLM support
 
 **Built-in Frameworks**:
-- CryptoKit, VisionKit, PhotosUI, HealthKit, CloudKit, Combine, PDFKit
+- CryptoKit, VisionKit, PhotosUI, HealthKit, Combine, PDFKit
 
 ---
 

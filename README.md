@@ -24,7 +24,7 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 ### ✨ Key Features
 
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 17+, optimized for both iPhone and iPad
-- 🔒 **Privacy-First Design** - All health data stored locally with optional iCloud backup
+- 🔒 **Privacy-First Design** - All health data stored locally on-device, no cloud backup
 - 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
 - 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Primary Care, Chronic Health AI, and more)
 - 📄 **Smart Document Processing** - Automatic OCR and extraction of health data from documents using Docling
@@ -33,7 +33,6 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 - 💬 **AI Chat with Context** - Intelligent conversations with your health data as context, including current date/time awareness
 - 📊 **Data Export** - Export your data in JSON or PDF formats
 - 🌙 **Accessibility** - Full support for Dark Mode, VoiceOver, and Dynamic Type
-- ☁️ **Optional iCloud Backup** - Secure, encrypted backup with granular control
 - 🔄 **Offline Support** - Queue operations when offline, automatic retry when connection restored
 - 📡 **Streaming Responses** - Real-time AI responses for better user experience
 - 🎯 **Context Selection** - Choose which health data and documents to include in AI conversations
@@ -72,7 +71,7 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 │  Data Access Layer                                          │
 │  ├── SQLite Database Manager (Encrypted)                   │
 │  ├── File System Manager                                    │
-│  └── iCloud Backup Manager                                  │
+│  └── Backup Management Shell (placeholder)                 │
 ├─────────────────────────────────────────────────────────────┤
 │  External Service Layer                                     │
 │  ├── AI Provider Interface (Protocol)                       │
@@ -200,7 +199,7 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 ### Privacy Settings
 
 - **Local Storage** - All health data encrypted and stored locally
-- **iCloud Backup** - Optional, user-controlled backup to iCloud
+- **No Cloud Backup** - Health data never leaves the device (iCloud/CloudKit backup removed for HIPAA compliance)
 - **Data Export** - Export your data anytime in JSON or PDF format
 - **No Cloud Dependencies** - Core functionality works completely offline
 

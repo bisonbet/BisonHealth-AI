@@ -40,7 +40,6 @@ enum LogCategory: String, CaseIterable {
     case documents = "Documents"
     case networking = "Networking"
     case ai = "AI"
-    case icloud = "iCloud"
     case healthData = "HealthData"
     case fileManagement = "FileManagement"
     case settings = "Settings"
@@ -176,10 +175,6 @@ class AppLog {
 
     func ai(_ message: String, level: LogLevel = .info, file: String = #file, function: String = #function, line: Int = #line) {
         log(message, level: level, category: .ai, file: file, function: function, line: line)
-    }
-
-    func icloud(_ message: String, level: LogLevel = .info, file: String = #file, function: String = #function, line: Int = #line) {
-        log(message, level: level, category: .icloud, file: file, function: function, line: line)
     }
 
     func healthData(_ message: String, level: LogLevel = .info, file: String = #file, function: String = #function, line: Int = #line) {

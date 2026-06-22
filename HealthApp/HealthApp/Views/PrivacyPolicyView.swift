@@ -14,14 +14,9 @@ struct PrivacyPolicyView: View {
                 
                 PrivacySection(
                     title: "Data Storage",
-                    content: "All your health data is stored locally on your device. We do not collect, transmit, or store your personal health information on our servers."
+                    content: "All your health data is stored locally on your device. We do not collect, transmit, or store your personal health information on our servers. iCloud/CloudKit backup is not used; data does not leave your device unless you explicitly export it."
                 )
-                
-                PrivacySection(
-                    title: "iCloud Backup",
-                    content: "When enabled, your data is encrypted and backed up to your personal iCloud account. Only you have access to this data through your Apple ID."
-                )
-                
+
                 PrivacySection(
                     title: "AI Processing",
                     content: "When using AI features, your health data is sent to your configured AI servers for processing. This data is not stored by the AI service and is only used to generate responses."
