@@ -33,7 +33,7 @@ struct HealthAppApp: App {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                               let rootVC = windowScene.windows.first?.rootViewController else { return }
-                        LogExporter.exportLogs(from: rootVC)
+                        LogExporter.exportLogs(from: rootVC, context: .crashReport)
                     }
                 }
                 Button("Dismiss", role: .cancel) { }
@@ -258,10 +258,13 @@ class AppState: ObservableObject {
     func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            AppLog.shared.markSessionActive()
             Task {
                 await settingsManager.resumeOnDeviceLLMAfterForeground()
             }
-        case .inactive, .background:
+        case .inactive:
+            break
+        case .background:
             AppLog.shared.markCleanShutdown()
             Task {
                 await settingsManager.suspendOnDeviceLLMForBackground()

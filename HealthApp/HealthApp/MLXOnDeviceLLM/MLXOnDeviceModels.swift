@@ -121,6 +121,8 @@ extension MLXModelInfo {
         qwen35_4B_VLM
     ]
 
+    public static let visionModels: [MLXModelInfo] = allModels.filter { $0.modelType == .vlm }
+
     /// Default model for health assistant
     public static let defaultModel = mediPhi4B
 
@@ -137,6 +139,7 @@ extension MLXModelInfo {
     struct SettingsKeys {
         static let enableOnDeviceLLM = "enableOnDeviceLLM"
         static let selectedModelId = "onDeviceLLMSelectedModel"
+        static let selectedExtractionModelId = "onDeviceLLMExtractionModel"
         static let temperature = "onDeviceLLMTemperature"
         static let topP = "onDeviceLLMTopP"
         static let maxTokens = "onDeviceLLMMaxTokens"
@@ -157,25 +160,46 @@ extension MLXModelInfo {
         return model(withId: modelId) ?? defaultModel
     }
 
+    public static var selectedExtractionModel: MLXModelInfo? {
+        guard let modelId = UserDefaults.standard.string(forKey: SettingsKeys.selectedExtractionModelId),
+              let model = model(withId: modelId),
+              model.modelType == .vlm else {
+            return nil
+        }
+        return model
+    }
+
     public static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: SettingsKeys.enableOnDeviceLLM)
     }
 
     public static var configuredTemperature: Float {
+        configuredTemperature(for: selectedModel)
+    }
+
+    public static func configuredTemperature(for model: MLXModelInfo) -> Float {
         if UserDefaults.standard.object(forKey: SettingsKeys.temperature) != nil {
             return UserDefaults.standard.float(forKey: SettingsKeys.temperature)
         }
-        return selectedModel.defaultSettings.temperature
+        return model.defaultSettings.temperature
     }
 
     public static var configuredTopP: Float {
+        configuredTopP(for: selectedModel)
+    }
+
+    public static func configuredTopP(for model: MLXModelInfo) -> Float {
         let topP = UserDefaults.standard.float(forKey: SettingsKeys.topP)
-        return topP > 0 ? topP : selectedModel.defaultSettings.topP
+        return topP > 0 ? topP : model.defaultSettings.topP
     }
 
     public static var configuredMaxTokens: Int {
+        configuredMaxTokens(for: selectedModel)
+    }
+
+    public static func configuredMaxTokens(for model: MLXModelInfo) -> Int {
         let tokens = UserDefaults.standard.integer(forKey: SettingsKeys.maxTokens)
-        return tokens > 0 ? tokens : selectedModel.defaultSettings.maxTokens
+        return tokens > 0 ? tokens : model.defaultSettings.maxTokens
     }
 
     public static var configuredContextSize: Int {
@@ -187,11 +211,15 @@ extension MLXModelInfo {
     }
 
     public static var configuredRepetitionPenalty: Float? {
+        configuredRepetitionPenalty(for: selectedModel)
+    }
+
+    public static func configuredRepetitionPenalty(for model: MLXModelInfo) -> Float? {
         if UserDefaults.standard.object(forKey: SettingsKeys.repetitionPenalty) != nil {
             let value = UserDefaults.standard.float(forKey: SettingsKeys.repetitionPenalty)
             return value > 0 ? value : nil
         }
-        return selectedModel.defaultSettings.repetitionPenalty
+        return model.defaultSettings.repetitionPenalty
     }
 
     /// Apply default settings for a model to UserDefaults

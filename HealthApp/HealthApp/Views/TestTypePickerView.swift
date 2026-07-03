@@ -252,7 +252,6 @@ struct AlphabeticalIndexView: View {
                     Button(action: {
                         if availableLetters.contains(letter) {
                             selectedLetter = letter
-                            hapticFeedback()
                         }
                     }) {
                         Text(letter)
@@ -281,7 +280,6 @@ struct AlphabeticalIndexView: View {
 
                         if availableLetters.contains(letter) && selectedLetter != letter {
                             selectedLetter = letter
-                            hapticFeedback()
                         }
                     }
                     .onEnded { _ in
@@ -292,10 +290,6 @@ struct AlphabeticalIndexView: View {
         .padding(.vertical, 8)
     }
 
-    private func hapticFeedback() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-    }
 }
 
 // MARK: - Enhanced Test Type Button

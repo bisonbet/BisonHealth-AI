@@ -26,6 +26,32 @@ final class SettingsManagerTests: XCTestCase {
         XCTAssertEqual(settingsManager.modelPreferences.bedrockModel, AWSBedrockModel.claudeSonnet45.rawValue)
     }
 
+    func testOnDeviceExtractionModelSelectionRejectsTextOnlyModel() {
+        let defaults = UserDefaults.standard
+        let key = MLXModelInfo.SettingsKeys.selectedExtractionModelId
+        let previousValue = defaults.string(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        defaults.set(MLXModelInfo.mediPhi4B.id, forKey: key)
+        XCTAssertNil(MLXModelInfo.selectedExtractionModel)
+
+        defaults.set(MLXModelInfo.qwen35_4B_VLM.id, forKey: key)
+        XCTAssertEqual(MLXModelInfo.selectedExtractionModel, .qwen35_4B_VLM)
+    }
+
+    func testBedrockExtractionModelsOnlyIncludeVisionCapableModels() {
+        XCTAssertFalse(AWSBedrockModel.visionExtractionModels.isEmpty)
+        XCTAssertTrue(AWSBedrockModel.visionExtractionModels.allSatisfy { $0.supportsVisionExtraction })
+        XCTAssertFalse(AWSBedrockModel.llama4Maverick.supportsVisionExtraction)
+        XCTAssertFalse(AWSBedrockModel.amazonNovaPremier.supportsVisionExtraction)
+    }
+
     func testAIProviderDecodesUnknownProviderAsOnDevice() throws {
         let data = #""removed_provider""#.data(using: .utf8)!
         let provider = try JSONDecoder().decode(AIProvider.self, from: data)

@@ -73,6 +73,23 @@ enum AWSBedrockModel: String, CaseIterable {
             return true
         }
     }
+
+    var supportsVisionExtraction: Bool {
+        switch self {
+        case .claudeSonnet45:
+            return true
+        case .llama4Maverick, .amazonNovaPremier:
+            return false
+        }
+    }
+
+    static var visionExtractionModels: [AWSBedrockModel] {
+        allCases.filter { $0.supportsVisionExtraction }
+    }
+
+    static var defaultVisionExtractionModel: AWSBedrockModel {
+        visionExtractionModels.first ?? .claudeSonnet45
+    }
 }
 
 // MARK: - AWS Bedrock Configuration
@@ -595,7 +612,7 @@ extension BedrockClient: VisionDocumentExtractor {
 
     /// Only Claude on Bedrock supports image content blocks in this app for now.
     var supportsVisionExtraction: Bool {
-        (currentModel ?? config.model) == .claudeSonnet45
+        (currentModel ?? config.model).supportsVisionExtraction
     }
 
     func extractFromDocument(

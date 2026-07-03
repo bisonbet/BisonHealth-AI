@@ -42,7 +42,6 @@ struct HealthTabView: View {
             ForEach(Segment.allCases) { item in
                 let isSelected = segment == item
                 Button {
-                    HapticFeedbackManager.shared.selection()
                     withAnimation(.easeInOut(duration: 0.15)) { segment = item }
                 } label: {
                     Text(item.rawValue)

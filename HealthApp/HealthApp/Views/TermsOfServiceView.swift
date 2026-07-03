@@ -13,48 +13,78 @@ struct TermsOfServiceView: View {
                         .padding(.horizontal)
                     
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Last Updated: [Date]")
+                        Text("Last updated: July 3, 2026")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
                         TermsSectionView(
                             title: "Acceptance of Terms",
-                            content: "By using this BisonHealth AI app, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the app."
+                            content: "By downloading, accessing, or using BisonHealth AI, you agree to these Terms of Service and the Privacy Policy. If you do not agree, do not use the app."
                         )
                         
                         TermsSectionView(
                             title: "Description of Service",
-                            content: "BisonHealth AI is a personal health data management application that provides AI-powered assistance for understanding your health information. The app stores all data locally on your device only — no cloud backup is used."
+                            content: "BisonHealth AI is a personal health organization app that helps individuals store, review, summarize, and prepare questions about their own health information. The app is intended for personal informational use only and is not a healthcare service, medical device, provider portal, patient record system, or emergency tool."
+                        )
+
+                        TermsSectionView(
+                            title: "Personal Use Only",
+                            content: "You may use the app only for your own personal health information or information you have a lawful right to manage for personal purposes. \(BisonHealthLegalCopy.notForProfessionalUse)"
+                        )
+
+                        TermsSectionView(
+                            title: "Not HIPAA Compliant",
+                            content: "BisonHealth AI is not designed for HIPAA-regulated use and does not provide HIPAA compliance. We are not acting as a Business Associate, do not enter into Business Associate Agreements (BAAs), and do not provide HIPAA-required administrative, physical, technical, audit, access-control, retention, or breach-response commitments. Do not use the app to process Protected Health Information on behalf of a covered entity or business associate."
                         )
                         
                         TermsSectionView(
                             title: "User Responsibilities",
-                            content: "You are responsible for maintaining the confidentiality of your health data and for all activities that occur under your account. You agree to provide accurate health information and to use the app for lawful purposes only."
+                            content: "\(BisonHealthLegalCopy.userResponsibility) You are responsible for securing your device, passcode, backups, files, AI provider accounts, and exported data."
                         )
                         
                         TermsSectionView(
                             title: "Medical Disclaimer",
-                            content: "This app is not intended to diagnose, treat, cure, or prevent any disease. The information provided is for educational purposes only and should not replace professional medical advice. Always consult with qualified healthcare providers for medical decisions."
+                            content: "\(BisonHealthLegalCopy.noMedicalAdvice) App content, extracted data, summaries, AI outputs, and suggestions may be incomplete, inaccurate, outdated, or inappropriate for your circumstances."
                         )
                         
                         TermsSectionView(
-                            title: "Data Security",
-                            content: "We implement industry-standard security measures to protect your health data. All data is encrypted at rest and in transit. However, no method of transmission over the internet is 100% secure."
+                            title: "AI and Third-Party Services",
+                            content: "If you configure external AI providers, cloud services, sharing destinations, email, messaging, storage, or other third-party services, your use of those services is governed by their terms, privacy policies, security practices, data-retention rules, and fees. BisonHealth AI does not control those third parties and is not responsible for their acts, omissions, outputs, availability, or handling of your data."
+                        )
+
+                        TermsSectionView(
+                            title: "Data and Availability",
+                            content: "The app is provided as a local personal tool. You are responsible for maintaining your own device, backups, exports, and copies of important information. We do not guarantee that app data, generated content, extraction results, AI outputs, imports, exports, or integrations will be error-free, complete, recoverable, or continuously available."
+                        )
+
+                        TermsSectionView(
+                            title: "Prohibited Uses",
+                            content: "You may not use the app for unlawful purposes, to process data you do not have rights to use, to provide medical or professional services to others, to make automated eligibility or treatment decisions, to attempt to reverse engineer restricted components, or to interfere with the app or related services."
                         )
                         
                         TermsSectionView(
-                            title: "Limitations of Liability",
-                            content: "The app is provided 'as is' without warranties of any kind. We shall not be liable for any direct, indirect, incidental, consequential, or punitive damages arising from your use of the app."
+                            title: "No Warranties",
+                            content: "To the fullest extent permitted by law, the app is provided \"as is\" and \"as available\" without warranties of any kind, express or implied, including warranties of accuracy, reliability, merchantability, fitness for a particular purpose, non-infringement, availability, security, or error-free operation."
+                        )
+
+                        TermsSectionView(
+                            title: "Limitation of Liability",
+                            content: "To the fullest extent permitted by law, BisonHealth AI and its developers, owners, affiliates, and service providers will not be liable for indirect, incidental, special, consequential, exemplary, punitive, medical, health-related, data-loss, lost-profit, or business-interruption damages, or for claims arising from your use of the app, reliance on app content, third-party services, exported data, or AI outputs."
+                        )
+
+                        TermsSectionView(
+                            title: "Indemnity",
+                            content: "To the fullest extent permitted by law, you agree to defend, indemnify, and hold harmless BisonHealth AI and its developers, owners, affiliates, and service providers from claims, losses, liabilities, damages, costs, and expenses arising from your misuse of the app, violation of these terms, violation of law, third-party service configuration, or processing of data you did not have the right to use."
                         )
                         
                         TermsSectionView(
                             title: "Changes to Terms",
-                            content: "We reserve the right to modify these terms at any time. Changes will be effective immediately upon posting within the app. Your continued use constitutes acceptance of the modified terms."
+                            content: "We may update these terms from time to time. Updated terms may be posted in the app or otherwise made available. Your continued use of the app after updated terms are made available means you accept the updated terms."
                         )
                         
                         TermsSectionView(
                             title: "Contact Information",
-                            content: "If you have questions about these Terms of Service, please contact us through the app's support features."
+                            content: "If you have questions about these Terms of Service, contact support@bisonnetworking.com."
                         )
                     }
                     .padding(.horizontal)

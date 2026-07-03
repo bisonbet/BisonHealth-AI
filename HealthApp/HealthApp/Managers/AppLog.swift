@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MetricKit)
+import MetricKit
+#endif
 import OSLog
 
 // MARK: - Log Level
@@ -52,17 +55,19 @@ enum LogCategory: String, CaseIterable {
 /// Always-on logging via Apple's Unified Logging System (OSLog).
 /// Zero overhead in production — the OS handles persistence, compression, and pruning.
 /// Also provides file-based persistence, a crash-surviving error buffer, and crash detection.
-class AppLog {
+class AppLog: NSObject {
     static let shared = AppLog()
 
     // MARK: - Properties
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.bisonhealth"
     private static let cleanShutdownKey = "AppLog_CleanShutdown"
     private static let maxErrorBufferLines = 500
+    private static let maxMetricKitLogBytes = 512 * 1024
 
     private let loggers: [LogCategory: os.Logger]
     private let fileManager = FileManager.default
     private let logQueue = DispatchQueue(label: "com.bisonhealth.applog", qos: .utility)
+    private let logQueueKey = DispatchSpecificKey<String>()
     private var logFileURL: URL?
     private let maxLogFileSize: Int = 5 * 1024 * 1024 // 5MB
     private let maxLogFiles: Int = 3
@@ -78,6 +83,13 @@ class AppLog {
         return supportDir.appendingPathComponent("persistent_error_log.txt")
     }
 
+    private var metricKitDiagnosticsURL: URL? {
+        guard let supportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return supportDir.appendingPathComponent("metric_kit_diagnostics.log")
+    }
+
     #if DEBUG
     private let minimumLogLevel: LogLevel = .debug
     #else
@@ -85,16 +97,20 @@ class AppLog {
     #endif
 
     // MARK: - Initialization
-    private init() {
+    private override init() {
         // Create os.Logger instances for each category
         var map = [LogCategory: os.Logger]()
         for category in LogCategory.allCases {
             map[category] = os.Logger(subsystem: AppLog.subsystem, category: category.rawValue)
         }
         loggers = map
+        super.init()
 
+        logQueue.setSpecific(key: logQueueKey, value: "AppLogQueue")
         setupLogFile()
-        setupErrorBuffer()
+        setupCrashSupportFile(at: errorBufferURL)
+        setupCrashSupportFile(at: metricKitDiagnosticsURL)
+        registerMetricKitSubscriber()
     }
 
     // MARK: - Setup
@@ -104,7 +120,8 @@ class AppLog {
             return
         }
 
-        var logsDirectory = documentsDirectory.appendingPathComponent("Logs", isDirectory: true)
+        let appDirectory = documentsDirectory.appendingPathComponent("HealthApp", isDirectory: true)
+        var logsDirectory = appDirectory.appendingPathComponent("Logs", isDirectory: true)
 
         if !fileManager.fileExists(atPath: logsDirectory.path) {
             do {
@@ -113,6 +130,7 @@ class AppLog {
                 return
             }
         }
+        migrateLegacyLogsIfNeeded(from: documentsDirectory.appendingPathComponent("Logs", isDirectory: true), to: logsDirectory)
 
         // Exclude logs directory from iCloud/iTunes backup to protect privacy
         var resourceValues = URLResourceValues()
@@ -127,17 +145,46 @@ class AppLog {
         rotateLogsIfNeeded()
     }
 
-    private func setupErrorBuffer() {
-        guard var url = errorBufferURL else { return }
+    private func setupCrashSupportFile(at url: URL?) {
+        guard let url else { return }
         let dir = url.deletingLastPathComponent()
         if !fileManager.fileExists(atPath: dir.path) {
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+        if !fileManager.fileExists(atPath: url.path) {
+            _ = fileManager.createFile(atPath: url.path, contents: nil)
+        }
 
-        // Exclude error buffer from iCloud/iTunes backup to protect privacy
+        // Exclude diagnostic support files from iCloud/iTunes backup to protect privacy.
         var resourceValues = URLResourceValues()
         resourceValues.isExcludedFromBackup = true
-        try? url.setResourceValues(resourceValues)
+        var mutableURL = url
+        try? mutableURL.setResourceValues(resourceValues)
+    }
+
+    private func migrateLegacyLogsIfNeeded(from legacyLogsDirectory: URL, to logsDirectory: URL) {
+        guard legacyLogsDirectory.path != logsDirectory.path,
+              fileManager.fileExists(atPath: legacyLogsDirectory.path),
+              let legacyFiles = try? fileManager.contentsOfDirectory(
+                at: legacyLogsDirectory,
+                includingPropertiesForKeys: nil
+              ) else {
+            return
+        }
+
+        for file in legacyFiles where file.pathExtension == "log" {
+            let destination = logsDirectory.appendingPathComponent("legacy-\(file.lastPathComponent)")
+            guard !fileManager.fileExists(atPath: destination.path) else { continue }
+            try? fileManager.moveItem(at: file, to: destination)
+        }
+    }
+
+    private func registerMetricKitSubscriber() {
+        #if canImport(MetricKit)
+        if #available(iOS 14.0, *) {
+            MXMetricManager.shared.add(self)
+        }
+        #endif
     }
 
     // MARK: - Crash Detection
@@ -146,7 +193,7 @@ class AppLog {
     func markLaunch() {
         let hasKey = UserDefaults.standard.object(forKey: AppLog.cleanShutdownKey) != nil
         previousSessionCrashed = hasKey && !UserDefaults.standard.bool(forKey: AppLog.cleanShutdownKey)
-        UserDefaults.standard.set(false, forKey: AppLog.cleanShutdownKey)
+        markSessionDirty()
 
         if previousSessionCrashed {
             log("Previous session ended with an unclean shutdown (possible crash)", level: .warning, category: .general)
@@ -154,9 +201,20 @@ class AppLog {
         log("App launched", level: .info, category: .general)
     }
 
-    /// Call this when the app enters background or resigns active.
+    /// Call when the app becomes active so foreground crashes after a prior background are detected.
+    func markSessionActive() {
+        markSessionDirty()
+    }
+
+    /// Call when the app reaches background cleanly.
     func markCleanShutdown() {
         UserDefaults.standard.set(true, forKey: AppLog.cleanShutdownKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func markSessionDirty() {
+        UserDefaults.standard.set(false, forKey: AppLog.cleanShutdownKey)
+        UserDefaults.standard.synchronize()
     }
 
     // MARK: - Category-First Convenience Methods
@@ -244,47 +302,62 @@ class AppLog {
         let fileName = (file as NSString).lastPathComponent
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let formattedMessage = "[\(timestamp)] [\(fileName):\(line)] \(message)"
+        let redactedFormattedMessage = AppLog.redactForSupport(formattedMessage)
 
         // Log to os.Logger (appears in Xcode console and Console.app)
         // Sensitive categories use .private so data is redacted in Console.app on non-debug devices
         if let logger = loggers[category] {
             if AppLog.sensitiveCategories.contains(category) {
                 switch level {
-                case .debug:    logger.debug("\(formattedMessage, privacy: .private)")
-                case .info:     logger.info("\(formattedMessage, privacy: .private)")
-                case .warning:  logger.notice("\(formattedMessage, privacy: .private)")
-                case .error:    logger.error("\(formattedMessage, privacy: .private)")
-                case .critical: logger.fault("\(formattedMessage, privacy: .private)")
+                case .debug:    logger.debug("\(redactedFormattedMessage, privacy: .private)")
+                case .info:     logger.info("\(redactedFormattedMessage, privacy: .private)")
+                case .warning:  logger.notice("\(redactedFormattedMessage, privacy: .private)")
+                case .error:    logger.error("\(redactedFormattedMessage, privacy: .private)")
+                case .critical: logger.fault("\(redactedFormattedMessage, privacy: .private)")
                 }
             } else {
                 switch level {
-                case .debug:    logger.debug("\(formattedMessage, privacy: .public)")
-                case .info:     logger.info("\(formattedMessage, privacy: .public)")
-                case .warning:  logger.notice("\(formattedMessage, privacy: .public)")
-                case .error:    logger.error("\(formattedMessage, privacy: .public)")
-                case .critical: logger.fault("\(formattedMessage, privacy: .public)")
+                case .debug:    logger.debug("\(redactedFormattedMessage, privacy: .public)")
+                case .info:     logger.info("\(redactedFormattedMessage, privacy: .public)")
+                case .warning:  logger.notice("\(redactedFormattedMessage, privacy: .public)")
+                case .error:    logger.error("\(redactedFormattedMessage, privacy: .public)")
+                case .critical: logger.fault("\(redactedFormattedMessage, privacy: .public)")
                 }
             }
         }
 
-        // Log to file (async)
-        logQueue.async { [weak self] in
-            self?.writeToFile(formattedMessage)
+        let isDurableEvent = level == .error || level == .critical
+        let durableBufferLine: String?
+        if isDurableEvent {
+            let levelStr = level == .critical ? "FAULT" : "ERROR"
+            durableBufferLine = AppLog.redactForSupport("[\(timestamp)] [\(levelStr)] [\(category.rawValue)] \(message)")
+        } else {
+            durableBufferLine = nil
         }
 
-        // Persist errors to crash-surviving buffer
-        if level == .error || level == .critical {
-            let levelStr = level == .critical ? "FAULT" : "ERROR"
-            let bufferLine = "[\(timestamp)] [\(levelStr)] [\(category.rawValue)] \(message)"
+        let writeBlock = { [weak self] in
+            self?.writeToFile(redactedFormattedMessage, synchronize: isDurableEvent)
+            if let durableBufferLine {
+                self?.persistToErrorBuffer(durableBufferLine)
+            }
+        }
+
+        if isDurableEvent {
+            if DispatchQueue.getSpecific(key: logQueueKey) != nil {
+                writeBlock()
+            } else {
+                logQueue.sync(execute: writeBlock)
+            }
+        } else {
             logQueue.async { [weak self] in
-                self?.persistToErrorBuffer(bufferLine)
+                self?.writeToFile(redactedFormattedMessage)
             }
         }
     }
 
     // MARK: - File Logging
 
-    private func writeToFile(_ message: String) {
+    private func writeToFile(_ message: String, synchronize: Bool = false) {
         guard let logFileURL = logFileURL else { return }
 
         let logEntry = message + "\n"
@@ -294,6 +367,9 @@ class AppLog {
                 fileHandle.seekToEndOfFile()
                 if let data = logEntry.data(using: .utf8) {
                     fileHandle.write(data)
+                }
+                if synchronize {
+                    fileHandle.synchronizeFile()
                 }
                 fileHandle.closeFile()
             }
@@ -329,6 +405,11 @@ class AppLog {
     /// Read the persistent error buffer contents
     func getErrorBufferContent() -> String? {
         guard let url = errorBufferURL else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    func getMetricKitDiagnosticsContent() -> String? {
+        guard let url = metricKitDiagnosticsURL else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
@@ -406,10 +487,23 @@ class AppLog {
         }
     }
 
+    /// Get all retained file logs in chronological order.
+    func getCombinedLogFileContent() -> String? {
+        let logFiles = getLogFiles().reversed()
+        let sections = logFiles.compactMap { url -> String? in
+            guard let content = try? String(contentsOf: url, encoding: .utf8), !content.isEmpty else {
+                return nil
+            }
+            return "--- \(url.lastPathComponent) ---\n\(AppLog.redactForSupport(content))"
+        }
+        return sections.isEmpty ? nil : sections.joined(separator: "\n\n")
+    }
+
     /// Get the current log file content
     func getCurrentLogContent() -> String? {
         guard let logFileURL = logFileURL else { return nil }
-        return try? String(contentsOf: logFileURL, encoding: .utf8)
+        guard let content = try? String(contentsOf: logFileURL, encoding: .utf8) else { return nil }
+        return AppLog.redactForSupport(content)
     }
 
     /// Clear all logs
@@ -429,14 +523,98 @@ class AppLog {
             if let url = errorBufferURL {
                 try? fileManager.removeItem(at: url)
             }
+            if let url = metricKitDiagnosticsURL {
+                try? fileManager.removeItem(at: url)
+            }
 
             // Reinitialize log file
             setupLogFile()
+            setupCrashSupportFile(at: errorBufferURL)
+            setupCrashSupportFile(at: metricKitDiagnosticsURL)
         } catch {
             // Silent failure — nothing to log to
         }
+    }
+
+    // MARK: - Support Redaction
+
+    static func redactForSupport(_ text: String) -> String {
+        var output = text
+        let replacements: [(pattern: String, template: String, options: NSRegularExpression.Options)] = [
+            (#"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, "[REDACTED_EMAIL]", [.caseInsensitive]),
+            (#"\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b"#, "[REDACTED_PHONE]", []),
+            (#"\b\d{3}-\d{2}-\d{4}\b"#, "[REDACTED_SSN]", []),
+            (#"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b"#, "[REDACTED_ID]", []),
+            (#"(?:/private)?/var/[^\s]+"#, "[REDACTED_PATH]", []),
+            (#"/Users/[^\s]+"#, "[REDACTED_PATH]", []),
+            (#"(['"])[^'"\n]*(?:\.pdf|\.png|\.jpg|\.jpeg|\.heic|\.docx|\.txt|\.csv)\1"#, "\"[REDACTED_FILENAME]\"", [.caseInsensitive]),
+            (#"\b((?:patient|name|full name|date of birth|dob|mrn|medical record number|member id|insurance id)\s*[:=]\s*)[^,\n;]+"#, "$1[REDACTED]", [.caseInsensitive]),
+            (#"(User selected '[^']+' = )[^ ]+"#, "$1[REDACTED_VALUE]", []),
+            (#"\b\d+(?:\.\d+)?\s?(?:bpm|br/min|lbs|kg|F|mg/dL|mmHg|%)\b"#, "[REDACTED_VALUE]", [.caseInsensitive])
+        ]
+
+        for replacement in replacements {
+            output = replacingMatches(
+                in: output,
+                pattern: replacement.pattern,
+                with: replacement.template,
+                options: replacement.options
+            )
+        }
+        return output
+    }
+
+    private static func replacingMatches(
+        in text: String,
+        pattern: String,
+        with template: String,
+        options: NSRegularExpression.Options
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: template)
+    }
+
+    fileprivate func persistMetricKitDiagnostic(_ diagnostic: String) {
+        guard let url = metricKitDiagnosticsURL else { return }
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let entry = "\n--- MetricKit Diagnostic \(timestamp) ---\n\(AppLog.redactForSupport(diagnostic))\n"
+
+        if fileManager.fileExists(atPath: url.path),
+           let fileHandle = try? FileHandle(forWritingTo: url) {
+            fileHandle.seekToEndOfFile()
+            if let data = entry.data(using: .utf8) {
+                fileHandle.write(data)
+                fileHandle.synchronizeFile()
+            }
+            fileHandle.closeFile()
+        } else {
+            try? entry.write(to: url, atomically: true, encoding: .utf8)
+        }
+        trimTextFile(at: url, maxBytes: AppLog.maxMetricKitLogBytes)
+    }
+
+    private func trimTextFile(at url: URL, maxBytes: Int) {
+        guard let data = try? Data(contentsOf: url), data.count > maxBytes else { return }
+        let suffix = data.suffix(maxBytes)
+        try? Data(suffix).write(to: url, options: .atomic)
     }
 }
 
 // MARK: - Backward Compatibility
 typealias Logger = AppLog
+
+#if canImport(MetricKit)
+@available(iOS 14.0, *)
+extension AppLog: MXMetricManagerSubscriber {
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        for payload in payloads {
+            let diagnosticJSON = String(data: payload.jsonRepresentation(), encoding: .utf8)
+                ?? payload.description
+            persistMetricKitDiagnostic(diagnosticJSON)
+        }
+    }
+}
+#endif

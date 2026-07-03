@@ -40,6 +40,8 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Private Properties
 
+    private let modelProvider: @MainActor () -> MLXModelInfo
+
     #if !targetEnvironment(simulator)
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
@@ -49,6 +51,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     private var isModelLoaded = false
     private var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
+
+    // MARK: - Init
+
+    init(modelProvider: @escaping @MainActor () -> MLXModelInfo = { MLXModelInfo.selectedModel }) {
+        self.modelProvider = modelProvider
+    }
 
     // MARK: - AIProviderInterface Methods
 
@@ -107,7 +115,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     }
 
     func getCapabilities() async throws -> AICapabilities {
-        let model = MLXModelInfo.selectedModel
+        let model = modelProvider()
         return AICapabilities(
             supportedModels: MLXModelInfo.allModels.map { $0.displayName },
             maxTokens: model.contextWindow,
@@ -234,7 +242,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #if targetEnvironment(simulator)
         throw MLXOnDeviceError.simulatorNotSupported
         #else
-        let selectedModel = MLXModelInfo.selectedModel
+        let selectedModel = modelProvider()
 
         if isModelLoaded, currentModelInfo?.id == selectedModel.id, modelContainer != nil {
             return
@@ -330,12 +338,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     #if !targetEnvironment(simulator)
     private func currentGenerateParameters(maxTokensOverride: Int? = nil) -> GenerateParameters {
-        GenerateParameters(
-            maxTokens: maxTokensOverride ?? MLXModelInfo.configuredMaxTokens,
+        let model = modelProvider()
+        return GenerateParameters(
+            maxTokens: maxTokensOverride ?? MLXModelInfo.configuredMaxTokens(for: model),
             maxKVSize: MLXModelInfo.configuredContextSize,
-            temperature: MLXModelInfo.configuredTemperature,
-            topP: MLXModelInfo.configuredTopP,
-            repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty
+            temperature: MLXModelInfo.configuredTemperature(for: model),
+            topP: MLXModelInfo.configuredTopP(for: model),
+            repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty(for: model)
         )
     }
 
@@ -371,7 +380,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         let params = currentGenerateParameters()
         return ChatSessionSignature(
             conversationId: conversationId,
-            modelId: MLXModelInfo.selectedModel.id,
+            modelId: modelProvider().id,
             instructionsHash: instructions?.hashValue ?? 0,
             maxTokens: params.maxTokens,
             maxKVSize: params.maxKVSize,
@@ -389,7 +398,7 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
     /// Image input is available when the selected on-device model is a
     /// vision-language model (e.g. Qwen VLM) and on-device inference is enabled.
     var supportsVisionExtraction: Bool {
-        MLXModelInfo.isEnabled && MLXModelInfo.selectedModel.modelType == .vlm
+        MLXModelInfo.isEnabled && modelProvider().modelType == .vlm
     }
 
     /// Run the VLM over document pages ONE AT A TIME (memory-bounded on device),

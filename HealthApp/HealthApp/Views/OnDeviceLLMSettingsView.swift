@@ -2,12 +2,12 @@
 //  OnDeviceLLMSettingsView.swift
 //  HealthApp
 //
-//  Settings view for MLX on-device LLM configuration
+//  Settings view for MLX on-device AI configuration
 //
 
 import SwiftUI
 
-// MARK: - On-Device LLM Settings View
+// MARK: - On-Device AI Settings View
 
 struct OnDeviceLLMSettingsView: View {
 
@@ -15,7 +15,7 @@ struct OnDeviceLLMSettingsView: View {
 
     @ObservedObject var downloadManager = MLXModelDownloadManager.shared
     @State private var isEnabled = MLXModelInfo.isEnabled
-    @State private var selectedModelId = MLXModelInfo.selectedModel.id
+    @State private var selectedModelId = MLXModelDownloadManager.shared.selectedModelId
     @State private var showDeleteConfirmation = false
     @State private var modelToDelete: MLXModelInfo?
     @State private var showAdvancedSettings = false
@@ -33,11 +33,12 @@ struct OnDeviceLLMSettingsView: View {
             enableSection
             simulatorWarningSection
             modelSelectionSection
+            extractionModelSelectionSection
             downloadSection
             advancedSettingsSection
             storageSection
         }
-        .navigationTitle("On-Device LLM")
+        .navigationTitle("On-Device AI")
         .onAppear {
             refreshState()
         }
@@ -61,7 +62,7 @@ struct OnDeviceLLMSettingsView: View {
 
     private var enableSection: some View {
         Section {
-            Toggle("Enable On-Device LLM", isOn: $isEnabled)
+            Toggle("Enable On-Device AI", isOn: $isEnabled)
                 .onChange(of: isEnabled) { _, newValue in
                     UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.enableOnDeviceLLM)
                     SettingsManager.shared.invalidateClients()
@@ -81,7 +82,7 @@ struct OnDeviceLLMSettingsView: View {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
-                Text("On-device LLM requires a physical device. MLX is not available in the iOS Simulator.")
+                Text("On-device AI requires a physical device. MLX is not available in the iOS Simulator.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -114,6 +115,56 @@ struct OnDeviceLLMSettingsView: View {
             Text("AI Models")
         } footer: {
             Text("MediPhi is optimized for medical Q&A and clinical reasoning. Qwen 3.5 Vision supports both text and image understanding.")
+        }
+    }
+
+    private var extractionModelSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                downloadManager.selectedExtractionModelId
+                    ?? downloadManager.downloadedVisionModels.first?.id
+                    ?? ""
+            },
+            set: { modelId in
+                guard let model = MLXModelInfo.model(withId: modelId),
+                      downloadManager.isModelDownloaded(model) else {
+                    return
+                }
+                downloadManager.selectExtractionModel(model)
+                SettingsManager.shared.invalidateOnDeviceExtractionClient()
+            }
+        )
+    }
+
+    private var extractionModelSelectionSection: some View {
+        Section {
+            let visionModels = downloadManager.downloadedVisionModels
+            if visionModels.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("No downloaded Vision model is available for document extraction.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Picker("Extraction Model", selection: extractionModelSelectionBinding) {
+                    ForEach(visionModels) { model in
+                        Text(model.displayName).tag(model.id)
+                    }
+                }
+
+                HStack {
+                    Text("Downloaded Vision Models")
+                    Spacer()
+                    Text("\(visionModels.count)")
+                        .foregroundColor(.secondary)
+                }
+            }
+        } header: {
+            Text("Document Extraction")
+        } footer: {
+            Text("On-device document extraction uses a downloaded Vision model. Text models remain available for chat.")
         }
     }
 
@@ -282,7 +333,7 @@ struct OnDeviceLLMSettingsView: View {
 
     private func refreshState() {
         isEnabled = MLXModelInfo.isEnabled
-        selectedModelId = MLXModelInfo.selectedModel.id
+        selectedModelId = downloadManager.selectedModelId
         temperature = MLXModelInfo.configuredTemperature
         topP = MLXModelInfo.configuredTopP
         maxTokens = MLXModelInfo.configuredMaxTokens
@@ -292,7 +343,6 @@ struct OnDeviceLLMSettingsView: View {
 
     private func selectModel(_ model: MLXModelInfo) {
         selectedModelId = model.id
-        UserDefaults.standard.set(model.id, forKey: MLXModelInfo.SettingsKeys.selectedModelId)
         downloadManager.selectModel(model)
         SettingsManager.shared.invalidateClients()
     }

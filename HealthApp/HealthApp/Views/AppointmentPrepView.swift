@@ -31,7 +31,6 @@ struct AppointmentPrepView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        HapticFeedbackManager.shared.impact()
                         showingNewPrep = true
                     } label: {
                         Image(systemName: "plus")
@@ -69,7 +68,6 @@ struct AppointmentPrepView: View {
             Text("Turn your symptoms and health record into an organized timeline, questions for your doctor, and helpful background.")
         } actions: {
             Button {
-                HapticFeedbackManager.shared.impact()
                 showingNewPrep = true
             } label: {
                 Text("New Appointment Prep")
@@ -86,7 +84,6 @@ struct AppointmentPrepView: View {
         List {
             ForEach(manager.preps) { prep in
                 Button {
-                    HapticFeedbackManager.shared.selection()
                     selectedPrep = prep
                 } label: {
                     PrepRow(prep: prep)

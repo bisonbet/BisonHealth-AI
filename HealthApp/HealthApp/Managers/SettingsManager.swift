@@ -65,7 +65,6 @@ enum BackupFrequency: String, CaseIterable {
 
 struct AppPreferences: Equatable {
     var theme: Theme = .system
-    var hapticFeedback: Bool = true
     var showTips: Bool = true
     var analyticsEnabled: Bool = false
 }
@@ -79,7 +78,7 @@ enum AIProvider: String, CaseIterable {
         switch self {
         case .bedrock: return "AWS Bedrock"
         case .openAICompatible: return "OpenAI Compatible"
-        case .onDeviceLLM: return "On-Device LLM"
+        case .onDeviceLLM: return "On-Device AI"
         }
     }
 
@@ -176,6 +175,7 @@ class SettingsManager: ObservableObject {
     // Service clients (lazy loaded)
     private var openAICompatibleClient: OpenAICompatibleClient?
     private var mlxOnDeviceClient: MLXOnDeviceClient?
+    private var mlxOnDeviceExtractionClient: MLXOnDeviceClient?
     #if DEBUG
     private var aiClientOverride: (any AIProviderInterface)?
     #endif
@@ -355,30 +355,73 @@ class SettingsManager: ObservableObject {
         return mlxOnDeviceClient!
     }
 
+    func getMLXOnDeviceExtractionClient() throws -> MLXOnDeviceClient {
+        guard let extractionModel = MLXModelDownloadManager.shared.ensureValidExtractionModelSelection() else {
+            throw MLXOnDeviceError.visionModelNotDownloaded
+        }
+
+        if mlxOnDeviceExtractionClient == nil {
+            mlxOnDeviceExtractionClient = MLXOnDeviceClient {
+                MLXModelDownloadManager.shared.selectedExtractionModel ?? extractionModel
+            }
+        }
+        return mlxOnDeviceExtractionClient!
+    }
+
     // Force recreation of clients when configuration changes
     func invalidateClients() {
         openAICompatibleClient = nil
         mlxOnDeviceClient = nil
+        mlxOnDeviceExtractionClient = nil
     }
 
     func invalidateOpenAICompatibleClient() {
         openAICompatibleClient = nil
     }
 
-    // MARK: - On-Device LLM Preloading
+    func invalidateOnDeviceExtractionClient() {
+        mlxOnDeviceExtractionClient = nil
+    }
 
-    /// Preloads the on-device LLM model in the background if enabled and downloaded.
+    @discardableResult
+    func ensureValidOnDeviceExtractionModelSelection() -> MLXModelInfo? {
+        MLXModelDownloadManager.shared.ensureValidExtractionModelSelection()
+    }
+
+    func canUseOnDeviceExtractionProvider() -> Bool {
+        ensureValidOnDeviceExtractionModelSelection() != nil
+    }
+
+    func updateExtractionProvider(_ provider: AIProvider) -> Bool {
+        if provider == .onDeviceLLM, !canUseOnDeviceExtractionProvider() {
+            return false
+        }
+
+        modelPreferences.extractionProvider = provider
+        modelPreferences.lastUpdated = Date()
+
+        if provider == .bedrock, !AWSBedrockModel.visionExtractionModels.contains(where: { $0.rawValue == modelPreferences.extractionBedrockModel }) {
+            modelPreferences.extractionBedrockModel = AWSBedrockModel.defaultVisionExtractionModel.rawValue
+        }
+
+        saveSettings()
+        return true
+    }
+
+    // MARK: - On-Device AI Preloading
+
+    /// Preloads the on-device AI model in the background if enabled and downloaded.
     /// Call this on app launch to have the model ready when the user opens AI chat.
     func preloadOnDeviceLLMIfNeeded() {
-        // Check if on-device LLM is the selected provider
+        // Check if on-device AI is the selected provider
         guard modelPreferences.aiProvider == .onDeviceLLM else {
-            AppLog.shared.settings("On-device LLM not selected, skipping preload")
+            AppLog.shared.settings("On-device AI not selected, skipping preload")
             return
         }
 
-        // Check if on-device LLM is enabled and a model is downloaded
+        // Check if on-device AI is enabled and a model is downloaded
         guard MLXModelInfo.isEnabled else {
-            AppLog.shared.settings("On-device LLM not enabled, skipping preload")
+            AppLog.shared.settings("On-device AI not enabled, skipping preload")
             return
         }
 

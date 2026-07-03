@@ -8,6 +8,7 @@ struct SettingsView: View {
         case onDeviceLLMSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
+    @StateObject private var mlxDownloadManager = MLXModelDownloadManager.shared
     @EnvironmentObject var appState: AppState
     // Use item-based navigation instead of path-based to prevent stacking issues on iPad
     @State private var selectedRoute: SettingsRoute?
@@ -20,6 +21,7 @@ struct SettingsView: View {
     @State private var connectionError = ""
     @State private var showingSuccessMessage = false
     @State private var successMessage = ""
+    @State private var showingVisionModelRequiredAlert = false
     @State private var isSyncingAppleHealth = false
     @State private var lastSyncDate: Date?
 
@@ -74,6 +76,20 @@ struct SettingsView: View {
                     appState: appState,
                     validateAndSave: validateAndSave
                 ))
+                .alert("Vision Model Required", isPresented: $showingVisionModelRequiredAlert) {
+                    Button("Open Models") {
+                        selectedRoute = .onDeviceLLMSettings
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("Download a vision-capable on-device model before using On-Device AI for document extraction.")
+                }
+                .onAppear {
+                    refreshExtractionModelSelections()
+                }
+                .onChange(of: mlxDownloadManager.downloadedModelIds) { _, _ in
+                    refreshExtractionModelSelections()
+                }
                 // Use item-based navigation to prevent stacking issues on iPad
                 .navigationDestination(item: $selectedRoute) { destination in
                     navigationDestinationView(for: destination)
@@ -156,7 +172,7 @@ struct SettingsView: View {
             let _ = AppLog.shared.ui("Creating OnDeviceLLMSettingsView", level: .debug)
             OnDeviceLLMSettingsView()
                 .onAppear {
-                    AppLog.shared.ui("Navigated to On-Device LLM Settings")
+                    AppLog.shared.ui("Navigated to On-Device AI Settings")
                 }
         }
     }
@@ -214,13 +230,13 @@ struct SettingsView: View {
     private var onDeviceLLMCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("On-Device LLM", systemImage: "iphone")
+                Label("On-Device AI", systemImage: "iphone")
                     .font(.headline)
 
                 Spacer()
 
                 Button("Configure") {
-                    AppLog.shared.ui("On-Device LLM Configure button tapped")
+                    AppLog.shared.ui("On-Device AI Configure button tapped")
                     selectedRoute = .onDeviceLLMSettings
                 }
                 .buttonStyle(.bordered)
@@ -232,9 +248,9 @@ struct SettingsView: View {
 
             // Show model status
             if MLXModelInfo.isEnabled {
-                let selectedModel = MLXModelInfo.selectedModel
+                let selectedModel = mlxDownloadManager.selectedModel
                 HStack {
-                    if MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) {
+                    if mlxDownloadManager.isModelDownloaded(selectedModel) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                         Text("Ready: \(selectedModel.displayName)")
@@ -288,6 +304,53 @@ struct SettingsView: View {
 
     // MARK: - Data Extraction Section
 
+    private var extractionProviderBinding: Binding<AIProvider> {
+        Binding(
+            get: { settingsManager.modelPreferences.extractionProvider },
+            set: { updateExtractionProvider($0) }
+        )
+    }
+
+    private var extractionOnDeviceModelBinding: Binding<String> {
+        Binding(
+            get: {
+                mlxDownloadManager.selectedExtractionModel?.id
+                    ?? mlxDownloadManager.downloadedVisionModels.first?.id
+                    ?? ""
+            },
+            set: { selectedId in
+                guard let model = MLXModelInfo.model(withId: selectedId) else { return }
+                mlxDownloadManager.selectExtractionModel(model)
+                settingsManager.invalidateOnDeviceExtractionClient()
+            }
+        )
+    }
+
+    private var openAICompatibleVisionSupportBinding: Binding<Bool> {
+        Binding(
+            get: { settingsManager.modelPreferences.openAIVisionCapable },
+            set: { isSupported in
+                settingsManager.modelPreferences.openAIVisionCapable = isSupported
+                if !isSupported {
+                    settingsManager.modelPreferences.cloudVisionExtractionEnabled = false
+                }
+            }
+        )
+    }
+
+    private var openAICompatibleImageSendingBinding: Binding<Bool> {
+        Binding(
+            get: {
+                settingsManager.modelPreferences.openAIVisionCapable
+                    && settingsManager.modelPreferences.cloudVisionExtractionEnabled
+            },
+            set: { isEnabled in
+                settingsManager.modelPreferences.cloudVisionExtractionEnabled =
+                    isEnabled && settingsManager.modelPreferences.openAIVisionCapable
+            }
+        )
+    }
+
     private var dataExtractionSection: some View {
         Section("Data Extraction") {
             VStack(spacing: 16) {
@@ -295,82 +358,182 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Picker("Extraction Provider", selection: $settingsManager.modelPreferences.extractionProvider) {
+                Picker("Extraction Provider", selection: extractionProviderBinding) {
                     ForEach(AIProvider.allCases, id: \.self) { provider in
                         Text(provider.displayName).tag(provider)
                     }
                 }
                 .pickerStyle(.menu)
 
-                // Show model selection based on extraction provider
+                Text("Choose the AI service for structured document extraction")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
                 switch settingsManager.modelPreferences.extractionProvider {
                 case .bedrock:
-                    extractionBedrockModelPicker
+                    extractionBedrockCard
                 case .openAICompatible:
-                    extractionOpenAIModelPicker
+                    extractionOpenAICompatibleCard
                 case .onDeviceLLM:
-                    extractionOnDeviceLLMInfo
-                }
-
-                // Cloud vision extraction (only meaningful for cloud providers)
-                if settingsManager.modelPreferences.extractionProvider != .onDeviceLLM {
-                    cloudVisionExtractionControls
+                    extractionOnDeviceAICard
                 }
             }
             .padding(.vertical, 8)
         }
     }
 
-    // MARK: - Cloud Vision Extraction Controls
+    // MARK: - Extraction Provider Cards
 
-    private var cloudVisionExtractionControls: some View {
+    private var extractionBedrockCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("AWS Bedrock", systemImage: "cloud.fill")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    AppLog.shared.ui("AWS Bedrock extraction Configure button tapped")
+                    selectedRoute = .awsBedrockSettings
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Reads document page images and OCR text with the selected Bedrock vision model.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            extractionBedrockModelPicker
+
+            Label("Document page images are sent to AWS Bedrock during extraction.", systemImage: "doc.viewfinder")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    private var extractionOpenAICompatibleCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("OpenAI Compatible", systemImage: "network")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    AppLog.shared.ui("OpenAI Compatible extraction Configure button tapped")
+                    selectedRoute = .openAICompatibleSettings
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Uses your OpenAI-compatible server. Leave the extraction model blank to use the AI Provider model.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            extractionOpenAIModelPicker
+            openAICompatibleVisionControls
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    private var extractionOnDeviceAICard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("On-Device AI", systemImage: "iphone")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Configure") {
+                    AppLog.shared.ui("On-Device AI extraction Configure button tapped")
+                    selectedRoute = .onDeviceLLMSettings
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text("Runs document extraction privately with downloaded MLX Vision models and the same advanced settings used by chat.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            extractionOnDeviceAIInfo
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    // MARK: - OpenAI-Compatible Vision Controls
+
+    private var openAICompatibleVisionControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
 
-            Toggle("Send page images for higher accuracy", isOn: $settingsManager.modelPreferences.cloudVisionExtractionEnabled)
-                .accessibilityLabel("Send document page images to the cloud AI for higher extraction accuracy")
-                .accessibilityHint("When enabled, images of your documents are sent to the configured cloud provider during extraction")
-                .accessibilityIdentifier("cloudVisionExtractionToggle")
+            Toggle("Model supports image input", isOn: openAICompatibleVisionSupportBinding)
+                .accessibilityLabel("The configured OpenAI-compatible model supports image input")
+                .accessibilityHint("Enable only if your server's model accepts images; capability cannot be detected automatically")
+                .accessibilityIdentifier("openAIVisionCapableToggle")
 
-            Text("Sends images of your document pages to the configured cloud AI provider so the model can read the original document directly, bypassing OCR errors. Images leave your device only during extraction and only when this is on.")
+            Text("OpenAI-compatible servers do not expose reliable vision capability metadata. Enable this only for a model that accepts images.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
 
-            if settingsManager.modelPreferences.extractionProvider == .openAICompatible {
-                Toggle("Model supports image input", isOn: $settingsManager.modelPreferences.openAIVisionCapable)
-                    .accessibilityLabel("The configured OpenAI-compatible model supports image input")
-                    .accessibilityHint("Enable only if your server's model accepts images; capability cannot be detected automatically")
-                    .accessibilityIdentifier("openAIVisionCapableToggle")
+            Toggle("Send page images during extraction", isOn: openAICompatibleImageSendingBinding)
+                .disabled(!settingsManager.modelPreferences.openAIVisionCapable)
+                .accessibilityLabel("Send document page images to the OpenAI-compatible model during extraction")
+                .accessibilityHint("When enabled, images of your documents are sent to the configured OpenAI-compatible server during extraction")
+                .accessibilityIdentifier("cloudVisionExtractionToggle")
 
-                Text("Enable only if the selected model on your server accepts images (e.g. a vision-language model). This can't be detected automatically.")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
+            Text(settingsManager.modelPreferences.openAIVisionCapable
+                 ? "When enabled, page images are sent to your OpenAI-compatible server so the model can read the original document directly. Leave it off to use OCR text only."
+                 : "Image sending is unavailable until you confirm the selected model supports image input.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 
     // MARK: - Extraction Model Pickers
 
-    private var extractionOnDeviceLLMInfo: some View {
+    private var extractionOnDeviceAIInfo: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("On-Device Model")
+                Text("On-Device Vision Model")
                     .foregroundColor(.secondary)
                 Spacer()
             }
 
-            let selectedModel = MLXModelInfo.selectedModel
-            if MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) {
-                Text("Using: \(selectedModel.displayName)")
+            let visionModels = mlxDownloadManager.downloadedVisionModels
+            if visionModels.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("No vision-capable on-device model is downloaded.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+
+                Button("Download Vision Model") {
+                    showingVisionModelRequiredAlert = true
+                }
+                .buttonStyle(.bordered)
+            } else if visionModels.count == 1, let selectedModel = mlxDownloadManager.selectedExtractionModel ?? visionModels.first {
+                Label("Using: \(selectedModel.displayName)", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundColor(.green)
             } else {
-                Text("No model downloaded. Configure On-Device LLM in AI Provider settings.")
-                    .font(.caption)
-                    .foregroundColor(.orange)
+                Picker("Vision Model", selection: extractionOnDeviceModelBinding) {
+                    ForEach(visionModels) { model in
+                        Text(model.displayName).tag(model.id)
+                    }
+                }
+                .pickerStyle(.menu)
             }
 
-            Text("On-device extraction uses the same model as chat. Good for privacy-sensitive documents.")
+            Text("Only downloaded vision-capable models can be used for on-device document extraction.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -385,11 +548,15 @@ struct SettingsView: View {
             }
 
             Picker("Model", selection: $settingsManager.modelPreferences.extractionBedrockModel) {
-                ForEach(AWSBedrockModel.allCases, id: \.self) { model in
+                ForEach(AWSBedrockModel.visionExtractionModels, id: \.self) { model in
                     Text(model.displayName).tag(model.rawValue)
                 }
             }
             .pickerStyle(.menu)
+
+            Text("Only Bedrock models wired for image-based extraction are listed.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -406,7 +573,9 @@ struct SettingsView: View {
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
 
-            Text("Enter the model name from your OpenAI-compatible server. Recommended: Fast, cheap models.")
+            Text(settingsManager.modelPreferences.extractionOpenAIModel.isEmpty
+                 ? "Blank uses the AI Provider model: \(settingsManager.modelPreferences.openAICompatibleModel.isEmpty ? "server default" : settingsManager.modelPreferences.openAICompatibleModel)."
+                 : "Use a model exposed by your OpenAI-compatible server. Confirm image support below before sending page images.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -511,12 +680,22 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
             }
             
-            Toggle("Haptic Feedback", isOn: $settingsManager.appPreferences.hapticFeedback)
-            
-            Toggle("Show Tips", isOn: $settingsManager.appPreferences.showTips)
-            
-            Toggle("Analytics", isOn: $settingsManager.appPreferences.analyticsEnabled)
+            futurePreferenceRow(title: "Show Tips", systemImage: "lightbulb")
+
+            futurePreferenceRow(title: "Analytics", systemImage: "chart.bar")
         }
+    }
+
+    private func futurePreferenceRow(title: String, systemImage: String) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            Text("Future feature")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.secondary)
+        .disabled(true)
     }
     
     // MARK: - Data Management Section
@@ -571,28 +750,13 @@ struct SettingsView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("BisonHealth AI is designed exclusively for individual, personal health tracking and management.")
+                    Text(BisonHealthLegalCopy.personalUseSummaryShort)
                         .font(.body)
                     
-                    Text("This application is NOT intended for use by:")
+                    Text(BisonHealthLegalCopy.notForProfessionalUse)
                         .font(.subheadline)
-                        .fontWeight(.medium)
-                        .padding(.top, 8)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("• HIPAA Covered Entities")
-                        Text("• Business Associates")
-                        Text("• Healthcare providers or clinics")
-                        Text("• Professional or enterprise environments")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 8)
-                    
-                    Text("We do not provide Business Associate Agreements (BAAs) or HIPAA-compliant guarantees.")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .fontWeight(.medium)
+                        .fontWeight(.bold)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 8)
                 }
                 
@@ -632,7 +796,7 @@ struct SettingsView: View {
                 TermsOfServiceView()
             }
             
-            Link("Support", destination: URL(string: "mailto:support@bisonhealth.ai")!)
+            Link("Support", destination: URL(string: "mailto:support@bisonnetworking.com")!)
         }
     }
     
@@ -768,6 +932,26 @@ struct SettingsView: View {
     
     
     // MARK: - Helper Functions
+
+    private func refreshExtractionModelSelections() {
+        _ = settingsManager.ensureValidOnDeviceExtractionModelSelection()
+
+        if !AWSBedrockModel.visionExtractionModels.contains(where: { $0.rawValue == settingsManager.modelPreferences.extractionBedrockModel }) {
+            settingsManager.modelPreferences.extractionBedrockModel = AWSBedrockModel.defaultVisionExtractionModel.rawValue
+            settingsManager.saveSettings()
+        }
+    }
+
+    private func updateExtractionProvider(_ provider: AIProvider) {
+        guard settingsManager.updateExtractionProvider(provider) else {
+            showingVisionModelRequiredAlert = true
+            return
+        }
+
+        if provider == .onDeviceLLM {
+            _ = settingsManager.ensureValidOnDeviceExtractionModelSelection()
+        }
+    }
     
     private func isFailedStatus(_ status: ConnectionStatus) -> Bool {
         if case .failed = status {
@@ -850,7 +1034,7 @@ struct SettingsView: View {
               let rootVC = windowScene.windows.first?.rootViewController else {
             return
         }
-        LogExporter.exportLogs(from: rootVC)
+        LogExporter.exportLogs(from: rootVC, context: .diagnosticLogs)
     }
 
     private func clearCache() {

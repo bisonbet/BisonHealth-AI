@@ -204,6 +204,8 @@ class DocumentProcessor: ObservableObject {
             let result = try await processDocument(currentItem.document)
             AppLog.shared.documents("Document text extraction completed -- \(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%")
 
+            try validateConfiguredExtractionProvider()
+
             // Extract and save health data
             AppLog.shared.documents("Extracting health data from processed result")
             let extractedHealthData = try await extractHealthData(from: result, document: currentItem.document)
@@ -215,7 +217,7 @@ class DocumentProcessor: ObservableObject {
 
             do {
                 let extractor = MedicalDocumentExtractor()
-                let aiClient = await getAIClientForDocument(currentItem.document)
+                let aiClient = try await getAIClientForDocument(currentItem.document)
 
                 AppLog.shared.documents("Medical extraction: on-device plain text (\(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%)")
                 let extractionResult = try await extractor.extractFromText(
@@ -661,7 +663,7 @@ class DocumentProcessor: ObservableObject {
         AppLog.shared.documents("Deterministic pass found \(deterministicCount) candidates")
 
         // Pass 2: LLM extraction (best-effort)
-        let aiClient = await getAIClientForDocument(document)
+        let aiClient = try await getAIClientForDocument(document)
         var basicInfo: BasicTestInfo?
         var llmCount = 0
         do {
@@ -678,9 +680,12 @@ class DocumentProcessor: ObservableObject {
 
         // Pass 2b: Vision extraction (never fails the document).
         // On-device VLM runs automatically — nothing leaves the device.
-        // Cloud vision requires the explicit opt-in toggle or a per-document override.
+        // Bedrock extraction is inherently image-based with the configured vision model.
+        // OpenAI-compatible vision requires the explicit opt-in toggle or a per-document override.
         let isOnDeviceVision = aiClient is MLXOnDeviceClient
+        let isBedrockVision = settingsManager.modelPreferences.extractionProvider == .bedrock
         let visionAllowed = isOnDeviceVision
+            || isBedrockVision
             || settingsManager.modelPreferences.cloudVisionExtractionEnabled
             || forceCloudVisionDocumentIds.contains(document.id)
         let cloudVisionExplicitlyRequested = !isOnDeviceVision && visionAllowed
@@ -867,7 +872,7 @@ class DocumentProcessor: ObservableObject {
 
         do {
             // Use the AI-powered mapping service
-            let aiClient = await getAIClientForDocument(document)
+            let aiClient = try await getAIClientForDocument(document)
             let mappingService = BloodTestMappingService(aiClient: aiClient)
 
             // Extract suggested test date from document
@@ -1222,7 +1227,20 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - AI Provider Selection Logic
-    private func getAIClientForDocument(_ document: MedicalDocument) async -> any AIProviderInterface {
+    private func validateConfiguredExtractionProvider() throws {
+        #if DEBUG
+        if settingsManager.getAIClientOverrideForTesting() != nil {
+            return
+        }
+        #endif
+
+        if settingsManager.modelPreferences.extractionProvider == .onDeviceLLM,
+           !settingsManager.canUseOnDeviceExtractionProvider() {
+            throw MLXOnDeviceError.visionModelNotDownloaded
+        }
+    }
+
+    private func getAIClientForDocument(_ document: MedicalDocument) async throws -> any AIProviderInterface {
         #if DEBUG
         if let override = settingsManager.getAIClientOverrideForTesting() {
             return override
@@ -1256,8 +1274,8 @@ class DocumentProcessor: ObservableObject {
             aiClient = bedrockClient
 
         case .onDeviceLLM:
-            let mlxClient = settingsManager.getMLXOnDeviceClient()
-            let selectedModel = MLXModelInfo.selectedModel
+            let mlxClient = try settingsManager.getMLXOnDeviceExtractionClient()
+            let selectedModel = MLXModelDownloadManager.shared.selectedExtractionModel ?? MLXModelInfo.selectedModel
             AppLog.shared.documents("Using MLX on-device extraction model: \(selectedModel.displayName)")
             aiClient = mlxClient
         }

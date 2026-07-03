@@ -4,41 +4,7 @@ import SwiftUI
 
 @MainActor
 final class AccessibilityTests: XCTestCase {
-    
-    // MARK: - Haptic Feedback Tests
-    
-    func testHapticFeedbackManagerInitialization() {
-        let manager = HapticFeedbackManager.shared
-        XCTAssertNotNil(manager)
-    }
-    
-    func testHapticFeedbackRespectsSettings() {
-        let settingsManager = SettingsManager.shared
-        let originalValue = settingsManager.appPreferences.hapticFeedback
-        
-        // Test with haptics enabled
-        settingsManager.appPreferences.hapticFeedback = true
-        settingsManager.saveSettings()
-        
-        // Should not crash when called
-        HapticFeedbackManager.shared.impact()
-        HapticFeedbackManager.shared.success()
-        HapticFeedbackManager.shared.error()
-        HapticFeedbackManager.shared.warning()
-        HapticFeedbackManager.shared.selection()
-        
-        // Test with haptics disabled
-        settingsManager.appPreferences.hapticFeedback = false
-        settingsManager.saveSettings()
-        
-        // Should not crash when called (but won't provide feedback)
-        HapticFeedbackManager.shared.impact()
-        
-        // Restore original value
-        settingsManager.appPreferences.hapticFeedback = originalValue
-        settingsManager.saveSettings()
-    }
-    
+
     // MARK: - Dynamic Type Tests
     
     func testDynamicTypeHelper() {

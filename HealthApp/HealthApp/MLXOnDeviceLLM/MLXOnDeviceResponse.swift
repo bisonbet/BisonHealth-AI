@@ -46,6 +46,7 @@ enum MLXOnDeviceError: LocalizedError {
     case generationFailed(String)
     case simulatorNotSupported
     case modelNotDownloaded
+    case visionModelNotDownloaded
 
     var errorDescription: String? {
         switch self {
@@ -56,16 +57,20 @@ enum MLXOnDeviceError: LocalizedError {
         case .generationFailed(let reason):
             return "Generation failed: \(reason)"
         case .simulatorNotSupported:
-            return "On-device LLM requires a physical device. MLX is not available in the iOS Simulator."
+            return "On-device AI requires a physical device. MLX is not available in the iOS Simulator."
         case .modelNotDownloaded:
             return "Model is not downloaded. Please download a model in Settings."
+        case .visionModelNotDownloaded:
+            return "No on-device vision model is downloaded. Download a vision-capable model before using on-device document extraction."
         }
     }
 
     var recoverySuggestion: String? {
         switch self {
         case .modelNotLoaded, .modelNotDownloaded:
-            return "Go to Settings > On-Device LLM to download and select a model."
+            return "Go to Settings > On-Device AI to download and select a model."
+        case .visionModelNotDownloaded:
+            return "Go to Settings > On-Device AI and download a Vision model."
         case .modelLoadFailed:
             return "Try restarting the app or re-downloading the model."
         case .generationFailed:

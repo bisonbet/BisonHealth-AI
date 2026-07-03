@@ -250,11 +250,9 @@ struct AppointmentPrepEditorView: View {
             symptoms: prep.symptoms, notes: prep.notes, medications: prep.medications)
         guard errors.isEmpty else {
             validationErrors = errors
-            HapticFeedbackManager.shared.error()
             return
         }
         validationErrors = []
-        HapticFeedbackManager.shared.impact()
         Task {
             let result = await manager.generate(for: prep)
             prep = result

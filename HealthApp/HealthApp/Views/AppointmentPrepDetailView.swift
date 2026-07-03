@@ -141,7 +141,6 @@ struct AppointmentPrepDetailView: View {
         ToolbarItemGroup(placement: .navigationBarTrailing) {
             if isEditing {
                 Button("Save") {
-                    HapticFeedbackManager.shared.success()
                     prep.lastModified = Date()
                     Task { try? await manager.save(prep) }
                     isEditing = false
@@ -154,7 +153,6 @@ struct AppointmentPrepDetailView: View {
                     }
                     Button {
                         UIPasteboard.general.string = prep.exportText
-                        HapticFeedbackManager.shared.success()
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }

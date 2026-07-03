@@ -163,7 +163,6 @@ private struct AppSidebar: View {
                         section: section,
                         isSelected: selectedSection == section,
                         action: {
-                            HapticFeedbackManager.shared.selection()
                             selectedSection = section
                         }
                     )
@@ -304,7 +303,6 @@ struct HealthDataView: View {
                 PersonalInfoSection(
                     personalInfo: healthDataManager.personalInfo,
                     onEdit: {
-                        HapticFeedbackManager.shared.impact()
                         showingPersonalInfoEditor = true
                     }
                 )
@@ -314,7 +312,6 @@ struct HealthDataView: View {
                 BloodTestsSection(
                     bloodTests: $healthDataManager.bloodTests,
                     onAddNew: {
-                        HapticFeedbackManager.shared.impact()
                         showingBloodTestEntry = true
                     },
                     onEdit: { editingBloodTest = $0 },
@@ -344,7 +341,6 @@ struct HealthDataView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button("Personal Info") {
-                            HapticFeedbackManager.shared.impact()
                             showingPersonalInfoEditor = true
                         }
                         .voiceOverLabel(
@@ -352,7 +348,6 @@ struct HealthDataView: View {
                             hint: "Opens form to edit personal health information"
                         )
                         Button("Lab Results") {
-                            HapticFeedbackManager.shared.impact()
                             showingBloodTestEntry = true
                         }
                         .voiceOverLabel(
@@ -394,7 +389,6 @@ struct HealthDataView: View {
                 PersonalInfoEditorView(
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { info in
-                        HapticFeedbackManager.shared.success()
                         Task {
                             try await healthDataManager.savePersonalInfo(info)
                         }
@@ -404,7 +398,6 @@ struct HealthDataView: View {
             .sheet(isPresented: $showingBloodTestEntry) {
                 BloodTestEntryView(
                     onSave: { bloodTest in
-                        HapticFeedbackManager.shared.success()
                         Task {
                             try await healthDataManager.addBloodTest(bloodTest)
                         }
@@ -413,7 +406,6 @@ struct HealthDataView: View {
             }
             .sheet(item: $editingBloodTest) { bloodTest in
                 BloodTestEntryView(bloodTest: bloodTest) { updated in
-                    HapticFeedbackManager.shared.success()
                     Task {
                         try await healthDataManager.updateBloodTest(updated)
                     }
@@ -425,7 +417,6 @@ struct HealthDataView: View {
                     existingReading: nil,
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { updatedInfo in
-                        HapticFeedbackManager.shared.success()
                         Task {
                             try await healthDataManager.savePersonalInfo(updatedInfo)
                         }
@@ -441,7 +432,6 @@ struct HealthDataView: View {
                     existingReading: (wrapper.type, wrapper.index),
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { updatedInfo in
-                        HapticFeedbackManager.shared.success()
                         Task {
                             try await healthDataManager.savePersonalInfo(updatedInfo)
                         }
@@ -765,7 +755,6 @@ struct DocumentsView: View {
 
                             if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
                                 Button("Batch") {
-                                    HapticFeedbackManager.shared.impact()
                                     showingBatchProcessing = true
                                 }
                                 .font(.caption)
@@ -836,7 +825,6 @@ struct DocumentsView: View {
                             Divider()
 
                             Button("Process All Pending", systemImage: "gearshape.2") {
-                                HapticFeedbackManager.shared.impact()
                                 Task {
                                     await documentManager.processAllPendingDocuments()
                                 }
@@ -848,7 +836,6 @@ struct DocumentsView: View {
                             )
 
                             Button("Retry Failed", systemImage: "arrow.clockwise") {
-                                HapticFeedbackManager.shared.impact()
                                 Task {
                                     await documentManager.retryFailedDocuments()
                                 }
@@ -883,19 +870,16 @@ struct DocumentsView: View {
             return
         }
 
-        HapticFeedbackManager.shared.impact()
         AppLog.shared.ui("Showing camera for document scanning")
         showingCamera = true
     }
 
     private func showDocumentPicker() {
-        HapticFeedbackManager.shared.impact()
         AppLog.shared.ui("Triggering document picker (LaunchServices console errors are normal in development)")
         showingDocumentPicker = true
     }
 
     private func showPhotosPicker() {
-        HapticFeedbackManager.shared.impact()
         AppLog.shared.ui("Showing photos picker")
         showingPhotosPicker = true
     }
@@ -1163,7 +1147,6 @@ struct DocumentsView: View {
 
                         if !documentManager.searchText.isEmpty {
                             Button("Clear") {
-                                HapticFeedbackManager.shared.selection()
                                 documentManager.searchText = ""
                             }
                             .font(.caption)
@@ -1182,7 +1165,6 @@ struct DocumentsView: View {
                 .cornerRadius(8)
 
                 Button("Filter") {
-                    HapticFeedbackManager.shared.impact()
                     showingFilterView = true
                 }
                 .font(.caption)

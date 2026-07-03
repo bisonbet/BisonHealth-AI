@@ -28,6 +28,8 @@ class MLXModelDownloadManager: ObservableObject {
     @Published var currentlyDownloadingModel: MLXModelInfo?
     @Published var downloadError: String?
     @Published var downloadedModelIds: Set<String> = []
+    @Published var selectedModelId: String = MLXModelInfo.selectedModel.id
+    @Published var selectedExtractionModelId: String? = MLXModelInfo.selectedExtractionModel?.id
 
     // MARK: - Private State
 
@@ -97,6 +99,7 @@ class MLXModelDownloadManager: ObservableObject {
                 currentlyDownloadingModel = nil
                 downloadTask = nil
                 markModelDownloaded(model)
+                ensureValidExtractionModelSelection()
                 #endif
             } catch is CancellationError {
                 AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model.displayName)")
@@ -147,6 +150,7 @@ class MLXModelDownloadManager: ObservableObject {
             do {
                 try FileManager.default.removeItem(at: cacheDir)
                 removeDownloadedModel(model)
+                ensureValidExtractionModelSelection()
                 AppLog.shared.mlx("[MLXDownload] Deleted model cache for \(model.displayName)")
             } catch {
                 AppLog.shared.error("[MLXDownload] Failed to delete model cache", error: error, category: .mlx)
@@ -157,7 +161,23 @@ class MLXModelDownloadManager: ObservableObject {
 
     /// Select a model (update UserDefaults)
     func selectModel(_ model: MLXModelInfo) {
+        selectedModelId = model.id
         UserDefaults.standard.set(model.id, forKey: MLXModelInfo.SettingsKeys.selectedModelId)
+    }
+
+    /// Select a downloaded vision-language model for on-device document extraction.
+    func selectExtractionModel(_ model: MLXModelInfo) {
+        guard model.modelType == .vlm, isModelDownloaded(model) else {
+            AppLog.shared.mlx("[MLXDownload] Ignoring invalid extraction model selection: \(model.displayName)", level: .warning)
+            return
+        }
+        selectedExtractionModelId = model.id
+        UserDefaults.standard.set(model.id, forKey: MLXModelInfo.SettingsKeys.selectedExtractionModelId)
+    }
+
+    func clearExtractionModelSelection() {
+        selectedExtractionModelId = nil
+        UserDefaults.standard.removeObject(forKey: MLXModelInfo.SettingsKeys.selectedExtractionModelId)
     }
 
     /// Refresh the download status of all models
@@ -173,6 +193,7 @@ class MLXModelDownloadManager: ObservableObject {
         }
         downloadedModelIds = downloaded
         persistDownloadedModelIds()
+        ensureValidExtractionModelSelection()
     }
 
     // MARK: - Storage Info
@@ -190,6 +211,39 @@ class MLXModelDownloadManager: ObservableObject {
     /// Get downloaded models
     var downloadedModels: [MLXModelInfo] {
         MLXModelInfo.allModels.filter { downloadedModelIds.contains($0.id) }
+    }
+
+    var selectedModel: MLXModelInfo {
+        MLXModelInfo.model(withId: selectedModelId) ?? MLXModelInfo.defaultModel
+    }
+
+    var selectedExtractionModel: MLXModelInfo? {
+        guard let selectedExtractionModelId,
+              let model = MLXModelInfo.model(withId: selectedExtractionModelId),
+              model.modelType == .vlm,
+              isModelDownloaded(model) else {
+            return nil
+        }
+        return model
+    }
+
+    var downloadedVisionModels: [MLXModelInfo] {
+        MLXModelInfo.visionModels.filter { downloadedModelIds.contains($0.id) }
+    }
+
+    @discardableResult
+    func ensureValidExtractionModelSelection() -> MLXModelInfo? {
+        if let selectedExtractionModel {
+            return selectedExtractionModel
+        }
+
+        guard let firstVisionModel = downloadedVisionModels.first else {
+            clearExtractionModelSelection()
+            return nil
+        }
+
+        selectExtractionModel(firstVisionModel)
+        return firstVisionModel
     }
 
     /// Format storage size for display

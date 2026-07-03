@@ -1,5 +1,14 @@
 import SwiftUI
 
+enum BisonHealthLegalCopy {
+    static let personalUseSummaryShort = "BisonHealth AI is for organizing your own health information."
+    static let personalUseSummary = "BisonHealth AI is for organizing your own health information. You can use it to store records, summarize documents, and prepare questions for your clinician."
+    static let notForProfessionalUse = "Do not use it for patient care, clinic operations, professional healthcare workflows, employer or insurance decisions, or any HIPAA-regulated work."
+    static let noHIPAAGuarantee = "We do not provide Business Associate Agreements (BAAs), HIPAA compliance guarantees, or HIPAA-regulated data-processing services."
+    static let noMedicalAdvice = "The app is not a medical device and does not provide medical advice, diagnosis, treatment, triage, monitoring, prescribing, or emergency help. Talk to a qualified healthcare professional before making medical decisions. For emergencies, call emergency services."
+    static let userResponsibility = "You are responsible for the information you enter, import, generate, export, share, or send to third-party services, and for using the app only where you have the right to manage that information."
+}
+
 struct FirstLaunchDisclaimerView: View {
     @State private var showingDetailedInfo = false
     @StateObject private var appSettingsManager = AppSettingsManager.shared
@@ -28,21 +37,21 @@ struct FirstLaunchDisclaimerView: View {
                             title: "Personal Use Only",
                             icon: "person.fill",
                             color: BisonTheme.gold,
-                            content: "BisonHealth AI is designed exclusively for individual, personal health tracking and management."
+                            content: BisonHealthLegalCopy.personalUseSummary
                         )
                         
                         disclaimerCard(
-                            title: "Not HIPAA Compliant",
+                            title: "Not for Professional or HIPAA-Regulated Use",
                             icon: "building.2.fill",
                             color: .red,
-                            content: "This application is NOT intended for use by healthcare providers, clinics, or any professional or enterprise environments. We do not provide Business Associate Agreements (BAAs) or HIPAA-compliant guarantees."
+                            content: "\(BisonHealthLegalCopy.notForProfessionalUse) \(BisonHealthLegalCopy.noHIPAAGuarantee)"
                         )
                         
                         disclaimerCard(
-                            title: "Your Responsibility",
+                            title: "Not Medical Advice",
                             icon: "hand.raised.fill",
                             color: .orange,
-                            content: "You are responsible for ensuring your use complies with all applicable laws and regulations. Do not use this app for managing patient data or professional healthcare activities."
+                            content: BisonHealthLegalCopy.noMedicalAdvice
                         )
                     }
                     
@@ -50,14 +59,14 @@ struct FirstLaunchDisclaimerView: View {
                     VStack(spacing: 16) {
                         Button(action: { showingDetailedInfo = true }) {
                             HStack {
-                                Text("Learn More About Our Privacy & Security")
+                                Text("Read the Full Disclaimer")
                                     .fontWeight(.medium)
                                 Image(systemName: "chevron.right")
                             }
                             .foregroundColor(BisonTheme.gold)
                         }
                         
-                        Text("By using this app, you acknowledge that you have read, understood, and agree to these terms.")
+                        Text("By using this app, you acknowledge that you have read, understood, and agree to this notice, the Privacy Policy, and the Terms of Service.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -87,7 +96,7 @@ struct FirstLaunchDisclaimerView: View {
                             .cornerRadius(12)
                     }
                     
-                    Text("You must accept these terms to use BisonHealth AI")
+                    Text("You must accept this notice to use BisonHealth AI")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -131,9 +140,9 @@ struct DetailedDisclaimerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // Privacy & Security Overview
+                    // Privacy & Data Overview
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Privacy & Security")
+                        Text("Privacy & Data")
                             .font(.title2)
                             .fontWeight(.bold)
                         
@@ -141,25 +150,25 @@ struct DetailedDisclaimerView: View {
                             privacyItem(
                                 icon: "lock.fill",
                                 title: "Local Storage",
-                                description: "All health data is encrypted and stored locally on your device"
+                                description: "Your app data is stored on your device. Health data, documents, chats, and appointment prep records are encrypted by the app."
                             )
                             
                             privacyItem(
                                 icon: "eye.slash.fill",
                                 title: "No Tracking",
-                                description: "No analytics, tracking, or data collection"
+                                description: "BisonHealth AI does not collect analytics, tracking data, crash reports, or advertising identifiers."
                             )
                             
                             privacyItem(
                                 icon: "person.crop.circle",
                                 title: "Individual Control",
-                                description: "You maintain complete control over your personal data"
+                                description: "You control what you enter, import, export, share, or send to external AI providers."
                             )
                             
                             privacyItem(
                                 icon: "exclamationmark.triangle.fill",
-                                title: "Consumer-Grade Protection",
-                                description: "Privacy safeguards appropriate for personal use, not HIPAA compliance"
+                                title: "Not HIPAA Compliant",
+                                description: BisonHealthLegalCopy.noHIPAAGuarantee
                             )
                         }
                     }
@@ -168,33 +177,33 @@ struct DetailedDisclaimerView: View {
                     
                     // What This Means
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("What This Means")
+                        Text("Appropriate Use")
                             .font(.title2)
                             .fontWeight(.bold)
                         
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("✅ Perfect For:")
+                            Text("Use It For")
                                 .font(.headline)
                                 .foregroundColor(.green)
                             
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("• Managing your own personal health data")
-                                Text("• Getting AI-powered insights about your health")
-                                Text("• Organizing your health documents")
-                                Text("• Tracking your personal health journey")
+                                Text("• Organizing your own health records")
+                                Text("• Summarizing your own documents")
+                                Text("• Preparing questions for your clinician")
+                                Text("• Tracking information for personal reference")
                             }
                             .padding(.leading, 16)
                             
-                            Text("❌ Not Suitable For:")
+                            Text("Do Not Use It For")
                                 .font(.headline)
                                 .foregroundColor(.red)
                                 .padding(.top, 16)
                             
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("• Healthcare providers managing patient data")
-                                Text("• Professional or clinical environments")
-                                Text("• Enterprise or organizational use")
-                                Text("• Any HIPAA-regulated activities")
+                                Text("• Patient care or clinic operations")
+                                Text("• Professional healthcare workflows")
+                                Text("• Employer or insurance decisions")
+                                Text("• Any HIPAA-regulated work")
                             }
                             .padding(.leading, 16)
                         }
@@ -208,7 +217,18 @@ struct DetailedDisclaimerView: View {
                             .font(.title2)
                             .fontWeight(.bold)
                         
-                        Text("As a user, you are responsible for ensuring that your use of BisonHealth AI complies with all applicable laws and regulations. If you are a healthcare provider or work in a regulated environment, you must not use this application for managing patient data or any professional healthcare activities.")
+                        Text(BisonHealthLegalCopy.userResponsibility)
+                            .font(.body)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Medical Disclaimer")
+                            .font(.title2)
+                            .fontWeight(.bold)
+
+                        Text(BisonHealthLegalCopy.noMedicalAdvice)
                             .font(.body)
                     }
                     
@@ -220,13 +240,13 @@ struct DetailedDisclaimerView: View {
                             .font(.title2)
                             .fontWeight(.bold)
                         
-                        Text("If you have questions about appropriate use or need HIPAA-compliant solutions, please seek appropriate professional tools that provide Business Associate Agreements and HIPAA compliance guarantees.")
+                        Text("If you need HIPAA-compliant tools or professional healthcare software, use a product that provides the appropriate Business Associate Agreement and compliance commitments.")
                             .font(.body)
                     }
                 }
                 .padding(24)
             }
-            .navigationTitle("Privacy & Security Details")
+            .navigationTitle("Full Disclaimer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

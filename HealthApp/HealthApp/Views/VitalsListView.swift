@@ -11,15 +11,12 @@ struct VitalsListView: View {
             RecentVitalsSection(
                 personalInfo: healthDataManager.personalInfo,
                 onAddVital: { vitalType in
-                    HapticFeedbackManager.shared.impact()
                     showingVitalEntry = vitalType
                 },
                 onEditVital: { vitalType, index in
-                    HapticFeedbackManager.shared.impact()
                     editingVital = (vitalType, index)
                 },
                 onDeleteVital: { vitalType, index in
-                    HapticFeedbackManager.shared.impact()
                     Task {
                         await deleteVitalReading(type: vitalType, index: index)
                     }
@@ -34,7 +31,6 @@ struct VitalsListView: View {
                 existingReading: nil,
                 personalInfo: healthDataManager.personalInfo,
                 onSave: { updatedInfo in
-                    HapticFeedbackManager.shared.success()
                     Task {
                         try await healthDataManager.savePersonalInfo(updatedInfo)
                     }
@@ -50,7 +46,6 @@ struct VitalsListView: View {
                 existingReading: (wrapper.type, wrapper.index),
                 personalInfo: healthDataManager.personalInfo,
                 onSave: { updatedInfo in
-                    HapticFeedbackManager.shared.success()
                     Task {
                         try await healthDataManager.savePersonalInfo(updatedInfo)
                     }

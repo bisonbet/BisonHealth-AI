@@ -290,6 +290,8 @@ struct OpenAICompatibleSettingsView: View {
                     if let firstModel = models.first,
                        (selectedModel.isEmpty || !models.contains(selectedModel)) {
                         selectedModel = firstModel
+                        settingsManager.updateOpenAICompatibleModel(firstModel)
+                        settingsManager.invalidateOpenAICompatibleClient()
                     }
 
                     settingsManager.openAICompatibleStatus = .connected

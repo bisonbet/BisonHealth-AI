@@ -15,10 +15,6 @@ enum PlatformCapabilities {
         isIPadInterface || isIPadAppOnMac
     }
 
-    static var supportsHapticFeedback: Bool {
-        !isIPadAppOnMac
-    }
-
     static var supportsDocumentScanning: Bool {
         !isIPadAppOnMac && VNDocumentCameraViewController.isSupported
     }
