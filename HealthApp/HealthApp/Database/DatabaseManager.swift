@@ -103,26 +103,42 @@ class DatabaseManager: ObservableObject {
     internal let versionCreatedAt = Expression<Int64>("created_at")
 
     // MARK: - Initialization
-    init() throws {
+    init(databaseURL: URL? = nil) throws {
         // Generate or retrieve encryption key
         self.encryptionKey = try Self.getOrCreateEncryptionKey()
         
         // Set up database URL
-        // Use Application Support directory instead of Documents for better persistence
-        // This directory persists across app updates and Xcode reinstalls (unless app is deleted)
-        let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
-        
-        // Create directory if it doesn't exist
-        try FileManager.default.createDirectory(at: healthAppDirectory, withIntermediateDirectories: true)
-        
-        self.databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
+        let resolvedDatabaseURL: URL
+        let shouldRunLegacyMigration: Bool
+        if let databaseURL {
+            resolvedDatabaseURL = databaseURL
+            shouldRunLegacyMigration = false
+        } else if let runtimeDatabaseURL = AppTestRuntime.databaseURLForUITesting() {
+            resolvedDatabaseURL = runtimeDatabaseURL
+            shouldRunLegacyMigration = false
+        } else {
+            // Use Application Support directory instead of Documents for better persistence
+            // This directory persists across app updates and Xcode reinstalls (unless app is deleted)
+            let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
+            resolvedDatabaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
+            shouldRunLegacyMigration = true
+        }
 
-        AppLog.shared.database("Database path: \(databaseURL.path)")
-        AppLog.shared.database("Database file exists: \(FileManager.default.fileExists(atPath: databaseURL.path))")
+        try FileManager.default.createDirectory(
+            at: resolvedDatabaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        self.databaseURL = resolvedDatabaseURL
+
+        AppLog.shared.database("Database path: \(self.databaseURL.path)")
+        AppLog.shared.database("Database file exists: \(FileManager.default.fileExists(atPath: self.databaseURL.path))")
         
         // Migrate database from Documents directory if it exists (one-time migration)
-        try migrateDatabaseFromDocumentsIfNeeded(newLocation: databaseURL)
+        if shouldRunLegacyMigration {
+            try migrateDatabaseFromDocumentsIfNeeded(newLocation: resolvedDatabaseURL)
+        }
         
         // Note: Database persists across Xcode installs unless:
         // - App is manually deleted from device/simulator
@@ -130,7 +146,7 @@ class DatabaseManager: ObservableObject {
         // - App's container is explicitly deleted
 
         // Initialize database connection and schema (actor init is nonisolated in Swift 6; inline to avoid isolation issues)
-        db = try Connection(databaseURL.path)
+        db = try Connection(resolvedDatabaseURL.path)
         
         // Enable foreign key constraints
         try db?.execute("PRAGMA foreign_keys = ON")

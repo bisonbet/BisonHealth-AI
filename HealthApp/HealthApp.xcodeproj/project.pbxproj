@@ -161,12 +161,26 @@
 		SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUP004002EA12E9900999002 /* SupplementEditorView.swift */; };
 		SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUP006002EA12E9900999003 /* SupplementSelectorView.swift */; };
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
+		UITESTBUILD001 /* AccessibilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE001 /* AccessibilityUITests.swift */; };
+		UITESTBUILD002 /* BloodTestEntryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE002 /* BloodTestEntryUITests.swift */; };
+		UITESTBUILD003 /* ChatInterfaceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE003 /* ChatInterfaceUITests.swift */; };
+		UITESTBUILD004 /* DocumentManagementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE004 /* DocumentManagementUITests.swift */; };
+		UITESTBUILD005 /* HealthAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE005 /* HealthAppUITests.swift */; };
+		UITESTBUILD006 /* PersonalInfoEditorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE006 /* PersonalInfoEditorUITests.swift */; };
+		UITESTBUILD007 /* RegressionSmokeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE007 /* RegressionSmokeUITests.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
 		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		A1000077294A0000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1000000294A0000000000005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1000000294A0000000000001;
+			remoteInfo = HealthApp;
+		};
+		UITESTPROXY001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1000000294A0000000000005 /* Project object */;
 			proxyType = 1;
@@ -325,6 +339,14 @@
 		SUP006002EA12E9900999003 /* SupplementSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementSelectorView.swift; sourceTree = "<group>"; };
 		TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentCameraView.swift; sourceTree = "<group>"; };
 		TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManagerTests.swift; sourceTree = "<group>"; };
+		UITESTFILE001 /* AccessibilityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE002 /* BloodTestEntryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE003 /* ChatInterfaceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInterfaceUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE004 /* DocumentManagementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManagementUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE005 /* HealthAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthAppUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE006 /* PersonalInfoEditorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE007 /* RegressionSmokeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegressionSmokeUITests.swift; sourceTree = "<group>"; };
+		UITESTPROD001 /* HealthAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HealthAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
 		X2FUR2EIGX9DN3B94C5WK7ZW /* DocumentProcessingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessingIntegrationTests.swift; sourceTree = "<group>"; };
 		Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentListView.swift; sourceTree = "<group>"; };
@@ -347,6 +369,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A1000039294A0000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		UITESTFRAMEWORKS001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -383,6 +412,7 @@
 			children = (
 				A1000003294A0000000000002 /* HealthApp */,
 				A1000035294A0000000000001 /* HealthAppTests */,
+				UITESTGROUP001 /* HealthAppUITests */,
 				A1000001294A0000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -392,6 +422,7 @@
 			children = (
 				A1000001294A0000000000000 /* HealthApp.app */,
 				A1000034294A0000000000001 /* HealthAppTests.xctest */,
+				UITESTPROD001 /* HealthAppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -601,6 +632,20 @@
 			path = HealthAppTests;
 			sourceTree = "<group>";
 		};
+		UITESTGROUP001 /* HealthAppUITests */ = {
+			isa = PBXGroup;
+			children = (
+				UITESTFILE001 /* AccessibilityUITests.swift */,
+				UITESTFILE002 /* BloodTestEntryUITests.swift */,
+				UITESTFILE003 /* ChatInterfaceUITests.swift */,
+				UITESTFILE004 /* DocumentManagementUITests.swift */,
+				UITESTFILE005 /* HealthAppUITests.swift */,
+				UITESTFILE006 /* PersonalInfoEditorUITests.swift */,
+				UITESTFILE007 /* RegressionSmokeUITests.swift */,
+			);
+			path = HealthAppUITests;
+			sourceTree = "<group>";
+		};
 		A1000076294A0000000000001 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
@@ -666,6 +711,24 @@
 			productReference = A1000034294A0000000000001 /* HealthAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		UITESTTARGET001 /* HealthAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = UITESTCONFIGLIST001 /* Build configuration list for PBXNativeTarget "HealthAppUITests" */;
+			buildPhases = (
+				UITESTSOURCES001 /* Sources */,
+				UITESTFRAMEWORKS001 /* Frameworks */,
+				UITESTRESOURCES001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				UITESTDEP001 /* PBXTargetDependency */,
+			);
+			name = HealthAppUITests;
+			productName = HealthAppUITests;
+			productReference = UITESTPROD001 /* HealthAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -678,6 +741,10 @@
 				TargetAttributes = {
 					A1000000294A0000000000001 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					UITESTTARGET001 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A1000000294A0000000000001;
 					};
 				};
 			};
@@ -702,6 +769,7 @@
 			targets = (
 				A1000000294A0000000000001 /* HealthApp */,
 				A1000037294A0000000000001 /* HealthAppTests */,
+				UITESTTARGET001 /* HealthAppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -717,6 +785,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A1000040294A0000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		UITESTRESOURCES001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -886,6 +961,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		UITESTSOURCES001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				UITESTBUILD007 /* RegressionSmokeUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -893,6 +976,11 @@
 			isa = PBXTargetDependency;
 			target = A1000000294A0000000000001 /* HealthApp */;
 			targetProxy = A1000077294A0000000000001 /* PBXContainerItemProxy */;
+		};
+		UITESTDEP001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1000000294A0000000000001 /* HealthApp */;
+			targetProxy = UITESTPROXY001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1108,6 +1196,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
@@ -1129,6 +1218,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0;
@@ -1141,6 +1231,48 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HealthApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HealthApp";
+			};
+			name = Release;
+		};
+		UITESTCONFIGDEBUG001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4W55VW7UXX;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = HealthApp;
+			};
+			name = Debug;
+		};
+		UITESTCONFIGRELEASE001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4W55VW7UXX;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = HealthApp;
 			};
 			name = Release;
 		};
@@ -1170,6 +1302,15 @@
 			buildConfigurations = (
 				A1000038294A0000000000002 /* Debug */,
 				A1000038294A0000000000003 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		UITESTCONFIGLIST001 /* Build configuration list for PBXNativeTarget "HealthAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				UITESTCONFIGDEBUG001 /* Debug */,
+				UITESTCONFIGRELEASE001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

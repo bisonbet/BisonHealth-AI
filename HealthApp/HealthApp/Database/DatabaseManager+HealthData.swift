@@ -80,7 +80,8 @@ extension DatabaseManager {
             let query = healthDataTable.filter(self.healthDataType == healthDataType.rawValue)
                 .order(healthDataUpdatedAt.desc)
             
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let recordId = row[healthDataId]
                 let encryptedData = row[healthDataEncryptedData]
                 
@@ -213,7 +214,8 @@ extension DatabaseManager {
         
         let query = healthDataTable.select(distinct: healthDataType)
         
-        for row in try db.prepare(query) {
+        let typeIterator = try db.prepareRowIterator(query)
+        while let row = try typeIterator.failableNext() {
             if let type = HealthDataType(rawValue: row[healthDataType]) {
                 types.insert(type)
             }
@@ -257,7 +259,8 @@ extension DatabaseManager {
             .order(healthDataUpdatedAt.desc)
             .limit(limit)
         
-        for row in try db.prepare(query) {
+        let recentIterator = try db.prepareRowIterator(query)
+        while let row = try recentIterator.failableNext() {
             let typeString = row[healthDataType]
             let updatedAt = Date(timeIntervalSince1970: TimeInterval(row[healthDataUpdatedAt]))
             let id = UUID(uuidString: row[healthDataId]) ?? UUID()
@@ -292,7 +295,8 @@ extension DatabaseManager {
             }
             
             // Find records with empty encrypted data
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let recordId = row[healthDataId]
                 let encryptedData = row[healthDataEncryptedData]
                 let typeString = row[self.healthDataType]

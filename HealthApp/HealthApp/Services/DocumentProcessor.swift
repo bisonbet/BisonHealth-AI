@@ -29,7 +29,7 @@ class DocumentProcessor: ObservableObject {
     var forceCloudVisionDocumentIds: Set<UUID> = []
     
     // MARK: - Dependencies
-    private let settingsManager = SettingsManager.shared
+    private let settingsManager: SettingsManager
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
     private let healthDataManager: HealthDataManager
@@ -47,11 +47,13 @@ class DocumentProcessor: ObservableObject {
     init(
         databaseManager: DatabaseManager,
         fileSystemManager: FileSystemManager,
-        healthDataManager: HealthDataManager
+        healthDataManager: HealthDataManager,
+        settingsManager: SettingsManager? = nil
     ) {
         self.databaseManager = databaseManager
         self.fileSystemManager = fileSystemManager
         self.healthDataManager = healthDataManager
+        self.settingsManager = settingsManager ?? SettingsManager.shared
         
         setupNotifications()
         loadPendingDocuments()
@@ -110,6 +112,14 @@ class DocumentProcessor: ObservableObject {
         // Process document synchronously without adding to queue
         return try await processDocument(document)
     }
+
+    #if DEBUG
+    func processDocumentAndExtractHealthDataForTesting(_ document: MedicalDocument) async throws -> (processed: ProcessedDocumentResult, extractedData: [AnyHealthData]) {
+        let processed = try await processDocument(document)
+        let extractedData = try await extractHealthData(from: processed, document: document)
+        return (processed, extractedData)
+    }
+    #endif
     
     func processBatch(_ documents: [MedicalDocument], priority: ProcessingPriority = .normal) async {
         for document in documents {
@@ -1213,6 +1223,12 @@ class DocumentProcessor: ObservableObject {
     
     // MARK: - AI Provider Selection Logic
     private func getAIClientForDocument(_ document: MedicalDocument) async -> any AIProviderInterface {
+        #if DEBUG
+        if let override = settingsManager.getAIClientOverrideForTesting() {
+            return override
+        }
+        #endif
+
         // Use the extraction provider settings (independent from chat)
         let extractionProvider = settingsManager.modelPreferences.extractionProvider
 

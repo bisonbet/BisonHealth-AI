@@ -20,6 +20,13 @@ class AppSettingsManager: ObservableObject {
     // MARK: - Settings Loading
     
     private func loadSettings() {
+        if AppTestRuntime.shouldSkipDisclaimer {
+            hasAcceptedDisclaimer = true
+            isFirstLaunch = false
+            needsDisclaimerReacceptance = false
+            return
+        }
+
         do {
             // Check if user has accepted disclaimer
             hasAcceptedDisclaimer = try databaseManager.hasAcceptedDisclaimer()

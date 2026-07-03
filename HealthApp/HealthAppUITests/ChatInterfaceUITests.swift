@@ -7,6 +7,19 @@ final class ChatInterfaceUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing",
+            "--reset-test-data",
+            "--skip-disclaimer",
+            "--scripted-ai-provider",
+            "--disable-healthkit-sync",
+            "--disable-mlx-preload"
+        ]
+        if name.contains("testScriptedDoctorReplyAppearsAfterSendingMessage") {
+            app.launchArguments += [
+                "--seed-lab-report"
+            ]
+        }
         app.launch()
     }
     
@@ -82,6 +95,27 @@ final class ChatInterfaceUITests: XCTestCase {
         // Message should appear in chat
         let sentMessage = app.staticTexts["Test message"]
         XCTAssertTrue(sentMessage.waitForExistence(timeout: 2), "Sent message should appear in chat")
+    }
+
+    func testScriptedDoctorReplyAppearsAfterSendingMessage() throws {
+        startNewConversationAndWait()
+
+        let messageInput = app.textFields["chat.messageInput"]
+        messageInput.tap()
+        messageInput.typeText("What should I ask my doctor about my lab report?")
+
+        let sendButton = app.buttons["chat.sendButton"]
+        XCTAssertTrue(sendButton.waitForExistence(timeout: 3), "Send button should be available")
+        sendButton.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["What should I ask my doctor about my lab report?"].waitForExistence(timeout: 5),
+            "User message should appear in the chat transcript"
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "SCRIPTED_DOCTOR_REPLY")).firstMatch.waitForExistence(timeout: 10),
+            "Scripted AI doctor reply should appear without a live provider"
+        )
     }
     
     // MARK: - iPad Specific Tests
@@ -289,7 +323,14 @@ final class ChatInterfaceUITests: XCTestCase {
     
     private func navigateToChatTab() {
         let chatTab = app.tabBars.buttons["AI Chat"]
-        chatTab.tap()
+        if chatTab.waitForExistence(timeout: 5) {
+            chatTab.tap()
+            return
+        }
+
+        let chatSidebarButton = app.buttons["AI Chat"]
+        XCTAssertTrue(chatSidebarButton.waitForExistence(timeout: 5), "AI Chat navigation should be visible")
+        chatSidebarButton.tap()
     }
     
     private func startNewConversationAndWait() {
@@ -315,7 +356,13 @@ final class ChatInterfaceUITests: XCTestCase {
         }
         
         // Wait for message input to appear
-        let messageInput = app.textFields["Type your message..."]
+        let messageInputByIdentifier = app.textFields["chat.messageInput"]
+        let messageInput: XCUIElement
+        if messageInputByIdentifier.waitForExistence(timeout: 2) {
+            messageInput = messageInputByIdentifier
+        } else {
+            messageInput = app.textFields["Type your message..."]
+        }
         XCTAssertTrue(messageInput.waitForExistence(timeout: 3), "Message input should appear after starting conversation")
     }
 }

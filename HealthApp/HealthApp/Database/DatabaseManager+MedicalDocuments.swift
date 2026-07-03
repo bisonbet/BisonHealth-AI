@@ -74,7 +74,8 @@ extension DatabaseManager {
         do {
             let query = documentsTable.order(documentImportedAt.desc)
 
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
@@ -130,7 +131,8 @@ extension DatabaseManager {
         query = query.order(documentContextPriority.desc, documentDate.desc)
 
         do {
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
@@ -152,7 +154,8 @@ extension DatabaseManager {
                 .filter(documentCategory == category.rawValue)
                 .order(documentDate.desc)
 
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
@@ -174,7 +177,8 @@ extension DatabaseManager {
                 .filter(documentProviderName == providerName)
                 .order(documentDate.desc)
 
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
@@ -198,7 +202,8 @@ extension DatabaseManager {
                 .filter(documentDate >= startTimestamp && documentDate <= endTimestamp)
                 .order(documentDate.desc)
 
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }
@@ -314,7 +319,8 @@ extension DatabaseManager {
                 )
                 .order(documentImportedAt.desc)
 
-            for row in try db.prepare(sqlQuery) {
+            let iterator = try db.prepareRowIterator(sqlQuery)
+            while let row = try iterator.failableNext() {
                 let document = try buildMedicalDocument(from: row)
                 results.append(document)
             }

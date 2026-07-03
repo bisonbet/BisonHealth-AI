@@ -36,7 +36,8 @@ extension DatabaseManager {
         var results: [AppointmentPrep] = []
         do {
             let query = appointmentPrepsTable.order(prepUpdatedAt.desc)
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 do {
                     let prep = try decryptData(row[prepEncryptedData], as: AppointmentPrep.self)
                     results.append(prep)

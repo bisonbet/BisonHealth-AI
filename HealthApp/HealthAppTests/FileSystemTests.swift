@@ -111,11 +111,15 @@ final class FileSystemTests: XCTestCase {
         XCTAssertNotNil(thumbnailURL)
         XCTAssertTrue(fileSystemManager.fileExists(at: thumbnailURL!))
         
-        // Verify thumbnail is smaller than original
-        let originalSize = try fileSystemManager.getFileSize(at: storedURL)
+        // Verify thumbnail is a valid bounded image. Small source images can
+        // legitimately produce larger JPEG thumbnails due to encoding overhead.
         let thumbnailSize = try fileSystemManager.getFileSize(at: thumbnailURL!)
-        
-        XCTAssertLessThan(thumbnailSize, originalSize)
+        let thumbnailImage = UIImage(contentsOfFile: thumbnailURL!.path)
+
+        XCTAssertGreaterThan(thumbnailSize, 0)
+        XCTAssertNotNil(thumbnailImage)
+        XCTAssertLessThanOrEqual(thumbnailImage?.size.width ?? .greatestFiniteMagnitude, 200)
+        XCTAssertLessThanOrEqual(thumbnailImage?.size.height ?? .greatestFiniteMagnitude, 200)
     }
     
     func testGenericThumbnailGeneration() async throws {

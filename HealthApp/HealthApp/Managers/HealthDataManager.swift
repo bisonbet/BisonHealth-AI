@@ -9,7 +9,8 @@ class HealthDataManager: ObservableObject {
     // MARK: - Shared Instance
     static let shared = HealthDataManager(
         databaseManager: DatabaseManager.shared,
-        fileSystemManager: FileSystemManager.shared
+        fileSystemManager: FileSystemManager.shared,
+        automaticallyLoad: !AppTestRuntime.isRunningXCTest
     )
     
     // MARK: - Published Properties
@@ -36,10 +37,16 @@ class HealthDataManager: ObservableObject {
     private let syncLock = NSLock()
     
     // MARK: - Initialization
-    init(databaseManager: DatabaseManager, fileSystemManager: FileSystemManager) {
+    init(
+        databaseManager: DatabaseManager,
+        fileSystemManager: FileSystemManager,
+        automaticallyLoad: Bool = true
+    ) {
         self.databaseManager = databaseManager
         self.fileSystemManager = fileSystemManager
-        
+
+        guard automaticallyLoad else { return }
+
         Task {
             await loadHealthData()
         }

@@ -21,6 +21,167 @@ protocol AIResponse {
     var metadata: [String: Any]? { get }
 }
 
+#if DEBUG
+// MARK: - Scripted AI Provider
+
+struct ScriptedAIRequest: Equatable {
+    let message: String
+    let context: String
+}
+
+struct ScriptedAIResponse: AIResponse {
+    let content: String
+    let responseTime: TimeInterval
+    let tokenCount: Int?
+    let metadata: [String: Any]?
+
+    init(
+        content: String,
+        responseTime: TimeInterval = 0.01,
+        tokenCount: Int? = nil,
+        metadata: [String: Any]? = ["provider": "scripted"]
+    ) {
+        self.content = content
+        self.responseTime = responseTime
+        self.tokenCount = tokenCount
+        self.metadata = metadata
+    }
+}
+
+@MainActor
+final class ScriptedAIProvider: ObservableObject, AIProviderInterface {
+    static let shared = ScriptedAIProvider()
+
+    @Published var isConnected = true
+    @Published var connectionStatus: ProviderConnectionStatus = .connected
+    @Published var lastError: Error?
+
+    private(set) var requests: [ScriptedAIRequest] = []
+    private var queuedResponses: [Result<String, Error>] = []
+
+    func reset(responses: [Result<String, Error>] = []) {
+        requests = []
+        queuedResponses = responses
+        isConnected = true
+        connectionStatus = .connected
+        lastError = nil
+    }
+
+    func testConnection() async throws -> Bool {
+        isConnected = true
+        connectionStatus = .connected
+        return true
+    }
+
+    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+        requests.append(ScriptedAIRequest(message: message, context: context))
+
+        if !queuedResponses.isEmpty {
+            let next = queuedResponses.removeFirst()
+            switch next {
+            case .success(let content):
+                return ScriptedAIResponse(content: content)
+            case .failure(let error):
+                lastError = error
+                throw error
+            }
+        }
+
+        return ScriptedAIResponse(content: defaultResponse(for: message, context: context))
+    }
+
+    func getCapabilities() async throws -> AICapabilities {
+        AICapabilities(
+            supportedModels: ["scripted-test-provider"],
+            maxTokens: 32_768,
+            supportsStreaming: false,
+            supportsImages: false,
+            supportsDocuments: false,
+            supportedLanguages: ["en"]
+        )
+    }
+
+    func updateConfiguration(_ config: AIProviderConfig) async throws {
+        // No-op; configuration is fixed for deterministic tests.
+    }
+
+    private func defaultResponse(for message: String, context: String) -> String {
+        let lowercased = message.lowercased()
+
+        if lowercased.contains("test/report date") || lowercased.contains("return your response in this exact format") {
+            return """
+            TEST_DATE: 2026-01-15
+            LAB_NAME: Bison Diagnostics
+            PHYSICIAN: Dr. Ada Test
+            PATIENT: Test Patient
+            """
+        }
+
+        if lowercased.contains("format (pipe-delimited") || lowercased.contains("test_name|test_type|value") {
+            return """
+            Glucose|BLOOD|98|mg/dL|70-100|Normal
+            Total Cholesterol|BLOOD|220|mg/dL|<200|High
+            Hemoglobin|BLOOD|13.5|g/dL|12.0-16.0|Normal
+            """
+        }
+
+        if lowercased.contains("analyze this medical document") {
+            return """
+            {
+              "document_date": "2026-01-15",
+              "provider_name": "Bison Diagnostics",
+              "provider_type": "laboratory",
+              "document_category": "lab_report",
+              "sections": [
+                {
+                  "section_type": "Test Results",
+                  "content": "Glucose 98 mg/dL, Total Cholesterol 220 mg/dL, Hemoglobin 13.5 g/dL"
+                }
+              ]
+            }
+            """
+        }
+
+        if lowercased.contains("symptom history") || lowercased.contains("timeline") {
+            return """
+            TIMELINE:
+            - Symptoms began three days ago and have been intermittent.
+            - Symptoms are worse in the evening.
+            - No emergency symptoms were reported in the test fixture.
+            """
+        }
+
+        if lowercased.contains("questions") && lowercased.contains("doctor") {
+            return """
+            1. What diagnoses best fit these symptoms?
+            2. Which tests should we consider next?
+            3. Could current medications contribute?
+            4. What warning signs need urgent care?
+            5. What should I track after this visit?
+            """
+        }
+
+        if lowercased.contains("relevant") || lowercased.contains("important considerations") {
+            return """
+            - Bring the recent lab report and medication list.
+            - Ask whether abnormal cholesterol changes the care plan.
+            - Seek urgent care for chest pain, fainting, or severe shortness of breath.
+            """
+        }
+
+        if lowercased.contains("summarize this conversation") {
+            return "Scripted Health Discussion"
+        }
+
+        if !context.isEmpty {
+            return "SCRIPTED_DOCTOR_REPLY: I reviewed the provided context and would discuss the recent lab trends with your clinician."
+        }
+
+        return "SCRIPTED_DOCTOR_REPLY: I can help prepare concise questions for your clinician."
+    }
+}
+#endif
+
 // MARK: - Document Page Image
 /// A rasterized document page prepared for vision-model extraction.
 struct DocumentPageImage {

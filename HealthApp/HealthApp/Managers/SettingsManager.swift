@@ -176,6 +176,9 @@ class SettingsManager: ObservableObject {
     // Service clients (lazy loaded)
     private var openAICompatibleClient: OpenAICompatibleClient?
     private var mlxOnDeviceClient: MLXOnDeviceClient?
+    #if DEBUG
+    private var aiClientOverride: (any AIProviderInterface)?
+    #endif
 
     private let userDefaults = UserDefaults.standard
     private let keychain = Keychain()
@@ -261,6 +264,12 @@ class SettingsManager: ObservableObject {
     // MARK: - Service Client Management
 
     func getAIClient() -> any AIProviderInterface {
+        #if DEBUG
+        if let override = getAIClientOverrideForTesting() {
+            return override
+        }
+        #endif
+
         switch modelPreferences.aiProvider {
         case .bedrock:
             return getBedrockClient()
@@ -270,6 +279,22 @@ class SettingsManager: ObservableObject {
             return getMLXOnDeviceClient()
         }
     }
+
+    #if DEBUG
+    func setAIClientOverrideForTesting(_ client: (any AIProviderInterface)?) {
+        aiClientOverride = client
+    }
+
+    func getAIClientOverrideForTesting() -> (any AIProviderInterface)? {
+        if let aiClientOverride {
+            return aiClientOverride
+        }
+        if AppTestRuntime.shouldUseScriptedAIProvider {
+            return ScriptedAIProvider.shared
+        }
+        return nil
+    }
+    #endif
 
     func getOpenAICompatibleClient() -> OpenAICompatibleClient {
         if openAICompatibleClient == nil {

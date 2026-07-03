@@ -26,16 +26,22 @@ class FileSystemManager: ObservableObject {
     private let encryptionKey: SymmetricKey
     
     // MARK: - Initialization
-    init() throws {
+    init(baseDirectory: URL? = nil) throws {
         // Get app's documents directory
-        let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        self.baseDirectory = appDocuments.appendingPathComponent("HealthApp")
+        if let baseDirectory {
+            self.baseDirectory = baseDirectory
+        } else if let runtimeBaseDirectory = AppTestRuntime.fileSystemBaseDirectoryForUITesting() {
+            self.baseDirectory = runtimeBaseDirectory
+        } else {
+            let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            self.baseDirectory = appDocuments.appendingPathComponent("HealthApp")
+        }
         
         // Set up directory structure
-        self.documentsDirectory = baseDirectory.appendingPathComponent("Documents/Imported")
-        self.thumbnailsDirectory = baseDirectory.appendingPathComponent("Documents/Thumbnails")
-        self.exportsDirectory = baseDirectory.appendingPathComponent("Exports")
-        self.logsDirectory = baseDirectory.appendingPathComponent("Logs")
+        self.documentsDirectory = self.baseDirectory.appendingPathComponent("Documents/Imported")
+        self.thumbnailsDirectory = self.baseDirectory.appendingPathComponent("Documents/Thumbnails")
+        self.exportsDirectory = self.baseDirectory.appendingPathComponent("Exports")
+        self.logsDirectory = self.baseDirectory.appendingPathComponent("Logs")
         
         // Get encryption key from keychain
         let keychain = Keychain()

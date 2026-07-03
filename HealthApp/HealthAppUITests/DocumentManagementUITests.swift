@@ -6,10 +6,18 @@ final class DocumentManagementUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing",
+            "--reset-test-data",
+            "--skip-disclaimer",
+            "--seed-lab-report",
+            "--scripted-ai-provider",
+            "--disable-healthkit-sync",
+            "--disable-mlx-preload"
+        ]
         app.launch()
         
-        // Navigate to Documents tab
-        app.tabBars.buttons["Documents"].tap()
+        navigateToDocuments()
     }
     
     override func tearDownWithError() throws {
@@ -30,6 +38,24 @@ final class DocumentManagementUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Import File"].exists)
             XCTAssertTrue(app.buttons["Import Photos"].exists)
         }
+    }
+
+    func testSeededLabReportAppearsInDocumentsList() throws {
+        let seededDocument = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "ui-test-lab-report.pdf"))
+            .firstMatch
+        if !seededDocument.waitForExistence(timeout: 5) {
+            app.swipeDown()
+        }
+
+        XCTAssertTrue(
+            seededDocument.waitForExistence(timeout: 5),
+            "Seeded lab report should appear in Documents when UI test launch arguments are enabled"
+        )
+        XCTAssertTrue(
+            (seededDocument.value as? String ?? "").contains("Completed"),
+            "Seeded lab report should expose completed processing status"
+        )
     }
     
     // MARK: - Document Import Tests
@@ -463,16 +489,41 @@ final class DocumentManagementUITests: XCTestCase {
             throw XCTSkip("No documents available for testing")
         }
         
-        // Navigate to chat tab
-        app.tabBars.buttons["AI Chat"].tap()
+        navigateToChat()
         
         // Verify chat interface exists
         XCTAssertTrue(app.navigationBars["BisonHealth AI"].exists)
         
         // Return to documents
-        app.tabBars.buttons["Documents"].tap()
+        navigateToDocuments()
         XCTAssertTrue(app.navigationBars["Documents"].exists)
     }
+
+    private func navigateToDocuments() {
+        let healthTab = app.tabBars.buttons["Health"]
+        if healthTab.waitForExistence(timeout: 5) {
+            healthTab.tap()
+        } else {
+            let healthSidebarButton = app.buttons["Health"]
+            if healthSidebarButton.waitForExistence(timeout: 5) {
+                healthSidebarButton.tap()
+            }
+        }
+
+        let documentsSegment = app.buttons["Documents"]
+        XCTAssertTrue(documentsSegment.waitForExistence(timeout: 5), "Documents segment should be visible in the Health tab")
+        documentsSegment.tap()
+    }
+
+    private func navigateToChat() {
+        let chatTab = app.tabBars.buttons["AI Chat"]
+        if chatTab.waitForExistence(timeout: 5) {
+            chatTab.tap()
+            return
+        }
+
+        let chatSidebarButton = app.buttons["AI Chat"]
+        XCTAssertTrue(chatSidebarButton.waitForExistence(timeout: 5), "AI Chat navigation should be visible")
+        chatSidebarButton.tap()
+    }
 }
-</content>
-</invoke>

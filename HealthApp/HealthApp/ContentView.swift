@@ -664,6 +664,17 @@ struct DocumentsView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: activeAutoImportSummary)
+        .task {
+            guard AppTestRuntime.shouldSeedLabReport else { return }
+
+            for _ in 0..<20 {
+                await documentManager.refreshDocuments()
+                if documentManager.documents.contains(where: { $0.fileName == "ui-test-lab-report.pdf" }) {
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
         .sheet(isPresented: $showingDocumentTypeSelector) {
             if let document = pendingDocumentForCategory {
                 DocumentTypeSelectorView(

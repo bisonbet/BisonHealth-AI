@@ -47,7 +47,8 @@ extension DatabaseManager {
                 .filter(conversationIsArchived == false)
                 .order(conversationUpdatedAt.desc)
             
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let conversation = try await buildChatConversation(from: row)
                 results.append(conversation)
             }
@@ -69,7 +70,8 @@ extension DatabaseManager {
                 .filter(conversationIsArchived == true)
                 .order(conversationUpdatedAt.desc)
             
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let conversation = try await buildChatConversation(from: row)
                 results.append(conversation)
             }
@@ -211,7 +213,8 @@ extension DatabaseManager {
                 .filter(messageConversationId == conversationId.uuidString)
                 .order(messageTimestamp.asc)
             
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 let message = try buildChatMessage(from: row)
                 results.append(message)
             }
@@ -234,7 +237,8 @@ extension DatabaseManager {
                 .filter(conversationTitle.like(searchTerm))
                 .order(conversationUpdatedAt.desc)
             
-            for row in try db.prepare(sqlQuery) {
+            let iterator = try db.prepareRowIterator(sqlQuery)
+            while let row = try iterator.failableNext() {
                 let conversation = try await buildChatConversation(from: row)
                 results.append(conversation)
             }

@@ -225,7 +225,7 @@ struct ChatDetailView: View {
         Task {
             do {
                 // Use streaming by default for better user experience
-                try await chatManager.sendMessage(message, useStreaming: true)
+                try await chatManager.sendMessage(message, useStreaming: !AppTestRuntime.isUITesting)
                 await MainActor.run {
                     messageText = ""
                     if isIPad {

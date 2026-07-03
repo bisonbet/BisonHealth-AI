@@ -48,7 +48,8 @@ extension DatabaseManager {
                 healthDataEncryptedData
             )
             
-            for row in try db.prepare(query) {
+            let iterator = try db.prepareRowIterator(query)
+            while let row = try iterator.failableNext() {
                 totalRecords += 1
                 let recordId = row[healthDataId]
                 let typeString = row[healthDataType]
@@ -274,4 +275,3 @@ struct RecoveryAttemptResult {
     let failedRecordIds: [String]
     let scanResult: DatabaseManager.RecoveryScanResult
 }
-

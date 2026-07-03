@@ -12,12 +12,13 @@ struct HealthAppApp: App {
 
     init() {
         AppChrome.configure()
+        AppTestRuntimeBootstrap.bootstrapIfNeeded()
     }
     
     var body: some Scene {
         WindowGroup {
             Group {
-                if appSettingsManager.shouldShowDisclaimer {
+                if appSettingsManager.shouldShowDisclaimer && !AppTestRuntime.shouldSkipDisclaimer {
                     FirstLaunchDisclaimerView {
                         appSettingsManager.acceptDisclaimer()
                     }
@@ -190,7 +191,7 @@ class AppState: ObservableObject {
 
     init() {
         AppLog.shared.markLaunch()
-        if AppLog.shared.previousSessionCrashed {
+        if !AppTestRuntime.isUITesting && AppLog.shared.previousSessionCrashed {
             showCrashReportAlert = true
         }
 
@@ -201,6 +202,8 @@ class AppState: ObservableObject {
     }
 
     private func preloadOnDeviceLLMIfNeeded() {
+        guard !AppTestRuntime.shouldDisableMLXPreload else { return }
+
         // Preload on-device LLM in background so it's ready when user opens AI chat
         // This is done after a short delay to not compete with app launch tasks
         Task {
@@ -211,6 +214,8 @@ class AppState: ObservableObject {
     }
 
     private func syncHealthKitOnLaunch() {
+        guard !AppTestRuntime.shouldDisableHealthKitSync else { return }
+
         // Sync from Apple Health on app launch with throttling
         Task {
             do {
@@ -266,3 +271,235 @@ class AppState: ObservableObject {
         }
     }
 }
+
+// MARK: - UI Test Runtime
+
+enum AppTestRuntime {
+    static var isUITesting: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        #else
+        false
+        #endif
+    }
+
+    static var isRunningXCTest: Bool {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        return environment.keys.contains("XCTestConfigurationFilePath")
+            || environment["XCTestSessionIdentifier"] != nil
+        #else
+        return false
+        #endif
+    }
+
+    static var shouldResetTestData: Bool {
+        #if DEBUG
+        isUITesting && ProcessInfo.processInfo.arguments.contains("--reset-test-data")
+        #else
+        false
+        #endif
+    }
+
+    static var shouldSkipDisclaimer: Bool {
+        #if DEBUG
+        isUITesting && ProcessInfo.processInfo.arguments.contains("--skip-disclaimer")
+        #else
+        false
+        #endif
+    }
+
+    static var shouldSeedLabReport: Bool {
+        #if DEBUG
+        isUITesting && ProcessInfo.processInfo.arguments.contains("--seed-lab-report")
+        #else
+        false
+        #endif
+    }
+
+    static var shouldUseScriptedAIProvider: Bool {
+        #if DEBUG
+        isUITesting && ProcessInfo.processInfo.arguments.contains("--scripted-ai-provider")
+        #else
+        false
+        #endif
+    }
+
+    static var shouldDisableHealthKitSync: Bool {
+        #if DEBUG
+        isRunningXCTest || (isUITesting && ProcessInfo.processInfo.arguments.contains("--disable-healthkit-sync"))
+        #else
+        false
+        #endif
+    }
+
+    static var shouldDisableMLXPreload: Bool {
+        #if DEBUG
+        isRunningXCTest || (isUITesting && ProcessInfo.processInfo.arguments.contains("--disable-mlx-preload"))
+        #else
+        false
+        #endif
+    }
+
+    static func databaseURLForUITesting() -> URL? {
+        #if DEBUG
+        guard isUITesting else { return nil }
+        prepareTestStorageIfNeeded()
+        let directory = testRootDirectory.appendingPathComponent("Database", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("health_data.sqlite")
+        #else
+        return nil
+        #endif
+    }
+
+    static func fileSystemBaseDirectoryForUITesting() -> URL? {
+        #if DEBUG
+        guard isUITesting else { return nil }
+        prepareTestStorageIfNeeded()
+        let directory = testRootDirectory.appendingPathComponent("Files/HealthApp", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+        #else
+        return nil
+        #endif
+    }
+
+    #if DEBUG
+    private static var testRootDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("BisonHealthAIRegressionUITests", isDirectory: true)
+    }
+
+    private static func prepareTestStorageIfNeeded() {
+        guard shouldResetTestData else { return }
+
+        let marker = testRootDirectory.appendingPathComponent(".reset-\(ProcessInfo.processInfo.processIdentifier)")
+        guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+
+        try? FileManager.default.removeItem(at: testRootDirectory)
+        try? FileManager.default.createDirectory(at: testRootDirectory, withIntermediateDirectories: true)
+        try? Data().write(to: marker)
+    }
+    #endif
+}
+
+#if DEBUG
+@MainActor
+private enum AppTestRuntimeBootstrap {
+    private static var didStart = false
+
+    static func bootstrapIfNeeded() {
+        guard AppTestRuntime.isUITesting, !didStart else { return }
+        didStart = true
+
+        Task { @MainActor in
+            if AppTestRuntime.shouldSeedLabReport {
+                try? await seedLabReport()
+            }
+        }
+    }
+
+    private static func seedLabReport() async throws {
+        let fileSystemManager = FileSystemManager.shared
+        let databaseManager = DatabaseManager.shared
+        let healthDataManager = HealthDataManager.shared
+
+        let labText = """
+        Bison Diagnostics
+        Collection Date: 2026-01-15
+        Patient: Test Patient
+        Ordering Physician: Dr. Ada Test
+
+        CHEMISTRY
+        Glucose\t98\tmg/dL\t70-100
+        BUN\t15\tmg/dL\t7-20
+        Creatinine\t0.9\tmg/dL\t0.6-1.2
+        Total Cholesterol\t220\tmg/dL\t<200\tH
+
+        CBC
+        Hemoglobin\t13.5\tg/dL\t12.0-16.0
+        WBC\t6.1\tK/uL\t4.0-11.0
+        """
+
+        let pdfData = makePDFData(text: labText)
+        let storedURL = try fileSystemManager.storeDocument(
+            data: pdfData,
+            fileName: "ui-test-lab-report.pdf",
+            fileType: .pdf
+        )
+
+        let document = MedicalDocument(
+            fileName: "ui-test-lab-report.pdf",
+            fileType: .pdf,
+            filePath: storedURL,
+            processingStatus: .completed,
+            documentDate: ISO8601DateFormatter().date(from: "2026-01-15T12:00:00Z"),
+            providerName: "Bison Diagnostics",
+            providerType: .laboratory,
+            documentCategory: .labReport,
+            extractedText: labText,
+            includeInAIContext: true,
+            contextPriority: 5,
+            fileSize: Int64(pdfData.count),
+            tags: ["ui-test"]
+        )
+        try await databaseManager.saveMedicalDocument(document)
+
+        let personalInfo = PersonalHealthInfo(
+            name: "Test Patient",
+            dateOfBirth: ISO8601DateFormatter().date(from: "1980-01-01T12:00:00Z"),
+            gender: .other,
+            allergies: ["Penicillin"],
+            medications: [
+                Medication(
+                    name: "Atorvastatin",
+                    dosage: Dosage(value: 20, unit: .mg),
+                    frequency: .daily,
+                    prescribedBy: "Dr. Ada Test"
+                )
+            ]
+        )
+        try await healthDataManager.savePersonalInfo(personalInfo)
+
+        let bloodTest = BloodTestResult(
+            testDate: ISO8601DateFormatter().date(from: "2026-01-15T12:00:00Z") ?? Date(),
+            laboratoryName: "Bison Diagnostics",
+            orderingPhysician: "Dr. Ada Test",
+            results: [
+                BloodTestItem(name: "Glucose", value: "98", unit: "mg/dL", referenceRange: "70-100"),
+                BloodTestItem(name: "Total Cholesterol", value: "220", unit: "mg/dL", referenceRange: "<200", isAbnormal: true),
+                BloodTestItem(name: "Hemoglobin", value: "13.5", unit: "g/dL", referenceRange: "12.0-16.0")
+            ],
+            includeInAIContext: true,
+            metadata: ["source_document_id": document.id.uuidString]
+        )
+
+        do {
+            try await healthDataManager.addBloodTest(bloodTest)
+        } catch {
+            try await databaseManager.save(bloodTest)
+        }
+        await healthDataManager.loadHealthData()
+    }
+
+    private static func makePDFData(text: String) -> Data {
+        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
+        return renderer.pdfData { context in
+            context.beginPage()
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: UIColor.black
+            ]
+            text.draw(
+                in: pageRect.insetBy(dx: 48, dy: 48),
+                withAttributes: attributes
+            )
+        }
+    }
+}
+#else
+private enum AppTestRuntimeBootstrap {
+    static func bootstrapIfNeeded() {}
+}
+#endif

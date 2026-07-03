@@ -25,8 +25,9 @@ class AIChatManager: ObservableObject {
     // MARK: - Dependencies
     private let healthDataManager: HealthDataManager
     private let databaseManager: DatabaseManager
+    private let settingsManager: SettingsManager
+    private let automaticallyUpdateContextOnSelection: Bool
     private let networkMonitor: NetworkMonitor
-    private let settingsManager = SettingsManager.shared
     private let networkManager = NetworkManager.shared
     private let pendingOperationsManager = PendingOperationsManager.shared
     private let errorHandler = ErrorHandler.shared
@@ -59,13 +60,27 @@ class AIChatManager: ObservableObject {
     // MARK: - Initialization
     init(
         healthDataManager: HealthDataManager,
-        databaseManager: DatabaseManager
+        databaseManager: DatabaseManager,
+        settingsManager: SettingsManager? = nil,
+        automaticallyLoadConversations: Bool = true,
+        automaticallyUpdateContextOnSelection: Bool = true
     ) {
         self.healthDataManager = healthDataManager
         self.databaseManager = databaseManager
+        self.settingsManager = settingsManager ?? SettingsManager.shared
+        self.automaticallyUpdateContextOnSelection = automaticallyUpdateContextOnSelection
         self.networkMonitor = NetworkMonitor()
 
+        #if DEBUG
+        if self.settingsManager.getAIClientOverrideForTesting() != nil {
+            isConnected = true
+            isOffline = false
+        }
+        #endif
+
         setupNetworkMonitoring()
+
+        guard automaticallyLoadConversations else { return }
 
         Task {
             await loadConversations()
@@ -76,6 +91,14 @@ class AIChatManager: ObservableObject {
 
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
+        #if DEBUG
+        if settingsManager.getAIClientOverrideForTesting() != nil {
+            isConnected = true
+            isOffline = false
+            return
+        }
+        #endif
+
         // Use the new NetworkManager for monitoring
         networkManager.statusPublisher
             .sink { [weak self] status in
@@ -126,6 +149,14 @@ class AIChatManager: ObservableObject {
     }
     
     func checkConnection() async {
+        #if DEBUG
+        if settingsManager.getAIClientOverrideForTesting() != nil {
+            isConnected = true
+            isOffline = false
+            return
+        }
+        #endif
+
         guard !isOffline else {
             isConnected = false
             return
@@ -181,8 +212,10 @@ class AIChatManager: ObservableObject {
         currentConversation = conversation
         selectedHealthDataTypes = conversation.includedHealthDataTypes
         selectedPersonalInfoCategories = conversation.includedPersonalInfoCategories
-        Task {
-            await updateHealthDataContext()
+        if automaticallyUpdateContextOnSelection {
+            Task {
+                await updateHealthDataContext()
+            }
         }
     }
     
