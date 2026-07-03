@@ -537,6 +537,8 @@ struct DocumentsView: View {
     @State private var showingDocumentTypeSelector = false
     @State private var pendingDocumentForCategory: MedicalDocument?
     @State private var showingImportReview = false
+    @State private var activeAutoImportSummary: AutoImportSummary?
+    @State private var autoImportBannerDismissTask: Task<Void, Never>?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
@@ -621,6 +623,7 @@ struct DocumentsView: View {
                         get: { review.importGroups },
                         set: { _ in }
                     ),
+                    autoAcceptedGroups: review.autoAcceptedGroups,
                     onComplete: { selectedGroups in
                         Task {
                             await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
@@ -638,6 +641,29 @@ struct DocumentsView: View {
                 showingImportReview = false
             }
         }
+        .onChange(of: documentProcessor.lastAutoImportSummary) { _, newValue in
+            guard let summary = newValue else { return }
+            activeAutoImportSummary = summary
+
+            // Auto-dismiss the banner after a while
+            autoImportBannerDismissTask?.cancel()
+            autoImportBannerDismissTask = Task {
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                if !Task.isCancelled {
+                    activeAutoImportSummary = nil
+                    documentProcessor.lastAutoImportSummary = nil
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let summary = activeAutoImportSummary {
+                autoImportBanner(summary)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: activeAutoImportSummary)
         .sheet(isPresented: $showingDocumentTypeSelector) {
             if let document = pendingDocumentForCategory {
                 DocumentTypeSelectorView(
@@ -993,12 +1019,19 @@ struct DocumentsView: View {
 
         updatedBloodTest.results = updatedResults
 
-        // Remove pending review flag
+        // Remove pending review flag; record the audit trail of what was
+        // auto-accepted vs user-reviewed
         var metadata = updatedBloodTest.metadata ?? [:]
         metadata.removeValue(forKey: "pending_review")
         metadata["import_review_completed"] = "true"
         metadata["reviewed_groups_count"] = String(selectedGroups.count)
         metadata["imported_items_count"] = String(updatedResults.count)
+        metadata["auto_accepted_keys"] = selectedGroups
+            .filter { $0.isAutoAccepted && $0.selectedCandidateId != nil }
+            .map { $0.standardKey }.joined(separator: ",")
+        metadata["reviewed_keys"] = selectedGroups
+            .filter { !$0.isAutoAccepted && $0.selectedCandidateId != nil }
+            .map { $0.standardKey }.joined(separator: ",")
         updatedBloodTest.metadata = metadata
 
         // Save the updated blood test
@@ -1017,34 +1050,82 @@ struct DocumentsView: View {
     }
 
     private func findStandardKey(for testName: String) -> String? {
-        // Try to find the standard key for this test name
-        let normalized = testName.lowercased()
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "-", with: "_")
-            .replacingOccurrences(of: "(", with: "")
-            .replacingOccurrences(of: ")", with: "")
-
-        // Direct match
-        if BloodTestResult.standardizedLabParameters[normalized] != nil {
-            return normalized
+        if let match = BloodTestResult.matchLabParameter(name: testName, testType: .blood) {
+            return match.key
         }
+        return BloodTestResult.matchLabParameter(name: testName, testType: .urine)?.key
+    }
 
-        // Check if it matches any standard parameter name
-        for (key, param) in BloodTestResult.standardizedLabParameters {
-            if param.name.lowercased() == testName.lowercased() {
-                return key
+    // MARK: - Auto-Import Banner
+
+    private func autoImportBanner(_ summary: AutoImportSummary) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundColor(.green)
+                .font(.title3)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Imported \(summary.importedCount) lab value\(summary.importedCount == 1 ? "" : "s")")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Text(summary.documentName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
-        }
 
-        // Partial match
-        for (key, param) in BloodTestResult.standardizedLabParameters {
-            let paramNameNormalized = param.name.lowercased().replacingOccurrences(of: " ", with: "_")
-            if normalized.contains(paramNameNormalized) || paramNameNormalized.contains(normalized) {
-                return key
+            Spacer()
+
+            Button("Undo") {
+                Task {
+                    await undoAutoImport(summary)
+                }
             }
-        }
+            .font(.subheadline.weight(.semibold))
+            .accessibilityLabel("Undo automatic import")
+            .accessibilityHint("Removes the \(summary.importedCount) lab values that were just imported")
+            .accessibilityIdentifier("undoAutoImportButton")
 
-        return nil
+            Button {
+                dismissAutoImportBanner()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+            .accessibilityLabel("Dismiss import notification")
+            .accessibilityIdentifier("dismissAutoImportBannerButton")
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Imported \(summary.importedCount) lab values from \(summary.documentName)")
+    }
+
+    private func dismissAutoImportBanner() {
+        autoImportBannerDismissTask?.cancel()
+        activeAutoImportSummary = nil
+        documentProcessor.lastAutoImportSummary = nil
+    }
+
+    private func undoAutoImport(_ summary: AutoImportSummary) async {
+        let healthDataManager = HealthDataManager.shared
+        do {
+            if let bloodTest = healthDataManager.bloodTests.first(where: { $0.id == summary.bloodTestId }) {
+                try await healthDataManager.deleteBloodTest(bloodTest)
+                AppLog.shared.ui("Undid auto-import of \(summary.importedCount) lab values from '\(summary.documentName)'")
+            } else {
+                AppLog.shared.ui("Undo requested but blood test \(summary.bloodTestId) not found", level: .warning)
+            }
+        } catch {
+            AppLog.shared.ui("Failed to undo auto-import: \(error)", level: .error)
+        }
+        dismissAutoImportBanner()
     }
 
     // MARK: - Search and Filter Bar

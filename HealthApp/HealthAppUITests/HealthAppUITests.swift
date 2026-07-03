@@ -114,7 +114,6 @@ final class HealthAppUITests: XCTestCase {
         
         // Verify main settings sections
         XCTAssertTrue(app.staticTexts["AI Services"].exists)
-        XCTAssertTrue(app.staticTexts["Backup"].exists)
         XCTAssertTrue(app.staticTexts["Data Management"].exists)
         XCTAssertTrue(app.staticTexts["About"].exists)
         

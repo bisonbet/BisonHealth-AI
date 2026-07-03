@@ -117,12 +117,15 @@
 		A1000056294A0000000000001 /* DocumentImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000057294A0000000000001 /* DocumentImporter.swift */; };
 		A1000058294A0000000000001 /* DocumentExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000059294A0000000000001 /* DocumentExporter.swift */; };
 		A100005GBD03QSQI2B4SK0KVT0 /* BloodTestValueValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */; };
+		VALIDATIONHELPER001 /* ValidationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = VALIDATIONHELPER002 /* ValidationHelper.swift */; };
+		VALIDATIONHELPERTEST001 /* ValidationHelperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VALIDATIONHELPERTEST002 /* ValidationHelperTests.swift */; };
+		SETTINGSMANAGERTEST001 /* SettingsManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETTINGSMANAGERTEST002 /* SettingsManagerTests.swift */; };
 		A1000060294A0000000000001 /* FileSystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000061294A0000000000001 /* FileSystemTests.swift */; };
-		A1000064294A0000000000001 /* DoclingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000065294A0000000000001 /* DoclingClient.swift */; };
 		A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000067294A0000000000001 /* AIProviderInterface.swift */; };
 		25164636BB354C1A997A440E /* AppointmentPrepProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B62A84B478BC449AB52B92E0 /* AppointmentPrepProcessor.swift */; };
 		20D8DCCEAF314DF1B1F24869 /* AppointmentPrepPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DAD045C96D416FAC992846 /* AppointmentPrepPrompts.swift */; };
 		A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000069294A0000000000001 /* ServiceClientTests.swift */; };
+		LABREPORTPARSERTEST001 /* LabReportParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = LABREPORTPARSERTEST002 /* LabReportParserTests.swift */; };
 		A1000070294A0000000000001 /* HealthDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000071294A0000000000001 /* HealthDataManager.swift */; };
 		A1000072294A0000000000001 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000073294A0000000000001 /* Keychain.swift */; };
 		A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000073294A0000000000003 /* ServerConfigurationConstants.swift */; };
@@ -130,6 +133,7 @@
 		A10000X6PP0AIOVJSYPSP3LJFU /* BloodTestImportReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */; };
 		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
 		NATIVEDOCEXT001 /* NativeDocumentExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */; };
+		LABREPORTPARSER001 /* LabReportParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = LABREPORTPARSER002 /* LabReportParser.swift */; };
 		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
 		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
 		7898605E6023427DADD293C8 /* AppointmentPrepManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD4C349D5E443B09DE1E2A4 /* AppointmentPrepManager.swift */; };
@@ -272,20 +276,24 @@
 		A1000057294A0000000000001 /* DocumentImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentImporter.swift; sourceTree = "<group>"; };
 		A1000059294A0000000000001 /* DocumentExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentExporter.swift; sourceTree = "<group>"; };
 		A1000061294A0000000000001 /* FileSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemTests.swift; sourceTree = "<group>"; };
-		A1000065294A0000000000001 /* DoclingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoclingClient.swift; sourceTree = "<group>"; };
 		A1000067294A0000000000001 /* AIProviderInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderInterface.swift; sourceTree = "<group>"; };
 		B62A84B478BC449AB52B92E0 /* AppointmentPrepProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentPrepProcessor.swift; sourceTree = "<group>"; };
 		C0DAD045C96D416FAC992846 /* AppointmentPrepPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentPrepPrompts.swift; sourceTree = "<group>"; };
 		A1000069294A0000000000001 /* ServiceClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceClientTests.swift; sourceTree = "<group>"; };
+		LABREPORTPARSERTEST002 /* LabReportParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabReportParserTests.swift; sourceTree = "<group>"; };
 		A1000071294A0000000000001 /* HealthDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManager.swift; sourceTree = "<group>"; };
 		A1000073294A0000000000001 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		A1000073294A0000000000003 /* ServerConfigurationConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigurationConstants.swift; sourceTree = "<group>"; };
 		A1000075294A0000000000001 /* HealthDataManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManagerTests.swift; sourceTree = "<group>"; };
 		A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestValueValidator.swift; sourceTree = "<group>"; };
+		VALIDATIONHELPER002 /* ValidationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationHelper.swift; sourceTree = "<group>"; };
+		VALIDATIONHELPERTEST002 /* ValidationHelperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationHelperTests.swift; sourceTree = "<group>"; };
+		SETTINGSMANAGERTEST002 /* SettingsManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManagerTests.swift; sourceTree = "<group>"; };
 		A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestImportReviewView.swift; sourceTree = "<group>"; };
 		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
 		AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentProcessor.swift; sourceTree = "<group>"; };
 		NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDocumentExtractor.swift; sourceTree = "<group>"; };
+		LABREPORTPARSER002 /* LabReportParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabReportParser.swift; sourceTree = "<group>"; };
 		ADE33702D7631403A9F76CF91 /* AIChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManager.swift; sourceTree = "<group>"; };
 		ECD4C349D5E443B09DE1E2A4 /* AppointmentPrepManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentPrepManager.swift; sourceTree = "<group>"; };
 		AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
@@ -519,12 +527,12 @@
 				143446A82E78E6FC00961754 /* AWSCredentialsManager.swift */,
 				143446A92E78E6FC00961754 /* BedrockClient.swift */,
 				142348232EA07F6D00059087 /* OpenAICompatibleClient.swift */,
-				A1000065294A0000000000001 /* DoclingClient.swift */,
 				A1000067294A0000000000001 /* AIProviderInterface.swift */,
 				B62A84B478BC449AB52B92E0 /* AppointmentPrepProcessor.swift */,
 				C0DAD045C96D416FAC992846 /* AppointmentPrepPrompts.swift */,
 				AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */,
 				NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */,
+				LABREPORTPARSER002 /* LabReportParser.swift */,
 				MEDDOCEXT002 /* MedicalDocumentExtractor.swift */,
 			);
 			path = Services;
@@ -557,6 +565,7 @@
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
 				A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */,
+				VALIDATIONHELPER002 /* ValidationHelper.swift */,
 				CONV02002EA12E9900999004 /* ConversationExporter.swift */,
 				A1000073294A0000000000001 /* Keychain.swift */,
 				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
@@ -577,6 +586,9 @@
 				A1000053294A0000000000001 /* DatabaseTests.swift */,
 				A1000061294A0000000000001 /* FileSystemTests.swift */,
 				A1000069294A0000000000001 /* ServiceClientTests.swift */,
+				LABREPORTPARSERTEST002 /* LabReportParserTests.swift */,
+				SETTINGSMANAGERTEST002 /* SettingsManagerTests.swift */,
+				VALIDATIONHELPERTEST002 /* ValidationHelperTests.swift */,
 				A1000075294A0000000000001 /* HealthDataManagerTests.swift */,
 					1423481F2EA07B6300059087 /* NetworkingTests.swift */,
 					TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */,
@@ -786,9 +798,9 @@
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
 				14ADE5B52EF0CFE000BB7C6C /* VitalEntryView.swift in Sources */,
 				A100005GBD03QSQI2B4SK0KVT0 /* BloodTestValueValidator.swift in Sources */,
+				VALIDATIONHELPER001 /* ValidationHelper.swift in Sources */,
 				CONV01002EA12E9900999004 /* ConversationExporter.swift in Sources */,
 				A2MLX0112F26000100MLX001 /* OnDeviceLLMSettingsView.swift in Sources */,
-				A1000064294A0000000000001 /* DoclingClient.swift in Sources */,
 				A1000066294A0000000000001 /* AIProviderInterface.swift in Sources */,
 				25164636BB354C1A997A440E /* AppointmentPrepProcessor.swift in Sources */,
 				20D8DCCEAF314DF1B1F24869 /* AppointmentPrepPrompts.swift in Sources */,
@@ -802,6 +814,7 @@
 				A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */,
 				A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */,
 				NATIVEDOCEXT001 /* NativeDocumentExtractor.swift in Sources */,
+				LABREPORTPARSER001 /* LabReportParser.swift in Sources */,
 				MEDDOCEXT001 /* MedicalDocumentExtractor.swift in Sources */,
 				A1000072294A0000000000001 /* Keychain.swift in Sources */,
 				A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */,
@@ -860,6 +873,9 @@
 				A1000060294A0000000000001 /* FileSystemTests.swift in Sources */,
 				142348202EA07B6300059087 /* NetworkingTests.swift in Sources */,
 				A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */,
+				LABREPORTPARSERTEST001 /* LabReportParserTests.swift in Sources */,
+				SETTINGSMANAGERTEST001 /* SettingsManagerTests.swift in Sources */,
+				VALIDATIONHELPERTEST001 /* ValidationHelperTests.swift in Sources */,
 					A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */,
 					HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */,
 					D0C0A1002F20000100TEST04 /* AIChatManagerReliabilityTests.swift in Sources */,

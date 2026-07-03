@@ -280,7 +280,7 @@ final class ValidationHelperTests: XCTestCase {
         // Empty results
         let emptyResult = ValidationHelper.validateBloodTestResults([])
         XCTAssertFalse(emptyResult.isValid)
-        XCTAssertTrue(emptyResult.errorMessage!.contains("at least one"))
+        XCTAssertTrue(emptyResult.errorMessage!.localizedCaseInsensitiveContains("at least one"))
         
         // Duplicate names
         let duplicateResults = [

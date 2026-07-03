@@ -3,10 +3,12 @@ import Vision
 import PDFKit
 import UIKit
 import CoreGraphics
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 // MARK: - Native Document Extractor
 /// On-device document text extraction using Apple frameworks (PDFKit + Vision).
-/// Replaces Docling for fully offline document processing.
+/// Fully offline — no server required.
 ///
 /// Two-tier extraction strategy:
 /// - Tier 1: PDFKit direct text extraction (instant, perfect for digital PDFs)
@@ -37,12 +39,41 @@ class NativeDocumentExtractor {
         let pageNumber: Int
         let text: String
         let observations: [TextObservation]?
+        var tables: [RecognizedTable]? = nil
     }
 
     struct TextObservation {
         let text: String
         let confidence: Float
         let boundingBox: CGRect // Normalized coordinates (0-1), origin at bottom-left
+    }
+
+    /// Vision-independent table representation, produced by document-structure
+    /// recognition (iOS 26+) and consumed by the deterministic lab parser.
+    struct RecognizedTable {
+        struct Cell {
+            let rowIndex: Int
+            let columnIndex: Int
+            let text: String
+        }
+
+        let cells: [Cell]
+        let pageNumber: Int
+
+        var rowCount: Int { (cells.map { $0.rowIndex }.max() ?? -1) + 1 }
+
+        /// Cells organized as rows of column-ordered text.
+        var rows: [[String]] {
+            var grid: [[String]] = Array(repeating: [], count: rowCount)
+            let columnCount = (cells.map { $0.columnIndex }.max() ?? -1) + 1
+            for rowIndex in 0..<rowCount {
+                grid[rowIndex] = Array(repeating: "", count: columnCount)
+            }
+            for cell in cells where cell.rowIndex < rowCount && cell.columnIndex < (grid.first?.count ?? 0) {
+                grid[cell.rowIndex][cell.columnIndex] = cell.text
+            }
+            return grid
+        }
     }
 
     enum ExtractionMethod: String {
@@ -96,7 +127,7 @@ class NativeDocumentExtractor {
             case .emptyDocument:
                 return "Select a document that contains content."
             case .allPagesEmpty:
-                return "The document may be image-only. Try using Docling server for processing."
+                return "The document may be blank or too low quality to read. Re-scan with better lighting and focus, or import a higher-quality copy."
             }
         }
     }
@@ -114,6 +145,50 @@ class NativeDocumentExtractor {
 
     /// DPI for rendering PDF pages to images for OCR
     private let renderDPI: CGFloat = 300.0
+
+    // MARK: - Medical OCR Lexicon
+
+    /// Custom vocabulary fed to Vision so medical test names, abbreviations, and
+    /// units are recognized instead of "corrected" into common English words.
+    private static let medicalLexicon: [String] = {
+        var words = Set<String>()
+
+        // Standardized test names and their aliases
+        for parameter in BloodTestResult.standardizedLabParameters.values {
+            words.insert(parameter.name)
+        }
+        for aliases in BloodTestResult.labParameterAliases.values {
+            for alias in aliases {
+                // Aliases are stored in snake_case; present them as words/phrases
+                words.insert(alias.replacingOccurrences(of: "_", with: " "))
+                words.insert(alias.uppercased().replacingOccurrences(of: "_", with: " "))
+            }
+        }
+
+        // Common units as they appear on lab reports
+        let units = [
+            "mg/dL", "g/dL", "mEq/L", "mmol/L", "µmol/L", "umol/L", "µg/dL", "ug/dL",
+            "µg/L", "ug/L", "µg/mL", "ug/mL", "µIU/mL", "uIU/mL", "mIU/L", "mIU/mL",
+            "IU/mL", "IU/L", "U/L", "U/mL", "ng/mL", "ng/dL", "pg/mL", "pg", "fL",
+            "K/uL", "K/µL", "M/uL", "M/µL", "10^3/uL", "10^3/µL", "10^6/uL", "10^6/µL",
+            "x10E3/uL", "x10E6/uL", "cells/uL", "/HPF", "/LPF", "mm/hr", "mOsm/kg",
+            "mL/min/1.73m²", "mL/min", "CFU/mL", "ng/mL/hr", "mg/g", "mg/L", "mg/24h",
+            "g/24h", "nmol/L", "sec", "%"
+        ]
+        words.formUnion(units)
+
+        // Common panel/section names and abbreviations
+        let abbreviations = [
+            "CBC", "CMP", "BMP", "HGB", "HCT", "WBC", "RBC", "PLT", "MCV", "MCH", "MCHC",
+            "RDW", "MPV", "ALT", "AST", "ALP", "GGT", "LDH", "TSH", "FT4", "FT3",
+            "HbA1c", "A1C", "CRP", "ESR", "PT", "PTT", "INR", "BNP", "CK-MB", "Troponin",
+            "LDL", "HDL", "eGFR", "BUN", "TIBC", "PSA", "Urinalysis", "Hematology",
+            "Chemistry", "Lipid Panel", "Reference Range", "LabCorp", "Quest Diagnostics"
+        ]
+        words.formUnion(abbreviations)
+
+        return Array(words)
+    }()
 
     // MARK: - Main Extraction Entry Point
 
@@ -250,10 +325,12 @@ class NativeDocumentExtractor {
                 let reconstructedText = reconstructTextWithLayout(from: ocrResult.observations, pageSize: page.bounds(for: .mediaBox).size)
 
                 if !reconstructedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let tables = await detectTables(on: cgImage, pageNumber: pageIndex + 1)
                     finalPages[pageIndex] = PageText(
                         pageNumber: pageIndex + 1,
                         text: reconstructedText,
-                        observations: ocrResult.observations
+                        observations: ocrResult.observations,
+                        tables: tables.isEmpty ? nil : tables
                     )
                     ocrPageCount += 1
                 }
@@ -294,12 +371,15 @@ class NativeDocumentExtractor {
 
     private func extractFromImageData(_ data: Data, fileName: String) async throws -> ExtractionResult {
         guard let uiImage = UIImage(data: data),
-              let cgImage = uiImage.cgImage else {
+              let rawCGImage = uiImage.cgImage else {
             AppLog.shared.documents("Could not create UIImage/CGImage from data (\(data.count) bytes) for \(fileName)", level: .error)
             throw NativeExtractionError.ocrFailed("Could not create image from data")
         }
 
-        AppLog.shared.documents("Processing image \(fileName) (\(cgImage.width)x\(cgImage.height) px)")
+        AppLog.shared.documents("Processing image \(fileName) (\(rawCGImage.width)x\(rawCGImage.height) px)")
+
+        // Photos are often taken at an angle in poor light — clean up before OCR
+        let cgImage = await preprocessImageForOCR(rawCGImage)
 
         let ocrResult = try await performOCR(on: cgImage)
         let imageSize = CGSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
@@ -312,10 +392,12 @@ class NativeDocumentExtractor {
 
         AppLog.shared.documents("Image OCR complete — \(reconstructedText.count) chars, avg confidence: \(String(format: "%.0f", ocrResult.averageConfidence * 100))%")
 
+        let tables = await detectTables(on: cgImage, pageNumber: 1)
         let pageText = PageText(
             pageNumber: 1,
             text: reconstructedText,
-            observations: ocrResult.observations
+            observations: ocrResult.observations,
+            tables: tables.isEmpty ? nil : tables
         )
 
         return ExtractionResult(
@@ -373,6 +455,8 @@ class NativeDocumentExtractor {
             request.recognitionLevel = self.recognitionLevel
             request.usesLanguageCorrection = true
             request.recognitionLanguages = ["en-US"]
+            // Medical vocabulary so test names/units aren't "corrected" into English words
+            request.customWords = Self.medicalLexicon
 
             // Use revision 3 for best accuracy on iOS 17+
             if #available(iOS 17.0, *) {
@@ -387,6 +471,183 @@ class NativeDocumentExtractor {
             }
         }
         return ocrResult
+    }
+
+    // MARK: - Document Structure Recognition (iOS 26+)
+
+    /// Detect table structures on a page image using Vision's document-structure
+    /// recognition. Returns [] below iOS 26 or when no tables are found.
+    /// The geometry-based row grouping remains the primary text path; tables are
+    /// additive signal for the deterministic lab parser.
+    private func detectTables(on cgImage: CGImage, pageNumber: Int) async -> [RecognizedTable] {
+        guard #available(iOS 26.0, *) else { return [] }
+
+        do {
+            let request = RecognizeDocumentsRequest()
+            let observations = try await request.perform(on: cgImage)
+
+            var tables: [RecognizedTable] = []
+            for observation in observations {
+                let document = observation.document
+                for table in document.tables {
+                    var cells: [RecognizedTable.Cell] = []
+                    for row in table.rows {
+                        for cell in row {
+                            let text = cell.content.text.transcript
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !text.isEmpty else { continue }
+                            cells.append(RecognizedTable.Cell(
+                                rowIndex: cell.rowRange.lowerBound,
+                                columnIndex: cell.columnRange.lowerBound,
+                                text: text
+                            ))
+                        }
+                    }
+                    if !cells.isEmpty {
+                        tables.append(RecognizedTable(cells: cells, pageNumber: pageNumber))
+                    }
+                }
+            }
+
+            if !tables.isEmpty {
+                AppLog.shared.documents("Document-structure recognition found \(tables.count) table(s) on page \(pageNumber)")
+            }
+            return tables
+        } catch {
+            AppLog.shared.documents("Document-structure recognition failed on page \(pageNumber): \(error.localizedDescription)", level: .debug)
+            return []
+        }
+    }
+
+    // MARK: - Photo Preprocessing
+
+    /// Preprocess a photographed document before OCR: detect the document quad,
+    /// correct perspective, and boost readability with grayscale + contrast.
+    /// Scanner captures (VisionKit) are already perspective-corrected; this
+    /// mainly helps photo-library imports taken at an angle.
+    private func preprocessImageForOCR(_ cgImage: CGImage) async -> CGImage {
+        let corrected = await perspectiveCorrectedImage(cgImage) ?? cgImage
+        return enhanceContrast(corrected) ?? corrected
+    }
+
+    /// Detect a document quad and apply perspective correction if found with
+    /// good confidence. Returns nil when no reliable quad is detected.
+    private func perspectiveCorrectedImage(_ cgImage: CGImage) async -> CGImage? {
+        let quad: VNRectangleObservation? = await withCheckedContinuation { continuation in
+            let request = VNDetectDocumentSegmentationRequest { request, error in
+                guard error == nil,
+                      let observation = (request.results as? [VNRectangleObservation])?.first,
+                      observation.confidence > 0.8 else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: observation)
+            }
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+
+        guard let quad else { return nil }
+
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let ciImage = CIImage(cgImage: cgImage)
+
+        // Skip correction when the quad is nearly the full frame (already flat)
+        let quadArea = abs((quad.topRight.x - quad.topLeft.x) * (quad.topLeft.y - quad.bottomLeft.y))
+        if quadArea > 0.94 { return nil }
+
+        let filter = CIFilter.perspectiveCorrection()
+        filter.inputImage = ciImage
+        filter.topLeft = CGPoint(x: quad.topLeft.x * width, y: quad.topLeft.y * height)
+        filter.topRight = CGPoint(x: quad.topRight.x * width, y: quad.topRight.y * height)
+        filter.bottomLeft = CGPoint(x: quad.bottomLeft.x * width, y: quad.bottomLeft.y * height)
+        filter.bottomRight = CGPoint(x: quad.bottomRight.x * width, y: quad.bottomRight.y * height)
+
+        guard let output = filter.outputImage else { return nil }
+        let context = CIContext()
+        guard let result = context.createCGImage(output, from: output.extent) else { return nil }
+        AppLog.shared.documents("Applied perspective correction to photographed document (quad confidence: \(String(format: "%.2f", quad.confidence)))")
+        return result
+    }
+
+    /// Grayscale + mild contrast boost for better OCR on photos.
+    private func enhanceContrast(_ cgImage: CGImage) -> CGImage? {
+        let filter = CIFilter.colorControls()
+        filter.inputImage = CIImage(cgImage: cgImage)
+        filter.saturation = 0.0
+        filter.contrast = 1.1
+        filter.brightness = 0.0
+
+        guard let output = filter.outputImage else { return nil }
+        let context = CIContext()
+        return context.createCGImage(output, from: output.extent)
+    }
+
+    // MARK: - Page Rasterization for Vision Models
+
+    /// Render document pages as JPEG images sized for cloud vision models
+    /// (Claude's optimal long edge is ~1568 px).
+    func renderPageImages(
+        from data: Data,
+        fileType: DocumentType,
+        maxLongEdge: CGFloat = 1568
+    ) throws -> [DocumentPageImage] {
+        switch fileType {
+        case .pdf, .doc, .docx:
+            guard let pdfDocument = PDFDocument(data: data) else {
+                throw NativeExtractionError.pdfLoadFailed("(vision rasterization)")
+            }
+            var images: [DocumentPageImage] = []
+            let pageCount = min(pdfDocument.pageCount, maxPages)
+            for index in 0..<pageCount {
+                guard let page = pdfDocument.page(at: index) else { continue }
+                let cgImage = try renderPDFPageToImage(page)
+                if let pageImage = jpegPageImage(from: cgImage, pageNumber: index + 1, maxLongEdge: maxLongEdge) {
+                    images.append(pageImage)
+                }
+            }
+            return images
+
+        case .jpeg, .jpg, .png, .heic:
+            guard let uiImage = UIImage(data: data), let cgImage = uiImage.cgImage else {
+                throw NativeExtractionError.ocrFailed("Could not create image from data")
+            }
+            guard let pageImage = jpegPageImage(from: cgImage, pageNumber: 1, maxLongEdge: maxLongEdge) else {
+                return []
+            }
+            return [pageImage]
+
+        case .other:
+            throw NativeExtractionError.unsupportedFileType(fileType.rawValue)
+        }
+    }
+
+    private func jpegPageImage(from cgImage: CGImage, pageNumber: Int, maxLongEdge: CGFloat) -> DocumentPageImage? {
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let scale = min(1.0, maxLongEdge / max(width, height))
+        let targetSize = CGSize(width: (width * scale).rounded(), height: (height * scale).rounded())
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let resized = renderer.image { _ in
+            UIImage(cgImage: cgImage).draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+
+        guard let jpegData = resized.jpegData(compressionQuality: 0.8) else { return nil }
+        return DocumentPageImage(
+            pageNumber: pageNumber,
+            jpegData: jpegData,
+            pixelWidth: Int(targetSize.width),
+            pixelHeight: Int(targetSize.height)
+        )
     }
 
     // MARK: - PDF Page Rendering

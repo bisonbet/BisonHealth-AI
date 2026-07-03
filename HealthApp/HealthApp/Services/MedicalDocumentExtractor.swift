@@ -1,22 +1,8 @@
 import Foundation
 
-// MARK: - Extraction Error
-enum ExtractionError: LocalizedError {
-    case missingJsonContent
-    case invalidJsonStructure
-    
-    var errorDescription: String? {
-        switch self {
-        case .missingJsonContent:
-            return "JSON content is missing from Docling response"
-        case .invalidJsonStructure:
-            return "Invalid JSON structure in Docling response"
-        }
-    }
-}
-
 // MARK: - Medical Document Extractor
-/// Service that extracts structured medical information from docling output or plain text (on-device).
+/// Service that extracts structured medical information from plain text produced on-device
+/// (PDFKit direct text or Vision OCR).
 class MedicalDocumentExtractor {
 
     // MARK: - Extraction Result
@@ -27,71 +13,10 @@ class MedicalDocumentExtractor {
         var documentCategory: DocumentCategory
         var extractedText: String
         var extractedSections: [DocumentSection]
-        var rawDoclingOutput: Data?
-    }
-
-    // MARK: - Main Extraction Method (Docling path)
-    func extractMedicalInformation(
-        from doclingOutput: Data,
-        fileName: String,
-        aiClient: (any AIProviderInterface)?
-    ) async throws -> ExtractionResult {
-
-        // Parse docling JSON output - the response is wrapped in {"document": {...}}
-        // Extract the json_content which contains the full DoclingDocument structure
-        // We use JSONSerialization to extract it since RawDoclingDocument is incomplete
-        guard let jsonObject = try JSONSerialization.jsonObject(with: doclingOutput) as? [String: Any],
-              let documentDict = jsonObject["document"] as? [String: Any],
-              let jsonContentDict = documentDict["json_content"] as? [String: Any] else {
-            throw ExtractionError.missingJsonContent
-        }
-
-        // Convert the json_content dictionary back to Data and decode as DoclingDocument
-        let jsonContentData = try JSONSerialization.data(withJSONObject: jsonContentDict)
-        let doclingDocument = try JSONDecoder().decode(DoclingDocument.self, from: jsonContentData)
-
-        // Extract full text
-        let fullText = extractFullText(from: doclingDocument)
-
-        // Try to extract structured sections
-        let sections = extractSections(from: doclingDocument)
-
-        // Use AI to enhance extraction if available
-        if let aiClient = aiClient, !fullText.isEmpty {
-            let aiEnhanced = try await enhanceWithAI(
-                text: fullText,
-                fileName: fileName,
-                aiClient: aiClient
-            )
-
-            return ExtractionResult(
-                documentDate: aiEnhanced.documentDate,
-                providerName: aiEnhanced.providerName,
-                providerType: aiEnhanced.providerType,
-                documentCategory: aiEnhanced.documentCategory,
-                extractedText: fullText,
-                extractedSections: aiEnhanced.sections.isEmpty ? sections : aiEnhanced.sections,
-                rawDoclingOutput: doclingOutput
-            )
-        } else {
-            // Fallback to basic extraction
-            let basicInfo = extractBasicInfo(from: fullText, fileName: fileName)
-
-            return ExtractionResult(
-                documentDate: basicInfo.date,
-                providerName: basicInfo.providerName,
-                providerType: basicInfo.providerType,
-                documentCategory: basicInfo.category,
-                extractedText: fullText,
-                extractedSections: sections,
-                rawDoclingOutput: doclingOutput
-            )
-        }
     }
 
     // MARK: - On-Device Extraction Method (Plain Text path)
     /// Extract medical information from plain text (from NativeDocumentExtractor).
-    /// This is the on-device path that does not depend on Docling at all.
     ///
     /// - Parameters:
     ///   - text: Plain text extracted via PDFKit/Vision OCR
@@ -115,8 +40,7 @@ class MedicalDocumentExtractor {
                 providerType: nil,
                 documentCategory: .other,
                 extractedText: "",
-                extractedSections: [],
-                rawDoclingOutput: nil
+                extractedSections: []
             )
         }
 
@@ -139,8 +63,7 @@ class MedicalDocumentExtractor {
                     providerType: aiEnhanced.providerType,
                     documentCategory: aiEnhanced.documentCategory,
                     extractedText: text,
-                    extractedSections: aiEnhanced.sections.isEmpty ? sections : aiEnhanced.sections,
-                    rawDoclingOutput: nil
+                    extractedSections: aiEnhanced.sections.isEmpty ? sections : aiEnhanced.sections
                 )
             } catch {
                 AppLog.shared.documents("AI enhancement failed, falling back to basic extraction: \(error.localizedDescription)", level: .warning)
@@ -157,14 +80,12 @@ class MedicalDocumentExtractor {
             providerType: basicInfo.providerType,
             documentCategory: basicInfo.category,
             extractedText: text,
-            extractedSections: sections,
-            rawDoclingOutput: nil
+            extractedSections: sections
         )
     }
 
     // MARK: - Section Extraction from Plain Text
     /// Detect sections in plain text using common medical document heading patterns.
-    /// This replaces the Docling-based section extraction for the on-device path.
     private func extractSectionsFromPlainText(_ text: String) -> [DocumentSection] {
         var sections: [DocumentSection] = []
         let lines = text.components(separatedBy: .newlines)
@@ -270,78 +191,6 @@ class MedicalDocumentExtractor {
         }
 
         AppLog.shared.documents("Plain text section detection complete — found \(sections.count) sections")
-        return sections
-    }
-
-    // MARK: - Extract Full Text from Docling Output
-    private func extractFullText(from doclingDocument: DoclingDocument) -> String {
-        var textParts: [String] = []
-
-        // Extract from body
-        if let body = doclingDocument.body {
-            extractTextRecursive(from: body, into: &textParts)
-        }
-
-        let fullText = textParts.joined(separator: "\n\n")
-        AppLog.shared.documents("Docling text extraction: \(textParts.count) text parts, \(fullText.count) chars total", level: .debug)
-        return fullText
-    }
-
-    private func extractTextRecursive(from content: DoclingDocument.DocumentContent, into textParts: inout [String]) {
-        if let children = content.children {
-            for child in children {
-                if let text = child.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    textParts.append(text)
-                }
-
-                // Recurse into nested children (full recursion, not just one level)
-                if let nestedChildren = child.children, !nestedChildren.isEmpty {
-                    let nestedContent = DoclingDocument.DocumentContent(self_ref: nil, name: nil, children: nestedChildren)
-                    extractTextRecursive(from: nestedContent, into: &textParts)
-                }
-            }
-        }
-    }
-
-    // MARK: - Extract Sections from Docling Output
-    private func extractSections(from doclingDocument: DoclingDocument) -> [DocumentSection] {
-        var sections: [DocumentSection] = []
-        var currentSection: (type: String, content: [String])? = nil
-
-        if let body = doclingDocument.body, let children = body.children {
-            for child in children {
-                // Check if this is a heading (potential section start)
-                if let label = child.label, label.lowercased().contains("heading") || label.lowercased().contains("title") {
-                    // Save previous section if exists
-                    if let prevSection = currentSection, !prevSection.content.isEmpty {
-                        sections.append(DocumentSection(
-                            sectionType: prevSection.type,
-                            content: prevSection.content.joined(separator: "\n")
-                        ))
-                    }
-
-                    // Start new section
-                    currentSection = (type: child.text ?? "Unknown Section", content: [])
-                } else if let text = child.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Add text to current section
-                    if currentSection != nil {
-                        currentSection?.content.append(text)
-                    } else {
-                        // No section yet, create a default one
-                        currentSection = (type: "Content", content: [text])
-                    }
-                }
-            }
-        }
-
-        // Add final section
-        if let finalSection = currentSection, !finalSection.content.isEmpty {
-            sections.append(DocumentSection(
-                sectionType: finalSection.type,
-                content: finalSection.content.joined(separator: "\n")
-            ))
-        }
-
         return sections
     }
 
@@ -600,8 +449,64 @@ class MedicalDocumentExtractor {
         aiClient: any AIProviderInterface
     ) async throws -> AIEnhancedInfo {
 
-        // Truncate text if too long (keep first ~4000 characters for analysis)
-        let analysisText = String(text.prefix(4000))
+        // Chunk the FULL text instead of truncating — small chunks for the
+        // on-device model (memory bound), larger for cloud providers.
+        let chunkSize = aiClient is MLXOnDeviceClient ? 2000 : 12000
+        let maxChunks = 6 // bound latency on very long documents
+        let chunks = chunkText(text, maxChunkSize: chunkSize)
+        let analysisChunks = Array(chunks.prefix(maxChunks))
+        if chunks.count > analysisChunks.count {
+            AppLog.shared.documents("AI enhancement: analyzing first \(analysisChunks.count) of \(chunks.count) chunks (\(text.count) chars total)", level: .warning)
+        }
+
+        // First chunk: metadata + sections. Remaining chunks: sections only.
+        var merged = try await enhanceChunk(
+            analysisChunks[0],
+            fileName: fileName,
+            aiClient: aiClient,
+            fallbackText: text,
+            includeMetadata: true
+        )
+
+        for chunk in analysisChunks.dropFirst() {
+            do {
+                let chunkInfo = try await enhanceChunk(
+                    chunk,
+                    fileName: fileName,
+                    aiClient: aiClient,
+                    fallbackText: chunk,
+                    includeMetadata: merged.documentDate == nil || merged.providerName == nil
+                )
+                merged.sections.append(contentsOf: chunkInfo.sections)
+                if merged.documentDate == nil { merged.documentDate = chunkInfo.documentDate }
+                if merged.providerName == nil { merged.providerName = chunkInfo.providerName }
+                if merged.providerType == nil { merged.providerType = chunkInfo.providerType }
+                if merged.documentCategory == .other, chunkInfo.documentCategory != .other {
+                    merged.documentCategory = chunkInfo.documentCategory
+                }
+            } catch {
+                AppLog.shared.documents("AI enhancement failed for a chunk, continuing with partial results: \(error.localizedDescription)", level: .warning)
+            }
+        }
+
+        // Merge duplicate section types produced by different chunks
+        merged.sections = mergeSections(merged.sections)
+        return merged
+    }
+
+    private func enhanceChunk(
+        _ chunk: String,
+        fileName: String,
+        aiClient: any AIProviderInterface,
+        fallbackText: String,
+        includeMetadata: Bool
+    ) async throws -> AIEnhancedInfo {
+        let metadataFields = includeMetadata ? """
+          "document_date": "YYYY-MM-DD or null",
+          "provider_name": "name or null",
+          "provider_type": "primary_care, specialist, imaging_center, laboratory, hospital, urgent_care, pharmacy, or other",
+          "document_category": "doctors_note, imaging_report, lab_report, prescription, discharge_summary, operative_report, pathology_report, consultation, vaccine_record, referral, or other",
+        """ : ""
 
         let prompt = """
         Analyze this medical document and extract key information. Respond ONLY with a valid JSON object, no other text.
@@ -609,14 +514,11 @@ class MedicalDocumentExtractor {
         Document filename: \(fileName)
 
         Document text:
-        \(analysisText)
+        \(chunk)
 
         Extract the following information as JSON:
         {
-          "document_date": "YYYY-MM-DD or null",
-          "provider_name": "name or null",
-          "provider_type": "primary_care, specialist, imaging_center, laboratory, hospital, urgent_care, pharmacy, or other",
-          "document_category": "doctors_note, imaging_report, lab_report, prescription, discharge_summary, operative_report, pathology_report, consultation, vaccine_record, referral, or other",
+        \(metadataFields)
           "sections": [
             {
               "section_type": "section name",
@@ -629,9 +531,48 @@ class MedicalDocumentExtractor {
         """
 
         let response = try await aiClient.sendMessage(prompt, context: "")
+        return try parseAIResponse(response.content, fallbackText: fallbackText, fileName: fileName)
+    }
 
-        // Parse AI response
-        return try parseAIResponse(response.content, fallbackText: text, fileName: fileName)
+    /// Split text into chunks on line boundaries.
+    private func chunkText(_ text: String, maxChunkSize: Int) -> [String] {
+        guard text.count > maxChunkSize else { return [text] }
+
+        var chunks: [String] = []
+        var currentChunk: [String] = []
+        var currentSize = 0
+
+        for line in text.components(separatedBy: .newlines) {
+            let lineSize = line.count + 1
+            if currentSize + lineSize > maxChunkSize && !currentChunk.isEmpty {
+                chunks.append(currentChunk.joined(separator: "\n"))
+                currentChunk = []
+                currentSize = 0
+            }
+            currentChunk.append(line)
+            currentSize += lineSize
+        }
+        if !currentChunk.isEmpty {
+            chunks.append(currentChunk.joined(separator: "\n"))
+        }
+        return chunks
+    }
+
+    /// Merge sections with the same type (from different chunks) into one.
+    private func mergeSections(_ sections: [DocumentSection]) -> [DocumentSection] {
+        var merged: [DocumentSection] = []
+        var indexByType: [String: Int] = [:]
+
+        for section in sections {
+            let typeKey = section.sectionType.lowercased()
+            if let existingIndex = indexByType[typeKey] {
+                merged[existingIndex].content += "\n" + section.content
+            } else {
+                indexByType[typeKey] = merged.count
+                merged.append(section)
+            }
+        }
+        return merged
     }
 
     private func parseAIResponse(_ response: String, fallbackText: String, fileName: String) throws -> AIEnhancedInfo {
@@ -700,10 +641,50 @@ class MedicalDocumentExtractor {
     }
 
     private func extractJSON(from text: String) -> String? {
-        // Try to find JSON object in text
-        if let startIndex = text.firstIndex(of: "{"),
-           let endIndex = text.lastIndex(of: "}") {
-            return String(text[startIndex...endIndex])
+        // Strip <think> reasoning blocks and markdown code fences first
+        var cleaned = text.replacingOccurrences(
+            of: #"<think>[\s\S]*?</think>"#,
+            with: "",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"```(?:json)?"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Balanced-brace scan from the first '{' — robust against trailing prose
+        guard let startIndex = cleaned.firstIndex(of: "{") else { return nil }
+
+        var depth = 0
+        var inString = false
+        var isEscaped = false
+        var index = startIndex
+
+        while index < cleaned.endIndex {
+            let char = cleaned[index]
+            if isEscaped {
+                isEscaped = false
+            } else if char == "\\" {
+                isEscaped = true
+            } else if char == "\"" {
+                inString.toggle()
+            } else if !inString {
+                if char == "{" {
+                    depth += 1
+                } else if char == "}" {
+                    depth -= 1
+                    if depth == 0 {
+                        return String(cleaned[startIndex...index])
+                    }
+                }
+            }
+            index = cleaned.index(after: index)
+        }
+
+        // Unbalanced (truncated response) — fall back to first-{ / last-} slice
+        if let endIndex = cleaned.lastIndex(of: "}"), endIndex > startIndex {
+            return String(cleaned[startIndex...endIndex])
         }
         return nil
     }

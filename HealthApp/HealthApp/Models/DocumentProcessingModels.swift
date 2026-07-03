@@ -8,27 +8,28 @@ struct ProcessedDocumentResult {
     let confidence: Double
     let processingTime: TimeInterval
     let metadata: [String: Any]?
-    let rawDoclingOutput: Data?  // Raw docling JSON output for medical document extraction
-    
+    /// Per-page OCR geometry (observations + tables) for the deterministic lab parser
+    let pages: [NativeDocumentExtractor.PageText]?
+
     var healthDataItems: [HealthDataItem] {
         // Parse structured data to extract health information
         return parseHealthData(from: structuredData)
     }
-    
+
     init(
         extractedText: String,
         structuredData: [String: Any] = [:],
         confidence: Double = 1.0,
         processingTime: TimeInterval = 0,
         metadata: [String: Any]? = nil,
-        rawDoclingOutput: Data? = nil
+        pages: [NativeDocumentExtractor.PageText]? = nil
     ) {
         self.extractedText = extractedText
         self.structuredData = structuredData
         self.confidence = confidence
         self.processingTime = processingTime
         self.metadata = metadata
-        self.rawDoclingOutput = rawDoclingOutput
+        self.pages = pages
     }
     
     private func parseHealthData(from data: [String: Any]) -> [HealthDataItem] {
@@ -67,31 +68,3 @@ struct HealthDataItem {
     }
 }
 
-// MARK: - Processing Options
-struct ProcessingOptions: Codable {
-    let extractText: Bool
-    let extractStructuredData: Bool
-    let extractImages: Bool
-    let ocrEnabled: Bool
-    let language: String?
-    let bloodTestExtractionHints: String?
-    let targetedLabKeys: [String]?
-
-    init(
-        extractText: Bool = true,
-        extractStructuredData: Bool = true,
-        extractImages: Bool = false,
-        ocrEnabled: Bool = true,
-        language: String? = "en",
-        bloodTestExtractionHints: String? = nil,
-        targetedLabKeys: [String]? = nil
-    ) {
-        self.extractText = extractText
-        self.extractStructuredData = extractStructuredData
-        self.extractImages = extractImages
-        self.ocrEnabled = ocrEnabled
-        self.language = language
-        self.bloodTestExtractionHints = bloodTestExtractionHints
-        self.targetedLabKeys = targetedLabKeys
-    }
-}

@@ -284,7 +284,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             supportedModels: AWSBedrockModel.allCases.map { $0.rawValue },
             maxTokens: config.model.contextWindow,
             supportsStreaming: true,
-            supportsImages: false, // For now
+            supportsImages: (currentModel ?? config.model) == .claudeSonnet45,
             supportsDocuments: true,
             supportedLanguages: ["en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh"]
         )
@@ -590,6 +590,81 @@ struct BedrockAIResponse: AIResponse {
     let metadata: [String: Any]?
 }
 
+// MARK: - Vision Document Extraction (Claude multimodal)
+extension BedrockClient: VisionDocumentExtractor {
+
+    /// Only Claude on Bedrock supports image content blocks in this app for now.
+    var supportsVisionExtraction: Bool {
+        (currentModel ?? config.model) == .claudeSonnet45
+    }
+
+    func extractFromDocument(
+        pages: [DocumentPageImage],
+        ocrText: String,
+        schemaPrompt: String
+    ) async throws -> String {
+        guard supportsVisionExtraction else {
+            throw BedrockError.invalidResponse
+        }
+        guard config.isValid else {
+            throw BedrockError.invalidCredentials
+        }
+
+        // Bedrock caps request bodies at 25 MB and Claude at 20 images — enforce
+        // conservative limits (base64 inflates by ~4/3)
+        let limitedPages = Array(pages.prefix(20))
+        var contents: [Claude35Content] = []
+        var totalBase64Bytes = 0
+        for page in limitedPages {
+            let base64 = page.jpegData.base64EncodedString()
+            totalBase64Bytes += base64.count
+            if totalBase64Bytes > 18_000_000 {
+                AppLog.shared.ai("Vision extraction: image budget reached, sending \(contents.count) of \(limitedPages.count) pages", level: .warning)
+                break
+            }
+            contents.append(Claude35Content(text: "Page \(page.pageNumber):"))
+            contents.append(Claude35Content(jpegImageBase64: base64))
+        }
+
+        let textPrompt = """
+        \(schemaPrompt)
+
+        For cross-checking, here is the on-device OCR text of the same document \
+        (it may contain OCR errors — trust the images over the OCR text when they disagree):
+
+        \(String(ocrText.prefix(30_000)))
+        """
+        contents.append(Claude35Content(text: textPrompt))
+
+        let request = Claude35Request(
+            messages: [Claude35Message(role: "user", contents: contents)],
+            maxTokens: 8192,
+            temperature: 0.0,
+            system: "You are a precise medical laboratory data extraction engine. You respond with valid JSON only — no prose, no markdown fences."
+        )
+
+        let requestBody = try JSONEncoder().encode(request)
+        AppLog.shared.ai("Vision extraction request: \(contents.count) content blocks, \(requestBody.count) bytes")
+
+        let modelToUse = currentModel ?? config.model
+        let client = try await getBedrockClient()
+        let invokeRequest = InvokeModelInput(
+            accept: "application/json",
+            body: requestBody,
+            contentType: "application/json",
+            modelId: modelToUse.rawValue
+        )
+
+        let response = try await client.invokeModel(input: invokeRequest)
+        guard let responseBody = response.body else {
+            throw BedrockError.invalidResponse
+        }
+
+        let modelResponse = try AWSBedrockModelFactory.parseResponse(for: modelToUse, data: Data(responseBody))
+        return modelResponse.content
+    }
+}
+
 // MARK: - Model Factory (matches your existing pattern)
 class AWSBedrockModelFactory {
     static func createRequest(
@@ -705,13 +780,44 @@ struct Claude35Message: Codable {
 
     init(role: String, text: String) {
         self.role = role
-        self.content = [Claude35Content(type: "text", text: text)]
+        self.content = [Claude35Content(text: text)]
+    }
+
+    init(role: String, contents: [Claude35Content]) {
+        self.role = role
+        self.content = contents
     }
 }
 
+/// A single content block in an Anthropic messages request — text or base64 image.
 struct Claude35Content: Codable {
     let type: String
-    let text: String
+    let text: String?
+    let source: Claude35ImageSource?
+
+    init(text: String) {
+        self.type = "text"
+        self.text = text
+        self.source = nil
+    }
+
+    init(jpegImageBase64: String) {
+        self.type = "image"
+        self.text = nil
+        self.source = Claude35ImageSource(type: "base64", mediaType: "image/jpeg", data: jpegImageBase64)
+    }
+}
+
+struct Claude35ImageSource: Codable {
+    let type: String
+    let mediaType: String
+    let data: String
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case mediaType = "media_type"
+        case data
+    }
 }
 
 struct Claude35Response: BedrockModelResponse {

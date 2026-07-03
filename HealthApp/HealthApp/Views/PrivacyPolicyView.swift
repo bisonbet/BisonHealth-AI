@@ -24,7 +24,7 @@ struct PrivacyPolicyView: View {
                 
                 PrivacySection(
                     title: "Document Processing",
-                    content: "Documents are processed using your configured Docling server to extract health information. Original documents remain on your device."
+                    content: "Documents are processed entirely on your device using Apple's PDFKit and Vision frameworks to extract health information. Original documents remain on your device. If you enable a cloud AI extraction provider, extracted text may be sent to that provider to improve accuracy. If you additionally enable the optional \"Send page images\" setting, images of your document pages are sent to that provider during extraction — this is off by default and requires your explicit opt-in."
                 )
                 
                 PrivacySection(

@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import CoreImage
 
 #if !targetEnvironment(simulator)
 import MLX
@@ -380,4 +381,128 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         )
     }
     #endif
+}
+
+// MARK: - Vision Document Extraction (on-device VLM)
+extension MLXOnDeviceClient: VisionDocumentExtractor {
+
+    /// Image input is available when the selected on-device model is a
+    /// vision-language model (e.g. Qwen VLM) and on-device inference is enabled.
+    var supportsVisionExtraction: Bool {
+        MLXModelInfo.isEnabled && MLXModelInfo.selectedModel.modelType == .vlm
+    }
+
+    /// Run the VLM over document pages ONE AT A TIME (memory-bounded on device),
+    /// each with a fresh session, then merge the per-page JSON into a single
+    /// response object. Everything stays on-device.
+    func extractFromDocument(
+        pages: [DocumentPageImage],
+        ocrText: String,
+        schemaPrompt: String
+    ) async throws -> String {
+        #if targetEnvironment(simulator)
+        throw MLXOnDeviceError.simulatorNotSupported
+        #else
+        guard supportsVisionExtraction else {
+            throw MLXOnDeviceError.generationFailed("Selected on-device model does not support image input")
+        }
+        try await ensureModelLoaded()
+
+        var mergedLabValues: [[String: Any]] = []
+        var mergedMetadata: [String: Any] = [:]
+
+        for page in pages {
+            guard let ciImage = CIImage(data: page.jpegData) else {
+                AppLog.shared.mlx("[MLXClient] Could not decode page \(page.pageNumber) image for VLM extraction", level: .warning)
+                continue
+            }
+
+            // Fresh session per page: no KV-cache accumulation across pages
+            let session = try makeIsolatedSession(
+                instructions: "You are a precise medical laboratory data extraction engine. You respond with valid JSON only — no prose, no markdown fences.",
+                maxTokensOverride: 3072
+            )
+
+            let pagePrompt = "\(schemaPrompt)\n\nThis image is page \(page.pageNumber) of the document; use \(page.pageNumber) as the \"page\" value."
+
+            do {
+                let response = try await session.respond(to: pagePrompt, image: .ciImage(ciImage))
+                mergePageJSON(response, into: &mergedLabValues, metadata: &mergedMetadata)
+                AppLog.shared.mlx("[MLXClient] VLM extracted page \(page.pageNumber) (\(response.count) chars)")
+            } catch {
+                AppLog.shared.mlx("[MLXClient] VLM extraction failed for page \(page.pageNumber): \(error.localizedDescription)", level: .warning)
+            }
+        }
+
+        var combined: [String: Any] = mergedMetadata
+        combined["labValues"] = mergedLabValues
+
+        let combinedData = try JSONSerialization.data(withJSONObject: combined)
+        return String(data: combinedData, encoding: .utf8) ?? "{}"
+        #endif
+    }
+
+    /// Pull labValues + document metadata out of one page's model output and
+    /// accumulate them.
+    private func mergePageJSON(
+        _ response: String,
+        into labValues: inout [[String: Any]],
+        metadata: inout [String: Any]
+    ) {
+        guard let jsonString = Self.firstJSONObject(in: response),
+              let data = jsonString.data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            AppLog.shared.mlx("[MLXClient] VLM page output contained no parseable JSON", level: .warning)
+            return
+        }
+
+        if let values = json["labValues"] as? [[String: Any]] {
+            labValues.append(contentsOf: values)
+        }
+        for key in ["documentDate", "laboratoryName", "orderingPhysician"] {
+            if metadata[key] == nil, let value = json[key], !(value is NSNull) {
+                metadata[key] = value
+            }
+        }
+    }
+
+    /// Balanced-brace scan for the first JSON object, tolerant of markdown
+    /// fences and <think> blocks that small models sometimes emit.
+    private static func firstJSONObject(in text: String) -> String? {
+        var cleaned = text.replacingOccurrences(
+            of: #"<think>[\s\S]*?</think>"#,
+            with: "",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(of: #"```(?:json)?"#, with: "", options: .regularExpression)
+
+        guard let startIndex = cleaned.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var inString = false
+        var isEscaped = false
+        var index = startIndex
+
+        while index < cleaned.endIndex {
+            let char = cleaned[index]
+            if isEscaped {
+                isEscaped = false
+            } else if char == "\\" {
+                isEscaped = true
+            } else if char == "\"" {
+                inString.toggle()
+            } else if !inString {
+                if char == "{" { depth += 1 }
+                if char == "}" {
+                    depth -= 1
+                    if depth == 0 { return String(cleaned[startIndex...index]) }
+                }
+            }
+            index = cleaned.index(after: index)
+        }
+
+        if let endIndex = cleaned.lastIndex(of: "}"), endIndex > startIndex {
+            return String(cleaned[startIndex...endIndex])
+        }
+        return nil
+    }
 }

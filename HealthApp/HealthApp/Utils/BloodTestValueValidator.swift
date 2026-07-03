@@ -11,6 +11,19 @@ struct BloodTestValueValidator {
         case missingData(reason: String)
     }
     
+    // MARK: - Qualitative Values
+    /// Legitimate non-numeric results (urinalysis dipsticks, cultures, serology)
+    private static let qualitativeValues: Set<String> = [
+        "negative", "positive", "trace", "none", "not detected", "none seen",
+        "reactive", "non-reactive", "nonreactive", "no growth", "clear", "yellow",
+        "straw", "amber", "cloudy", "hazy", "turbid", "few", "moderate", "many",
+        "rare", "occasional"
+    ]
+
+    static func isQualitativeValue(_ value: String) -> Bool {
+        qualitativeValues.contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
     // MARK: - Validate Value
     /// Validates a blood test value for type correctness and range reasonableness
     static func validateValue(
@@ -19,7 +32,13 @@ struct BloodTestValueValidator {
         referenceRange: String?,
         standardParam: LabParameter?
     ) -> ValidationResult {
-        
+
+        // Qualitative results (Negative, Trace, No growth, …) are valid extracted
+        // values — normality vs abnormality is a separate concern
+        if isQualitativeValue(value) {
+            return .valid
+        }
+
         // Check if value is numeric
         guard isNumeric(value) else {
             // Check if it's a range (e.g., "12-15") which we should reject
@@ -149,6 +168,77 @@ struct BloodTestValueValidator {
         return nil
     }
     
+    // MARK: - Unit Plausibility
+    /// Check whether an extracted unit is plausible for a parameter.
+    /// Missing units (either side) are not treated as failures — many lab
+    /// reports omit units for dimensionless values.
+    static func validateUnit(_ unit: String?, for parameter: LabParameter) -> Bool {
+        guard let unit = unit?.trimmingCharacters(in: .whitespacesAndNewlines), !unit.isEmpty else {
+            return true
+        }
+        guard let expected = parameter.unit?.trimmingCharacters(in: .whitespacesAndNewlines), !expected.isEmpty else {
+            return true
+        }
+        return canonicalUnit(unit) == canonicalUnit(expected)
+    }
+
+    /// Normalize a unit string to a canonical form so notational variants
+    /// (K/uL vs 10^3/µL vs x10E3/uL) compare equal.
+    static func canonicalUnit(_ unit: String) -> String {
+        var normalized = unit.lowercased()
+            .replacingOccurrences(of: "µ", with: "u")
+            .replacingOccurrences(of: "μ", with: "u")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "²", with: "2")
+
+        let equivalents: [String: String] = [
+            // Cell-count notations → K/uL and M/uL
+            "10^3/ul": "k/ul", "10*3/ul": "k/ul", "x10e3/ul": "k/ul", "10e3/ul": "k/ul",
+            "thou/ul": "k/ul", "thousand/ul": "k/ul", "k/mm3": "k/ul", "10^3/mm3": "k/ul",
+            "10^9/l": "k/ul", "x10^9/l": "k/ul",
+            "10^6/ul": "m/ul", "10*6/ul": "m/ul", "x10e6/ul": "m/ul", "10e6/ul": "m/ul",
+            "mill/ul": "m/ul", "million/ul": "m/ul", "m/mm3": "m/ul", "10^6/mm3": "m/ul",
+            "10^12/l": "m/ul", "x10^12/l": "m/ul",
+            // Other common synonyms
+            "seconds": "sec", "s": "sec",
+            "iu/l": "u/l",
+            "mcg/dl": "ug/dl", "mcg/l": "ug/l", "mcg/ml": "ug/ml",
+            "mm/h": "mm/hr"
+        ]
+        if let canonical = equivalents[normalized] {
+            normalized = canonical
+        }
+        return normalized
+    }
+
+    // MARK: - Flag Consistency
+    /// Check whether an abnormal flag agrees with the value's position relative
+    /// to the reference range. Returns true when there isn't enough information
+    /// to judge (unparseable value/range, qualitative results).
+    static func flagConsistency(value: String, referenceRange: String?, flag: String?) -> Bool {
+        guard let numericValue = parseNumericValue(value),
+              let rangeString = referenceRange,
+              let range = parseReferenceRange(rangeString) else {
+            return true
+        }
+
+        let normalizedFlag = flag?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let isHigh = numericValue > range.max
+        let isLow = numericValue < range.min
+
+        switch normalizedFlag {
+        case "H", "HH", "HIGH", "CRITICAL HIGH":
+            return isHigh
+        case "L", "LL", "LOW", "CRITICAL LOW":
+            return isLow
+        case nil, "", "NORMAL", "N":
+            return !isHigh && !isLow
+        default:
+            // Generic abnormal markers (*, A, ABN, CRITICAL) — consistent if out of range either way
+            return isHigh || isLow
+        }
+    }
+
     // MARK: - Filter Invalid Values
     /// Filters out invalid values from a list of extracted lab values
     /// This is a generic version that works with any type that has the required properties
@@ -191,25 +281,11 @@ struct BloodTestValueValidator {
     
     // MARK: - Find Standardized Parameter
     private static func findStandardizedParameter(for testName: String, in params: [String: LabParameter]) -> LabParameter? {
-        let normalized = testName.lowercased()
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "-", with: "_")
-            .replacingOccurrences(of: "(", with: "")
-            .replacingOccurrences(of: ")", with: "")
-        
-        // Direct match
-        if let param = params[normalized] {
-            return param
+        // Try blood first, then urine — this call site has no test-type context.
+        if let match = BloodTestResult.matchLabParameter(name: testName, testType: .blood) {
+            return match.parameter
         }
-        
-        // Partial match
-        for (key, param) in params {
-            if normalized.contains(key) || key.contains(normalized) {
-                return param
-            }
-        }
-        
-        return nil
+        return BloodTestResult.matchLabParameter(name: testName, testType: .urine)?.parameter
     }
 }
 

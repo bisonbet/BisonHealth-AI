@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - Medical Document Model
-/// Represents a medical document with OCR'd content and structured data from docling
+/// Represents a medical document with on-device OCR'd content and structured sections
 struct MedicalDocument: Identifiable, Codable, Hashable {
     let id: UUID
     var fileName: String
@@ -18,7 +18,7 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
 
     // Document content
     var extractedText: String?           // Full text from OCR
-    var rawDoclingOutput: Data?          // Complete DoclingDocument JSON
+    var rawDoclingOutput: Data?          // Legacy: Docling JSON from pre-removal builds (read-only, never written)
     var extractedSections: [DocumentSection] // Structured sections
 
     // AI Context management
@@ -284,85 +284,6 @@ struct DocumentSection: Identifiable, Codable, Hashable {
 
     static func == (lhs: DocumentSection, rhs: DocumentSection) -> Bool {
         lhs.id == rhs.id
-    }
-}
-
-// MARK: - Docling Output Models
-/// Represents the DoclingDocument structure returned by docling
-struct DoclingDocument: Codable {
-    var schema_name: String              // "DoclingDocument"
-    var version: String                  // Schema version
-    var name: String                     // Document name
-    var origin: DocumentOrigin?          // Source information
-    var furniture: DocumentContent?      // Headers, footers, page numbers
-    var body: DocumentContent?           // Main document content
-    var groups: [[String: AnyCodable]]?  // Content groupings (array of dictionaries, not strings)
-
-    
-    struct DocumentOrigin: Codable {
-        var filename: String?
-        var mimetype: String?
-        var binary_hash: Int64?  // Changed from String? to Int64? to match actual JSON format
-    }
-    
-    // Custom decoder to handle groups field which may be dictionaries
-    enum CodingKeys: String, CodingKey {
-        case schema_name
-        case version
-        case name
-        case origin
-        case furniture
-        case body
-        // Skip groups - we don't use it and it has variable structure
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        schema_name = try container.decode(String.self, forKey: .schema_name)
-        version = try container.decode(String.self, forKey: .version)
-        name = try container.decode(String.self, forKey: .name)
-        origin = try container.decodeIfPresent(DocumentOrigin.self, forKey: .origin)
-        furniture = try container.decodeIfPresent(DocumentContent.self, forKey: .furniture)
-        body = try container.decodeIfPresent(DocumentContent.self, forKey: .body)
-        groups = nil  // Skip groups - not used in our extraction logic
-    }
-    
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(schema_name, forKey: .schema_name)
-        try container.encode(version, forKey: .version)
-        try container.encode(name, forKey: .name)
-        try container.encodeIfPresent(origin, forKey: .origin)
-        try container.encodeIfPresent(furniture, forKey: .furniture)
-        try container.encodeIfPresent(body, forKey: .body)
-        // Skip groups in encoding too
-    }
-
-    struct DocumentContent: Codable {
-        var self_ref: String?            // JSON pointer reference
-        var name: String?
-        var children: [ContentItem]?
-    }
-
-    struct ContentItem: Codable {
-        var self_ref: String?            // JSON pointer reference
-        var text: String?
-        var label: String?               // Type of content (paragraph, heading, table, etc.)
-        var prov: [ProvenanceInfo]?      // Provenance information
-        var children: [ContentItem]?     // Nested content
-    }
-
-    struct ProvenanceInfo: Codable {
-        var page: Int?
-        var bbox: BoundingBox?
-        var charspan: [Int]?             // Character span in text
-    }
-
-    struct BoundingBox: Codable {
-        var l: Double                    // Left
-        var t: Double                    // Top
-        var r: Double                    // Right
-        var b: Double                    // Bottom
     }
 }
 

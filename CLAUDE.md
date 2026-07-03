@@ -9,7 +9,7 @@
 - **Architecture**: MVVM with protocol-oriented design
 - **Database**: SQLite with CryptoKit encryption (current version: 8)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
-- **Document Processing**: Docling OCR service
+- **Document Processing**: On-device (PDFKit + Vision OCR via `NativeDocumentExtractor`)
 - **Privacy**: Local-first, all data on-device (no iCloud/CloudKit backup)
 
 ---
@@ -97,11 +97,11 @@ class AIChatManager: ObservableObject {
 # iPhone build
 cd HealthApp
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.6' clean build
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' clean build
 
 # iPad build
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
-  -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=18.6' clean build
+  -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.5' clean build
 ```
 
 ### 2. Database Migrations
@@ -262,7 +262,7 @@ enum BloodTestCategory: String, Codable {
 | `MLXOnDeviceClient` | On-device AI chat | N/A (local model) |
 | `BedrockClient` | AWS Bedrock AI | AWS region-based |
 | `OpenAICompatibleClient` | OpenAI-compatible servers | User-configured |
-| `DoclingClient` | Document OCR | `localhost:5001` |
+| `NativeDocumentExtractor` | On-device document OCR (PDFKit + Vision) | N/A (local) |
 | `MedicalDocumentExtractor` | Medical data extraction | N/A (local) |
 
 ### Database (SQLite + Encryption)
@@ -361,13 +361,11 @@ struct NewAIProviderSettingsView: View { }
 - **Auth**: AWS credentials in Keychain
 - **Integration**: `BedrockClient.swift`
 
-### Docling (Document OCR)
-- **Default**: `localhost:5001`
-- **API Version**: v1
-- **Formats**: PDF, DOCX, images
-- **Key Endpoint**: `POST /v1/convert/file`
-- **Integration**: `DoclingClient.swift`, `DocumentProcessor.swift`
-- **Reference**: See `DOCLING_FORMATS_EXPLANATION.md`
+### Document OCR (On-Device)
+- **Frameworks**: PDFKit (digital PDFs) + Vision OCR (scans, photos)
+- **Formats**: PDF, DOCX, images (JPEG, PNG, HEIC)
+- **Integration**: `NativeDocumentExtractor.swift`, `DocumentProcessor.swift`
+- **Note**: The former Docling server integration was removed (2026-07); `DOCLING_FORMATS_EXPLANATION.md` is historical
 
 ---
 
@@ -511,5 +509,5 @@ open HealthApp/HealthApp.xcodeproj
 
 ---
 
-**Last Updated**: 2025-12-18
+**Last Updated**: 2026-07-02
 **License**: MIT

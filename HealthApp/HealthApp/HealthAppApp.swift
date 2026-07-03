@@ -16,14 +16,28 @@ struct HealthAppApp: App {
     
     var body: some Scene {
         WindowGroup {
-            if appSettingsManager.shouldShowDisclaimer {
-                FirstLaunchDisclaimerView {
-                    appSettingsManager.acceptDisclaimer()
+            Group {
+                if appSettingsManager.shouldShowDisclaimer {
+                    FirstLaunchDisclaimerView {
+                        appSettingsManager.acceptDisclaimer()
+                    }
+                } else {
+                    ContentView()
+                        .environmentObject(appState)
+                        .preferredColorScheme(appState.colorScheme)
                 }
-            } else {
-                ContentView()
-                    .environmentObject(appState)
-                    .preferredColorScheme(appState.colorScheme)
+            }
+            .alert("Unexpected Shutdown Detected", isPresented: $appState.showCrashReportAlert) {
+                Button("Share Logs") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                              let rootVC = windowScene.windows.first?.rootViewController else { return }
+                        LogExporter.exportLogs(from: rootVC)
+                    }
+                }
+                Button("Dismiss", role: .cancel) { }
+            } message: {
+                Text("The app didn't close properly last time. You can share diagnostic logs to help investigate — no data leaves your device without your action.")
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -168,16 +182,18 @@ private extension UIColor {
 @MainActor
 class AppState: ObservableObject {
     @Published var colorScheme: ColorScheme? = nil
+    @Published var showCrashReportAlert = false
 
     private let settingsManager = SettingsManager.shared
     private let healthDataManager = HealthDataManager.shared
     private var cancellables = Set<AnyCancellable>()
 
     init() {
-        // Initialize crash detection
         AppLog.shared.markLaunch()
+        if AppLog.shared.previousSessionCrashed {
+            showCrashReportAlert = true
+        }
 
-        // Initialize app state
         setupColorScheme()
         observeSettingsChanges()
         syncHealthKitOnLaunch()

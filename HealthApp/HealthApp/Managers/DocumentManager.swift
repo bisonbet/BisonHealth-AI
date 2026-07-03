@@ -35,7 +35,6 @@ class DocumentManager: ObservableObject {
     private let documentProcessor: DocumentProcessor
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
-    private let networkManager = NetworkManager.shared
     private let pendingOperationsManager = PendingOperationsManager.shared
     
     // MARK: - Computed Properties
@@ -255,16 +254,7 @@ class DocumentManager: ObservableObject {
     
     // MARK: - Document Processing
     func processDocument(_ document: MedicalDocument, immediately: Bool = false) async {
-        // Check network connectivity before processing
-        guard networkManager.isConnected else {
-            AppLog.shared.documents("Network unavailable, queueing document for processing", level: .warning)
-            await pendingOperationsManager.queueDocumentProcessing(
-                documentId: document.id,
-                immediately: immediately
-            )
-            return
-        }
-
+        // Processing is fully on-device; no network connectivity required.
         if immediately {
             do {
                 _ = try await documentProcessor.processDocumentImmediately(document)

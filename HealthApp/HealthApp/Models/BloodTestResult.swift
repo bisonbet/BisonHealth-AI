@@ -522,6 +522,335 @@ extension BloodTestResult {
         "urine_bacteria_count": LabParameter(name: "Urine Bacteria Count", key: "urine_bacteria_count", unit: "CFU/mL", referenceRange: "<10,000", category: .urineMicrobiology, description: "Urine bacterial colony count")
     ]
 
+    // MARK: - Lab Parameter Aliases
+    /// Known aliases for standardized lab parameters, in normalized form
+    /// (lowercased, punctuation collapsed to underscores — see `normalizeLabName`).
+    /// The single source of truth for name-variation matching; consumed by `matchLabParameter`.
+    static let labParameterAliases: [String: [String]] = [
+        // Glucose
+        "glucose": ["blood_sugar", "blood_glucose", "glucose_serum", "glucose_plasma", "gluc"],
+        "fasting_glucose": ["fasting_blood_glucose", "fbg", "glucose_fasting"],
+        "random_glucose": ["random_blood_glucose", "rbg", "glucose_random"],
+        "glucose_tolerance_test_2hr": ["2_hour_glucose", "gtt_2hr", "glucose_tolerance_2hr", "2hr_glucose"],
+        // Hemoglobin / CBC
+        "hemoglobin": ["hgb", "hb", "hemoglobin_concentration"],
+        "hematocrit": ["hct", "crit", "packed_cell_volume", "pcv"],
+        "hemoglobin_a1c": ["hba1c", "a1c", "glycated_hemoglobin", "glycosylated_hemoglobin", "hemoglobin_a1c_hba1c", "hgb_a1c"],
+        "wbc": ["white_blood_cell_count", "white_blood_cells", "white_blood_cell", "leukocytes", "leukocyte_count", "wbc_count"],
+        "rbc": ["red_blood_cell_count", "red_blood_cells", "red_blood_cell", "erythrocytes", "erythrocyte_count", "rbc_count"],
+        "platelet_count": ["platelets", "plt", "platelet", "thrombocytes", "thrombocyte_count"],
+        "mcv": ["mean_corpuscular_volume", "mean_cell_volume"],
+        "mch": ["mean_corpuscular_hemoglobin", "mean_cell_hemoglobin"],
+        "mchc": ["mean_corpuscular_hemoglobin_concentration"],
+        "rdw": ["red_cell_distribution_width", "rdw_cv", "rdw_sd", "red_blood_cell_distribution_width"],
+        "mpv": ["mean_platelet_volume"],
+        "reticulocyte_count": ["retic", "retics", "reticulocytes", "reticulocyte"],
+        "immature_granulocytes": ["ig", "immature_grans", "immature_granulocyte"],
+        "nucleated_rbc": ["nrbc", "nucleated_red_blood_cells", "nucleated_rbcs"],
+        "platelet_distribution_width": ["pdw"],
+        // CBC differential — absolute vs percent must stay distinct
+        "absolute_neutrophils": ["abs_neutrophils", "neutrophils_absolute", "neutrophil_count", "neutrophils_abs", "absolute_neutrophil_count", "anc", "neut_abs", "neutrophils_number"],
+        "absolute_lymphocytes": ["abs_lymphocytes", "lymphocytes_absolute", "lymphocyte_count", "lymphocytes_abs", "absolute_lymphocyte_count", "lymphs_abs", "lymphocytes_number"],
+        "absolute_monocytes": ["abs_monocytes", "monocytes_absolute", "monocyte_count", "monocytes_abs", "absolute_monocyte_count", "monos_abs", "monocytes_number"],
+        "absolute_eosinophils": ["abs_eosinophils", "eosinophils_absolute", "eosinophil_count", "eosinophils_abs", "absolute_eosinophil_count", "eos_abs", "eosinophils_number"],
+        "absolute_basophils": ["abs_basophils", "basophils_absolute", "basophil_count", "basophils_abs", "absolute_basophil_count", "basos_abs", "basophils_number"],
+        "neutrophils": ["neutrophils_percent", "neutrophil", "neut", "neuts", "segs", "segmented_neutrophils", "polys"],
+        "lymphocytes": ["lymphocytes_percent", "lymphocyte", "lymphs", "lymph"],
+        "monocytes": ["monocytes_percent", "monocyte", "monos", "mono"],
+        "eosinophils": ["eosinophils_percent", "eosinophil", "eos"],
+        "basophils": ["basophils_percent", "basophil", "basos", "baso"],
+        // Metabolic panel
+        "sodium": ["na", "sodium_serum"],
+        "potassium": ["k", "potassium_serum"],
+        "chloride": ["cl", "chloride_serum"],
+        "co2_bicarbonate": ["co2", "bicarbonate", "carbon_dioxide", "hco3", "co2_total", "total_co2"],
+        "anion_gap": ["agap", "anion_gap_calculated"],
+        "bun": ["blood_urea_nitrogen", "urea_nitrogen", "urea"],
+        "creatinine": ["creat", "serum_creatinine", "cr", "creatinine_serum"],
+        "egfr": ["estimated_gfr", "gfr", "egfr_estimated", "glomerular_filtration_rate", "egfr_non_african_american", "egfr_african_american"],
+        "bun_creatinine_ratio": ["bun_cr_ratio", "bun_creat_ratio", "urea_creatinine_ratio"],
+        "cystatin_c": ["cys_c"],
+        "calcium": ["ca", "calcium_serum", "calcium_total", "total_calcium"],
+        "albumin": ["alb", "albumin_serum"],
+        "total_protein": ["protein_total", "tp", "protein_serum"],
+        "albumin_globulin_ratio": ["a_g_ratio", "ag_ratio", "albumin_globulin"],
+        "phosphorus": ["phosphate", "phos", "inorganic_phosphorus"],
+        "magnesium": ["mg", "magnesium_serum"],
+        "uric_acid": ["urate"],
+        "lactate": ["lactic_acid"],
+        // Lipids
+        "cholesterol_total": ["total_cholesterol", "cholesterol", "chol_total", "chol"],
+        "ldl_cholesterol": ["ldl", "ldl_chol", "low_density_lipoprotein", "ldl_c"],
+        "hdl_cholesterol": ["hdl", "hdl_chol", "high_density_lipoprotein", "hdl_c"],
+        "ldl_chol_calc": ["ldl_calculated", "ldl_calc", "calculated_ldl", "ldl_cholesterol_calc"],
+        "non_hdl_cholesterol": ["non_hdl", "non_hdl_c"],
+        "chol_hdlc_ratio": ["cholesterol_hdl_ratio", "chol_hdl_ratio", "tc_hdl_ratio"],
+        "triglycerides": ["tg", "trig", "trigs", "triglyceride"],
+        "apolipoprotein_b": ["apob", "apo_b"],
+        "lipoprotein_a": ["lpa", "lp_a", "lp_little_a"],
+        // Liver
+        "alt_sgpt": ["alt", "sgpt", "alanine_aminotransferase", "alanine_transaminase"],
+        "ast_sgot": ["ast", "sgot", "aspartate_aminotransferase", "aspartate_transaminase"],
+        "alp": ["alkaline_phosphatase", "alk_phos", "alk_phosphatase"],
+        "ggt": ["gamma_glutamyl_transferase", "gamma_gt", "ggtp"],
+        "ldh": ["lactate_dehydrogenase", "ld"],
+        "bilirubin_total": ["total_bilirubin", "tbili", "t_bili", "bilirubin"],
+        "bilirubin_direct": ["direct_bilirubin", "dbili", "d_bili", "conjugated_bilirubin"],
+        "bilirubin_indirect": ["indirect_bilirubin", "unconjugated_bilirubin"],
+        "ammonia": ["nh3", "blood_ammonia"],
+        // Thyroid
+        "tsh": ["thyroid_stimulating_hormone", "thyrotropin"],
+        "free_t4": ["ft4", "free_thyroxine", "t4_free", "thyroxine_free"],
+        "free_t3": ["ft3", "free_triiodothyronine", "t3_free", "triiodothyronine_free"],
+        "total_t4": ["t4", "total_thyroxine", "thyroxine", "t4_total"],
+        "total_t3": ["t3", "total_triiodothyronine", "triiodothyronine", "t3_total"],
+        "reverse_t3": ["rt3", "reverse_triiodothyronine", "t3_reverse"],
+        "thyroid_peroxidase_antibodies": ["tpo_ab", "tpo_antibodies", "anti_tpo", "tpo"],
+        "thyroglobulin_antibody": ["tg_ab", "thyroglobulin_ab", "anti_tg", "anti_thyroglobulin"],
+        "tsh_receptor_antibodies": ["trab", "tsh_receptor_ab"],
+        // Diabetes
+        "insulin": ["serum_insulin", "insulin_level", "insulin_fasting", "fasting_insulin"],
+        "c_peptide": ["cpeptide", "connecting_peptide"],
+        // Cardiac
+        "troponin_i": ["trop_i", "ctni", "troponin_i_high_sensitivity", "hs_troponin_i"],
+        "troponin_t": ["trop_t", "ctnt", "troponin_t_high_sensitivity", "hs_troponin_t"],
+        "bnp": ["b_type_natriuretic_peptide", "bnp_level", "brain_natriuretic_peptide"],
+        "nt_pro_bnp": ["nt_probnp", "ntprobnp", "n_terminal_pro_bnp", "pro_bnp", "probnp"],
+        "ck_mb": ["ckmb", "creatine_kinase_mb"],
+        "ck_total": ["cpk", "total_ck", "creatine_phosphokinase"],
+        "creatine_kinase": ["ck", "cpk_total"],
+        "homocysteine": ["hcy", "homocysteine_level"],
+        // Inflammatory
+        "crp_c_reactive_protein": ["crp", "c_reactive_protein", "reactive_protein"],
+        "hs_crp": ["high_sensitivity_crp", "hs_c_reactive_protein", "cardiac_crp", "crp_high_sensitivity"],
+        "esr": ["erythrocyte_sedimentation_rate", "sed_rate", "sedimentation_rate", "westergren"],
+        "il6": ["interleukin_6", "il_6"],
+        "tnf_alpha": ["tumor_necrosis_factor_alpha", "tnf_a", "tnf"],
+        // Coagulation
+        "pt": ["prothrombin_time", "pro_time", "protime"],
+        "ptt": ["partial_thromboplastin_time"],
+        "aptt": ["activated_partial_thromboplastin_time"],
+        "inr": ["international_normalized_ratio"],
+        "d_dimer": ["ddimer"],
+        "fibrinogen": ["fibrinogen_level", "fibrinogen_activity"],
+        // Vitamins & minerals
+        "vitamin_d": ["25_oh_vitamin_d", "25_hydroxyvitamin_d", "vit_d", "25ohd", "vitamin_d_25_hydroxy", "vitamin_d3", "25_hydroxy_vitamin_d"],
+        "vitamin_b12": ["b12", "cobalamin", "vitamin_b_12", "vit_b12"],
+        "folate": ["folic_acid", "folate_serum"],
+        "folate_rbc": ["rbc_folate", "red_blood_cell_folate"],
+        "iron": ["serum_iron", "fe", "iron_serum", "iron_total"],
+        "ferritin": ["ferritin_level", "ferritin_serum"],
+        "tibc": ["total_iron_binding_capacity", "iron_binding_capacity"],
+        "percent_saturation": ["iron_saturation", "tsat", "transferrin_saturation", "iron_sat", "saturation"],
+        "zinc": ["zn", "zinc_serum"],
+        "copper": ["cu", "copper_serum"],
+        "vitamin_b6": ["b6", "pyridoxal_5_phosphate", "pyridoxine"],
+        "vitamin_b1": ["b1", "thiamine"],
+        "vitamin_b2": ["b2", "riboflavin"],
+        "vitamin_a": ["retinol"],
+        "vitamin_e": ["alpha_tocopherol", "tocopherol"],
+        "vitamin_c": ["ascorbic_acid"],
+        // Hormones
+        "testosterone": ["total_testosterone", "testosterone_total"],
+        "estradiol": ["e2", "estradiol_level"],
+        "cortisol": ["cortisol_level", "serum_cortisol"],
+        "cortisol_am": ["morning_cortisol", "am_cortisol"],
+        "parathyroid_hormone": ["pth", "intact_pth", "pth_intact"],
+        "progesterone": ["prog", "progesterone_level"],
+        "prolactin": ["prl", "prolactin_level"],
+        "lh": ["luteinizing_hormone"],
+        "fsh": ["follicle_stimulating_hormone"],
+        "gh": ["growth_hormone", "hgh", "somatotropin"],
+        "igf1": ["igf_1", "insulin_like_growth_factor_1", "somatomedin_c"],
+        "aldosterone": ["aldosterone_serum"],
+        "renin": ["renin_activity", "plasma_renin_activity", "pra"],
+        // Immunology / tumor markers
+        "total_ige": ["ige", "immunoglobulin_e"],
+        "iga": ["immunoglobulin_a"],
+        "igg": ["immunoglobulin_g"],
+        "igm": ["immunoglobulin_m"],
+        "psa": ["prostate_specific_antigen", "total_psa", "psa_total"],
+        "cea": ["carcinoembryonic_antigen"],
+        "ca125": ["ca_125", "cancer_antigen_125"],
+        "ca199": ["ca_19_9", "cancer_antigen_19_9"],
+        "afp": ["alpha_fetoprotein", "alpha_feto_protein"],
+        // Urinalysis
+        "urine_specific_gravity": ["specific_gravity", "sp_gr", "sg", "spec_grav"],
+        "urine_ph": ["ph"],
+        "urine_protein": ["protein_dipstick", "protein_qualitative", "protein"],
+        "urine_glucose": ["glucose_dipstick", "glucose"],
+        "urine_ketones": ["ketones", "ketone"],
+        "urine_blood": ["blood", "occult_blood", "hemoglobin_dipstick"],
+        "urine_bilirubin": ["bilirubin"],
+        "urine_urobilinogen": ["urobilinogen"],
+        "urine_nitrite": ["nitrite", "nitrites"],
+        "urine_leukocyte_esterase": ["leukocyte_esterase", "leuk_esterase", "leukocytes"],
+        "urine_color": ["color"],
+        "urine_appearance": ["appearance", "clarity"],
+        "urine_wbc": ["wbc", "white_blood_cells", "wbc_hpf", "wbcs"],
+        "urine_rbc": ["rbc", "red_blood_cells", "rbc_hpf", "rbcs"],
+        "urine_epithelial_cells": ["epithelial_cells", "squamous_epithelial_cells", "epithelial"],
+        "urine_bacteria": ["bacteria"],
+        "urine_casts": ["casts", "hyaline_casts"],
+        "urine_crystals": ["crystals"],
+        "urine_mucus": ["mucus", "mucus_threads"],
+        "urine_yeast": ["yeast"],
+        "urine_creatinine": ["creatinine"],
+        "urine_microalbumin": ["microalbumin"],
+        "urine_albumin_creatinine_ratio": ["acr", "albumin_creatinine_ratio", "microalbumin_creatinine_ratio", "alb_creat_ratio"],
+        "urine_protein_creatinine_ratio": ["protein_creatinine_ratio", "prot_creat_ratio", "upcr"],
+        "urine_creatinine_clearance": ["creatinine_clearance", "crcl"],
+        "urine_culture": ["culture"]
+    ]
+
+    // MARK: - Lab Test Type
+    enum LabTestType: String {
+        case blood = "BLOOD"
+        case urine = "URINE"
+    }
+
+    private static let urineLabCategories: Set<BloodTestCategory> = [.urinalysis, .urineChemistry, .urineMicrobiology]
+
+    /// Normalize a lab test name for matching: lowercase, µ→u, punctuation/whitespace
+    /// collapsed to single underscores.
+    static func normalizeLabName(_ name: String) -> String {
+        var s = name.lowercased()
+        s = s.replacingOccurrences(of: "µ", with: "u")
+        s = s.replacingOccurrences(of: "μ", with: "u")
+        s = s.map { ($0.isLetter || $0.isNumber) ? String($0) : "_" }.joined()
+        while s.contains("__") {
+            s = s.replacingOccurrences(of: "__", with: "_")
+        }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    }
+
+    /// Alias → standard key index, built once from `labParameterAliases`.
+    private static let aliasIndex: [String: String] = {
+        var index: [String: String] = [:]
+        for (key, aliases) in labParameterAliases {
+            for alias in aliases {
+                index[normalizeLabName(alias)] = key
+            }
+        }
+        return index
+    }()
+
+    /// Normalized display name → standard key index.
+    private static let nameIndex: [String: String] = {
+        var index: [String: String] = [:]
+        for (key, parameter) in standardizedLabParameters {
+            index[normalizeLabName(parameter.name)] = key
+        }
+        return index
+    }()
+
+    // MARK: - Shared Lab Parameter Matcher
+    /// Match a raw test name (as extracted from a document) to a standardized lab parameter.
+    ///
+    /// Matching order: exact key → exact alias → exact display name → urine-prefixed key →
+    /// bounded containment (longest key wins) → bounded edit distance. Urine and blood
+    /// parameters never cross-match, and CBC percent vs absolute pairs stay distinct
+    /// because their aliases are enumerated explicitly.
+    static func matchLabParameter(
+        name: String,
+        testType: LabTestType = .blood
+    ) -> (key: String, parameter: LabParameter, matchConfidence: Double)? {
+        let normalized = normalizeLabName(name)
+        guard !normalized.isEmpty else { return nil }
+
+        func typeMatches(_ parameter: LabParameter) -> Bool {
+            testType == .urine
+                ? urineLabCategories.contains(parameter.category)
+                : !urineLabCategories.contains(parameter.category)
+        }
+
+        // For urine tests, prefer the urine_-prefixed parameter for bare names
+        // ("Glucose" on a urinalysis panel means urine_glucose, not serum glucose).
+        if testType == .urine {
+            let prefixed = normalized.hasPrefix("urine_") ? normalized : "urine_" + normalized
+            if let parameter = standardizedLabParameters[prefixed] {
+                return (prefixed, parameter, 0.95)
+            }
+        }
+
+        // 1. Exact key match
+        if let parameter = standardizedLabParameters[normalized], typeMatches(parameter) {
+            return (normalized, parameter, 1.0)
+        }
+
+        // 2. Exact alias match
+        if let key = aliasIndex[normalized], let parameter = standardizedLabParameters[key], typeMatches(parameter) {
+            return (key, parameter, 0.95)
+        }
+
+        // 3. Exact display-name match
+        if let key = nameIndex[normalized], let parameter = standardizedLabParameters[key], typeMatches(parameter) {
+            return (key, parameter, 0.95)
+        }
+
+        // 4. Bounded containment — longest matching key wins so specific parameters
+        //    beat generic ones. Requires the shorter side ≥ 4 chars to avoid
+        //    accidental hits from short abbreviations.
+        var bestContainment: (key: String, parameter: LabParameter)?
+        for (key, parameter) in standardizedLabParameters where typeMatches(parameter) {
+            guard min(normalized.count, key.count) >= 4 else { continue }
+            if normalized.contains(key) || key.contains(normalized) {
+                if bestContainment == nil || key.count > bestContainment!.key.count {
+                    bestContainment = (key, parameter)
+                }
+            }
+        }
+        if let match = bestContainment {
+            return (match.key, match.parameter, 0.6)
+        }
+
+        // 5. Bounded edit distance against keys and aliases (OCR typo tolerance)
+        let maxDistance = normalized.count >= 10 ? 2 : (normalized.count >= 6 ? 1 : 0)
+        if maxDistance > 0 {
+            var bestEdit: (key: String, parameter: LabParameter, distance: Int)?
+            func consider(candidate: String, key: String) {
+                guard abs(candidate.count - normalized.count) <= maxDistance else { return }
+                guard let parameter = standardizedLabParameters[key], typeMatches(parameter) else { return }
+                let distance = editDistance(normalized, candidate, limit: maxDistance)
+                if distance <= maxDistance, bestEdit == nil || distance < bestEdit!.distance {
+                    bestEdit = (key, parameter, distance)
+                }
+            }
+            for key in standardizedLabParameters.keys {
+                consider(candidate: key, key: key)
+            }
+            for (alias, key) in aliasIndex {
+                consider(candidate: alias, key: key)
+            }
+            if let match = bestEdit {
+                return (match.key, match.parameter, 0.55)
+            }
+        }
+
+        return nil
+    }
+
+    /// Levenshtein distance with early exit once `limit` is exceeded.
+    private static func editDistance(_ a: String, _ b: String, limit: Int) -> Int {
+        let aChars = Array(a), bChars = Array(b)
+        if aChars.isEmpty { return bChars.count }
+        if bChars.isEmpty { return aChars.count }
+
+        var previous = Array(0...bChars.count)
+        for i in 1...aChars.count {
+            var current = [i] + Array(repeating: 0, count: bChars.count)
+            var rowMin = i
+            for j in 1...bChars.count {
+                let cost = aChars[i - 1] == bChars[j - 1] ? 0 : 1
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+                rowMin = min(rowMin, current[j])
+            }
+            if rowMin > limit { return limit + 1 }
+            previous = current
+        }
+        return previous[bChars.count]
+    }
+
     static var bloodTestExtractionHint: String {
         let grouped = Dictionary(grouping: standardizedLabParameters.values) { $0.category }
         let sortedGroups = grouped.sorted { lhs, rhs in
@@ -552,7 +881,7 @@ extension BloodTestResult {
         - Only return text content - no image files, no base64 image data, no image references
         - If text is embedded in images, extract it via OCR but exclude the image
         
-        Instructions for Docling:
+        Instructions:
         1. Identify ALL numerical laboratory test results in the document - BOTH blood tests AND urine tests
         2. For each test, extract:
            - Test name (exactly as written, including abbreviations)

@@ -24,7 +24,7 @@ struct TermsOfServiceView: View {
                         
                         TermsSectionView(
                             title: "Description of Service",
-                            content: "BisonHealth AI is a personal health data management application that provides AI-powered assistance for understanding your health information. The app stores data locally on your device with optional encrypted cloud backup."
+                            content: "BisonHealth AI is a personal health data management application that provides AI-powered assistance for understanding your health information. The app stores all data locally on your device only — no cloud backup is used."
                         )
                         
                         TermsSectionView(

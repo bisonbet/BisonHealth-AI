@@ -6,7 +6,6 @@ struct SettingsView: View {
         case awsBedrockSettings
         case openAICompatibleSettings
         case onDeviceLLMSettings
-        case doclingRemoteSettings
     }
     @StateObject private var settingsManager = SettingsManager.shared
     @EnvironmentObject var appState: AppState
@@ -29,12 +28,11 @@ struct SettingsView: View {
     @StateObject private var healthKitManager = HealthKitManager.shared
     
     enum ResetType {
-        case servers, backup, preferences, all, database, disclaimer
+        case servers, preferences, all, database, disclaimer
         
         var title: String {
             switch self {
             case .servers: return "Reset Server Settings"
-            case .backup: return "Reset Backup Settings"
             case .preferences: return "Reset App Preferences"
             case .all: return "Reset All Settings"
             case .database: return "Reset Database"
@@ -45,7 +43,6 @@ struct SettingsView: View {
         var message: String {
             switch self {
             case .servers: return "This will reset server configurations to defaults."
-            case .backup: return "This will reset backup settings to defaults."
             case .preferences: return "This will reset app preferences to defaults."
             case .all: return "This will reset all settings to their default values."
             case .database: return "⚠️ WARNING: This will permanently delete ALL your health data, documents, and chat history. This action cannot be undone. A backup will be created first."
@@ -88,10 +85,8 @@ struct SettingsView: View {
         Form {
             disclaimerSection
             aiProviderSection
-            documentProcessingSection
             dataExtractionSection
             appleHealthSection
-            backupSection
             appPreferencesSection
             dataManagementSection
             aboutSection
@@ -104,11 +99,6 @@ struct SettingsView: View {
             Menu {
                 Button("Reset Server Settings") {
                     resetType = .servers
-                    showingResetAlert = true
-                }
-
-                Button("Reset Backup Settings") {
-                    resetType = .backup
                     showingResetAlert = true
                 }
 
@@ -168,8 +158,6 @@ struct SettingsView: View {
                 .onAppear {
                     AppLog.shared.ui("Navigated to On-Device LLM Settings")
                 }
-        case .doclingRemoteSettings:
-            DoclingRemoteSettingsView(settingsManager: settingsManager)
         }
     }
 
@@ -298,28 +286,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Document Processing Section
-
-    private var documentProcessingSection: some View {
-        Section("Document Processing") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Remote Server")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                    
-                    Spacer()
-                    
-                    Button("Configure") {
-                        selectedRoute = .doclingRemoteSettings
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-            .padding(.vertical, 8)
-        }
-    }
-
     // MARK: - Data Extraction Section
 
     private var dataExtractionSection: some View {
@@ -345,8 +311,41 @@ struct SettingsView: View {
                 case .onDeviceLLM:
                     extractionOnDeviceLLMInfo
                 }
+
+                // Cloud vision extraction (only meaningful for cloud providers)
+                if settingsManager.modelPreferences.extractionProvider != .onDeviceLLM {
+                    cloudVisionExtractionControls
+                }
             }
             .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Cloud Vision Extraction Controls
+
+    private var cloudVisionExtractionControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            Toggle("Send page images for higher accuracy", isOn: $settingsManager.modelPreferences.cloudVisionExtractionEnabled)
+                .accessibilityLabel("Send document page images to the cloud AI for higher extraction accuracy")
+                .accessibilityHint("When enabled, images of your documents are sent to the configured cloud provider during extraction")
+                .accessibilityIdentifier("cloudVisionExtractionToggle")
+
+            Text("Sends images of your document pages to the configured cloud AI provider so the model can read the original document directly, bypassing OCR errors. Images leave your device only during extraction and only when this is on.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            if settingsManager.modelPreferences.extractionProvider == .openAICompatible {
+                Toggle("Model supports image input", isOn: $settingsManager.modelPreferences.openAIVisionCapable)
+                    .accessibilityLabel("The configured OpenAI-compatible model supports image input")
+                    .accessibilityHint("Enable only if your server's model accepts images; capability cannot be detected automatically")
+                    .accessibilityIdentifier("openAIVisionCapableToggle")
+
+                Text("Enable only if the selected model on your server accepts images (e.g. a vision-language model). This can't be detected automatically.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -492,39 +491,6 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, 8)
-        }
-    }
-
-
-    // MARK: - Backup Section
-
-    private var backupSection: some View {
-        Section("Backup") {
-            // Notice explaining why cloud backup is unavailable
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "icloud.slash")
-                        .foregroundColor(.secondary)
-                        .font(.title3)
-
-                    Text("Cloud Backup Unavailable")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-
-                    Spacer()
-                }
-
-                Text("iCloud/CloudKit backup has been removed to keep health data on-device only. Apple does not offer a Business Associate Agreement (BAA) for iCloud. An alternative local or self-hosted backup option may be added in a future release.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 24)
-            }
-            .padding(.vertical, 8)
-
-            NavigationLink("Manage Backups") {
-                BackupManagementView()
-            }
-            .buttonStyle(.bordered)
         }
     }
 
@@ -838,9 +804,6 @@ struct SettingsView: View {
         case .servers:
             settingsManager.resetServerSettings()
             successMessage = "Server settings have been reset to defaults"
-        case .backup:
-            settingsManager.resetBackupSettings()
-            successMessage = "Backup settings have been reset to defaults"
         case .preferences:
             settingsManager.resetAppPreferences()
             successMessage = "App preferences have been reset to defaults"
@@ -882,35 +845,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Connection Testing with Enhanced Feedback
-
-    private func testDoclingConnection() async {
-        await settingsManager.testDoclingConnection()
-        
-        // Provide user feedback based on connection result
-        await MainActor.run {
-            switch settingsManager.doclingStatus {
-            case .connected:
-                successMessage = "Successfully connected to Docling server"
-                showingSuccessMessage = true
-            case .failed(let error):
-                connectionError = "Failed to connect to Docling server: \(error)"
-                showingConnectionError = true
-            default:
-                break
-            }
-        }
-    }
-    
-    private func testAllConnections() async {
-        // Test configured remote services concurrently.
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await self.testDoclingConnection()
-            }
-        }
-    }
-    
     private func exportLogs() {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootVC = windowScene.windows.first?.rootViewController else {
@@ -1016,13 +950,6 @@ struct ChangeObserversModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(
-                settingsManager.$doclingConfig
-                    .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            ) { _ in
-                settingsManager.invalidateClients()
-                validateAndSave()
-            }
             .onChange(of: settingsManager.backupSettings) { _, _ in
                 settingsManager.saveSettings()
             }
@@ -1033,148 +960,6 @@ struct ChangeObserversModifier: ViewModifier {
             .onChange(of: settingsManager.modelPreferences) { _, _ in
                 settingsManager.saveSettings()
             }
-    }
-}
-
-// MARK: - Remote Docling Settings View
-
-struct DoclingRemoteSettingsView: View {
-    @ObservedObject var settingsManager: SettingsManager
-    @State private var connectionError = ""
-    @State private var showingConnectionError = false
-    @State private var successMessage = ""
-    @State private var showingSuccessMessage = false
-    
-    var body: some View {
-        Form {
-            Section("Remote Server Configuration") {
-                serverConfigCard(
-                    title: "Docling Server",
-                    icon: "doc.text.magnifyingglass",
-                    config: $settingsManager.doclingConfig,
-                    status: settingsManager.doclingStatus,
-                    testAction: {
-                        Task {
-                            await testDoclingConnection()
-                        }
-                    },
-                    onConfigChange: { newConfig in
-                        settingsManager.doclingConfig = newConfig
-                        settingsManager.saveSettings()
-                        settingsManager.doclingStatus = .unknown
-                    }
-                )
-            }
-        }
-        .navigationTitle("Remote Docling")
-        .alert("Connection Error", isPresented: $showingConnectionError) {
-            Button("OK") { }
-        } message: {
-            Text(connectionError)
-        }
-        .alert("Success", isPresented: $showingSuccessMessage) {
-            Button("OK") { }
-        } message: {
-            Text(successMessage)
-        }
-    }
-    
-    // Helper to reuse the card style from SettingsView
-    // Note: Since this is a separate struct, we duplicate the card logic or reference it.
-    // For simplicity and self-containment, I'll inline a simplified version or I should have made it a shared component.
-    // Given the constraints, I will implement the card logic directly here or use a shared component if one existed.
-    // But SettingsView has `serverConfigCard` as a private method. I cannot call it from here.
-    // So I will COPY the logic of `serverConfigCard` into here or refactor SettingsView to expose it.
-    // Refactoring SettingsView to expose it is cleaner but might break things if I'm not careful.
-    // I'll copy the logic for now to be safe.
-    
-    private func serverConfigCard(
-        title: String,
-        icon: String,
-        config: Binding<ServerConfiguration>,
-        status: ConnectionStatus,
-        testAction: @escaping () -> Void,
-        onConfigChange: @escaping (ServerConfiguration) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(title, systemImage: icon)
-                    .font(.headline)
-                Spacer()
-                HStack(spacing: 4) {
-                    if status == .testing {
-                        ProgressView().scaleEffect(0.7)
-                    } else {
-                        Image(systemName: status.systemImage).foregroundColor(status.color)
-                    }
-                    Text(status.displayText).font(.caption).foregroundColor(status.color)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(status.color.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Hostname").font(.caption).foregroundColor(.secondary)
-                    TextField("localhost", text: config.hostname)
-                        .onChange(of: config.hostname.wrappedValue) { _, newValue in
-                            var updated = config.wrappedValue
-                            updated.hostname = newValue
-                            onConfigChange(updated)
-                        }
-                        .textFieldStyle(.roundedBorder)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Port").font(.caption).foregroundColor(.secondary)
-                    TextField("Port", value: config.port, format: IntegerFormatStyle().grouping(.never))
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.numberPad)
-                        .onChange(of: config.port.wrappedValue) { _, newValue in
-                            var updated = config.wrappedValue
-                            updated.port = newValue
-                            onConfigChange(updated)
-                        }
-                }
-            }
-            
-            Button(action: testAction) {
-                HStack {
-                    if status == .testing {
-                        ProgressView().scaleEffect(0.8)
-                    } else {
-                        Image(systemName: status == .connected ? "checkmark.circle" : "network")
-                            .foregroundColor(status == .connected ? .green : .primary)
-                    }
-                    Text(status == .testing ? "Testing..." : "Test Connection")
-                }
-            }
-            .buttonStyle(.bordered)
-            .disabled(status == .testing)
-            .frame(maxWidth: .infinity)
-        }
-        .padding(16)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-    }
-    
-    private func testDoclingConnection() async {
-        await settingsManager.testDoclingConnection()
-        await MainActor.run {
-            switch settingsManager.doclingStatus {
-            case .connected:
-                successMessage = "Successfully connected to Docling server"
-                showingSuccessMessage = true
-            case .failed(let error):
-                connectionError = "Failed to connect: \(error)"
-                showingConnectionError = true
-            default: break
-            }
-        }
     }
 }
 

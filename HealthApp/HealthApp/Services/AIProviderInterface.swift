@@ -21,6 +21,33 @@ protocol AIResponse {
     var metadata: [String: Any]? { get }
 }
 
+// MARK: - Document Page Image
+/// A rasterized document page prepared for vision-model extraction.
+struct DocumentPageImage {
+    let pageNumber: Int
+    let jpegData: Data
+    let pixelWidth: Int
+    let pixelHeight: Int
+}
+
+// MARK: - Vision Document Extractor
+/// Narrow capability protocol for providers that can read document page images
+/// directly (bypassing OCR errors). Kept separate from `sendMessage` so the chat
+/// path is untouched; `DocumentProcessor` checks conformance at runtime.
+@MainActor
+protocol VisionDocumentExtractor {
+    /// Whether the currently configured model can accept image input
+    var supportsVisionExtraction: Bool { get }
+
+    /// Send page images + OCR text; returns the raw model output, expected to be
+    /// JSON conforming to `schemaPrompt`.
+    func extractFromDocument(
+        pages: [DocumentPageImage],
+        ocrText: String,
+        schemaPrompt: String
+    ) async throws -> String
+}
+
 // MARK: - AI Capabilities
 struct AICapabilities {
     let supportedModels: [String]

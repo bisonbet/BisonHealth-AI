@@ -13,14 +13,19 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
     let confidence: Double
     let validationStatus: ValidationStatus
     let reason: String? // Why this was selected as most likely, or why it's invalid
-    
+
+    // Provenance (which extraction pass produced this, and from where)
+    let sources: [CandidateSource]
+    let pageNumber: Int?
+    let sourceSnippet: String?
+
     enum ValidationStatus {
         case valid
         case invalidType
         case outOfRange
         case missingData
     }
-    
+
     init(
         id: UUID = UUID(),
         testName: String,
@@ -31,7 +36,10 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
         originalTestName: String,
         confidence: Double = 1.0,
         validationStatus: ValidationStatus = .valid,
-        reason: String? = nil
+        reason: String? = nil,
+        sources: [CandidateSource] = [],
+        pageNumber: Int? = nil,
+        sourceSnippet: String? = nil
     ) {
         self.id = id
         self.testName = testName
@@ -43,6 +51,19 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
         self.confidence = confidence
         self.validationStatus = validationStatus
         self.reason = reason
+        self.sources = sources
+        self.pageNumber = pageNumber
+        self.sourceSnippet = sourceSnippet
+    }
+
+    /// Short provenance summary for the review UI, e.g. "Table structure + On-device AI, page 2"
+    var provenanceDescription: String? {
+        guard !sources.isEmpty else { return nil }
+        var parts = sources.map { $0.displayName }.joined(separator: " + ")
+        if let pageNumber {
+            parts += ", page \(pageNumber)"
+        }
+        return parts
     }
     
     var displayValue: String {
@@ -66,18 +87,28 @@ struct BloodTestImportGroup: Identifiable {
     let standardKey: String
     let candidates: [BloodTestImportCandidate]
     var selectedCandidateId: UUID?
-    
+    /// True when the reconciler auto-accepted this group (single candidate that passed validation)
+    var isAutoAccepted: Bool = false
+
+    /// Multiple distinct values were extracted for the same test — most likely an
+    /// OCR/extraction duplicate; the user must pick the right one.
+    var hasMultipleDistinctValues: Bool {
+        candidates.count > 1
+    }
+
     init(
         id: UUID = UUID(),
         standardTestName: String,
         standardKey: String,
         candidates: [BloodTestImportCandidate],
-        selectedCandidateId: UUID? = nil
+        selectedCandidateId: UUID? = nil,
+        isAutoAccepted: Bool = false
     ) {
         self.id = id
         self.standardTestName = standardTestName
         self.standardKey = standardKey
         self.candidates = candidates
+        self.isAutoAccepted = isAutoAccepted
         // Default selection:
         // 1. If explicit selectedCandidateId provided, use it
         // 2. Else find the recommended candidate

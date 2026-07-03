@@ -201,36 +201,94 @@ class BloodTestMappingService: ObservableObject {
         )
     }
 
+    // MARK: - Candidate Extraction (reconciler pipeline)
+    /// Extract lab value candidates for the multi-pass reconciliation pipeline.
+    /// Unlike `mapDocumentToBloodTest`, invalid values are NOT filtered out —
+    /// they become review items per the auto-accept rule (single + valid → auto,
+    /// everything else → user review).
+    func extractCandidates(
+        from documentText: String,
+        source: CandidateSource
+    ) async throws -> (candidates: [LabValueCandidate], basicInfo: BasicTestInfo) {
+        AppLog.shared.healthData("Extracting LLM lab candidates (source: \(source.rawValue), \(documentText.count) chars)")
+
+        let basicInfo = try await extractBasicInformation(from: documentText)
+        let extractedValues = try await extractLabValuesWithAI(from: documentText, filterInvalid: false)
+
+        var candidates: [LabValueCandidate] = []
+        for value in extractedValues {
+            let testType: BloodTestResult.LabTestType = value.testType.uppercased() == "URINE" ? .urine : .blood
+            guard let match = BloodTestResult.matchLabParameter(name: value.testName, testType: testType) else {
+                AppLog.shared.healthData("LLM value '\(value.testName)' did not match any standardized parameter", level: .debug)
+                continue
+            }
+
+            var validation = BloodTestValueValidator.validateValue(
+                value.value,
+                testName: match.parameter.name,
+                referenceRange: value.referenceRange ?? match.parameter.referenceRange,
+                standardParam: match.parameter
+            )
+            if case .valid = validation, !BloodTestValueValidator.validateUnit(value.unit, for: match.parameter) {
+                validation = .invalidType(reason: "Unit '\(value.unit ?? "")' does not match expected unit '\(match.parameter.unit ?? "")'")
+            }
+
+            candidates.append(LabValueCandidate(
+                standardKey: match.key,
+                parameter: match.parameter,
+                originalTestName: value.testName,
+                value: value.value,
+                unit: value.unit,
+                referenceRange: value.referenceRange,
+                abnormalFlag: value.abnormalFlag,
+                testType: testType,
+                source: source,
+                pageNumber: nil,
+                sourceSnippet: "AI extracted: \(value.testName) = \(value.value)\(value.unit.map { " \($0)" } ?? "")",
+                confidence: value.confidence * match.matchConfidence,
+                validation: validation
+            ))
+        }
+
+        AppLog.shared.healthData("LLM pass produced \(candidates.count) candidates from \(extractedValues.count) extracted values")
+        return (candidates, basicInfo)
+    }
+
     // MARK: - Phase 2: Extract Lab Values with AI
-    private func extractLabValuesWithAI(from text: String) async throws -> [ExtractedLabValue] {
+    private func extractLabValuesWithAI(from text: String, filterInvalid: Bool = true) async throws -> [ExtractedLabValue] {
         // Check if document is too large and needs chunking
         // Reduced from 15000 to 2000 to prevent OOM on iOS devices running local LLMs
-        let maxChunkSize = 2000 
+        let maxChunkSize = 2000
         let chunks = chunkDocument(text, maxChunkSize: maxChunkSize)
-        
+
         AppLog.shared.healthData("Document split into \(chunks.count) chunks for processing")
-        
+
         var allExtractedValues: [ExtractedLabValue] = []
-        
+
         // Process each chunk
         for (index, chunk) in chunks.enumerated() {
             AppLog.shared.healthData("Processing chunk \(index + 1)/\(chunks.count) (\(chunk.count) characters)")
-            
+
             let chunkValues = try await extractLabValuesFromChunk(chunk, chunkIndex: index, totalChunks: chunks.count)
             allExtractedValues.append(contentsOf: chunkValues)
         }
-        
-        // Filter out invalid values (non-numeric, out of range, etc.)
-        let validValues = BloodTestValueValidator.filterInvalidValues(
-            allExtractedValues,
-            standardParams: BloodTestResult.standardizedLabParameters
-        )
-        AppLog.shared.healthData("Filtered to \(validValues.count) valid values from \(allExtractedValues.count) extracted")
-        
+
+        // Optionally filter out invalid values (non-numeric, out of range, etc.)
+        let validValues: [ExtractedLabValue]
+        if filterInvalid {
+            validValues = BloodTestValueValidator.filterInvalidValues(
+                allExtractedValues,
+                standardParams: BloodTestResult.standardizedLabParameters
+            )
+            AppLog.shared.healthData("Filtered to \(validValues.count) valid values from \(allExtractedValues.count) extracted")
+        } else {
+            validValues = allExtractedValues
+        }
+
         // Deduplicate values (same test name and value)
         let deduplicatedValues = deduplicateLabValues(validValues)
         AppLog.shared.healthData("Extracted \(allExtractedValues.count) total values, \(deduplicatedValues.count) after deduplication and validation")
-        
+
         return deduplicatedValues
     }
     
@@ -631,177 +689,8 @@ class BloodTestMappingService: ObservableObject {
     }
 
     private func findStandardizedParameter(for testName: String, testType: String = "BLOOD") -> LabParameter? {
-        let normalizedTestName = testName.lowercased()
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "-", with: "_")
-            .replacingOccurrences(of: "(", with: "")
-            .replacingOccurrences(of: ")", with: "")
-        
-        // Determine which categories to search based on test type
-        let isUrineTest = testType.uppercased() == "URINE"
-        let urineCategories: Set<BloodTestCategory> = [.urinalysis, .urineChemistry, .urineMicrobiology]
-
-        // Direct key match
-        if let parameter = BloodTestResult.standardizedLabParameters[normalizedTestName] {
-            // Verify the parameter matches the test type
-            if isUrineTest && urineCategories.contains(parameter.category) {
-                return parameter
-            } else if !isUrineTest && !urineCategories.contains(parameter.category) {
-                return parameter
-            }
-            // If type mismatch, continue to fuzzy matching
-        }
-
-        // Fuzzy matching for common variations
-        let testNameVariations = [
-            // Glucose variations
-            ("glucose", ["blood_sugar", "fasting_glucose", "random_glucose"]),
-            ("fasting_glucose", ["fasting_blood_glucose", "fbg", "fasting_glucose"]),
-            ("random_glucose", ["random_blood_glucose", "rbg", "random_glucose"]),
-            ("glucose_tolerance_test_2hr", ["2_hour_glucose", "gtt_2hr", "glucose_tolerance_2hr"]),
-            // Hemoglobin variations
-            ("hemoglobin", ["hgb", "hb", "hemoglobin_concentration"]),
-            ("hemoglobin_a1c", ["hba1c", "a1c", "glycated_hemoglobin", "hemoglobin_a1c_", "hba1c"]),
-            // Cholesterol variations
-            ("cholesterol_total", ["total_cholesterol", "cholesterol", "chol_total", "chol"]),
-            ("ldl_cholesterol", ["ldl", "ldl_chol", "low_density_lipoprotein", "ldl_c"]),
-            ("hdl_cholesterol", ["hdl", "hdl_chol", "high_density_lipoprotein", "hdl_c"]),
-            ("non_hdl_cholesterol", ["non_hdl", "non_hdl_c", "non_high_density_lipoprotein"]),
-            ("apolipoprotein_b", ["apob", "apolipoprotein_b", "apo_b"]),
-            ("lipoprotein_a", ["lpa", "lipoprotein_a", "lp_a"]),
-            // Liver function variations
-            ("alt_sgpt", ["alt", "sgpt", "alanine_aminotransferase"]),
-            ("ast_sgot", ["ast", "sgot", "aspartate_aminotransferase"]),
-            ("alp", ["alkaline_phosphatase", "alk_phos"]),
-            ("ggt", ["gamma_glutamyl_transferase", "gamma_gt", "ggtp"]),
-            ("ldh", ["lactate_dehydrogenase", "ld"]),
-            ("lactate_dehydrogenase", ["ldh", "ld", "lactate_dehydrogenase"]),
-            // Kidney function variations
-            ("creatinine", ["creat", "serum_creatinine", "cr"]),
-            ("bun", ["blood_urea_nitrogen", "urea_nitrogen", "urea"]),
-            ("egfr", ["estimated_gfr", "gfr", "egfr_estimated"]),
-            ("cystatin_c", ["cys_c", "cystatin_c"]),
-            ("bun_creatinine_ratio", ["bun_cr_ratio", "bun_creat_ratio"]),
-            // Complete Blood Count variations
-            ("wbc", ["white_blood_cell_count", "white_blood_cells", "leukocytes", "wbc_count"]),
-            ("rbc", ["red_blood_cell_count", "red_blood_cells", "erythrocytes", "rbc_count"]),
-            ("platelet_count", ["platelets", "plt", "platelet", "platelet_count"]),
-            ("mcv", ["mean_corpuscular_volume"]),
-            ("mch", ["mean_corpuscular_hemoglobin"]),
-            ("mchc", ["mean_corpuscular_hemoglobin_concentration", "mean_cell_hemoglobin_concentration"]),
-            ("rdw", ["red_cell_distribution_width", "rdw_cv"]),
-            ("mpv", ["mean_platelet_volume"]),
-            ("absolute_neutrophils", ["abs_neutrophils", "neutrophil_count", "neutrophils_abs"]),
-            ("absolute_lymphocytes", ["abs_lymphocytes", "lymphocyte_count", "lymphocytes_abs"]),
-            ("absolute_monocytes", ["abs_monocytes", "monocyte_count", "monocytes_abs"]),
-            ("absolute_eosinophils", ["abs_eosinophils", "eosinophil_count", "eosinophils_abs"]),
-            ("absolute_basophils", ["abs_basophils", "basophil_count", "basophils_abs"]),
-            // Thyroid variations
-            ("tsh", ["thyroid_stimulating_hormone", "thyrotropin"]),
-            ("free_t4", ["ft4", "free_thyroxine", "t4_free"]),
-            ("free_t3", ["ft3", "free_triiodothyronine", "t3_free"]),
-            ("total_t4", ["t4", "total_thyroxine", "thyroxine"]),
-            ("total_t3", ["t3", "total_triiodothyronine", "triiodothyronine"]),
-            ("reverse_t3", ["rt3", "reverse_triiodothyronine"]),
-            ("thyroid_peroxidase_antibodies", ["tpo_ab", "tpo_antibodies", "anti_tpo"]),
-            ("thyroglobulin_antibody", ["tg_ab", "thyroglobulin_ab", "anti_tg"]),
-            // Diabetes markers
-            ("insulin", ["serum_insulin", "insulin_level"]),
-            ("c_peptide", ["cpeptide", "c_peptide", "connecting_peptide"]),
-            // Cardiac markers
-            ("troponin_i", ["trop_i", "troponin_i", "ctni"]),
-            ("troponin_t", ["trop_t", "troponin_t", "ctnt"]),
-            ("bnp", ["b_type_natriuretic_peptide", "bnp_level"]),
-            ("nt_pro_bnp", ["nt_probnp", "ntprobnp", "n_terminal_pro_bnp"]),
-            ("ck_mb", ["ckmb", "creatine_kinase_mb", "ck_mb"]),
-            ("homocysteine", ["hcy", "homocysteine_level"]),
-            // Inflammatory markers
-            ("crp_c_reactive_protein", ["crp", "c_reactive_protein", "reactive_protein"]),
-            ("hs_crp", ["high_sensitivity_crp", "hs_c_reactive_protein", "hs_crp"]),
-            ("esr", ["erythrocyte_sedimentation_rate", "sed_rate"]),
-            // Coagulation
-            ("pt", ["prothrombin_time", "pro_time"]),
-            ("ptt", ["partial_thromboplastin_time", "aptt", "ptt"]),
-            ("aptt", ["activated_partial_thromboplastin_time", "aptt"]),
-            ("inr", ["international_normalized_ratio"]),
-            ("d_dimer", ["ddimer", "d_dimer"]),
-            ("fibrinogen", ["fibrinogen_level"]),
-            // Vitamins and minerals
-            ("vitamin_d", ["25_oh_vitamin_d", "25_hydroxyvitamin_d", "vit_d", "25ohd"]),
-            ("vitamin_b12", ["b12", "cobalamin", "vitamin_b_12"]),
-            ("folate", ["folic_acid", "vitamin_b9"]),
-            ("iron", ["serum_iron", "fe"]),
-            ("ferritin", ["ferritin_level"]),
-            ("tibc", ["total_iron_binding_capacity", "tibc"]),
-            ("percent_saturation", ["iron_saturation", "tsat", "transferrin_saturation"]),
-            // Hormones
-            ("testosterone", ["test", "total_testosterone"]),
-            ("estradiol", ["e2", "estradiol_level"]),
-            ("cortisol", ["cortisol_level"]),
-            ("parathyroid_hormone", ["pth", "parathyroid_hormone"]),
-            ("progesterone", ["prog", "progesterone_level"]),
-            ("prolactin", ["prl", "prolactin_level"]),
-            ("lh", ["luteinizing_hormone", "lh_level"]),
-            ("fsh", ["follicle_stimulating_hormone", "fsh_level"]),
-            ("gh", ["growth_hormone", "hgh", "somatotropin"]),
-            ("igf1", ["igf_1", "insulin_like_growth_factor_1", "somatomedin_c"]),
-            // Tumor markers
-            ("psa", ["prostate_specific_antigen", "total_psa"]),
-            ("cea", ["carcinoembryonic_antigen"]),
-            ("ca125", ["ca_125", "cancer_antigen_125"]),
-            ("ca199", ["ca_19_9", "cancer_antigen_19_9"]),
-            ("afp", ["alpha_fetoprotein", "alpha_feto_protein"])
-        ]
-
-        for (standardKey, variations) in testNameVariations {
-            if variations.contains(where: { normalizedTestName.contains($0) || $0.contains(normalizedTestName) }) {
-                if let parameter = BloodTestResult.standardizedLabParameters[standardKey] {
-                    // Verify the parameter matches the test type
-                    if isUrineTest && urineCategories.contains(parameter.category) {
-                        return parameter
-                    } else if !isUrineTest && !urineCategories.contains(parameter.category) {
-                        return parameter
-                    }
-                    // If type mismatch, continue searching
-                }
-            }
-        }
-        
-        // Add urine test variations for fuzzy matching
-        let urineTestVariations: [(String, [String])] = [
-            ("urine_protein", ["protein", "urine_protein", "urine_prot", "protein_urine"]),
-            ("urine_glucose", ["glucose_urine", "urine_glucose", "glucose_ua"]),
-            ("urine_ph", ["ph_urine", "urine_ph", "ph_ua", "urine_p_h"]),
-            ("urine_specific_gravity", ["specific_gravity", "urine_sg", "sg_urine", "sp_gr"]),
-            ("urine_wbc", ["wbc_urine", "urine_wbc", "white_blood_cells_urine", "leukocytes_urine"]),
-            ("urine_rbc", ["rbc_urine", "urine_rbc", "red_blood_cells_urine", "erythrocytes_urine"]),
-            ("urine_creatinine", ["creatinine_urine", "urine_creatinine", "urine_creat"]),
-            ("urine_microalbumin", ["microalbumin", "urine_microalbumin", "urine_albumin_quantitative"]),
-            ("urine_albumin_creatinine_ratio", ["acr", "albumin_creatinine_ratio", "urine_acr", "urine_albumin_creat_ratio"])
-        ]
-        
-        // Try urine test variations if this is a urine test
-        if isUrineTest {
-            for (key, variations) in urineTestVariations {
-                if variations.contains(where: { normalizedTestName.contains($0) || $0.contains(normalizedTestName) }) {
-                    if let parameter = BloodTestResult.standardizedLabParameters[key] {
-                        return parameter
-                    }
-                }
-            }
-        }
-
-        // Partial matching - filter by test type
-        for (key, parameter) in BloodTestResult.standardizedLabParameters {
-            // Only match if the category matches the test type
-            let categoryMatches = isUrineTest ? urineCategories.contains(parameter.category) : !urineCategories.contains(parameter.category)
-            
-            if categoryMatches && (normalizedTestName.contains(key) || key.contains(normalizedTestName)) {
-                return parameter
-            }
-        }
-
-        return nil
+        let labTestType: BloodTestResult.LabTestType = testType.uppercased() == "URINE" ? .urine : .blood
+        return BloodTestResult.matchLabParameter(name: testName, testType: labTestType)?.parameter
     }
 
     private func calculateMappingConfidence(original: String, standard: String) -> Double {

@@ -21,14 +21,15 @@ class DocumentProcessor: ObservableObject {
     @Published var lastProcessedDocument: MedicalDocument?
     @Published var processingErrors: [ProcessingError] = []
     @Published var pendingImportReview: PendingImportReview?
+    /// Set when an import completed silently (all values auto-accepted) — drives the confirmation banner
+    @Published var lastAutoImportSummary: AutoImportSummary?
+
+    /// Documents the user explicitly asked to re-extract with cloud vision,
+    /// overriding the global toggle for one run
+    var forceCloudVisionDocumentIds: Set<UUID> = []
     
     // MARK: - Dependencies
     private let settingsManager = SettingsManager.shared
-    
-    // Get the current DoclingClient from SettingsManager (always uses latest config)
-    private var doclingClient: DoclingClient {
-        return settingsManager.getDoclingClient()
-    }
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
     private let healthDataManager: HealthDataManager
@@ -204,27 +205,15 @@ class DocumentProcessor: ObservableObject {
 
             do {
                 let extractor = MedicalDocumentExtractor()
-                let aiClient = settingsManager.getAIClient()
-                let extractionResult: MedicalDocumentExtractor.ExtractionResult
+                let aiClient = await getAIClientForDocument(currentItem.document)
 
-                if let rawDoclingOutput = result.rawDoclingOutput {
-                    // Docling path: parse structured JSON output
-                    AppLog.shared.documents("Medical extraction path: Docling JSON (\(rawDoclingOutput.count) bytes)")
-                    extractionResult = try await extractor.extractMedicalInformation(
-                        from: rawDoclingOutput,
-                        fileName: currentItem.document.fileName,
-                        aiClient: aiClient
-                    )
-                } else {
-                    // On-device path: extract from plain text (PDFKit/Vision output)
-                    AppLog.shared.documents("Medical extraction path: on-device plain text (\(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%)")
-                    extractionResult = try await extractor.extractFromText(
-                        text: result.extractedText,
-                        fileName: currentItem.document.fileName,
-                        aiClient: aiClient,
-                        extractionConfidence: result.confidence
-                    )
-                }
+                AppLog.shared.documents("Medical extraction: on-device plain text (\(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%)")
+                let extractionResult = try await extractor.extractFromText(
+                    text: result.extractedText,
+                    fileName: currentItem.document.fileName,
+                    aiClient: aiClient,
+                    extractionConfidence: result.confidence
+                )
 
                 // Use document category from existing document if set, otherwise use extracted category
                 let finalCategory = currentItem.document.documentCategory != .other
@@ -248,7 +237,7 @@ class DocumentProcessor: ObservableObject {
                     providerType: extractionResult.providerType,
                     documentCategory: finalCategory,
                     extractedText: extractedText.isEmpty ? nil : extractedText,
-                    rawDoclingOutput: result.rawDoclingOutput, // nil for on-device path
+                    rawDoclingOutput: nil,
                     extractedSections: extractionResult.extractedSections,
                     includeInAIContext: false, // User must explicitly enable
                     contextPriority: 3,
@@ -292,7 +281,7 @@ class DocumentProcessor: ObservableObject {
                         providerType: nil,
                         documentCategory: finalCategory,
                         extractedText: cleanedText.isEmpty ? nil : cleanedText,
-                        rawDoclingOutput: result.rawDoclingOutput,
+                        rawDoclingOutput: nil,
                         extractedSections: [],
                         includeInAIContext: false,
                         contextPriority: 3,
@@ -415,10 +404,7 @@ class DocumentProcessor: ObservableObject {
     }
     
     private func processDocument(_ document: MedicalDocument) async throws -> ProcessedDocumentResult {
-        let processingMode = settingsManager.modelPreferences.documentProcessingMode
-        AppLog.shared.documents("Document processing mode: \(processingMode.displayName) for '\(document.fileName)'")
-
-        // Resolve file path (shared between both paths)
+        // Resolve file path
         let finalFilePath = try await resolveDocumentFilePath(document)
 
         // Read document data using proper decryption
@@ -430,12 +416,7 @@ class DocumentProcessor: ObservableObject {
             throw DocumentProcessingError.fileReadError
         }
 
-        switch processingMode {
-        case .onDevice:
-            return try await processDocumentOnDevice(document: document, data: documentData, filePath: finalFilePath)
-        case .docling:
-            return try await processDocumentWithDocling(document: document, data: documentData)
-        }
+        return try await processDocumentOnDevice(document: document, data: documentData, filePath: finalFilePath)
     }
 
     // MARK: - File Path Resolution
@@ -522,69 +503,11 @@ class DocumentProcessor: ObservableObject {
             confidence: extractionResult.confidence,
             processingTime: processingTime,
             metadata: metadata,
-            rawDoclingOutput: nil // No Docling output for on-device path
+            pages: extractionResult.perPageText
         )
     }
 
-    // MARK: - Docling Server Processing (Original Path)
-    private func processDocumentWithDocling(document: MedicalDocument, data: Data) async throws -> ProcessedDocumentResult {
-        AppLog.shared.documents("DOCLING SERVER processing started for '\(document.fileName)' (\(document.fileType.rawValue), \(data.count) bytes)")
 
-        // Debug: Check data integrity
-        let firstBytes = data.prefix(20)
-        let hexString = firstBytes.map { String(format: "%02x", $0) }.joined(separator: " ")
-        AppLog.shared.documents("First 20 bytes (hex): \(hexString)", level: .debug)
-
-        let isAllZeros = data.allSatisfy { $0 == 0 }
-        AppLog.shared.documents("Is data all zeros? \(isAllZeros)", level: .debug)
-
-        // Configure processing options
-        let options = ProcessingOptions(
-            extractText: true,
-            extractStructuredData: true,
-            extractImages: false,
-            ocrEnabled: true,
-            language: "en",
-            bloodTestExtractionHints: BloodTestResult.bloodTestExtractionHint,
-            targetedLabKeys: Array(BloodTestResult.standardizedLabParameters.keys).sorted()
-        )
-        AppLog.shared.documents("Processing options configured for \(document.fileType.displayName)")
-
-        // Check Docling client connection
-        AppLog.shared.documents("Checking Docling client connection...")
-        AppLog.shared.documents("Docling client URL: \(doclingClient.baseURL)")
-
-        if !doclingClient.isConnected {
-            AppLog.shared.documents("Docling client not connected", level: .warning)
-            AppLog.shared.documents("Attempting to test connection...")
-
-            do {
-                let isConnected = try await doclingClient.testConnection()
-                AppLog.shared.documents("Connection test result: \(isConnected)")
-                if !isConnected {
-                    AppLog.shared.documents("Connection test failed", level: .error)
-                    throw DocumentProcessingError.doclingNotConnected
-                }
-            } catch {
-                AppLog.shared.error("Connection test threw error", error: error, category: .documents)
-                throw DocumentProcessingError.doclingNotConnected
-            }
-        }
-        AppLog.shared.documents("Docling client is connected")
-
-        // Process with Docling
-        AppLog.shared.documents("Sending document to Docling for processing...")
-
-        let result = try await doclingClient.processDocument(
-            data,
-            type: document.fileType,
-            options: options
-        )
-        AppLog.shared.documents("Docling processing completed successfully")
-
-        return result
-    }
-    
     private func extractHealthData(from result: ProcessedDocumentResult, document: MedicalDocument) async throws -> [AnyHealthData] {
         var extractedData: [AnyHealthData] = []
 
@@ -603,12 +526,13 @@ class DocumentProcessor: ObservableObject {
         // Only extract blood tests for lab reports (or uncategorized documents for backward compatibility)
         let isLabReport = document.documentCategory == .labReport || document.documentCategory == .other
 
-        // Primary approach: Use full document text for AI-powered blood test extraction (only for lab reports)
+        // Primary approach: multi-pass extraction (deterministic parser + AI) for lab reports
         if isLabReport && !result.extractedText.isEmpty {
             AppLog.shared.documents("Attempting blood test extraction from full document text (lab report)")
             do {
                 let bloodTest = try await createBloodTestResultFromText(
                     documentText: result.extractedText,
+                    pages: result.pages,
                     extractedItems: labOnlyItems, // Lab-only items as safe fallback if AI text mapping fails
                     document: document
                 )
@@ -701,82 +625,215 @@ class DocumentProcessor: ObservableObject {
         return personalInfo
     }
     
-    // MARK: - Enhanced Blood Test Creation with Full Document Text
+    // MARK: - Multi-Pass Blood Test Extraction (deterministic parser + LLM + reconciler)
+    /// Orchestrates lab value extraction:
+    /// 1. Deterministic registry-anchored parse of OCR geometry/tables/plain text
+    /// 2. LLM extraction pass (best-effort — deterministic results survive AI failures)
+    /// 3. Reconciliation: cross-pass agreement merges; the auto-accept rule partitions
+    ///    results into silently-imported values and user-review items.
     private func createBloodTestResultFromText(
         documentText: String,
+        pages: [NativeDocumentExtractor.PageText]?,
         extractedItems: [HealthDataItem],
         document: MedicalDocument
     ) async throws -> BloodTestResult {
-        AppLog.shared.documents("Creating blood test result using enhanced AI-powered mapping...")
-        AppLog.shared.documents("Full document text length: \(documentText.count) characters")
+        AppLog.shared.documents("Multi-pass blood test extraction — text: \(documentText.count) chars, pages: \(pages?.count ?? 0)")
 
-        // Use the full document text for AI analysis
+        // Pass 1: Deterministic parser (registry-anchored, no LLM)
+        let parser = LabReportParser()
+        var candidates: [LabValueCandidate]
+        if let pages, !pages.isEmpty {
+            candidates = parser.parse(pages: pages)
+        } else {
+            candidates = parser.parse(plainText: documentText)
+        }
+        let deterministicCount = candidates.count
+        AppLog.shared.documents("Deterministic pass found \(deterministicCount) candidates")
+
+        // Pass 2: LLM extraction (best-effort)
+        let aiClient = await getAIClientForDocument(document)
+        var basicInfo: BasicTestInfo?
+        var llmCount = 0
         do {
-            // Use the AI-powered mapping service with full document content
-            let aiClient = await getAIClientForDocument(document)
             let mappingService = BloodTestMappingService(aiClient: aiClient)
+            let source: CandidateSource = aiClient is MLXOnDeviceClient ? .onDeviceLLM : .cloudText
+            let llmResult = try await mappingService.extractCandidates(from: documentText, source: source)
+            candidates.append(contentsOf: llmResult.candidates)
+            basicInfo = llmResult.basicInfo
+            llmCount = llmResult.candidates.count
+            AppLog.shared.documents("LLM pass found \(llmCount) candidates")
+        } catch {
+            AppLog.shared.error("LLM extraction pass failed — continuing with deterministic results only", error: error, category: .documents)
+        }
 
-            // Extract suggested test date from document
-            let suggestedTestDate = extractTestDate(from: document.fileName) ?? document.importedAt
+        // Pass 2b: Vision extraction (never fails the document).
+        // On-device VLM runs automatically — nothing leaves the device.
+        // Cloud vision requires the explicit opt-in toggle or a per-document override.
+        let isOnDeviceVision = aiClient is MLXOnDeviceClient
+        let visionAllowed = isOnDeviceVision
+            || settingsManager.modelPreferences.cloudVisionExtractionEnabled
+            || forceCloudVisionDocumentIds.contains(document.id)
+        let cloudVisionExplicitlyRequested = !isOnDeviceVision && visionAllowed
 
-            AppLog.shared.documents("Using test date: \(suggestedTestDate.formatted())")
-
-            // Perform AI mapping with full document text
-            let mappingResult = try await mappingService.mapDocumentToBloodTest(
-                documentText,
-                suggestedTestDate: suggestedTestDate,
-                patientName: nil as String? // Could be extracted from document metadata if available
-            )
-
-            AppLog.shared.documents("Enhanced AI mapping completed with \(mappingResult.confidence)% confidence")
-            AppLog.shared.documents("Mapped \(mappingResult.bloodTestResult.results.count) lab values")
-            
-            // Force review for ALL imports (Pessimistic Mode)
-            var finalBloodTest = mappingResult.bloodTestResult
-            if mappingResult.needsReview {
-                AppLog.shared.documents("Found \(mappingResult.importGroups.count) groups requiring review", level: .warning)
-                
-                // Store groups for UI review - don't save yet, wait for user selection
-                let pendingReview = PendingImportReview(
-                    documentId: document.id,
-                    documentName: document.fileName,
-                    importGroups: mappingResult.importGroups,
-                    bloodTestResult: finalBloodTest
+        if visionAllowed,
+           let visionClient = aiClient as? VisionDocumentExtractor,
+           visionClient.supportsVisionExtraction {
+            let source: CandidateSource = isOnDeviceVision ? .onDeviceVision : .cloudVision
+            let visionResult = await runVisionPass(for: document, using: visionClient, source: source)
+            candidates.append(contentsOf: visionResult.candidates)
+            if basicInfo?.testDate == nil, let visionDate = visionResult.documentDate {
+                basicInfo = BasicTestInfo(
+                    testDate: visionDate,
+                    laboratoryName: basicInfo?.laboratoryName ?? visionResult.laboratoryName,
+                    orderingPhysician: basicInfo?.orderingPhysician ?? visionResult.orderingPhysician,
+                    patientName: nil
                 )
-                
-                // Set pending review on main thread so UI can observe it
-                await MainActor.run {
-                    self.pendingImportReview = pendingReview
-                }
-                
-                AppLog.shared.documents("Set pending import review - UI should show review sheet")
-                
-                // Add metadata indicating review needed
-                var enhancedMetadata = finalBloodTest.metadata ?? [:]
-                enhancedMetadata["needs_review"] = "true"
-                enhancedMetadata["import_groups_count"] = String(mappingResult.importGroups.count)
-                enhancedMetadata["pending_review"] = "true"
-                finalBloodTest.metadata = enhancedMetadata
+            }
+        } else if cloudVisionExplicitlyRequested {
+            AppLog.shared.documents("Cloud vision requested but the extraction provider/model does not support image input", level: .warning)
+        }
+        forceCloudVisionDocumentIds.remove(document.id)
+
+        guard !candidates.isEmpty else {
+            AppLog.shared.documents("No candidates from any pass, falling back to item-based mapping", level: .warning)
+            return try await createBloodTestResultFromItems(from: extractedItems, document: document)
+        }
+
+        // Pass 3: Reconcile — merge cross-pass agreement, apply the auto-accept rule
+        let reconciled = LabCandidateReconciler.reconcile(candidates)
+
+        let testDate = basicInfo?.testDate
+            ?? extractTestDate(from: document.fileName)
+            ?? document.importedAt
+
+        var metadata: [String: String] = [
+            "source_document_id": document.id.uuidString,
+            "document_filename": document.fileName,
+            "processing_method": "multi_pass_reconciliation",
+            "document_text_length": String(documentText.count),
+            "deterministic_candidates": String(deterministicCount),
+            "llm_candidates": String(llmCount),
+            "auto_accepted_keys": reconciled.autoAccepted.map { $0.standardKey }.joined(separator: ",")
+        ]
+
+        var bloodTest = BloodTestResult(
+            testDate: testDate,
+            laboratoryName: basicInfo?.laboratoryName ?? extractLaboratoryName(from: document.fileName),
+            orderingPhysician: basicInfo?.orderingPhysician,
+            results: bloodTestItems(from: reconciled.autoAccepted),
+            metadata: metadata
+        )
+
+        if reconciled.needsReview.isEmpty {
+            // Everything auto-accepted — no pending_review flag, so
+            // linkExtractedDataToDocument saves it directly. Publish the summary
+            // so the UI can show an "Imported N values — View | Undo" banner.
+            AppLog.shared.documents("All \(reconciled.autoAccepted.count) values auto-accepted — importing silently")
+            lastAutoImportSummary = AutoImportSummary(
+                documentId: document.id,
+                documentName: document.fileName,
+                bloodTestId: bloodTest.id,
+                importedCount: bloodTest.results.count
+            )
+        } else {
+            AppLog.shared.documents("\(reconciled.needsReview.count) groups need review (\(reconciled.autoAccepted.count) auto-accepted) — showing review sheet", level: .warning)
+
+            metadata["pending_review"] = "true"
+            metadata["needs_review"] = "true"
+            metadata["import_groups_count"] = String(reconciled.needsReview.count)
+            bloodTest.metadata = metadata
+
+            pendingImportReview = PendingImportReview(
+                documentId: document.id,
+                documentName: document.fileName,
+                importGroups: reconciled.needsReview,
+                autoAcceptedGroups: reconciled.autoAccepted,
+                bloodTestResult: bloodTest
+            )
+        }
+
+        return bloodTest
+    }
+
+    // MARK: - Vision Pass
+    /// Rasterize the document and run the vision-model extraction in batches —
+    /// up to 8 pages per call for cloud models, one page at a time for the
+    /// on-device VLM (memory-bounded). Any failure degrades to the other passes.
+    private func runVisionPass(
+        for document: MedicalDocument,
+        using visionClient: VisionDocumentExtractor,
+        source: CandidateSource
+    ) async -> CloudVisionLabExtraction.Result {
+        var merged = CloudVisionLabExtraction.Result(candidates: [], documentDate: nil, laboratoryName: nil, orderingPhysician: nil)
+
+        do {
+            let filePath = try await resolveDocumentFilePath(document)
+            let data = try fileSystemManager.retrieveDocument(from: filePath)
+            let extractor = NativeDocumentExtractor()
+            var pageImages = try extractor.renderPageImages(from: data, fileType: document.fileType)
+            guard !pageImages.isEmpty else {
+                AppLog.shared.documents("Vision pass: no page images rendered", level: .warning)
+                return merged
             }
 
-            // Add comprehensive metadata
-            var enhancedMetadata = finalBloodTest.metadata ?? [:]
-            enhancedMetadata["source_document_id"] = document.id.uuidString
-            enhancedMetadata["document_filename"] = document.fileName
-            enhancedMetadata["processing_method"] = "enhanced_ai_mapping"
-            enhancedMetadata["document_text_length"] = String(documentText.count)
-            enhancedMetadata["extracted_items_count"] = String(extractedItems.count)
+            // The on-device VLM is slow per page — cap total pages
+            let maxOnDevicePages = 6
+            if source == .onDeviceVision && pageImages.count > maxOnDevicePages {
+                AppLog.shared.documents("Vision pass: limiting on-device VLM to first \(maxOnDevicePages) of \(pageImages.count) pages", level: .warning)
+                pageImages = Array(pageImages.prefix(maxOnDevicePages))
+            }
 
-            // Create enhanced blood test result
-            finalBloodTest.metadata = enhancedMetadata
+            AppLog.shared.documents("Vision pass (\(source.rawValue)): sending \(pageImages.count) page(s) to vision model")
 
-            return finalBloodTest
+            let batchSize = source == .onDeviceVision ? 1 : 8
+            for batchStart in stride(from: 0, to: pageImages.count, by: batchSize) {
+                let batch = Array(pageImages[batchStart..<min(batchStart + batchSize, pageImages.count)])
+                let batchPrompt = pageImages.count > batchSize
+                    ? CloudVisionLabExtraction.schemaPrompt + "\n\nThese images are pages \(batch.first?.pageNumber ?? 0)–\(batch.last?.pageNumber ?? 0) of the document."
+                    : CloudVisionLabExtraction.schemaPrompt
 
+                do {
+                    let response = try await visionClient.extractFromDocument(
+                        pages: batch,
+                        ocrText: "",
+                        schemaPrompt: batchPrompt
+                    )
+                    let batchResult = CloudVisionLabExtraction.parse(response, source: source)
+                    merged.candidates.append(contentsOf: batchResult.candidates)
+                    if merged.documentDate == nil { merged.documentDate = batchResult.documentDate }
+                    if merged.laboratoryName == nil { merged.laboratoryName = batchResult.laboratoryName }
+                    if merged.orderingPhysician == nil { merged.orderingPhysician = batchResult.orderingPhysician }
+                } catch {
+                    AppLog.shared.error("Vision batch failed (pages \(batch.first?.pageNumber ?? 0)+) — continuing", error: error, category: .documents)
+                }
+            }
+
+            AppLog.shared.documents("Vision pass found \(merged.candidates.count) candidates")
         } catch {
-            AppLog.shared.error("Enhanced AI mapping failed, trying fallback with extracted items", error: error, category: .documents)
+            AppLog.shared.error("Vision pass failed — degrading to remaining passes", error: error, category: .documents)
+        }
 
-            // Fallback to extracted items if full text analysis fails
-            return try await createBloodTestResultFromItems(from: extractedItems, document: document)
+        return merged
+    }
+
+    /// Build BloodTestItems from groups whose selected candidate is decided.
+    private func bloodTestItems(from groups: [BloodTestImportGroup]) -> [BloodTestItem] {
+        groups.compactMap { group in
+            guard let selectedId = group.selectedCandidateId,
+                  let candidate = group.candidates.first(where: { $0.id == selectedId }),
+                  let parameter = BloodTestResult.standardizedLabParameters[group.standardKey] else {
+                return nil
+            }
+            return BloodTestItem(
+                name: parameter.name,
+                value: candidate.value,
+                unit: candidate.unit ?? parameter.unit,
+                referenceRange: candidate.referenceRange ?? parameter.referenceRange,
+                isAbnormal: candidate.isAbnormal,
+                category: parameter.category,
+                notes: candidate.originalTestName != parameter.name ? "Original name: \(candidate.originalTestName)" : nil,
+                confidence: candidate.confidence
+            )
         }
     }
 
@@ -1334,21 +1391,43 @@ struct PendingImportReview: Identifiable, Equatable {
     let id = UUID()
     let documentId: UUID
     let documentName: String
+    /// Groups the user must decide on (multiple distinct values or failed validation)
     let importGroups: [BloodTestImportGroup]
+    /// Groups the reconciler auto-accepted — shown as an audit trail; the user can
+    /// demote one back into review
+    let autoAcceptedGroups: [BloodTestImportGroup]
     let bloodTestResult: BloodTestResult
     let timestamp: Date
-    
-    init(documentId: UUID, documentName: String, importGroups: [BloodTestImportGroup], bloodTestResult: BloodTestResult) {
+
+    init(
+        documentId: UUID,
+        documentName: String,
+        importGroups: [BloodTestImportGroup],
+        autoAcceptedGroups: [BloodTestImportGroup] = [],
+        bloodTestResult: BloodTestResult
+    ) {
         self.documentId = documentId
         self.documentName = documentName
         self.importGroups = importGroups
+        self.autoAcceptedGroups = autoAcceptedGroups
         self.bloodTestResult = bloodTestResult
         self.timestamp = Date()
     }
-    
+
     static func == (lhs: PendingImportReview, rhs: PendingImportReview) -> Bool {
         return lhs.id == rhs.id
     }
+}
+
+// MARK: - Auto Import Summary
+/// Published after a fully silent import (every extracted value auto-accepted),
+/// so the UI can confirm what happened and offer undo.
+struct AutoImportSummary: Identifiable, Equatable {
+    let id = UUID()
+    let documentId: UUID
+    let documentName: String
+    let bloodTestId: UUID
+    let importedCount: Int
 }
 
 // MARK: - Extensions for Parsing
@@ -1447,7 +1526,6 @@ extension DateFormatter {
 
 // MARK: - Document Processing Errors
 enum DocumentProcessingError: LocalizedError {
-    case doclingNotConnected
     case fileReadError
     case databasePermissionError
     case launchServicesError
@@ -1458,8 +1536,6 @@ enum DocumentProcessingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .doclingNotConnected:
-            return "Docling service is not connected. Please check your server connection."
         case .fileReadError:
             return "Failed to read document file. The file may be corrupted or inaccessible."
         case .databasePermissionError:
@@ -1479,8 +1555,6 @@ enum DocumentProcessingError: LocalizedError {
 
     var recoverySuggestion: String? {
         switch self {
-        case .doclingNotConnected:
-            return "Check if the Docling server is running and accessible"
         case .fileReadError:
             return "Try re-importing the document"
         case .databasePermissionError:
@@ -1494,7 +1568,7 @@ enum DocumentProcessingError: LocalizedError {
         case .documentNotFound:
             return "The file may have been moved or deleted. Try re-importing the document."
         case .nativeExtractionFailed:
-            return "Try switching to Docling server mode in Settings, or re-scan the document with better quality."
+            return "Re-scan the document with better lighting and focus, or import a higher-quality copy."
         }
     }
 }

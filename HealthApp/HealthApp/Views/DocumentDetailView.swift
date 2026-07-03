@@ -15,6 +15,7 @@ struct DocumentDetailView: View {
     @State private var showingTagEditor = false
     @State private var showingNotesEditor = false
     @State private var showingImportReview = false
+    @State private var showingCloudReextractConfirmation = false
     @State private var newTag = ""
     @State private var editedNotes = ""
 
@@ -119,6 +120,7 @@ struct DocumentDetailView: View {
                         get: { review.importGroups },
                         set: { _ in }
                     ),
+                    autoAcceptedGroups: review.autoAcceptedGroups,
                     onComplete: { selectedGroups in
                         Task {
                             await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
@@ -400,7 +402,47 @@ struct DocumentDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .frame(maxWidth: .infinity)
+
+                if cloudExtractionProviderConfigured {
+                    Button("Re-extract with Cloud AI") {
+                        showingCloudReextractConfirmation = true
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("Re-extract this document with cloud AI")
+                    .accessibilityHint("Sends images of this document's pages to your configured cloud AI provider for higher-fidelity extraction")
+                    .accessibilityIdentifier("reextractWithCloudAIButton")
+                    .confirmationDialog(
+                        "Send document images to cloud AI?",
+                        isPresented: $showingCloudReextractConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Send and Re-extract") {
+                            Task {
+                                documentProcessor.forceCloudVisionDocumentIds.insert(document.id)
+                                await documentProcessor.addToQueue(document, priority: .high)
+                            }
+                        }
+                        Button("Cancel", role: .cancel) { }
+                    } message: {
+                        Text("Images of this document's pages will be sent to your configured cloud AI provider (\(SettingsManager.shared.modelPreferences.extractionProvider.displayName)) for one extraction run. The provider can read the original pages directly, which usually catches values that on-device OCR missed.")
+                    }
+                }
             }
+        }
+    }
+
+    /// Cloud re-extraction is only offered when the extraction provider is a
+    /// cloud service whose configured model can accept images.
+    private var cloudExtractionProviderConfigured: Bool {
+        let preferences = SettingsManager.shared.modelPreferences
+        switch preferences.extractionProvider {
+        case .bedrock:
+            return true // Claude Sonnet on Bedrock supports image input
+        case .openAICompatible:
+            return preferences.openAIVisionCapable
+        case .onDeviceLLM:
+            return false
         }
     }
     
@@ -452,13 +494,20 @@ struct DocumentDetailView: View {
         }
         
         updatedBloodTest.results = updatedResults
-        
-        // Remove pending review flag
+
+        // Remove pending review flag; record the audit trail of what was
+        // auto-accepted vs user-reviewed
         var metadata = updatedBloodTest.metadata ?? [:]
         metadata.removeValue(forKey: "pending_review")
         metadata["import_review_completed"] = "true"
         metadata["reviewed_groups_count"] = String(selectedGroups.count)
         metadata["imported_items_count"] = String(updatedResults.count)
+        metadata["auto_accepted_keys"] = selectedGroups
+            .filter { $0.isAutoAccepted && $0.selectedCandidateId != nil }
+            .map { $0.standardKey }.joined(separator: ",")
+        metadata["reviewed_keys"] = selectedGroups
+            .filter { !$0.isAutoAccepted && $0.selectedCandidateId != nil }
+            .map { $0.standardKey }.joined(separator: ",")
         updatedBloodTest.metadata = metadata
         
         // Save the updated blood test

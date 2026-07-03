@@ -23,6 +23,11 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     // Default model to use when called via AIProviderInterface
     var currentModel: String?
 
+    /// User-declared flag: whether the configured server/model accepts image input.
+    /// Capability discovery is unreliable across OpenAI-compatible servers, so this
+    /// is driven by an explicit settings toggle.
+    var declaresVisionSupport: Bool = false
+
     // MARK: - Initialization
     init(baseURL: String, apiKey: String? = nil, timeout: TimeInterval = 300.0, defaultModel: String? = nil, temperature: Double = 0.1, maxTokens: Int = 2048, contextSize: Int = 32768) {
         guard let url = URL(string: baseURL) else {
@@ -198,6 +203,104 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     func updateDefaultModel(_ model: String?) {
         defaultModel = model
+    }
+
+    // MARK: - Vision Document Extraction
+
+    /// Send page images + OCR text as a multimodal chat completion.
+    /// Uses `response_format: json_object` when the server accepts it, and
+    /// retries once without it on a 4xx (many compatible servers don't support it).
+    func performVisionExtraction(
+        pages: [DocumentPageImage],
+        ocrText: String,
+        schemaPrompt: String
+    ) async throws -> String {
+        let messagesURL = baseURL.appendingPathComponent("/v1/chat/completions")
+
+        // Build multimodal content parts: page images followed by the instruction text
+        var contentParts: [[String: Any]] = []
+        for page in pages.prefix(20) {
+            contentParts.append(["type": "text", "text": "Page \(page.pageNumber):"])
+            contentParts.append([
+                "type": "image_url",
+                "image_url": ["url": "data:image/jpeg;base64,\(page.jpegData.base64EncodedString())"]
+            ])
+        }
+        let textPrompt = """
+        \(schemaPrompt)
+
+        For cross-checking, here is the on-device OCR text of the same document \
+        (it may contain OCR errors — trust the images over the OCR text when they disagree):
+
+        \(String(ocrText.prefix(30_000)))
+        """
+        contentParts.append(["type": "text", "text": textPrompt])
+
+        let messages: [[String: Any]] = [
+            [
+                "role": "system",
+                "content": "You are a precise medical laboratory data extraction engine. You respond with valid JSON only — no prose, no markdown fences."
+            ],
+            [
+                "role": "user",
+                "content": contentParts
+            ]
+        ]
+
+        func makeBody(includeResponseFormat: Bool) throws -> Data {
+            var requestBody: [String: Any] = [
+                "messages": messages,
+                "temperature": 0.0,
+                "max_tokens": maxTokens
+            ]
+            if let model = currentModel ?? defaultModel, !model.isEmpty {
+                requestBody["model"] = model
+            }
+            if includeResponseFormat {
+                requestBody["response_format"] = ["type": "json_object"]
+            }
+            return try JSONSerialization.data(withJSONObject: requestBody)
+        }
+
+        func send(_ body: Data) async throws -> (Data, HTTPURLResponse) {
+            var request = URLRequest(url: messagesURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let apiKey = apiKey, !apiKey.isEmpty {
+                request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
+            request.httpBody = body
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw OpenAICompatibleError.invalidResponse
+            }
+            return (data, httpResponse)
+        }
+
+        AppLog.shared.ai("Vision extraction request: \(pages.count) pages to \(messagesURL)")
+        var (data, httpResponse) = try await send(makeBody(includeResponseFormat: true))
+
+        if (400...499).contains(httpResponse.statusCode) {
+            // Server may not support response_format — retry once without it
+            AppLog.shared.ai("Vision extraction got \(httpResponse.statusCode), retrying without response_format", level: .warning)
+            (data, httpResponse) = try await send(makeBody(includeResponseFormat: false))
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        if let chatResponse = try? decoder.decode(OpenAIChatCompletionResponse.self, from: data),
+           let content = chatResponse.choices.first?.primaryContent {
+            return content
+        }
+        if let fallbackContent = try? parseFlexibleChatContent(from: data) {
+            return fallbackContent.content
+        }
+        throw OpenAICompatibleError.emptyResponse
     }
 
     // MARK: - Streaming Chat Completion
@@ -577,7 +680,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             supportedModels: models,
             maxTokens: 4096, // Common default
             supportsStreaming: true,
-            supportsImages: false, // Can be enabled if needed
+            supportsImages: declaresVisionSupport, // User-declared in settings
             supportsDocuments: false,
             supportedLanguages: ["en"]
         )
@@ -586,6 +689,21 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     func updateConfiguration(_ config: AIProviderConfig) async throws {
         // Configuration updates would require creating a new client instance
         throw OpenAICompatibleError.configurationUpdateNotSupported
+    }
+}
+
+// MARK: - Vision Document Extraction
+extension OpenAICompatibleClient: VisionDocumentExtractor {
+    var supportsVisionExtraction: Bool {
+        declaresVisionSupport
+    }
+
+    func extractFromDocument(
+        pages: [DocumentPageImage],
+        ocrText: String,
+        schemaPrompt: String
+    ) async throws -> String {
+        try await performVisionExtraction(pages: pages, ocrText: ocrText, schemaPrompt: schemaPrompt)
     }
 }
 

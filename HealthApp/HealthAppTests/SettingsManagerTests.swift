@@ -17,8 +17,6 @@ final class SettingsManagerTests: XCTestCase {
     }
 
     func testDefaultServerConfigurations() {
-        XCTAssertEqual(settingsManager.doclingConfig.hostname, "localhost")
-        XCTAssertEqual(settingsManager.doclingConfig.port, 5001)
         XCTAssertEqual(settingsManager.openAICompatibleBaseURL, "http://localhost:4000")
     }
 

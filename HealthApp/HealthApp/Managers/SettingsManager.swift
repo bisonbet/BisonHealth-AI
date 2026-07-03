@@ -95,40 +95,22 @@ enum AIProvider: String, CaseIterable {
     }
 }
 
-/// Controls how documents are converted to text before AI extraction
-enum DocumentProcessingMode: String, CaseIterable, Codable {
-    case onDevice = "on_device"
-    case docling = "docling"
-
-    var displayName: String {
-        switch self {
-        case .onDevice: return "On-Device (PDFKit + Vision)"
-        case .docling: return "Docling Server"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .onDevice:
-            return "Uses Apple's PDFKit and Vision framework for fully offline document processing. No server required."
-        case .docling:
-            return "Uses a Docling server for document conversion with advanced layout analysis. Requires network."
-        }
-    }
-}
-
 struct ModelPreferences: Equatable {
     var aiProvider: AIProvider = .onDeviceLLM
     var openAICompatibleModel: String = "" // Selected model for OpenAI-compatible servers
     var bedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue // Default AWS Bedrock model
 
-    // Document Processing Mode
-    var documentProcessingMode: DocumentProcessingMode = .onDevice
-
     // Extraction Settings (Independent of Chat)
     var extractionProvider: AIProvider = .onDeviceLLM
     var extractionOpenAIModel: String = ""
     var extractionBedrockModel: String = AWSBedrockModel.claudeSonnet45.rawValue
+
+    // Cloud Vision Extraction (opt-in: sends document page IMAGES to the cloud
+    // extraction provider for higher-fidelity lab extraction)
+    var cloudVisionExtractionEnabled: Bool = false
+    // User-declared: the configured OpenAI-compatible model accepts image input
+    var openAIVisionCapable: Bool = false
+
     var lastUpdated: Date = Date()
 }
 
@@ -175,13 +157,11 @@ class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
     // Server configurations
-    @Published var doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
     @Published var openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
     @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
     @Published var openAICompatibleContextSize: Int = 32768  // Default: 32k tokens
 
     // Connection statuses
-    @Published var doclingStatus: ConnectionStatus = .unknown
     @Published var openAICompatibleStatus: ConnectionStatus = .unknown
     
     // Backup settings
@@ -194,7 +174,6 @@ class SettingsManager: ObservableObject {
     @Published var modelPreferences = ModelPreferences()
 
     // Service clients (lazy loaded)
-    private var doclingClient: DoclingClient?
     private var openAICompatibleClient: OpenAICompatibleClient?
     private var mlxOnDeviceClient: MLXOnDeviceClient?
 
@@ -202,7 +181,6 @@ class SettingsManager: ObservableObject {
     private let keychain = Keychain()
 
     // Keychain keys for reinstall persistence
-    private let kcDoclingKey = "settings.doclingConfig.v1"
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
     
@@ -213,15 +191,6 @@ class SettingsManager: ObservableObject {
     // MARK: - Settings Persistence
 
     func loadSettings() {
-        // Load Docling configuration
-        if let doclingData = userDefaults.data(forKey: "doclingConfig"),
-           let decoded = try? JSONDecoder().decode(ServerConfiguration.self, from: doclingData) {
-            doclingConfig = decoded
-        } else if let kcData = try? keychain.retrieve(for: kcDoclingKey),
-                  let decoded = try? JSONDecoder().decode(ServerConfiguration.self, from: kcData) {
-            doclingConfig = decoded
-        }
-
         // Load OpenAI-compatible configuration
         if let storedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL"), !storedBaseURL.isEmpty {
             openAICompatibleBaseURL = storedBaseURL
@@ -260,12 +229,6 @@ class SettingsManager: ObservableObject {
     }
     
     func saveSettings() {
-        // Save Docling configuration
-        if let encoded = try? JSONEncoder().encode(doclingConfig) {
-            userDefaults.set(encoded, forKey: "doclingConfig")
-            _ = try? keychain.store(data: encoded, for: kcDoclingKey)
-        }
-
         // Save OpenAI-compatible configuration
         userDefaults.set(openAICompatibleBaseURL, forKey: "openAICompatibleBaseURL")
         if openAICompatibleAPIKey.isEmpty {
@@ -295,33 +258,7 @@ class SettingsManager: ObservableObject {
         userDefaults.synchronize()
     }
     
-    // MARK: - Connection Testing
-
-    func testDoclingConnection() async {
-        doclingStatus = .testing
-        
-        do {
-            let client = getDoclingClient()
-            let isConnected = try await client.testConnection()
-            doclingStatus = isConnected ? .connected : .failed("Service unavailable")
-        } catch {
-            doclingStatus = .failed(error.localizedDescription)
-        }
-    }
-    
-    func testAllConnections() async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.testDoclingConnection() }
-        }
-    }
-    
     // MARK: - Service Client Management
-
-    func getDoclingClient() -> DoclingClient {
-        // Always create new client to ensure we use the current configuration
-        doclingClient = DoclingClient(hostname: doclingConfig.hostname, port: doclingConfig.port)
-        return doclingClient!
-    }
 
     func getAIClient() -> any AIProviderInterface {
         switch modelPreferences.aiProvider {
@@ -364,6 +301,7 @@ class SettingsManager: ObservableObject {
             AppLog.shared.settings("Reusing existing OpenAICompatibleClient, updating model to: '\(modelPreferences.openAICompatibleModel)'")
             openAICompatibleClient?.updateDefaultModel(modelPreferences.openAICompatibleModel)
         }
+        openAICompatibleClient?.declaresVisionSupport = modelPreferences.openAIVisionCapable
         return openAICompatibleClient!
     }
 
@@ -394,7 +332,6 @@ class SettingsManager: ObservableObject {
 
     // Force recreation of clients when configuration changes
     func invalidateClients() {
-        doclingClient = nil
         openAICompatibleClient = nil
         mlxOnDeviceClient = nil
     }
@@ -564,8 +501,6 @@ class SettingsManager: ObservableObject {
     // MARK: - Settings Reset
     
     func resetServerSettings() {
-        doclingConfig = ServerConfigurationConstants.defaultDoclingConfig
-        doclingStatus = .unknown
         openAICompatibleBaseURL = ServerConfigurationConstants.defaultOpenAICompatibleBaseURL
         openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
         openAICompatibleContextSize = 32768  // Reset to 32k default
@@ -616,10 +551,11 @@ extension ModelPreferences: Codable {
         case aiProvider
         case openAICompatibleModel
         case bedrockModel
-        case documentProcessingMode
         case extractionProvider
         case extractionOpenAIModel
         case extractionBedrockModel
+        case cloudVisionExtractionEnabled
+        case openAIVisionCapable
         case lastUpdated
     }
 
@@ -627,17 +563,19 @@ extension ModelPreferences: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         // Decode with defaults for backwards compatibility
+        // (legacy persisted keys like documentProcessingMode are simply ignored)
         self.aiProvider = try container.decodeIfPresent(AIProvider.self, forKey: .aiProvider) ?? .onDeviceLLM
         self.openAICompatibleModel = try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? ""
         self.bedrockModel = try container.decodeIfPresent(String.self, forKey: .bedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
-
-        // Document Processing Mode (defaults to onDevice for new installs, backwards-compatible)
-        self.documentProcessingMode = try container.decodeIfPresent(DocumentProcessingMode.self, forKey: .documentProcessingMode) ?? .onDevice
 
         // Extraction Settings
         self.extractionProvider = try container.decodeIfPresent(AIProvider.self, forKey: .extractionProvider) ?? .onDeviceLLM
         self.extractionOpenAIModel = try container.decodeIfPresent(String.self, forKey: .extractionOpenAIModel) ?? ""
         self.extractionBedrockModel = try container.decodeIfPresent(String.self, forKey: .extractionBedrockModel) ?? AWSBedrockModel.claudeSonnet45.rawValue
+
+        // Cloud Vision Extraction (default off — explicit consent required)
+        self.cloudVisionExtractionEnabled = try container.decodeIfPresent(Bool.self, forKey: .cloudVisionExtractionEnabled) ?? false
+        self.openAIVisionCapable = try container.decodeIfPresent(Bool.self, forKey: .openAIVisionCapable) ?? false
 
         self.lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
     }
@@ -649,13 +587,14 @@ extension ModelPreferences: Codable {
         try container.encode(openAICompatibleModel, forKey: .openAICompatibleModel)
         try container.encode(bedrockModel, forKey: .bedrockModel)
 
-        // Document Processing Mode
-        try container.encode(documentProcessingMode, forKey: .documentProcessingMode)
-
         // Extraction Settings
         try container.encode(extractionProvider, forKey: .extractionProvider)
         try container.encode(extractionOpenAIModel, forKey: .extractionOpenAIModel)
         try container.encode(extractionBedrockModel, forKey: .extractionBedrockModel)
+
+        // Cloud Vision Extraction
+        try container.encode(cloudVisionExtractionEnabled, forKey: .cloudVisionExtractionEnabled)
+        try container.encode(openAIVisionCapable, forKey: .openAIVisionCapable)
 
         try container.encode(lastUpdated, forKey: .lastUpdated)
     }
