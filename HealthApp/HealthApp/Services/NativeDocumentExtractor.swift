@@ -42,6 +42,31 @@ class NativeDocumentExtractor {
         var tables: [RecognizedTable]? = nil
     }
 
+    /// Lazily renders document pages for vision-model extraction. The source
+    /// keeps only the document handle/data in memory; callers request one page
+    /// image at a time and can release each JPEG before rendering the next page.
+    struct PageImageSource {
+        let totalPageCount: Int
+        let renderedPageCount: Int
+
+        private let renderer: (Int) throws -> DocumentPageImage?
+
+        init(
+            totalPageCount: Int,
+            renderedPageCount: Int,
+            renderer: @escaping (Int) throws -> DocumentPageImage?
+        ) {
+            self.totalPageCount = totalPageCount
+            self.renderedPageCount = renderedPageCount
+            self.renderer = renderer
+        }
+
+        func image(atPageIndex pageIndex: Int) throws -> DocumentPageImage? {
+            guard pageIndex >= 0 && pageIndex < renderedPageCount else { return nil }
+            return try renderer(pageIndex)
+        }
+    }
+
     struct TextObservation {
         let text: String
         let confidence: Float
@@ -598,30 +623,56 @@ class NativeDocumentExtractor {
         fileType: DocumentType,
         maxLongEdge: CGFloat = 1568
     ) throws -> [DocumentPageImage] {
+        let source = try makePageImageSource(
+            from: data,
+            fileType: fileType,
+            maxLongEdge: maxLongEdge
+        )
+        var images: [DocumentPageImage] = []
+        images.reserveCapacity(source.renderedPageCount)
+        for pageIndex in 0..<source.renderedPageCount {
+            if let image = try source.image(atPageIndex: pageIndex) {
+                images.append(image)
+            }
+        }
+        return images
+    }
+
+    /// Create a lazy page-image source for vision extraction. Prefer this over
+    /// `renderPageImages` in processing paths so large PDFs are not rasterized
+    /// into an in-memory array before model inference begins.
+    func makePageImageSource(
+        from data: Data,
+        fileType: DocumentType,
+        maxLongEdge: CGFloat = 1568,
+        pageLimit: Int? = nil
+    ) throws -> PageImageSource {
         switch fileType {
         case .pdf, .doc, .docx:
             guard let pdfDocument = PDFDocument(data: data) else {
                 throw NativeExtractionError.pdfLoadFailed("(vision rasterization)")
             }
-            var images: [DocumentPageImage] = []
-            let pageCount = min(pdfDocument.pageCount, maxPages)
-            for index in 0..<pageCount {
-                guard let page = pdfDocument.page(at: index) else { continue }
-                let cgImage = try renderPDFPageToImage(page)
-                if let pageImage = jpegPageImage(from: cgImage, pageNumber: index + 1, maxLongEdge: maxLongEdge) {
-                    images.append(pageImage)
+            let renderLimit = min(maxPages, max(0, pageLimit ?? maxPages))
+            let pageCount = min(pdfDocument.pageCount, renderLimit)
+            return PageImageSource(totalPageCount: pdfDocument.pageCount, renderedPageCount: pageCount) { index in
+                guard let page = pdfDocument.page(at: index) else { return nil }
+                return try autoreleasepool {
+                    let cgImage = try self.renderPDFPageToImage(page, maxLongEdge: maxLongEdge)
+                    return self.jpegPageImage(from: cgImage, pageNumber: index + 1, maxLongEdge: maxLongEdge)
                 }
             }
-            return images
 
         case .jpeg, .jpg, .png, .heic:
-            guard let uiImage = UIImage(data: data), let cgImage = uiImage.cgImage else {
-                throw NativeExtractionError.ocrFailed("Could not create image from data")
+            let pageCount = (pageLimit ?? 1) <= 0 ? 0 : 1
+            return PageImageSource(totalPageCount: 1, renderedPageCount: pageCount) { index in
+                guard index == 0 else { return nil }
+                return try autoreleasepool {
+                    guard let uiImage = UIImage(data: data), let cgImage = uiImage.cgImage else {
+                        throw NativeExtractionError.ocrFailed("Could not create image from data")
+                    }
+                    return self.jpegPageImage(from: cgImage, pageNumber: 1, maxLongEdge: maxLongEdge)
+                }
             }
-            guard let pageImage = jpegPageImage(from: cgImage, pageNumber: 1, maxLongEdge: maxLongEdge) else {
-                return []
-            }
-            return [pageImage]
 
         case .other:
             throw NativeExtractionError.unsupportedFileType(fileType.rawValue)
@@ -688,6 +739,50 @@ class NativeDocumentExtractor {
         context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
 
         // Draw the PDF page
+        page.draw(with: .mediaBox, to: context)
+
+        guard let cgImage = context.makeImage() else {
+            throw NativeExtractionError.imageRenderFailed(page.document?.index(for: page) ?? -1)
+        }
+
+        return cgImage
+    }
+
+    /// Render a PDF page directly at the vision-model target size. This avoids
+    /// allocating a 300 DPI intermediate image only to downsample it for VLM input.
+    private func renderPDFPageToImage(_ page: PDFPage, maxLongEdge: CGFloat) throws -> CGImage {
+        let mediaBox = page.bounds(for: .mediaBox)
+        let longestEdge = max(mediaBox.width, mediaBox.height)
+        guard longestEdge > 0 else {
+            throw NativeExtractionError.imageRenderFailed(page.document?.index(for: page) ?? -1)
+        }
+
+        let maxDPIScale = renderDPI / 72.0
+        let targetScale = min(maxDPIScale, maxLongEdge / longestEdge)
+        let width = Int((mediaBox.width * targetScale).rounded(.up))
+        let height = Int((mediaBox.height * targetScale).rounded(.up))
+
+        guard width > 0, height > 0 else {
+            throw NativeExtractionError.imageRenderFailed(page.document?.index(for: page) ?? -1)
+        }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw NativeExtractionError.imageRenderFailed(page.document?.index(for: page) ?? -1)
+        }
+
+        context.setFillColor(UIColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.scaleBy(x: targetScale, y: targetScale)
+        context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
         page.draw(with: .mediaBox, to: context)
 
         guard let cgImage = context.makeImage() else {

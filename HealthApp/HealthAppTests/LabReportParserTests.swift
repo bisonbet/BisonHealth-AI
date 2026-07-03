@@ -486,6 +486,32 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertTrue(CloudVisionLabExtraction.parse("{\"labValues\": \"not an array\"}").candidates.isEmpty)
     }
 
+    @MainActor
+    func testOnDeviceVisionFallbackRecoversPlainTextOutput() throws {
+        let plainTextOutput = """
+        CHEMISTRY
+        Glucose\t98\tmg/dL\t70-100
+        Creatinine\t0.9\tmg/dL\t0.6-1.2
+        """
+
+        let values = MLXOnDeviceClient.recoverLabValueJSON(
+            fromPlainText: plainTextOutput,
+            pageNumber: 2
+        )
+        XCTAssertEqual(values.count, 2)
+
+        let data = try JSONSerialization.data(withJSONObject: ["labValues": values])
+        let response = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let result = CloudVisionLabExtraction.parse(response, source: .onDeviceVision)
+
+        let glucose = result.candidates.first { $0.standardKey == "glucose" }
+        XCTAssertEqual(glucose?.value, "98")
+        XCTAssertEqual(glucose?.source, .onDeviceVision)
+        XCTAssertEqual(glucose?.pageNumber, 2)
+
+        XCTAssertTrue(result.candidates.contains { $0.standardKey == "creatinine" })
+    }
+
     func testRenderPageImagesRespectsLongEdgeLimit() throws {
         // Generate a single-page PDF in memory
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter @72dpi
@@ -506,5 +532,34 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(image.pageNumber, 1)
         XCTAssertFalse(image.jpegData.isEmpty)
         XCTAssertLessThanOrEqual(max(image.pixelWidth, image.pixelHeight), 1568)
+    }
+
+    func testLazyPageImageSourceAppliesPageLimitBeforeRendering() throws {
+        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
+        let pdfData = renderer.pdfData { context in
+            for pageNumber in 1...3 {
+                context.beginPage()
+                ("Page \(pageNumber)" as NSString).draw(
+                    at: CGPoint(x: 50, y: 50),
+                    withAttributes: [.font: UIFont.systemFont(ofSize: 14)]
+                )
+            }
+        }
+
+        let extractor = NativeDocumentExtractor()
+        let source = try extractor.makePageImageSource(
+            from: pdfData,
+            fileType: .pdf,
+            pageLimit: 1
+        )
+
+        XCTAssertEqual(source.totalPageCount, 3)
+        XCTAssertEqual(source.renderedPageCount, 1)
+
+        let firstPage = try XCTUnwrap(source.image(atPageIndex: 0))
+        XCTAssertEqual(firstPage.pageNumber, 1)
+        XCTAssertFalse(firstPage.jpegData.isEmpty)
+        XCTAssertNil(try source.image(atPageIndex: 1))
     }
 }

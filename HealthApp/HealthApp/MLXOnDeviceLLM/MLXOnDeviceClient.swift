@@ -52,6 +52,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     private var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
 
+    private let visionExtractionMaxTokens = 1024
+    private let visionExtractionMaxKVSize = 4096
+
     // MARK: - Init
 
     init(modelProvider: @escaping @MainActor () -> MLXModelInfo = { MLXModelInfo.selectedModel }) {
@@ -259,8 +262,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
         AppLog.shared.mlx("[MLXClient] Loading model: \(selectedModel.displayName) (\(selectedModel.huggingFaceId))")
 
-        // Set GPU memory cache limit
-        MLX.Memory.cacheLimit = 512 * 1024 * 1024 // 512MB cache
+        // Keep retained MLX cache small on iPhone. VLM inference has large
+        // transient allocations; retaining less cache leaves more headroom.
+        let cacheLimit = selectedModel.modelType == .vlm
+            ? 128 * 1024 * 1024
+            : 512 * 1024 * 1024
+        MLX.Memory.cacheLimit = cacheLimit
 
         let configuration = ModelConfiguration(id: selectedModel.huggingFaceId)
 
@@ -289,6 +296,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #if !targetEnvironment(simulator)
         chatSession = nil
         modelContainer = nil
+        MLX.Memory.clearCache()
         #endif
         currentModelInfo = nil
         isModelLoaded = false
@@ -337,18 +345,25 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     }
 
     #if !targetEnvironment(simulator)
-    private func currentGenerateParameters(maxTokensOverride: Int? = nil) -> GenerateParameters {
+    private func currentGenerateParameters(
+        maxTokensOverride: Int? = nil,
+        maxKVSizeOverride: Int? = nil
+    ) -> GenerateParameters {
         let model = modelProvider()
         return GenerateParameters(
             maxTokens: maxTokensOverride ?? MLXModelInfo.configuredMaxTokens(for: model),
-            maxKVSize: MLXModelInfo.configuredContextSize,
+            maxKVSize: maxKVSizeOverride ?? MLXModelInfo.configuredContextSize,
             temperature: MLXModelInfo.configuredTemperature(for: model),
             topP: MLXModelInfo.configuredTopP(for: model),
             repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty(for: model)
         )
     }
 
-    private func makeIsolatedSession(instructions: String? = nil, maxTokensOverride: Int? = nil) throws -> ChatSession {
+    private func makeIsolatedSession(
+        instructions: String? = nil,
+        maxTokensOverride: Int? = nil,
+        maxKVSizeOverride: Int? = nil
+    ) throws -> ChatSession {
         guard let modelContainer else {
             throw MLXOnDeviceError.modelNotLoaded
         }
@@ -356,7 +371,10 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         return ChatSession(
             modelContainer,
             instructions: instructions,
-            generateParameters: currentGenerateParameters(maxTokensOverride: maxTokensOverride)
+            generateParameters: currentGenerateParameters(
+                maxTokensOverride: maxTokensOverride,
+                maxKVSizeOverride: maxKVSizeOverride
+            )
         )
     }
 
@@ -429,18 +447,25 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
             // Fresh session per page: no KV-cache accumulation across pages
             let session = try makeIsolatedSession(
                 instructions: "You are a precise medical laboratory data extraction engine. You respond with valid JSON only — no prose, no markdown fences.",
-                maxTokensOverride: 3072
+                maxTokensOverride: visionExtractionMaxTokens,
+                maxKVSizeOverride: visionExtractionMaxKVSize
             )
 
-            let pagePrompt = "\(schemaPrompt)\n\nThis image is page \(page.pageNumber) of the document; use \(page.pageNumber) as the \"page\" value."
+            let pagePrompt = Self.compactVisionExtractionPrompt(pageNumber: page.pageNumber)
 
             do {
                 let response = try await session.respond(to: pagePrompt, image: .ciImage(ciImage))
-                mergePageJSON(response, into: &mergedLabValues, metadata: &mergedMetadata)
-                AppLog.shared.mlx("[MLXClient] VLM extracted page \(page.pageNumber) (\(response.count) chars)")
+                let parsedCount = mergePageJSON(
+                    response,
+                    pageNumber: page.pageNumber,
+                    into: &mergedLabValues,
+                    metadata: &mergedMetadata
+                )
+                AppLog.shared.mlx("[MLXClient] VLM extracted page \(page.pageNumber) (\(response.count) chars, parsed \(parsedCount) lab values)")
             } catch {
                 AppLog.shared.mlx("[MLXClient] VLM extraction failed for page \(page.pageNumber): \(error.localizedDescription)", level: .warning)
             }
+            MLX.Memory.clearCache()
         }
 
         var combined: [String: Any] = mergedMetadata
@@ -455,16 +480,26 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
     /// accumulate them.
     private func mergePageJSON(
         _ response: String,
+        pageNumber: Int,
         into labValues: inout [[String: Any]],
         metadata: inout [String: Any]
-    ) {
-        guard let jsonString = Self.firstJSONObject(in: response),
-              let data = jsonString.data(using: .utf8),
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            AppLog.shared.mlx("[MLXClient] VLM page output contained no parseable JSON", level: .warning)
-            return
+    ) -> Int {
+        guard let json = Self.parseJSONObject(from: response) else {
+            let fallbackValues = Self.recoverLabValueJSON(fromPlainText: response, pageNumber: pageNumber)
+            if !fallbackValues.isEmpty {
+                labValues.append(contentsOf: fallbackValues)
+                AppLog.shared.mlx(
+                    "[MLXClient] VLM page output contained no parseable JSON; recovered \(fallbackValues.count) lab values from text",
+                    level: .warning
+                )
+                return fallbackValues.count
+            } else {
+                AppLog.shared.mlx("[MLXClient] VLM page output contained no parseable JSON", level: .warning)
+                return 0
+            }
         }
 
+        let originalCount = labValues.count
         if let values = json["labValues"] as? [[String: Any]] {
             labValues.append(contentsOf: values)
         }
@@ -473,6 +508,134 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
                 metadata[key] = value
             }
         }
+        return labValues.count - originalCount
+    }
+
+    static func recoverLabValueJSON(fromPlainText text: String, pageNumber: Int) -> [[String: Any]] {
+        let page = NativeDocumentExtractor.PageText(
+            pageNumber: pageNumber,
+            text: text,
+            observations: nil,
+            tables: nil
+        )
+        let candidates = LabReportParser().parse(pages: [page])
+
+        return candidates.map { candidate in
+            var item: [String: Any] = [
+                "testName": candidate.originalTestName,
+                "testType": candidate.testType == .urine ? "URINE" : "BLOOD",
+                "value": candidate.value,
+                "page": pageNumber
+            ]
+            if let unit = candidate.unit { item["unit"] = unit }
+            if let referenceRange = candidate.referenceRange { item["referenceRange"] = referenceRange }
+            if let abnormalFlag = candidate.abnormalFlag { item["flag"] = abnormalFlag }
+            return item
+        }
+    }
+
+    private static func compactVisionExtractionPrompt(pageNumber: Int) -> String {
+        """
+        Extract lab results from this image. Return ONLY valid JSON. No prose. No markdown.
+        Use this exact object shape:
+        {"labValues":[{"testName":"","testType":"BLOOD","value":"","unit":null,"referenceRange":null,"flag":null,"page":\(pageNumber)}],"documentDate":null,"laboratoryName":null,"orderingPhysician":null}
+
+        Rules:
+        - Include blood and urine lab values.
+        - Preserve printed names, values, units, ranges, and flags.
+        - Use "BLOOD" or "URINE" for testType.
+        - Use page \(pageNumber) for every item.
+        - If no lab values are visible, return {"labValues":[],"documentDate":null,"laboratoryName":null,"orderingPhysician":null}
+        """
+    }
+
+    private static func parseJSONObject(from response: String) -> [String: Any]? {
+        let cleaned = cleanModelJSONText(response)
+        let candidates = jsonCandidates(from: cleaned)
+
+        for candidate in candidates {
+            if let json = decodeJSONObject(candidate) {
+                return json
+            }
+            if let json = decodeJSONObject(repairCommonJSONIssues(candidate)) {
+                return json
+            }
+        }
+
+        return nil
+    }
+
+    private static func decodeJSONObject(_ text: String) -> [String: Any]? {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return nil
+        }
+
+        if let json = object as? [String: Any] {
+            return json
+        }
+        if let values = object as? [[String: Any]] {
+            return ["labValues": values]
+        }
+        return nil
+    }
+
+    private static func cleanModelJSONText(_ text: String) -> String {
+        var cleaned = text.replacingOccurrences(
+            of: #"<think>[\s\S]*?</think>"#,
+            with: "",
+            options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(of: #"```(?:json)?"#, with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "```", with: "")
+        cleaned = cleaned.replacingOccurrences(of: "\u{201C}", with: "\"")
+        cleaned = cleaned.replacingOccurrences(of: "\u{201D}", with: "\"")
+        cleaned = cleaned.replacingOccurrences(of: "\u{2018}", with: "'")
+        cleaned = cleaned.replacingOccurrences(of: "\u{2019}", with: "'")
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func jsonCandidates(from cleaned: String) -> [String] {
+        var candidates: [String] = []
+        if let object = firstJSONObject(in: cleaned) {
+            candidates.append(object)
+        }
+
+        if cleaned.first == "[", cleaned.last == "]" {
+            candidates.append(cleaned)
+        }
+
+        if let start = cleaned.firstIndex(of: "["),
+           let end = cleaned.lastIndex(of: "]"),
+           start < end {
+            candidates.append(String(cleaned[start...end]))
+        }
+
+        return candidates
+    }
+
+    private static func repairCommonJSONIssues(_ text: String) -> String {
+        var repaired = text.replacingOccurrences(
+            of: #",\s*([}\]])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        repaired = repaired.replacingOccurrences(
+            of: #":\s*None\b"#,
+            with: ": null",
+            options: .regularExpression
+        )
+        repaired = repaired.replacingOccurrences(
+            of: #":\s*nil\b"#,
+            with: ": null",
+            options: .regularExpression
+        )
+        repaired = repaired.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if repaired.first == "[" {
+            return #"{"labValues":"# + repaired + "}"
+        }
+        return repaired
     }
 
     /// Balanced-brace scan for the first JSON object, tolerant of markdown

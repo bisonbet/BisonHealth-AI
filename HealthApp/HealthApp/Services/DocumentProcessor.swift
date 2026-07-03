@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import UserNotifications
 import CryptoKit
+import CoreGraphics
 
 // MARK: - Document Processor
 @MainActor
@@ -218,12 +219,16 @@ class DocumentProcessor: ObservableObject {
             do {
                 let extractor = MedicalDocumentExtractor()
                 let aiClient = try await getAIClientForDocument(currentItem.document)
+                let textEnhancementClient: (any AIProviderInterface)? = aiClient is MLXOnDeviceClient ? nil : aiClient
+                if textEnhancementClient == nil {
+                    AppLog.shared.documents("Skipping AI-enhanced document sections for on-device VLM to keep extraction memory bounded")
+                }
 
                 AppLog.shared.documents("Medical extraction: on-device plain text (\(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%)")
                 let extractionResult = try await extractor.extractFromText(
                     text: result.extractedText,
                     fileName: currentItem.document.fileName,
-                    aiClient: aiClient,
+                    aiClient: textEnhancementClient,
                     extractionConfidence: result.confidence
                 )
 
@@ -666,16 +671,19 @@ class DocumentProcessor: ObservableObject {
         let aiClient = try await getAIClientForDocument(document)
         var basicInfo: BasicTestInfo?
         var llmCount = 0
-        do {
-            let mappingService = BloodTestMappingService(aiClient: aiClient)
-            let source: CandidateSource = aiClient is MLXOnDeviceClient ? .onDeviceLLM : .cloudText
-            let llmResult = try await mappingService.extractCandidates(from: documentText, source: source)
-            candidates.append(contentsOf: llmResult.candidates)
-            basicInfo = llmResult.basicInfo
-            llmCount = llmResult.candidates.count
-            AppLog.shared.documents("LLM pass found \(llmCount) candidates")
-        } catch {
-            AppLog.shared.error("LLM extraction pass failed — continuing with deterministic results only", error: error, category: .documents)
+        if aiClient is MLXOnDeviceClient {
+            AppLog.shared.documents("Skipping on-device VLM text LLM pass; deterministic and page-by-page vision passes will be used")
+        } else {
+            do {
+                let mappingService = BloodTestMappingService(aiClient: aiClient)
+                let llmResult = try await mappingService.extractCandidates(from: documentText, source: .cloudText)
+                candidates.append(contentsOf: llmResult.candidates)
+                basicInfo = llmResult.basicInfo
+                llmCount = llmResult.candidates.count
+                AppLog.shared.documents("LLM pass found \(llmCount) candidates")
+            } catch {
+                AppLog.shared.error("LLM extraction pass failed — continuing with deterministic results only", error: error, category: .documents)
+            }
         }
 
         // Pass 2b: Vision extraction (never fails the document).
@@ -771,9 +779,9 @@ class DocumentProcessor: ObservableObject {
     }
 
     // MARK: - Vision Pass
-    /// Rasterize the document and run the vision-model extraction in batches —
-    /// up to 8 pages per call for cloud models, one page at a time for the
-    /// on-device VLM (memory-bounded). Any failure degrades to the other passes.
+    /// Rasterize the document and run the vision-model extraction one page at a
+    /// time. This keeps peak memory bounded for on-device VLM runs: only one
+    /// rendered JPEG is alive while the model processes that page.
     private func runVisionPass(
         for document: MedicalDocument,
         using visionClient: VisionDocumentExtractor,
@@ -785,41 +793,50 @@ class DocumentProcessor: ObservableObject {
             let filePath = try await resolveDocumentFilePath(document)
             let data = try fileSystemManager.retrieveDocument(from: filePath)
             let extractor = NativeDocumentExtractor()
-            var pageImages = try extractor.renderPageImages(from: data, fileType: document.fileType)
-            guard !pageImages.isEmpty else {
+
+            // The on-device VLM is slow per page. Preserve the existing cap, but
+            // apply it before rendering so large PDFs never allocate skipped pages.
+            let maxOnDevicePages = 6
+            let pageLimit = source == .onDeviceVision ? maxOnDevicePages : nil
+            let maxLongEdge: CGFloat = source == .onDeviceVision ? 1024 : 1568
+            let pageSource = try extractor.makePageImageSource(
+                from: data,
+                fileType: document.fileType,
+                maxLongEdge: maxLongEdge,
+                pageLimit: pageLimit
+            )
+
+            guard pageSource.renderedPageCount > 0 else {
                 AppLog.shared.documents("Vision pass: no page images rendered", level: .warning)
                 return merged
             }
 
-            // The on-device VLM is slow per page — cap total pages
-            let maxOnDevicePages = 6
-            if source == .onDeviceVision && pageImages.count > maxOnDevicePages {
-                AppLog.shared.documents("Vision pass: limiting on-device VLM to first \(maxOnDevicePages) of \(pageImages.count) pages", level: .warning)
-                pageImages = Array(pageImages.prefix(maxOnDevicePages))
+            if pageSource.renderedPageCount < pageSource.totalPageCount {
+                AppLog.shared.documents(
+                    "Vision pass: limiting \(source.rawValue) to first \(pageSource.renderedPageCount) of \(pageSource.totalPageCount) pages",
+                    level: .warning
+                )
             }
 
-            AppLog.shared.documents("Vision pass (\(source.rawValue)): sending \(pageImages.count) page(s) to vision model")
+            AppLog.shared.documents("Vision pass (\(source.rawValue)): rendering and sending \(pageSource.renderedPageCount) page(s) one at a time")
 
-            let batchSize = source == .onDeviceVision ? 1 : 8
-            for batchStart in stride(from: 0, to: pageImages.count, by: batchSize) {
-                let batch = Array(pageImages[batchStart..<min(batchStart + batchSize, pageImages.count)])
-                let batchPrompt = pageImages.count > batchSize
-                    ? CloudVisionLabExtraction.schemaPrompt + "\n\nThese images are pages \(batch.first?.pageNumber ?? 0)–\(batch.last?.pageNumber ?? 0) of the document."
-                    : CloudVisionLabExtraction.schemaPrompt
-
+            for pageIndex in 0..<pageSource.renderedPageCount {
+                if Task.isCancelled { break }
                 do {
-                    let response = try await visionClient.extractFromDocument(
-                        pages: batch,
-                        ocrText: "",
-                        schemaPrompt: batchPrompt
+                    guard let pageImage = try pageSource.image(atPageIndex: pageIndex) else {
+                        AppLog.shared.documents("Vision pass: skipped page \(pageIndex + 1) because it could not be rendered", level: .warning)
+                        continue
+                    }
+
+                    let pageResult = await runVisionPage(
+                        pageImage,
+                        totalPageCount: pageSource.totalPageCount,
+                        using: visionClient,
+                        source: source
                     )
-                    let batchResult = CloudVisionLabExtraction.parse(response, source: source)
-                    merged.candidates.append(contentsOf: batchResult.candidates)
-                    if merged.documentDate == nil { merged.documentDate = batchResult.documentDate }
-                    if merged.laboratoryName == nil { merged.laboratoryName = batchResult.laboratoryName }
-                    if merged.orderingPhysician == nil { merged.orderingPhysician = batchResult.orderingPhysician }
+                    mergeVisionResult(pageResult, into: &merged)
                 } catch {
-                    AppLog.shared.error("Vision batch failed (pages \(batch.first?.pageNumber ?? 0)+) — continuing", error: error, category: .documents)
+                    AppLog.shared.error("Vision page failed (page \(pageIndex + 1)) — continuing", error: error, category: .documents)
                 }
             }
 
@@ -829,6 +846,40 @@ class DocumentProcessor: ObservableObject {
         }
 
         return merged
+    }
+
+    private func runVisionPage(
+        _ pageImage: DocumentPageImage,
+        totalPageCount: Int,
+        using visionClient: VisionDocumentExtractor,
+        source: CandidateSource
+    ) async -> CloudVisionLabExtraction.Result {
+        let pagePrompt = CloudVisionLabExtraction.schemaPrompt + """
+
+        This image is page \(pageImage.pageNumber) of \(totalPageCount). Only extract values visible on this page.
+        """
+
+        do {
+            let response = try await visionClient.extractFromDocument(
+                pages: [pageImage],
+                ocrText: "",
+                schemaPrompt: pagePrompt
+            )
+            return CloudVisionLabExtraction.parse(response, source: source)
+        } catch {
+            AppLog.shared.error("Vision extraction failed for page \(pageImage.pageNumber) — continuing", error: error, category: .documents)
+            return CloudVisionLabExtraction.Result(candidates: [], documentDate: nil, laboratoryName: nil, orderingPhysician: nil)
+        }
+    }
+
+    private func mergeVisionResult(
+        _ pageResult: CloudVisionLabExtraction.Result,
+        into merged: inout CloudVisionLabExtraction.Result
+    ) {
+        merged.candidates.append(contentsOf: pageResult.candidates)
+        if merged.documentDate == nil { merged.documentDate = pageResult.documentDate }
+        if merged.laboratoryName == nil { merged.laboratoryName = pageResult.laboratoryName }
+        if merged.orderingPhysician == nil { merged.orderingPhysician = pageResult.orderingPhysician }
     }
 
     /// Build BloodTestItems from groups whose selected candidate is decided.
@@ -1274,6 +1325,7 @@ class DocumentProcessor: ObservableObject {
             aiClient = bedrockClient
 
         case .onDeviceLLM:
+            await settingsManager.prepareForOnDeviceExtraction()
             let mlxClient = try settingsManager.getMLXOnDeviceExtractionClient()
             let selectedModel = MLXModelDownloadManager.shared.selectedExtractionModel ?? MLXModelInfo.selectedModel
             AppLog.shared.documents("Using MLX on-device extraction model: \(selectedModel.displayName)")

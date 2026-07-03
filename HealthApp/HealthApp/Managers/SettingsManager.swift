@@ -360,12 +360,27 @@ class SettingsManager: ObservableObject {
             throw MLXOnDeviceError.visionModelNotDownloaded
         }
 
+        if MLXModelInfo.selectedModel.id == extractionModel.id {
+            AppLog.shared.settings("Using shared MLX client for chat and extraction model: \(extractionModel.displayName)")
+            mlxOnDeviceExtractionClient = nil
+            return getMLXOnDeviceClient()
+        }
+
         if mlxOnDeviceExtractionClient == nil {
             mlxOnDeviceExtractionClient = MLXOnDeviceClient {
                 MLXModelDownloadManager.shared.selectedExtractionModel ?? extractionModel
             }
         }
         return mlxOnDeviceExtractionClient!
+    }
+
+    func prepareForOnDeviceExtraction() async {
+        guard modelPreferences.extractionProvider == .onDeviceLLM else { return }
+        guard let extractionModel = MLXModelDownloadManager.shared.ensureValidExtractionModelSelection() else { return }
+        guard let mlxOnDeviceClient, MLXModelInfo.selectedModel.id != extractionModel.id else { return }
+
+        AppLog.shared.settings("Unloading chat MLX model before on-device extraction")
+        await mlxOnDeviceClient.unloadModel()
     }
 
     // Force recreation of clients when configuration changes
