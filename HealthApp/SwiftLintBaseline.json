@@ -1,0 +1,1427 @@
+[
+  {
+    "text": "                    notes = (notes == nil ? \"\" : notes! + \"\\n\") + \"Calculated\"",
+    "violation": {
+      "location": {
+        "character": 55,
+        "file": "HealthApp/ContentView.swift",
+        "line": 997
+      },
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        let mergedDoc = existingDoc != nil ? mergeDocument(new: document, existing: existingDoc!) : document",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "line": 26,
+        "character": 96,
+        "file": "HealthApp/Database/DatabaseManager+Documents.swift"
+      }
+    }
+  },
+  {
+    "text": "            var categoryFilter: SQLite.Expression<Bool> = documentCategory == categoryValues.first!",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "character": 99,
+        "file": "HealthApp/Database/DatabaseManager+MedicalDocuments.swift",
+        "line": 121
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        } else if categories != nil && categories!.isEmpty {",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "file": "HealthApp/Database/DatabaseManager+MedicalDocuments.swift",
+        "character": 50,
+        "line": 126
+      },
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthApp/Database/DatabaseManager.swift",
+        "line": 122,
+        "character": 124
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning"
+    }
+  },
+  {
+    "text": "        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "file": "HealthApp/Database/DatabaseManager.swift",
+        "character": 105,
+        "line": 266
+      },
+      "reason": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "        try self.db!.execute(\"PRAGMA foreign_keys = ON\")",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "character": 20,
+        "file": "HealthApp/Database/DatabaseManager.swift",
+        "line": 481
+      },
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!",
+    "violation": {
+      "location": {
+        "file": "HealthApp/Database/DatabaseManager.swift",
+        "line": 608,
+        "character": 124
+      },
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning"
+    }
+  },
+  {
+    "text": "        let stringData = string.data(using: .utf8)!",
+    "violation": {
+      "location": {
+        "file": "HealthApp/Database/DatabaseManager.swift",
+        "character": 51,
+        "line": 685
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning"
+    }
+  },
+  {
+    "text": "        return sealedBox.combined!",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "location": {
+        "line": 687,
+        "file": "HealthApp/Database/DatabaseManager.swift",
+        "character": 34
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "        return mlxOnDeviceClient!",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "line": 372,
+        "file": "HealthApp/Managers/SettingsManager.swift",
+        "character": 33
+      },
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "location": {
+        "file": "HealthApp/Managers/SettingsManager.swift",
+        "character": 43,
+        "line": 391
+      },
+      "ruleIdentifier": "force_unwrapping"
+    },
+    "text": "        return mlxOnDeviceExtractionClient!"
+  },
+  {
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "line": 798,
+        "file": "HealthApp/Models/BloodTestResult.swift",
+        "character": 73
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping"
+    },
+    "text": "                if bestContainment == nil || key.count > bestContainment!.key.count {"
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "location": {
+        "file": "HealthApp/Models/BloodTestResult.swift",
+        "line": 815,
+        "character": 83
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping"
+    },
+    "text": "                if distance <= maxDistance, bestEdit == nil || distance < bestEdit!.distance {"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "location": {
+        "file": "HealthApp/Services/BloodTestMappingService.swift",
+        "character": 61,
+        "line": 656
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided"
+    },
+    "text": "            let val1HasUnit = val1.unit != nil && !val1.unit!.isEmpty"
+  },
+  {
+    "violation": {
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "file": "HealthApp/Services/BloodTestMappingService.swift",
+        "line": 657,
+        "character": 61
+      }
+    },
+    "text": "            let val2HasUnit = val2.unit != nil && !val2.unit!.isEmpty"
+  },
+  {
+    "violation": {
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "line": 663,
+        "file": "HealthApp/Services/BloodTestMappingService.swift",
+        "character": 82
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided"
+    },
+    "text": "            let val1HasRange = val1.referenceRange != nil && !val1.referenceRange!.isEmpty"
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "file": "HealthApp/Services/BloodTestMappingService.swift",
+        "line": 664,
+        "character": 82
+      }
+    },
+    "text": "            let val2HasRange = val2.referenceRange != nil && !val2.referenceRange!.isEmpty"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "line": 271,
+        "character": 78,
+        "file": "HealthApp/Services/DocumentProcessor.swift"
+      },
+      "ruleDescription": "Force unwrapping should be avoided"
+    },
+    "text": "                try await databaseManager.saveMedicalDocument(medicalDocument!)"
+  },
+  {
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "character": 105,
+        "file": "HealthApp/Services/DocumentProcessor.swift",
+        "line": 276
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning"
+    },
+    "text": "                if let verifiedDoc = try? await databaseManager.fetchMedicalDocument(id: medicalDocument!.id) {"
+  },
+  {
+    "violation": {
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "file": "HealthApp/Services/DocumentProcessor.swift",
+        "line": 1273,
+        "character": 78
+      },
+      "ruleName": "Force Unwrapping"
+    },
+    "text": "            let dateString = String(fileName[Range(match.range, in: fileName)!])"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "line": 95,
+        "character": 62,
+        "file": "HealthApp/Views/DoctorSelectorView.swift"
+      },
+      "ruleName": "Force Unwrapping",
+      "severity": "warning"
+    },
+    "text": "        selectedDoctor: .constant(Doctor.defaultDoctors.first!), "
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "line": 478,
+        "character": 55,
+        "file": "HealthApp/Views/DocumentDetailView.swift"
+      },
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping"
+    },
+    "text": "                    notes = (notes == nil ? \"\" : notes! + \"\\n\") + \"Calculated\""
+  },
+  {
+    "violation": {
+      "severity": "warning",
+      "location": {
+        "file": "HealthApp/Views/DocumentDetailView.swift",
+        "character": 123,
+        "line": 655
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping"
+    },
+    "text": "                    let currentAppDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!"
+  },
+  {
+    "violation": {
+      "severity": "warning",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "location": {
+        "character": 30,
+        "line": 6,
+        "file": "HealthAppTests/AIChatManagerReliabilityTests.swift"
+      },
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible"
+    },
+    "text": "    private var chatManager: AIChatManager!"
+  },
+  {
+    "violation": {
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/AIChatManagerReliabilityTests.swift",
+        "character": 43,
+        "line": 7
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "ruleIdentifier": "implicitly_unwrapped_optional"
+    },
+    "text": "    private var originalModelPreferences: ModelPreferences!"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "severity": "warning",
+      "location": {
+        "character": 28,
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "line": 7
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible"
+    },
+    "text": "    var fileSystemManager: FileSystemManager!"
+  },
+  {
+    "violation": {
+      "ruleName": "Implicitly Unwrapped Optional",
+      "severity": "warning",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "location": {
+        "line": 8,
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 27
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible"
+    },
+    "text": "    var testDocumentData: Data!"
+  },
+  {
+    "violation": {
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 24,
+        "line": 9
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "severity": "warning"
+    },
+    "text": "    var testImageData: Data!"
+  },
+  {
+    "violation": {
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 80,
+        "line": 18
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping"
+    },
+    "text": "        testDocumentData = \"This is a test document content\".data(using: .utf8)!"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "line": 21,
+        "character": 58
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided"
+    },
+    "text": "        let testImage = UIImage(systemName: \"heart.fill\")!"
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "line": 22,
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 44
+      },
+      "ruleName": "Force Unwrapping",
+      "severity": "warning"
+    },
+    "text": "        testImageData = testImage.pngData()!"
+  },
+  {
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 68,
+        "line": 112
+      },
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning"
+    },
+    "text": "        XCTAssertTrue(fileSystemManager.fileExists(at: thumbnailURL!))"
+  },
+  {
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 79,
+        "line": 116
+      }
+    },
+    "text": "        let thumbnailSize = try fileSystemManager.getFileSize(at: thumbnailURL!)"
+  },
+  {
+    "violation": {
+      "location": {
+        "line": 117,
+        "character": 66,
+        "file": "HealthAppTests/FileSystemTests.swift"
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided"
+    },
+    "text": "        let thumbnailImage = UIImage(contentsOfFile: thumbnailURL!.path)"
+  },
+  {
+    "text": "        XCTAssertTrue(fileSystemManager.fileExists(at: thumbnailURL!))",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 68,
+        "line": 143
+      },
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "        let exportData = \"Export test data\".data(using: .utf8)!",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "line": 259,
+        "character": 63,
+        "file": "HealthAppTests/FileSystemTests.swift"
+      },
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "    var documentImporter: DocumentImporter!",
+    "violation": {
+      "location": {
+        "line": 331,
+        "character": 27,
+        "file": "HealthAppTests/FileSystemTests.swift"
+      },
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "severity": "warning",
+      "ruleName": "Implicitly Unwrapped Optional"
+    }
+  },
+  {
+    "text": "    var fileSystemManager: FileSystemManager!",
+    "violation": {
+      "location": {
+        "character": 28,
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "line": 332
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "severity": "warning"
+    }
+  },
+  {
+    "text": "    var databaseManager: DatabaseManager!",
+    "violation": {
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "character": 26,
+        "line": 333
+      },
+      "severity": "warning",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "ruleIdentifier": "implicitly_unwrapped_optional"
+    }
+  },
+  {
+    "text": "        let testImage = UIImage(systemName: \"heart.fill\")!",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "line": 355,
+        "character": 58
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "    var documentExporter: DocumentExporter!",
+    "violation": {
+      "location": {
+        "character": 27,
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "line": 393
+      },
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "severity": "warning",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible"
+    }
+  },
+  {
+    "text": "    var fileSystemManager: FileSystemManager!",
+    "violation": {
+      "severity": "warning",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "location": {
+        "file": "HealthAppTests/FileSystemTests.swift",
+        "line": 394,
+        "character": 28
+      }
+    }
+  },
+  {
+    "text": "    var databaseManager: DatabaseManager!",
+    "violation": {
+      "severity": "warning",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "location": {
+        "character": 26,
+        "line": 395,
+        "file": "HealthAppTests/FileSystemTests.swift"
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible"
+    }
+  },
+  {
+    "text": "    private var parser: LabReportParser!",
+    "violation": {
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "severity": "warning",
+      "location": {
+        "line": 7,
+        "file": "HealthAppTests/LabReportParserTests.swift",
+        "character": 25
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible"
+    }
+  },
+  {
+    "text": "        let wbc = BloodTestResult.standardizedLabParameters[\"wbc\"]!",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/LabReportParserTests.swift",
+        "character": 67,
+        "line": 75
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping"
+    }
+  },
+  {
+    "text": "        let parameter = BloodTestResult.standardizedLabParameters[key]!",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "location": {
+        "line": 297,
+        "file": "HealthAppTests/LabReportParserTests.swift",
+        "character": 71
+      }
+    }
+  },
+  {
+    "text": "        let data = json.data(using: .utf8)!",
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/ModelTests.swift",
+        "line": 315,
+        "character": 43
+      }
+    }
+  },
+  {
+    "text": "        let data = json.data(using: .utf8)!",
+    "violation": {
+      "severity": "warning",
+      "location": {
+        "character": 43,
+        "file": "HealthAppTests/ModelTests.swift",
+        "line": 337
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "        let data = json.data(using: .utf8)!",
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/ModelTests.swift",
+        "line": 377,
+        "character": 43
+      },
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(notConnectedError.recoverySuggestion!.contains(\"internet\"))",
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "line": 57,
+        "character": 59,
+        "file": "HealthAppTests/NetworkingTests.swift"
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "ruleName": "Force Unwrapping"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(unauthorizedError.recoverySuggestion!.contains(\"credentials\"))",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "file": "HealthAppTests/NetworkingTests.swift",
+        "line": 61,
+        "character": 59
+      }
+    }
+  },
+  {
+    "text": "    private var settingsManager: SettingsManager!",
+    "violation": {
+      "ruleName": "Implicitly Unwrapped Optional",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "severity": "warning",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "location": {
+        "line": 7,
+        "character": 34,
+        "file": "HealthAppTests/SettingsManagerTests.swift"
+      },
+      "ruleIdentifier": "implicitly_unwrapped_optional"
+    }
+  },
+  {
+    "text": "        let data = #\"\"removed_provider\"\"#.data(using: .utf8)!",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/SettingsManagerTests.swift",
+        "line": 56,
+        "character": 61
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            XCTAssertTrue(result.errorMessage!.contains(testCase.expectedError))",
+    "violation": {
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "line": 40,
+        "character": 46,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            calendar.date(byAdding: .year, value: -25, to: now)!, // 25 years ago",
+    "violation": {
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "line": 60,
+        "character": 64,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "            calendar.date(byAdding: .year, value: -1, to: now)!, // 1 year ago",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "character": 63,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 61
+      },
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            calendar.date(byAdding: .year, value: -100, to: now)!, // 100 years ago",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 62,
+        "character": 65
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            calendar.date(byAdding: .day, value: -1, to: now)!, // Yesterday",
+    "violation": {
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "line": 63,
+        "character": 62,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "ruleName": "Force Unwrapping"
+    }
+  },
+  {
+    "text": "        let futureDate = calendar.date(byAdding: .day, value: 1, to: now)!",
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 78,
+        "character": 74
+      }
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(futureResult.errorMessage!.contains(\"cannot be in the future\"))",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "line": 81,
+        "character": 48,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        let tooOldDate = calendar.date(byAdding: .year, value: -151, to: now)!",
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "character": 78,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 84
+      },
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooOldResult.errorMessage!.contains(\"valid date of birth\"))",
+    "violation": {
+      "location": {
+        "character": 48,
+        "line": 87,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooShort.errorMessage!.contains(\"at least 100 cm\"))",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "character": 44,
+        "line": 105,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      }
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooTall.errorMessage!.contains(\"less than 220 cm\"))",
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "line": 109,
+        "character": 43,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooShort.errorMessage!.contains(\"at least 3 feet\"))",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 125,
+        "character": 44
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooTall.errorMessage!.contains(\"less than 9 feet\"))",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "location": {
+        "character": 43,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 129
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooLight.errorMessage!.contains(\"at least 35 kg\"))",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "line": 147,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 44
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooHeavy.errorMessage!.contains(\"less than 180 kg\"))",
+    "violation": {
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 151,
+        "character": 44
+      },
+      "ruleDescription": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooLight.errorMessage!.contains(\"at least 80 lbs\"))",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "line": 167,
+        "character": 44,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      }
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooHeavy.errorMessage!.contains(\"less than 400 lbs\"))",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 44,
+        "line": 171
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning"
+    }
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "location": {
+        "line": 182,
+        "character": 62,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "reason": "Force unwrapping should be avoided"
+    },
+    "text": "            calendar.date(byAdding: .day, value: -1, to: now)!, // Yesterday"
+  },
+  {
+    "violation": {
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "character": 63,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 183
+      },
+      "ruleIdentifier": "force_unwrapping"
+    },
+    "text": "            calendar.date(byAdding: .year, value: -1, to: now)!, // 1 year ago"
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "location": {
+        "character": 63,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 184
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "reason": "Force unwrapping should be avoided"
+    },
+    "text": "            calendar.date(byAdding: .year, value: -5, to: now)!, // 5 years ago"
+  },
+  {
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 199,
+        "character": 74
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning"
+    },
+    "text": "        let futureDate = calendar.date(byAdding: .day, value: 1, to: now)!"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 202,
+        "character": 48
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping"
+    },
+    "text": "        XCTAssertTrue(futureResult.errorMessage!.contains(\"cannot be in the future\"))"
+  },
+  {
+    "violation": {
+      "location": {
+        "line": 205,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 77
+      },
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping"
+    },
+    "text": "        let tooOldDate = calendar.date(byAdding: .year, value: -11, to: now)!"
+  },
+  {
+    "violation": {
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 48,
+        "line": 208
+      },
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping"
+    },
+    "text": "        XCTAssertTrue(tooOldResult.errorMessage!.contains(\"too old\"))"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 47,
+        "line": 231
+      },
+      "severity": "warning"
+    },
+    "text": "        XCTAssertTrue(emptyResult.errorMessage!.contains(\"required\"))"
+  },
+  {
+    "violation": {
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 236,
+        "character": 49
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided"
+    },
+    "text": "        XCTAssertTrue(tooLongResult.errorMessage!.contains(\"less than 50 characters\"))"
+  },
+  {
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "reason": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "line": 259,
+        "character": 47,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      }
+    },
+    "text": "        XCTAssertTrue(emptyResult.errorMessage!.contains(\"required\"))"
+  },
+  {
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleName": "Force Unwrapping",
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "character": 49,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 264
+      }
+    },
+    "text": "        XCTAssertTrue(tooLongResult.errorMessage!.contains(\"less than 20 characters\"))"
+  },
+  {
+    "violation": {
+      "location": {
+        "character": 47,
+        "line": 283,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      },
+      "ruleDescription": "Force unwrapping should be avoided",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning"
+    },
+    "text": "        XCTAssertTrue(emptyResult.errorMessage!.localizedCaseInsensitiveContains(\"at least one\"))"
+  },
+  {
+    "text": "        XCTAssertTrue(duplicateResult.errorMessage!.contains(\"Duplicate\"))",
+    "violation": {
+      "reason": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 51,
+        "line": 292
+      },
+      "ruleName": "Force Unwrapping"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(invalidResult.errorMessage!.contains(\"required\"))",
+    "violation": {
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "character": 49,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 300
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "            XCTAssertTrue(result.errorMessage!.contains(\"valid email\"))",
+    "violation": {
+      "ruleIdentifier": "force_unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "character": 46,
+        "line": 335
+      },
+      "reason": "Force unwrapping should be avoided"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooShort.errorMessage!.contains(\"at least 10 digits\"))",
+    "violation": {
+      "location": {
+        "character": 44,
+        "file": "HealthAppTests/ValidationHelperTests.swift",
+        "line": 362
+      },
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "ruleDescription": "Force unwrapping should be avoided",
+      "severity": "warning",
+      "ruleIdentifier": "force_unwrapping"
+    }
+  },
+  {
+    "text": "        XCTAssertTrue(tooLong.errorMessage!.contains(\"less than 15 digits\"))",
+    "violation": {
+      "ruleDescription": "Force unwrapping should be avoided",
+      "ruleIdentifier": "force_unwrapping",
+      "severity": "warning",
+      "reason": "Force unwrapping should be avoided",
+      "ruleName": "Force Unwrapping",
+      "location": {
+        "character": 43,
+        "line": 366,
+        "file": "HealthAppTests/ValidationHelperTests.swift"
+      }
+    }
+  },
+  {
+    "text": "    var app: XCUIApplication!",
+    "violation": {
+      "severity": "warning",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "location": {
+        "character": 14,
+        "line": 4,
+        "file": "HealthAppUITests/AccessibilityUITests.swift"
+      },
+      "ruleName": "Implicitly Unwrapped Optional"
+    }
+  },
+  {
+    "text": "    var app: XCUIApplication!",
+    "violation": {
+      "severity": "warning",
+      "location": {
+        "file": "HealthAppUITests/BloodTestEntryUITests.swift",
+        "line": 4,
+        "character": 14
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible"
+    }
+  },
+  {
+    "text": "    var app: XCUIApplication!",
+    "violation": {
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "location": {
+        "file": "HealthAppUITests/ChatInterfaceUITests.swift",
+        "character": 14,
+        "line": 5
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "severity": "warning"
+    }
+  },
+  {
+    "text": "    var app: XCUIApplication!",
+    "violation": {
+      "ruleName": "Implicitly Unwrapped Optional",
+      "location": {
+        "file": "HealthAppUITests/DocumentManagementUITests.swift",
+        "line": 4,
+        "character": 14
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "severity": "warning",
+      "ruleIdentifier": "implicitly_unwrapped_optional"
+    }
+  },
+  {
+    "text": "    var app: XCUIApplication!",
+    "violation": {
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "severity": "warning",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "location": {
+        "file": "HealthAppUITests/HealthAppUITests.swift",
+        "line": 4,
+        "character": 14
+      }
+    }
+  },
+  {
+    "text": "    var app: XCUIApplication!",
+    "violation": {
+      "location": {
+        "file": "HealthAppUITests/PersonalInfoEditorUITests.swift",
+        "line": 4,
+        "character": 14
+      },
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleIdentifier": "implicitly_unwrapped_optional",
+      "severity": "warning"
+    }
+  },
+  {
+    "text": "    private var app: XCUIApplication!",
+    "violation": {
+      "severity": "warning",
+      "ruleDescription": "Implicitly unwrapped optionals should be avoided when possible",
+      "location": {
+        "line": 4,
+        "character": 22,
+        "file": "HealthAppUITests/RegressionSmokeUITests.swift"
+      },
+      "reason": "Implicitly unwrapped optionals should be avoided when possible",
+      "ruleName": "Implicitly Unwrapped Optional",
+      "ruleIdentifier": "implicitly_unwrapped_optional"
+    }
+  }
+]

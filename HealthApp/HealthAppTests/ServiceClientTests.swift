@@ -1,8 +1,24 @@
 import XCTest
+import Security
 @testable import HealthApp
 
 @MainActor
 final class ServiceClientTests: XCTestCase {
+
+    private func makeUserDefaults() -> (UserDefaults, String) {
+        let suiteName = "AWSCredentialsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName) ?? UserDefaults.standard
+        return (defaults, suiteName)
+    }
+
+    private func makeCredentials(sessionToken: String? = nil) -> AWSCredentials {
+        AWSCredentials(
+            accessKeyId: "synthetic-access-key",
+            secretAccessKey: "synthetic-secret-key",
+            sessionToken: sessionToken,
+            region: "us-east-1"
+        )
+    }
 
     func testProviderConnectionStatusDisplayNames() {
         XCTAssertEqual(ProviderConnectionStatus.disconnected.displayName, "Disconnected")
@@ -32,13 +48,332 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertEqual(config.maxRetries, 2)
     }
 
-    func testAIProviderFactoryCreatesSupportedProviders() {
-        let config = AIProviderConfig(hostname: "localhost", port: 4000, apiKey: "test-key")
+    func testAWSCredentialsSaveAndLoadThroughInjectedStorage() {
+        let storage = MockAWSCredentialsStorage()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let openAIProvider = AIProviderFactory.createProvider(type: .openai, config: config)
-        XCTAssertTrue(openAIProvider is OpenAIProvider)
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        let credentials = makeCredentials()
 
-        let anthropicProvider = AIProviderFactory.createProvider(type: .anthropic, config: config)
-        XCTAssertTrue(anthropicProvider is AnthropicProvider)
+        if case .failure(let error) = manager.updateCredentials(credentials) {
+            XCTFail("Unexpected credential storage error: \(error.localizedDescription)")
+        }
+        XCTAssertEqual(storage.storedCredentials, credentials)
+        XCTAssertEqual(manager.credentials, credentials)
+        XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
+    }
+
+    func testAWSCredentialsMigrateLegacyUserDefaultsAndRemoveAfterVerification() throws {
+        let storage = MockAWSCredentialsStorage()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyCredentials = makeCredentials(sessionToken: "synthetic-session-token")
+        defaults.set(try JSONEncoder().encode(legacyCredentials), forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+
+        XCTAssertEqual(manager.credentials, legacyCredentials)
+        XCTAssertEqual(storage.storedCredentials, legacyCredentials)
+        XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
+        XCTAssertNil(manager.lastError)
+    }
+
+    func testAWSCredentialsFailedSavePreservesLegacyValue() throws {
+        let storage = MockAWSCredentialsStorage()
+        storage.saveError = .keychainError(errSecIO)
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyData = try JSONEncoder().encode(makeCredentials())
+        defaults.set(legacyData, forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+
+        XCTAssertEqual(manager.lastError, .keychainError(errSecIO))
+        XCTAssertEqual(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey), legacyData)
+    }
+
+    func testAWSCredentialsFailedVerificationPreservesLegacyValue() throws {
+        let storage = MockAWSCredentialsStorage()
+        storage.readBackCredentials = AWSCredentials(
+            accessKeyId: "different-access-key",
+            secretAccessKey: "different-secret-key",
+            region: "us-east-1"
+        )
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyData = try JSONEncoder().encode(makeCredentials())
+        defaults.set(legacyData, forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+
+        XCTAssertEqual(manager.lastError, .verificationFailed)
+        XCTAssertEqual(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey), legacyData)
+    }
+
+    func testAWSCredentialsRemoveMatchingLegacyValueAfterKeychainRecovery() throws {
+        let credentials = makeCredentials(sessionToken: "synthetic-session-token")
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = credentials
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            try JSONEncoder().encode(credentials),
+            forKey: AWSCredentialsManager.legacyCredentialsKey
+        )
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+
+        XCTAssertEqual(manager.credentials, credentials)
+        XCTAssertNil(manager.lastError)
+        XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
+    }
+
+    func testAWSCredentialsPreserveAndReportConflictingLegacyValue() throws {
+        let keychainCredentials = makeCredentials()
+        let conflictingLegacyCredentials = AWSCredentials(
+            accessKeyId: "different-synthetic-access-key",
+            secretAccessKey: "different-synthetic-secret-key",
+            region: "us-west-2"
+        )
+        let legacyData = try JSONEncoder().encode(conflictingLegacyCredentials)
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = keychainCredentials
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(legacyData, forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+
+        XCTAssertEqual(manager.credentials, keychainCredentials)
+        XCTAssertEqual(manager.lastError, .legacyCredentialConflict)
+        XCTAssertEqual(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey), legacyData)
+    }
+
+    func testAWSCredentialsDeletionRemovesKeychainAndLegacyCopies() throws {
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = makeCredentials()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(try JSONEncoder().encode(makeCredentials()), forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        if case .failure(let error) = manager.deleteCredentials() {
+            XCTFail("Unexpected credential deletion error: \(error.localizedDescription)")
+        }
+
+        XCTAssertNil(storage.storedCredentials)
+        XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
+        XCTAssertEqual(manager.credentials, .default)
+    }
+
+    func testAWSCredentialsValidationRejectsEmptyAndPartialValues() {
+        let empty = AWSCredentials(accessKeyId: "", secretAccessKey: "synthetic-secret-key", region: "us-east-1")
+        let partial = AWSCredentials(accessKeyId: "synthetic-access-key", secretAccessKey: "", region: "us-east-1")
+
+        XCTAssertFalse(empty.isValid)
+        XCTAssertFalse(partial.isValid)
+
+        let storage = MockAWSCredentialsStorage()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+
+        guard case .failure(.validationFailed(["Secret key is required"])) = manager.updateCredentials(partial) else {
+            XCTFail("Expected partial credentials to fail validation")
+            return
+        }
+        XCTAssertNil(storage.storedCredentials)
+    }
+
+    func testBedrockUsesOptionalSessionTokenWithoutWritingAWSEnvironmentVariables() async throws {
+        let credentials = makeCredentials(sessionToken: "synthetic-session-token")
+        let bedrockConfig = AWSBedrockConfig(
+            region: credentials.region,
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken,
+            model: .claudeSonnet45,
+            temperature: 0.1,
+            maxTokens: 50,
+            timeout: 30
+        )
+        let environmentKeys = [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "AWS_DEFAULT_REGION"
+        ]
+        let environmentBefore = environmentKeys.map { ProcessInfo.processInfo.environment[$0] }
+
+        let clientConfig = try await BedrockClient.makeClientConfig(for: bedrockConfig)
+        let identity = try await clientConfig.awsCredentialIdentityResolver.getIdentity(identityProperties: nil)
+
+        XCTAssertEqual(identity.accessKey, credentials.accessKeyId)
+        XCTAssertEqual(identity.secret, credentials.secretAccessKey)
+        XCTAssertEqual(identity.sessionToken, credentials.sessionToken)
+        XCTAssertEqual(environmentKeys.map { ProcessInfo.processInfo.environment[$0] }, environmentBefore)
+    }
+
+    func testBedrockConfigurationRequiresExplicitCredentials() {
+        let config = AWSBedrockConfig(
+            region: "us-east-1",
+            accessKeyId: "",
+            secretAccessKey: "",
+            sessionToken: nil,
+            model: .claudeSonnet45,
+            temperature: 0.1,
+            maxTokens: 50,
+            timeout: 30
+        )
+
+        XCTAssertFalse(config.isValid)
+    }
+
+    func testOpenAICompatibleFailureOmitsRawResponseBodyFromLocalizedDescription() {
+        let rawResponseBody = #"{"error":{"message":"patient: Synthetic Patient, authorization: Bearer synthetic-api-key"}}"#
+        guard let response = syntheticHTTPResponse(
+            statusCode: 502,
+            headers: ["x-request-id": "synthetic-request-id-123"]
+        ) else {
+            XCTFail("Unable to create synthetic HTTP response")
+            return
+        }
+
+        let error = OpenAICompatibleError.requestFailed(
+            response: response,
+            body: Data(rawResponseBody.utf8)
+        )
+        let description = error.localizedDescription
+
+        XCTAssertFalse(description.contains(rawResponseBody))
+        XCTAssertFalse(description.contains("Synthetic Patient"))
+        XCTAssertFalse(description.contains("synthetic-api-key"))
+        XCTAssertTrue(description.contains("HTTP 502"))
+        XCTAssertTrue(description.contains("OpenAI-compatible"))
+        XCTAssertTrue(description.contains("synthetic-request-id-123"))
+    }
+
+    func testOpenAICompatibleFailureRemovesAuthorizationValues() {
+        let error = OpenAICompatibleError.requestFailed(
+            401,
+            "authorization: Bearer synthetic-api-key"
+        )
+        let description = error.localizedDescription
+
+        XCTAssertTrue(description.contains("HTTP 401"))
+        XCTAssertFalse(description.contains("synthetic-api-key"))
+        XCTAssertFalse(description.contains("Bearer synthetic-api-key"))
+    }
+
+    func testOpenAICompatibleProviderMessagesAreStrictlyBounded() {
+        let largeProviderMessage = String(repeating: "synthetic-provider-error ", count: 1_000)
+        let error = OpenAICompatibleError.requestFailed(503, largeProviderMessage)
+
+        XCTAssertLessThanOrEqual(error.localizedDescription.count, 512)
+    }
+
+    func testOpenAICompatibleMalformedResponseIsSafe() {
+        let malformedBody = "not-json patient: Synthetic Patient authorization: Bearer synthetic-api-key"
+        let error = OpenAICompatibleError.invalidResponse
+
+        XCTAssertEqual(error.localizedDescription, "Invalid response from server")
+        XCTAssertFalse(error.localizedDescription.contains(malformedBody))
+        XCTAssertFalse(error.localizedDescription.contains("Synthetic Patient"))
+        XCTAssertFalse(error.localizedDescription.contains("synthetic-api-key"))
+    }
+
+    func testAppLogRedactsSyntheticProviderContentFromPersistedAndExportedLogs() {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppLogTests-\(UUID().uuidString)", isDirectory: true)
+        let logger = AppLog(
+            logDirectory: rootURL.appendingPathComponent("Logs", isDirectory: true),
+            errorBufferURL: rootURL.appendingPathComponent("error-buffer.log"),
+            metricKitDiagnosticsURL: rootURL.appendingPathComponent("metric-kit.log")
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let syntheticProviderContent = "Provider response: patient: Synthetic Patient, date of birth: 2000-01-01, authorization: Bearer synthetic-api-key"
+        logger.error(syntheticProviderContent, category: .ai)
+
+        let retainedContent = [
+            logger.getCurrentLogContent(),
+            logger.getCombinedLogFileContent(),
+            logger.getErrorBufferContent()
+        ].compactMap { $0 }.joined(separator: "\n")
+
+        XCTAssertFalse(retainedContent.contains("Synthetic Patient"))
+        XCTAssertFalse(retainedContent.contains("2000-01-01"))
+        XCTAssertFalse(retainedContent.contains("synthetic-api-key"))
+        XCTAssertTrue(retainedContent.contains("[REDACTED"))
+    }
+
+    func testAppLogDoesNotPersistArbitraryProviderErrorDescriptions() {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppLogErrorTests-\(UUID().uuidString)", isDirectory: true)
+        let logger = AppLog(
+            logDirectory: rootURL.appendingPathComponent("Logs", isDirectory: true),
+            errorBufferURL: rootURL.appendingPathComponent("error-buffer.log"),
+            metricKitDiagnosticsURL: rootURL.appendingPathComponent("metric-kit.log")
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let syntheticProviderContent = "patient: Synthetic Patient, authorization: Bearer synthetic-api-key"
+        let error = NSError(
+            domain: "SyntheticProvider",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: syntheticProviderContent]
+        )
+        logger.error("Synthetic connection failure", error: error, category: .ai)
+
+        let retainedContent = [
+            logger.getCurrentLogContent(),
+            logger.getCombinedLogFileContent(),
+            logger.getErrorBufferContent()
+        ].compactMap { $0 }.joined(separator: "\n")
+
+        XCTAssertFalse(retainedContent.contains("Synthetic Patient"))
+        XCTAssertFalse(retainedContent.contains("synthetic-api-key"))
+        XCTAssertTrue(retainedContent.contains("Underlying error type"))
+    }
+
+    private func syntheticHTTPResponse(statusCode: Int, headers: [String: String] = [:]) -> HTTPURLResponse? {
+        guard let url = URL(string: "https://provider.example.test/v1/models") else {
+            return nil
+        }
+        return HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: headers
+        )
+    }
+}
+
+private final class MockAWSCredentialsStorage: AWSCredentialsStorage {
+    var storedCredentials: AWSCredentials?
+    var readBackCredentials: AWSCredentials?
+    var saveError: AWSCredentialsError?
+    var deleteError: AWSCredentialsError?
+
+    func loadCredentials() throws -> AWSCredentials? {
+        if storedCredentials != nil, let readBackCredentials {
+            return readBackCredentials
+        }
+        return storedCredentials
+    }
+
+    func saveCredentials(_ credentials: AWSCredentials) throws {
+        if let saveError {
+            throw saveError
+        }
+        storedCredentials = credentials
+    }
+
+    func deleteCredentials() throws {
+        if let deleteError {
+            throw deleteError
+        }
+        storedCredentials = nil
     }
 }

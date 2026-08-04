@@ -70,4 +70,69 @@ final class SettingsManagerTests: XCTestCase {
             "Port must be between 1 and 65535"
         )
     }
+
+    func testOpenAIEndpointValidatorAllowsHTTPS() {
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("https://api.example.test/v1"))
+    }
+
+    func testOpenAIEndpointValidatorAllowsLocalhostHTTP() {
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://localhost:4000"))
+    }
+
+    func testOpenAIEndpointValidatorAllowsIPv4LoopbackHTTP() {
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://127.0.0.1:4000"))
+    }
+
+    func testOpenAIEndpointValidatorAllowsIPv6LoopbackHTTP() {
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://[::1]:4000"))
+    }
+
+    func testOpenAIEndpointValidatorRejectsPublicHTTP() {
+        XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("http://api.example.test"))
+    }
+
+    func testOpenAIEndpointValidatorRejectsUnsupportedScheme() {
+        XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("ftp://localhost:4000"))
+    }
+
+    func testOpenAIEndpointValidatorRejectsMissingHost() {
+        XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("https:///v1"))
+    }
+
+    func testOpenAIEndpointValidatorRejectsEmbeddedCredentials() {
+        XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("https://synthetic-user:synthetic-password@example.test"))
+    }
+
+    func testInvalidOpenAIEndpointIsNotPersistedOverPriorValidEndpoint() {
+        let suiteName = "SettingsManagerEndpointTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("https://api.example.test", forKey: "openAICompatibleBaseURL")
+        let manager = SettingsManager(userDefaults: defaults)
+        manager.openAICompatibleAPIKey = ""
+        manager.openAICompatibleBaseURL = "http://public.example.test"
+        manager.saveSettings()
+
+        XCTAssertEqual(
+            defaults.string(forKey: "openAICompatibleBaseURL"),
+            "https://api.example.test"
+        )
+    }
+
+    func testInvalidOpenAIEndpointFailsBeforeRequestConstruction() async {
+        let client = OpenAICompatibleClient(baseURL: "http://public.example.test")
+
+        do {
+            _ = try await client.listModels()
+            XCTFail("An invalid endpoint must fail before constructing a request")
+        } catch let error as OpenAICompatibleError {
+            XCTAssertEqual(error.localizedDescription, "Invalid API URL")
+        } catch {
+            XCTFail("Unexpected error: \(error.localizedDescription)")
+        }
+    }
 }

@@ -142,6 +142,26 @@ final class FileSystemTests: XCTestCase {
         XCTAssertNotNil(thumbnailURL)
         XCTAssertTrue(fileSystemManager.fileExists(at: thumbnailURL!))
     }
+
+    func testInvalidPDFThumbnailGenerationFailsWithoutCrashing() async throws {
+        let storedURL = try fileSystemManager.storeDocument(
+            data: Data(),
+            fileName: "invalid.pdf",
+            fileType: .pdf
+        )
+
+        do {
+            _ = try await fileSystemManager.generateThumbnail(
+                for: storedURL,
+                documentType: .pdf
+            )
+            XCTFail("Invalid PDF data should not generate a thumbnail")
+        } catch FileSystemError.thumbnailGenerationFailed {
+            // Expected error.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
     
     // MARK: - File Operations Tests
     func testCopyFile() throws {

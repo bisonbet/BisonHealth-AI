@@ -61,187 +61,46 @@ final class NetworkingTests: XCTestCase {
         XCTAssertTrue(unauthorizedError.recoverySuggestion!.contains("credentials"))
     }
 
-    // MARK: - PendingOperationsManager Tests
+    // MARK: - Offline Privacy Migration Tests
 
-    func testPendingOperationsManagerSingleton() {
-        let manager1 = PendingOperationsManager.shared
-        let manager2 = PendingOperationsManager.shared
+    func testLegacyPendingOperationsKeyIsRemovedDuringMigration() {
+        let suiteName = "NetworkingTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(manager1 === manager2, "PendingOperationsManager should be a singleton")
+        let syntheticQueueData = Data("synthetic chat message and synthetic health context".utf8)
+        defaults.set(syntheticQueueData, forKey: HealthAppApp.legacyPendingOperationsKey)
+        XCTAssertNotNil(defaults.data(forKey: HealthAppApp.legacyPendingOperationsKey))
+
+        HealthAppApp.removeLegacyPendingOperations(from: defaults)
+
+        XCTAssertNil(defaults.object(forKey: HealthAppApp.legacyPendingOperationsKey))
     }
 
-    func testQueueChatMessage() async {
-        let manager = PendingOperationsManager.shared
+    func testOfflinePathDoesNotRetainChatContentOrHealthContext() {
+        let suiteName = "NetworkingTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        // Clear any existing operations
-        manager.cancelAllOperations()
+        let syntheticChatContent = "synthetic chat message"
+        let syntheticHealthContext = "synthetic health context"
+        let syntheticQueueData = Data("\(syntheticChatContent)\n\(syntheticHealthContext)".utf8)
+        defaults.set(syntheticQueueData, forKey: HealthAppApp.legacyPendingOperationsKey)
 
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test message",
-            context: "Test context",
-            useStreaming: false,
-            model: "test-model",
-            systemPrompt: nil
-        )
+        HealthAppApp.removeLegacyPendingOperations(from: defaults)
 
-        XCTAssertEqual(manager.pendingOperations.count, 1)
-        XCTAssertEqual(manager.pendingOperations.first?.type.displayName, "Chat Message")
-    }
-
-    func testQueueDocumentProcessing() async {
-        let manager = PendingOperationsManager.shared
-
-        // Clear any existing operations
-        manager.cancelAllOperations()
-
-        await manager.queueDocumentProcessing(
-            documentId: UUID(),
-            immediately: false
-        )
-
-        XCTAssertEqual(manager.pendingOperations.count, 1)
-        XCTAssertEqual(manager.pendingOperations.first?.type.displayName, "Document Processing")
-    }
-
-    func testCancelOperation() async {
-        let manager = PendingOperationsManager.shared
-
-        // Clear any existing operations
-        manager.cancelAllOperations()
-
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test message",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        let operationId = manager.pendingOperations.first!.id
-        manager.cancelOperation(operationId)
-
-        XCTAssertEqual(manager.pendingOperations.count, 0)
-    }
-
-    func testCancelAllOperations() async {
-        let manager = PendingOperationsManager.shared
-
-        // Clear any existing operations
-        manager.cancelAllOperations()
-
-        // Add multiple operations
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test 1",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        await manager.queueDocumentProcessing(
-            documentId: UUID(),
-            immediately: false
-        )
-
-        XCTAssertEqual(manager.pendingOperations.count, 2)
-
-        manager.cancelAllOperations()
-        XCTAssertEqual(manager.pendingOperations.count, 0)
-    }
-
-    func testPendingCountByType() async {
-        let manager = PendingOperationsManager.shared
-
-        // Clear any existing operations
-        manager.cancelAllOperations()
-
-        // Add chat messages
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test 1",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test 2",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        // Add document processing
-        await manager.queueDocumentProcessing(
-            documentId: UUID(),
-            immediately: false
-        )
-
-        let chatCount = manager.pendingCount(for: .chatMessage(
-            conversationId: UUID(),
-            message: "",
-            context: "",
-            useStreaming: false,
-            model: "",
-            systemPrompt: nil
-        ))
-
-        let docCount = manager.pendingCount(for: .documentProcessing(
-            documentId: UUID(),
-            immediately: false
-        ))
-
-        XCTAssertEqual(chatCount, 2)
-        XCTAssertEqual(docCount, 1)
-    }
-
-    func testOperationRetryCount() async {
-        let manager = PendingOperationsManager.shared
-
-        // Clear any existing operations
-        manager.cancelAllOperations()
-
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        let operation = manager.pendingOperations.first!
-        XCTAssertEqual(operation.retryCount, 0)
-        XCTAssertEqual(operation.status, .pending)
-    }
-
-    func testOperationPersistence() async {
-        let manager = PendingOperationsManager.shared
-
-        // Clear any existing operations
-        manager.cancelAllOperations()
-
-        // Add an operation
-        await manager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test persistence",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        XCTAssertEqual(manager.pendingOperations.count, 1)
-
-        // Verify operation was persisted
-        // Note: In a real test, you'd want to create a new instance of the manager
-        // to verify persistence, but that requires dependency injection
+        let persistedData = defaults.data(forKey: HealthAppApp.legacyPendingOperationsKey)
+        XCTAssertNil(persistedData)
+        XCTAssertFalse(defaults.dictionaryRepresentation().values.contains { value in
+            guard let data = value as? Data else { return false }
+            return data == syntheticQueueData
+        })
     }
 
     // MARK: - Error Extension Tests
@@ -269,31 +128,6 @@ final class NetworkingTests: XCTestCase {
         XCTAssertFalse(authError.isRetryable)
     }
 
-    // MARK: - Integration Tests
-
-    func testNetworkManagerIntegrationWithPendingOperations() async {
-        let networkManager = NetworkManager.shared
-        let pendingOpsManager = PendingOperationsManager.shared
-
-        // Clear pending operations
-        pendingOpsManager.cancelAllOperations()
-
-        // Add operation while "offline" (simulated)
-        await pendingOpsManager.queueChatMessage(
-            conversationId: UUID(),
-            message: "Test",
-            context: "",
-            useStreaming: false,
-            model: "test",
-            systemPrompt: nil
-        )
-
-        XCTAssertEqual(pendingOpsManager.pendingOperations.count, 1)
-
-        // Note: In a real integration test, you'd mock network connectivity changes
-        // and verify that operations are retried when network is restored
-    }
-
     // MARK: - Connection Type Tests
 
     func testConnectionTypeDisplayName() {
@@ -318,19 +152,4 @@ final class NetworkingTests: XCTestCase {
         XCTAssertEqual(NetworkQuality.poor.displayName, "Poor")
     }
 
-    // MARK: - Operation Status Tests
-
-    func testOperationStatusDisplayName() {
-        XCTAssertEqual(OperationStatus.pending.displayName, "Pending")
-        XCTAssertEqual(OperationStatus.retrying.displayName, "Retrying")
-        XCTAssertEqual(OperationStatus.failed.displayName, "Failed")
-        XCTAssertEqual(OperationStatus.completed.displayName, "Completed")
-    }
-
-    func testOperationStatusIcon() {
-        XCTAssertEqual(OperationStatus.pending.icon, "clock")
-        XCTAssertEqual(OperationStatus.retrying.icon, "arrow.clockwise")
-        XCTAssertEqual(OperationStatus.failed.icon, "exclamationmark.triangle")
-        XCTAssertEqual(OperationStatus.completed.icon, "checkmark.circle")
-    }
 }

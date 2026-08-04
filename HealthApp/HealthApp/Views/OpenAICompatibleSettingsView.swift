@@ -12,6 +12,7 @@ struct OpenAICompatibleSettingsView: View {
     @AppStorage("openAICompatibleMaxTokens") private var maxTokens: Int = 2048
     @State private var isTesting = false
     @State private var testResult: TestResult?
+    @State private var baseURLValidationMessage: String?
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
 
@@ -38,11 +39,18 @@ struct OpenAICompatibleSettingsView: View {
                         .keyboardType(.URL)
                         .onChange(of: baseURL) { _, newValue in
                             AppLog.shared.ui("Auto-saving baseURL")
+                            baseURLValidationMessage = OpenAICompatibleEndpointValidator.validationError(for: newValue)?.userMessage
                             settingsManager.openAICompatibleBaseURL = newValue
                             settingsManager.invalidateOpenAICompatibleClient()
                             settingsManager.saveSettings()
                             settingsManager.openAICompatibleStatus = .unknown
                         }
+
+                    if let baseURLValidationMessage {
+                        Label(baseURLValidationMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
 
                     Text("Enter the base URL of your OpenAI-compatible server")
                         .font(.caption)
@@ -266,6 +274,16 @@ struct OpenAICompatibleSettingsView: View {
     // MARK: - Actions
 
     private func testConnection() {
+        guard OpenAICompatibleEndpointValidator.isValid(baseURL) else {
+            let message = OpenAICompatibleEndpointValidator.validationError(for: baseURL)?.userMessage
+                ?? "Enter a valid server URL before testing the connection."
+            baseURLValidationMessage = message
+            settingsManager.openAICompatibleStatus = .failed(message)
+            testResult = TestResult(success: false, message: message)
+            return
+        }
+
+        baseURLValidationMessage = nil
         isTesting = true
         testResult = nil
         settingsManager.openAICompatibleStatus = .testing

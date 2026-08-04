@@ -180,14 +180,15 @@ class SettingsManager: ObservableObject {
     private var aiClientOverride: (any AIProviderInterface)?
     #endif
 
-    private let userDefaults = UserDefaults.standard
+    private let userDefaults: UserDefaults
     private let keychain = Keychain()
 
     // Keychain keys for reinstall persistence
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
     
-    init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         loadSettings()
     }
 
@@ -195,8 +196,12 @@ class SettingsManager: ObservableObject {
 
     func loadSettings() {
         // Load OpenAI-compatible configuration
-        if let storedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL"), !storedBaseURL.isEmpty {
-            openAICompatibleBaseURL = storedBaseURL
+        if let storedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL") {
+            if let validatedURL = OpenAICompatibleEndpointValidator.validatedURL(storedBaseURL) {
+                openAICompatibleBaseURL = validatedURL.absoluteString
+            } else {
+                userDefaults.removeObject(forKey: "openAICompatibleBaseURL")
+            }
         }
         if let storedAPIKey = try? keychain.retrieveString(for: kcOpenAICompatibleKey) {
             openAICompatibleAPIKey = storedAPIKey
@@ -233,7 +238,15 @@ class SettingsManager: ObservableObject {
     
     func saveSettings() {
         // Save OpenAI-compatible configuration
-        userDefaults.set(openAICompatibleBaseURL, forKey: "openAICompatibleBaseURL")
+        if let validatedURL = OpenAICompatibleEndpointValidator.validatedURL(openAICompatibleBaseURL) {
+            userDefaults.set(validatedURL.absoluteString, forKey: "openAICompatibleBaseURL")
+        } else if let persistedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL"),
+                  !OpenAICompatibleEndpointValidator.isValid(persistedBaseURL) {
+            // Do not preserve an invalid value left by an older build. A prior
+            // valid persisted endpoint remains untouched while the user edits an
+            // invalid value in memory.
+            userDefaults.removeObject(forKey: "openAICompatibleBaseURL")
+        }
         if openAICompatibleAPIKey.isEmpty {
             _ = try? keychain.delete(for: kcOpenAICompatibleKey)
         } else {
@@ -297,6 +310,7 @@ class SettingsManager: ObservableObject {
     #endif
 
     func getOpenAICompatibleClient() -> OpenAICompatibleClient {
+        let client: OpenAICompatibleClient
         if openAICompatibleClient == nil {
             let temperature = UserDefaults.standard.double(forKey: "openAICompatibleTemperature")
             let maxTokens = UserDefaults.standard.integer(forKey: "openAICompatibleMaxTokens")
@@ -313,7 +327,7 @@ class SettingsManager: ObservableObject {
             AppLog.shared.settings("   maxTokens: \(finalMaxTokens)")
             AppLog.shared.settings("   contextSize: \(openAICompatibleContextSize)")
 
-            openAICompatibleClient = OpenAICompatibleClient(
+            let newClient = OpenAICompatibleClient(
                 baseURL: openAICompatibleBaseURL,
                 apiKey: openAICompatibleAPIKey.isEmpty ? nil : openAICompatibleAPIKey,
                 timeout: 300.0,
@@ -322,12 +336,15 @@ class SettingsManager: ObservableObject {
                 maxTokens: finalMaxTokens,
                 contextSize: openAICompatibleContextSize
             )
+            openAICompatibleClient = newClient
+            client = newClient
         } else {
             AppLog.shared.settings("Reusing existing OpenAICompatibleClient, updating model to: '\(modelPreferences.openAICompatibleModel)'")
             openAICompatibleClient?.updateDefaultModel(modelPreferences.openAICompatibleModel)
+            client = openAICompatibleClient ?? OpenAICompatibleClient(baseURL: openAICompatibleBaseURL)
         }
-        openAICompatibleClient?.declaresVisionSupport = modelPreferences.openAIVisionCapable
-        return openAICompatibleClient!
+        client.declaresVisionSupport = modelPreferences.openAIVisionCapable
+        return client
     }
 
     func getBedrockClient() -> BedrockClient {
@@ -337,13 +354,11 @@ class SettingsManager: ObservableObject {
             region: sharedCredentials.region,
             accessKeyId: sharedCredentials.accessKeyId,
             secretAccessKey: sharedCredentials.secretAccessKey,
-            sessionToken: nil,
+            sessionToken: sharedCredentials.sessionToken,
             model: AWSBedrockModel(rawValue: modelPreferences.bedrockModel) ?? .claudeSonnet45,
             temperature: 0.1,
             maxTokens: 4096,
-            timeout: 300.0,
-            useProfile: false,
-            profileName: nil
+            timeout: 300.0
         )
         return BedrockClient(config: config)
     }
@@ -480,7 +495,7 @@ class SettingsManager: ObservableObject {
     }
 
     func hasValidOpenAICompatibleConfig() -> Bool {
-        return !openAICompatibleBaseURL.isEmpty && URL(string: openAICompatibleBaseURL) != nil
+        OpenAICompatibleEndpointValidator.isValid(openAICompatibleBaseURL)
     }
 
     func validateServerConfiguration(_ config: ServerConfiguration) -> String? {

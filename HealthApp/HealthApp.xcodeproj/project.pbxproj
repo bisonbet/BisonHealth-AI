@@ -12,7 +12,6 @@
 		1414D77B2F049E6F00EA287A /* HealthContextJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1414D77A2F049E6F00EA287A /* HealthContextJSON.swift */; };
 		1419E6312EF6EFB2009BE031 /* AIConnectionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */; };
 		1423481A2EA07B3300059087 /* NetworkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348162EA07B3300059087 /* NetworkError.swift */; };
-		1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348182EA07B3300059087 /* PendingOperationsManager.swift */; };
 		1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348172EA07B3300059087 /* NetworkManager.swift */; };
 		1423481E2EA07B4E00059087 /* OfflineIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */; };
 		142348202EA07B6300059087 /* NetworkingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1423481F2EA07B6300059087 /* NetworkingTests.swift */; };
@@ -198,7 +197,6 @@
 		1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConnectionStatus.swift; sourceTree = "<group>"; };
 		142348162EA07B3300059087 /* NetworkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkError.swift; sourceTree = "<group>"; };
 		142348172EA07B3300059087 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
-		142348182EA07B3300059087 /* PendingOperationsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingOperationsManager.swift; sourceTree = "<group>"; };
 		1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineIndicatorView.swift; sourceTree = "<group>"; };
 		1423481F2EA07B6300059087 /* NetworkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkingTests.swift; sourceTree = "<group>"; };
 		142348212EA07F5D00059087 /* OpenAICompatibleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleSettingsView.swift; sourceTree = "<group>"; };
@@ -390,7 +388,6 @@
 			children = (
 				142348162EA07B3300059087 /* NetworkError.swift */,
 				142348172EA07B3300059087 /* NetworkManager.swift */,
-				142348182EA07B3300059087 /* PendingOperationsManager.swift */,
 			);
 			name = Networking;
 			path = HealthApp/Networking;
@@ -819,7 +816,6 @@
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
 				143446972E78B62F00961754 /* FamilyHistoryEditorView.swift in Sources */,
 				1423481A2EA07B3300059087 /* NetworkError.swift in Sources */,
-				1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */,
 				1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */,
 				A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */,
 				A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */,

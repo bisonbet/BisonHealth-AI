@@ -195,6 +195,13 @@ struct AWSBedrockSettingsView: View {
                     .foregroundColor(.secondary)
             }
             .padding(.vertical, 4)
+
+            if let storageError = credentialsManager.lastError {
+                Label(storageError.localizedDescription, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .accessibilityLabel("AWS credential storage error: \(storageError.localizedDescription)")
+            }
         }
     }
 
@@ -432,13 +439,11 @@ struct AWSBedrockSettingsView: View {
             region: credentialsManager.credentials.region,
             accessKeyId: credentialsManager.credentials.accessKeyId,
             secretAccessKey: credentialsManager.credentials.secretAccessKey,
-            sessionToken: nil,
+            sessionToken: credentialsManager.credentials.sessionToken,
             model: selectedModelEnum,
             temperature: temperature,
             maxTokens: maxTokens,
-            timeout: 300.0,
-            useProfile: false,
-            profileName: nil
+            timeout: 300.0
         )
     }
 }

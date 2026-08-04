@@ -1,70 +1,59 @@
 import Foundation
 import Security
 
-// MARK: - AWS Credentials Helper
-class AWSCredentialsHelper {
+// MARK: - AWS Credential Storage
 
-    private static let keychainService = "com.bisonhealth.aws.credentials"
+protocol AWSCredentialsStorage {
+    func loadCredentials() throws -> AWSCredentials?
+    func saveCredentials(_ credentials: AWSCredentials) throws
+    func deleteCredentials() throws
+}
 
-    // MARK: - Credential Storage
-    struct AWSCredentials {
-        let accessKey: String
-        let secretKey: String
-        let sessionToken: String?
-        let region: String
+/// Keychain-backed storage for AWS Bedrock credentials.
+final class AWSCredentialsHelper: AWSCredentialsStorage {
 
-        init(accessKey: String, secretKey: String, sessionToken: String? = nil, region: String = "us-east-1") {
-            self.accessKey = accessKey
-            self.secretKey = secretKey
-            self.sessionToken = sessionToken
-            self.region = region
-        }
-
-        // Format for AIProviderConfig.apiKey
-        var formattedForConfig: String {
-            if let sessionToken = sessionToken {
-                return "\(accessKey):\(secretKey):\(sessionToken)"
-            } else {
-                return "\(accessKey):\(secretKey)"
-            }
-        }
-    }
+    // Deliberately distinct from the database-encryption Keychain service/account.
+    static let keychainService = "com.bisonhealth.aws.credentials"
+    static let keychainAccount = "aws-bedrock"
+    private static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
 
     // MARK: - Credential Management
-    static func saveCredentials(_ credentials: AWSCredentials) throws {
-        let data = try JSONEncoder().encode(CredentialData(
-            accessKey: credentials.accessKey,
-            secretKey: credentials.secretKey,
-            sessionToken: credentials.sessionToken,
-            region: credentials.region
-        ))
 
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: "aws-bedrock",
-            kSecValueData as String: data
-        ]
-
-        // Delete existing item first
-        SecItemDelete(query as CFDictionary)
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw AWSCredentialsError.keychainError(status)
+    func saveCredentials(_ credentials: AWSCredentials) throws {
+        let validation = Self.validateCredentials(credentials)
+        guard validation.isValid else {
+            throw AWSCredentialsError.validationFailed(validation.issues)
         }
 
-        AppLog.shared.networking("AWSCredentialsHelper: Credentials saved securely to Keychain")
+        let data = try JSONEncoder().encode(credentials)
+        let query = Self.keychainIdentityQuery()
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: Self.keychainAccessibility
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+        if updateStatus == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = Self.keychainAccessibility
+
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw AWSCredentialsError.keychainError(addStatus)
+            }
+        } else if updateStatus != errSecSuccess {
+            throw AWSCredentialsError.keychainError(updateStatus)
+        }
+
+        // This message intentionally contains no credential material.
+        AppLog.shared.networking("AWS credentials saved securely to Keychain")
     }
 
-    static func loadCredentials() throws -> AWSCredentials? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: "aws-bedrock",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
+    func loadCredentials() throws -> AWSCredentials? {
+        var query = Self.keychainIdentityQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -80,62 +69,43 @@ class AWSCredentialsHelper {
             throw AWSCredentialsError.invalidData
         }
 
-        let credentialData = try JSONDecoder().decode(CredentialData.self, from: data)
-
-        return AWSCredentials(
-            accessKey: credentialData.accessKey,
-            secretKey: credentialData.secretKey,
-            sessionToken: credentialData.sessionToken,
-            region: credentialData.region
-        )
+        do {
+            return try JSONDecoder().decode(AWSCredentials.self, from: data)
+        } catch {
+            throw AWSCredentialsError.invalidData
+        }
     }
 
-    static func deleteCredentials() throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: "aws-bedrock"
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
+    func deleteCredentials() throws {
+        let status = SecItemDelete(Self.keychainIdentityQuery() as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw AWSCredentialsError.keychainError(status)
         }
 
-        AppLog.shared.networking("AWSCredentialsHelper: Credentials deleted from Keychain")
+        // This message intentionally contains no credential material.
+        AppLog.shared.networking("AWS credentials deleted from Keychain")
     }
 
     // MARK: - Validation
+
     static func validateCredentials(_ credentials: AWSCredentials) -> ValidationResult {
         var issues: [String] = []
 
-        // Validate access key format (typically 20 characters starting with 'AKIA')
-        if credentials.accessKey.isEmpty {
+        if credentials.accessKeyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issues.append("Access key is required")
-        } else if credentials.accessKey.count < 16 {
-            issues.append("Access key appears to be too short")
-        } else if !credentials.accessKey.allSatisfy({ $0.isUppercase || $0.isNumber }) {
-            issues.append("Access key should only contain uppercase letters and numbers")
         }
-
-        // Validate secret key format (typically 40 characters)
-        if credentials.secretKey.isEmpty {
+        if credentials.secretAccessKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issues.append("Secret key is required")
-        } else if credentials.secretKey.count < 32 {
-            issues.append("Secret key appears to be too short")
         }
-
-        // Validate region format
-        if credentials.region.isEmpty {
+        if credentials.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issues.append("Region is required")
-        } else if !credentials.region.matches(regex: "^[a-z]{2}-[a-z]+-[0-9]+$") {
-            issues.append("Region format should be like 'us-east-1'")
+        }
+        if let sessionToken = credentials.sessionToken,
+           sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append("Session token cannot be empty")
         }
 
-        return ValidationResult(
-            isValid: issues.isEmpty,
-            issues: issues
-        )
+        return ValidationResult(isValid: issues.isEmpty, issues: issues)
     }
 
     struct ValidationResult {
@@ -143,11 +113,12 @@ class AWSCredentialsHelper {
         let issues: [String]
 
         var errorMessage: String? {
-            return isValid ? nil : issues.joined(separator: "\n")
+            isValid ? nil : issues.joined(separator: "\n")
         }
     }
 
     // MARK: - Configuration Templates
+
     static let supportedRegions = [
         "us-east-1": "US East (N. Virginia)",
         "us-west-2": "US West (Oregon)",
@@ -166,48 +137,53 @@ class AWSCredentialsHelper {
         "meta.llama3-70b-instruct-v1:0": "Meta Llama 3 70B",
         "cohere.command-r-plus-v1:0": "Cohere Command R+"
     ]
+
+    // MARK: - Keychain Query
+
+    private static func keychainIdentityQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+    }
 }
 
-// MARK: - Private Types
-private struct CredentialData: Codable {
-    let accessKey: String
-    let secretKey: String
-    let sessionToken: String?
-    let region: String
-}
+// MARK: - AWS Credential Errors
 
-// MARK: - AWS Credentials Errors
-enum AWSCredentialsError: LocalizedError {
+enum AWSCredentialsError: LocalizedError, Equatable {
     case keychainError(OSStatus)
     case invalidData
     case validationFailed([String])
+    case verificationFailed
+    case legacyCredentialConflict
+    case storageUnavailable
 
     var errorDescription: String? {
         switch self {
-        case .keychainError(let status):
-            return "Keychain error: \(status)"
+        case .keychainError:
+            return "Secure credential storage is unavailable."
         case .invalidData:
-            return "Invalid credential data format"
+            return "The saved AWS credentials could not be read."
         case .validationFailed(let issues):
             return "Credential validation failed: \(issues.joined(separator: ", "))"
+        case .verificationFailed:
+            return "Secure credential storage could not be verified."
+        case .legacyCredentialConflict:
+            return "Secure and legacy AWS credentials do not match."
+        case .storageUnavailable:
+            return "Secure credential storage is unavailable."
         }
     }
 
     var recoverySuggestion: String? {
         switch self {
-        case .keychainError:
-            return "Check app permissions and try again"
-        case .invalidData:
-            return "Re-enter your AWS credentials"
         case .validationFailed:
-            return "Please check your AWS credential format"
+            return "Please check the AWS credential fields."
+        case .legacyCredentialConflict:
+            return "Re-enter and save the intended AWS credentials to remove the legacy copy."
+        default:
+            return "Check app permissions and try again."
         }
-    }
-}
-
-// MARK: - String Extension for Regex
-private extension String {
-    func matches(regex: String) -> Bool {
-        return range(of: regex, options: .regularExpression) != nil
     }
 }

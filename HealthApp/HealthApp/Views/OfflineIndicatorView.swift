@@ -4,7 +4,6 @@ import SwiftUI
 /// Global offline indicator banner that appears when network is unavailable
 struct OfflineIndicatorView: View {
     @ObservedObject var networkManager = NetworkManager.shared
-    @ObservedObject var pendingOperationsManager = PendingOperationsManager.shared
     @State private var showDetails = false
 
     var body: some View {
@@ -23,15 +22,9 @@ struct OfflineIndicatorView: View {
                             Text("No Internet Connection")
                                 .font(.system(size: 14, weight: .semibold))
 
-                            if pendingOperationsManager.pendingOperations.count > 0 {
-                                Text("\(pendingOperationsManager.pendingOperations.count) pending operations")
-                                    .font(.system(size: 12))
-                                    .opacity(0.8)
-                            } else {
-                                Text("Some features are unavailable")
-                                    .font(.system(size: 12))
-                                    .opacity(0.8)
-                            }
+                            Text("Some features are unavailable")
+                                .font(.system(size: 12))
+                                .opacity(0.8)
                         }
 
                         Spacer()
@@ -88,17 +81,6 @@ struct OfflineIndicatorView: View {
                             available: false
                         )
 
-                        if !pendingOperationsManager.pendingOperations.isEmpty {
-                            Divider()
-                                .background(Color.white.opacity(0.3))
-
-                            HStack {
-                                Image(systemName: "clock")
-                                Text("Operations will retry automatically when connection is restored")
-                                    .font(.system(size: 12))
-                            }
-                            .foregroundColor(.white.opacity(0.8))
-                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -165,31 +147,6 @@ struct NetworkStatusBadge: View {
     }
 }
 
-// MARK: - Pending Operations Badge
-/// Badge showing count of pending operations
-struct PendingOperationsBadge: View {
-    @ObservedObject var pendingOperationsManager = PendingOperationsManager.shared
-
-    var body: some View {
-        if pendingOperationsManager.pendingOperations.count > 0 {
-            HStack(spacing: 6) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 12))
-
-                Text("\(pendingOperationsManager.pendingOperations.count)")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.orange)
-            )
-        }
-    }
-}
-
 // MARK: - Preview
 #Preview {
     VStack {
@@ -199,7 +156,6 @@ struct PendingOperationsBadge: View {
 
         HStack {
             NetworkStatusBadge()
-            PendingOperationsBadge()
         }
         .padding()
     }

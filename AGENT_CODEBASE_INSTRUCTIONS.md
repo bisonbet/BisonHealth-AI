@@ -22,7 +22,7 @@ BisonHealth-AI/
 │   ├── HealthAppUITests/          # UI tests
 │   └── HealthApp.xcodeproj/       # Xcode project
 ├── Documentation/                 # Project documentation
-├── Legacy/                       # Legacy reference code (read-only)
+├── legacy/                       # Legacy reference code (read-only)
 └── Configuration files            # Various config files
 ```
 
@@ -50,7 +50,8 @@ BisonHealth-AI/
 - **HealthDataProtocol.swift**: Health data structures
 
 #### 5. Services
-- **DocumentProcessor.swift**: Document processing
+- **NativeDocumentExtractor.swift**: Active on-device document extraction with PDFKit and Vision
+- **DocumentProcessor.swift**: Orchestrates the active native extraction and document-processing path
 - **MedicalDocumentExtractor.swift**: Medical document parsing
 - **BloodTestMappingService.swift**: Blood test data handling
 
@@ -71,8 +72,9 @@ BisonHealth-AI/
    - Maintain consistent naming conventions
 
 3. **XCODE PROJECT INTEGRATION**
-   - When creating new Swift files, they MUST be added to Xcode project
+   - When creating an explicitly requested new Swift file, it MUST be added to the Xcode project
    - Required: PBXBuildFile, PBXFileReference, group membership, build phase
+   - Make only the required entries for that file; do not rewrite unrelated project-file content
    - Use Xcode's "Add Files" or proper script integration
 
 4. **TESTING REQUIREMENTS**
@@ -131,7 +133,7 @@ BisonHealth-AI/
 
 #### When NOT to Modify Files
 - Legacy reference code (read-only)
-- Generated files (e.g., Xcode project files)
+- Generated files (e.g., Xcode project files), except for the minimal entries required to integrate an explicitly requested new Swift file
 - Configuration files without explicit instruction
 - Files outside the main HealthApp directory
 
@@ -207,6 +209,15 @@ Task {
 3. **Network Security**: Use HTTPS and proper certificate validation
 4. **Input Validation**: Validate all external inputs
 5. **Error Messages**: Don't expose sensitive information in errors
+
+## Definition of Done
+
+Before finishing:
+- Remove code made unused by this change.
+- Remove commented-out implementation blocks introduced or exposed by this change.
+- Merge newly duplicated helpers when behavior and ownership are identical.
+- Verify no secrets or PHI were added to source, tests, fixtures, or logs.
+- Run focused tests and inspect the final diff.
 
 ## Common Issues and Solutions
 
