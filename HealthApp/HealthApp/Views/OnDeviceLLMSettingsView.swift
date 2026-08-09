@@ -186,9 +186,20 @@ struct OnDeviceLLMSettingsView: View {
                         ProgressView(value: downloadManager.downloadProgress)
                             .progressViewStyle(.linear)
 
-                        Text("\(Int(downloadManager.downloadProgress * 100))%")
+                        Text(downloadStatusText)
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .accessibilityIdentifier("modelDownloadStatusText")
+
+                        if downloadManager.isDownloadStalled {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                Text("No data received for a while. Check your network connection — the download resumes on its own if the connection comes back.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                     .padding(.vertical, 4)
                 } header: {
@@ -330,6 +341,29 @@ struct OnDeviceLLMSettingsView: View {
     }
 
     // MARK: - Helper Methods
+
+    /// Byte counts rather than a bare percentage: the percentage alone cannot distinguish
+    /// a slow multi-gigabyte transfer from one that is not moving at all.
+    private var downloadStatusText: String {
+        let percent = Int(downloadManager.downloadProgress * 100)
+        guard let model = downloadManager.currentlyDownloadingModel else {
+            return "\(percent)%"
+        }
+
+        let downloaded = downloadManager.formatSize(downloadManager.downloadedBytes)
+        let total = downloadManager.formatSize(model.estimatedSizeBytes)
+        if let speed = downloadManager.downloadSpeedBytesPerSecond {
+            return "\(percent)% · \(downloaded) of \(total) · \(formatSpeed(speed))"
+        }
+        return "\(percent)% · \(downloaded) of \(total)"
+    }
+
+    private func formatSpeed(_ bytesPerSecond: Double) -> String {
+        if bytesPerSecond >= 1_000_000 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
+        }
+        return String(format: "%.0f KB/s", max(bytesPerSecond, 0) / 1_000)
+    }
 
     private func refreshState() {
         isEnabled = MLXModelInfo.isEnabled

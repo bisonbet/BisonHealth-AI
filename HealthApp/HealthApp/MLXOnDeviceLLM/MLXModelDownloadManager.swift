@@ -10,8 +10,6 @@ import SwiftUI
 
 #if !targetEnvironment(simulator)
 import MLXLMCommon
-import MLXLLM
-import MLXVLM
 #endif
 
 // MARK: - Download Manager
@@ -25,6 +23,9 @@ class MLXModelDownloadManager: ObservableObject {
 
     @Published var isDownloading: Bool = false
     @Published var downloadProgress: Double = 0.0
+    @Published var downloadedBytes: Int64 = 0
+    @Published var downloadSpeedBytesPerSecond: Double?
+    @Published var isDownloadStalled: Bool = false
     @Published var currentlyDownloadingModel: MLXModelInfo?
     @Published var downloadError: String?
     @Published var downloadedModelIds: Set<String> = []
@@ -34,6 +35,15 @@ class MLXModelDownloadManager: ObservableObject {
     // MARK: - Private State
 
     private var downloadTask: Task<Void, Never>?
+    private var progressMonitorTask: Task<Void, Never>?
+    private var cancelledByUser = false
+
+    /// Fraction reported by the Hub snapshot. Written from arbitrary download threads,
+    /// read by the progress monitor, so it lives behind a lock instead of a per-callback hop.
+    private let reportedFraction = FractionBox()
+
+    /// No byte movement for this long while downloading is surfaced as a stall.
+    private static let stallThreshold: TimeInterval = 90
 
     // MARK: - Initialization
 
@@ -60,64 +70,48 @@ class MLXModelDownloadManager: ObservableObject {
 
         isDownloading = true
         downloadProgress = 0.0
+        downloadedBytes = 0
+        downloadSpeedBytesPerSecond = nil
+        isDownloadStalled = false
         currentlyDownloadingModel = model
         downloadError = nil
+        cancelledByUser = false
+        reportedFraction.set(0)
+        startProgressMonitor(for: model)
 
         downloadTask = Task {
             do {
                 #if targetEnvironment(simulator)
                 throw MLXOnDeviceError.simulatorNotSupported
                 #else
-                AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId))")
+                AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId)), expecting \(formatSize(model.estimatedSizeBytes))")
 
                 let configuration = ModelConfiguration(id: model.huggingFaceId)
+                let fraction = reportedFraction
 
-                // Use the appropriate factory based on model type
-                switch model.modelType {
-                case .llm:
-                    _ = try await LLMModelFactory.shared.loadContainer(
-                        configuration: configuration
-                    ) { progress in
-                        Task { @MainActor in
-                            self.downloadProgress = progress.fractionCompleted
-                        }
-                    }
-                case .vlm:
-                    _ = try await VLMModelFactory.shared.loadContainer(
-                        configuration: configuration
-                    ) { progress in
-                        Task { @MainActor in
-                            self.downloadProgress = progress.fractionCompleted
-                        }
-                    }
+                // Download the weights only. Instantiating the model is the chat client's job,
+                // and doing it here would pull the whole model into memory for no benefit.
+                _ = try await downloadModel(
+                    hub: defaultHubApi,
+                    configuration: configuration
+                ) { progress in
+                    fraction.set(progress.fractionCompleted)
                 }
 
                 AppLog.shared.mlx("[MLXDownload] Download complete for \(model.displayName)")
 
+                stopProgressMonitor()
                 isDownloading = false
                 downloadProgress = 1.0
+                downloadSpeedBytesPerSecond = nil
+                isDownloadStalled = false
                 currentlyDownloadingModel = nil
                 downloadTask = nil
                 markModelDownloaded(model)
                 ensureValidExtractionModelSelection()
                 #endif
-            } catch is CancellationError {
-                AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model.displayName)")
-                isDownloading = false
-                downloadProgress = 0.0
-                currentlyDownloadingModel = nil
-                downloadTask = nil
-                cleanupIncompleteDownload(for: model)
-                removeDownloadedModel(model)
             } catch {
-                AppLog.shared.error("[MLXDownload] Download failed for \(model.displayName)", error: error, category: .mlx)
-                isDownloading = false
-                downloadProgress = 0.0
-                currentlyDownloadingModel = nil
-                downloadTask = nil
-                cleanupIncompleteDownload(for: model)
-                removeDownloadedModel(model)
-                downloadError = error.localizedDescription
+                finishFailedDownload(for: model, error: error)
             }
         }
     }
@@ -125,16 +119,51 @@ class MLXModelDownloadManager: ObservableObject {
     /// Cancel the current download
     func cancelDownload() {
         let model = currentlyDownloadingModel
+        AppLog.shared.mlx("[MLXDownload] Cancel requested by user for \(model?.displayName ?? "unknown model")")
+        cancelledByUser = true
+        stopProgressMonitor()
         downloadTask?.cancel()
         downloadTask = nil
         isDownloading = false
         downloadProgress = 0.0
+        downloadSpeedBytesPerSecond = nil
+        isDownloadStalled = false
         currentlyDownloadingModel = nil
+        // `downloadedBytes` is left for `finishFailedDownload` to report and reset.
         if let model {
             cleanupIncompleteDownload(for: model)
             removeDownloadedModel(model)
         }
         refreshModelStatus()
+    }
+
+    /// Tear down download state after a thrown error, keeping user cancellation out of the error UI.
+    ///
+    /// `URLSession`'s async APIs surface task cancellation as `URLError.cancelled` rather than
+    /// `CancellationError`, so cancellation is identified by the flag `cancelDownload()` sets.
+    private func finishFailedDownload(for model: MLXModelInfo, error: Error) {
+        let wasCancelled = cancelledByUser || error is CancellationError || (error as? URLError)?.code == .cancelled
+
+        if wasCancelled {
+            AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model.displayName) after \(formatSize(downloadedBytes))")
+        } else {
+            AppLog.shared.error("[MLXDownload] Download failed for \(model.displayName) after \(formatSize(downloadedBytes))", error: error, category: .mlx)
+        }
+
+        stopProgressMonitor()
+        isDownloading = false
+        downloadProgress = 0.0
+        downloadedBytes = 0
+        downloadSpeedBytesPerSecond = nil
+        isDownloadStalled = false
+        currentlyDownloadingModel = nil
+        downloadTask = nil
+        cleanupIncompleteDownload(for: model)
+        removeDownloadedModel(model)
+        if !wasCancelled {
+            downloadError = error.localizedDescription
+        }
+        cancelledByUser = false
     }
 
     /// Check if a model is downloaded.
@@ -143,18 +172,27 @@ class MLXModelDownloadManager: ObservableObject {
         downloadedModelIds.contains(model.id)
     }
 
-    /// Delete a downloaded model's cached files
+    /// Delete a downloaded model's cached files.
+    ///
+    /// Removes both the snapshot directory and the Hub blob store, which each hold a full copy
+    /// of the weights — deleting only the snapshot would leave gigabytes stranded.
     func deleteModel(_ model: MLXModelInfo) {
-        let cacheDir = huggingFaceCacheDirectory(for: model)
-        if FileManager.default.fileExists(atPath: cacheDir.path) {
+        let directories = [huggingFaceCacheDirectory(for: model), Self.hubBlobDirectory(for: model)]
+        var deletedAny = false
+
+        for directory in directories where FileManager.default.fileExists(atPath: directory.path) {
             do {
-                try FileManager.default.removeItem(at: cacheDir)
-                removeDownloadedModel(model)
-                ensureValidExtractionModelSelection()
-                AppLog.shared.mlx("[MLXDownload] Deleted model cache for \(model.displayName)")
+                try FileManager.default.removeItem(at: directory)
+                deletedAny = true
             } catch {
-                AppLog.shared.error("[MLXDownload] Failed to delete model cache", error: error, category: .mlx)
+                AppLog.shared.error("[MLXDownload] Failed to delete \(directory.lastPathComponent) for \(model.displayName)", error: error, category: .mlx)
             }
+        }
+
+        if deletedAny {
+            removeDownloadedModel(model)
+            ensureValidExtractionModelSelection()
+            AppLog.shared.mlx("[MLXDownload] Deleted model cache for \(model.displayName)")
         }
         refreshModelStatus()
     }
@@ -198,12 +236,13 @@ class MLXModelDownloadManager: ObservableObject {
 
     // MARK: - Storage Info
 
-    /// Get the total storage used by downloaded models
+    /// Get the total storage used by downloaded models, counting both the snapshot directory
+    /// and the Hub blob store that backs it.
     var totalStorageUsed: Int64 {
         var total: Int64 = 0
         for model in MLXModelInfo.allModels where downloadedModelIds.contains(model.id) {
-            let cacheDir = huggingFaceCacheDirectory(for: model)
-            total += directorySize(at: cacheDir)
+            total += Self.directorySize(at: huggingFaceCacheDirectory(for: model))
+            total += Self.directorySize(at: Self.hubBlobDirectory(for: model))
         }
         return total
     }
@@ -257,18 +296,115 @@ class MLXModelDownloadManager: ObservableObject {
         }
     }
 
+    // MARK: - Progress Monitoring
+
+    /// Publish byte-level progress for the running download.
+    ///
+    /// The Hub reports snapshot progress in *files*, not bytes: a repo with seven files jumps
+    /// straight to 3/7 once the small JSON files land, then creeps across a single unit for the
+    /// entire multi-gigabyte weights file. That reads as "stuck at 43%". Measuring the bytes on
+    /// disk instead gives a bar that actually tracks the download, and makes a real stall visible.
+    private func startProgressMonitor(for model: MLXModelInfo) {
+        progressMonitorTask?.cancel()
+        let expectedBytes = model.estimatedSizeBytes
+
+        progressMonitorTask = Task { @MainActor [weak self] in
+            var lastBytes: Int64 = 0
+            var lastSample = Date()
+            var lastMovement = Date()
+            var lastLog = Date.distantPast
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+
+                let bytes = await Self.measureDownloadedBytes(for: model)
+                let now = Date()
+                let elapsed = now.timeIntervalSince(lastSample)
+
+                if bytes > lastBytes {
+                    if elapsed > 0 {
+                        self.downloadSpeedBytesPerSecond = Double(bytes - lastBytes) / elapsed
+                    }
+                    lastMovement = now
+                    self.isDownloadStalled = false
+                } else if now.timeIntervalSince(lastMovement) > Self.stallThreshold {
+                    self.downloadSpeedBytesPerSecond = nil
+                    if !self.isDownloadStalled {
+                        AppLog.shared.mlx("[MLXDownload] No bytes written for \(Int(Self.stallThreshold))s downloading \(model.displayName) — stalled at \(self.formatSize(bytes))", level: .warning)
+                        self.isDownloadStalled = true
+                    }
+                }
+
+                lastBytes = bytes
+                lastSample = now
+
+                self.downloadedBytes = bytes
+                if bytes > 0, expectedBytes > 0 {
+                    self.downloadProgress = min(Double(bytes) / Double(expectedBytes), 0.999)
+                } else {
+                    self.downloadProgress = self.reportedFraction.get()
+                }
+
+                if now.timeIntervalSince(lastLog) >= 15 {
+                    lastLog = now
+                    let speed = self.downloadSpeedBytesPerSecond.map { "\(self.formatSize(Int64($0)))/s" } ?? "stalled"
+                    AppLog.shared.mlx("[MLXDownload] \(model.displayName): \(self.formatSize(bytes)) of \(self.formatSize(expectedBytes)) (\(speed))")
+                }
+            }
+        }
+    }
+
+    private func stopProgressMonitor() {
+        progressMonitorTask?.cancel()
+        progressMonitorTask = nil
+    }
+
     // MARK: - Private Helpers
 
     /// Get the HuggingFace Hub local directory for a model.
     /// MLX Swift's `defaultHubApi` uses cachesDirectory as downloadBase (not documentDirectory).
     /// HubApi.localRepoLocation then appends: models/<repoId>
     /// Uses .appending(component:) to match HubApi's URL construction.
-    private func huggingFaceCacheDirectory(for model: MLXModelInfo) -> URL {
-        let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return cachesDir
+    private nonisolated func huggingFaceCacheDirectory(for model: MLXModelInfo) -> URL {
+        Self.cachesDirectory
             .appending(component: "models")
             .appending(component: model.huggingFaceId)
+    }
+
+    private nonisolated static var cachesDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+    }
+
+    /// Blob store the Hub client streams downloads into before copying them to the snapshot
+    /// directory. Inside the app sandbox this is `Library/Caches/huggingface/hub/models--<ns>--<name>`.
+    private nonisolated static func hubBlobDirectory(for model: MLXModelInfo) -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        let root: URL
+        if let override = environment["HF_HUB_CACHE"], !override.isEmpty {
+            root = URL(fileURLWithPath: override)
+        } else if let home = environment["HF_HOME"], !home.isEmpty {
+            root = URL(fileURLWithPath: home).appending(component: "hub")
+        } else {
+            root = cachesDirectory
+                .appending(component: "huggingface")
+                .appending(component: "hub")
+        }
+        let repoDirectory = "models--" + model.huggingFaceId.replacingOccurrences(of: "/", with: "--")
+        return root.appending(component: repoDirectory).appending(component: "blobs")
+    }
+
+    /// Bytes already on disk for a model, whether they are still landing in the blob store
+    /// (including `.incomplete` partials) or have been copied into the snapshot directory.
+    private nonisolated static func measureDownloadedBytes(for model: MLXModelInfo) async -> Int64 {
+        let blobs = directorySize(at: hubBlobDirectory(for: model))
+        let snapshot = directorySize(
+            at: cachesDirectory
+                .appending(component: "models")
+                .appending(component: model.huggingFaceId)
+        )
+        return max(blobs, snapshot)
     }
 
     private func persistDownloadedModelIds() {
@@ -344,7 +480,7 @@ class MLXModelDownloadManager: ObservableObject {
     }
 
     /// Calculate the size of a directory recursively
-    private func directorySize(at url: URL) -> Int64 {
+    private nonisolated static func directorySize(at url: URL) -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.fileSizeKey],
@@ -360,5 +496,26 @@ class MLXModelDownloadManager: ObservableObject {
             }
         }
         return total
+    }
+}
+
+// MARK: - Fraction Box
+
+/// Thread-safe holder for the Hub's snapshot fraction, written from download threads and read
+/// by the main-actor progress monitor.
+private final class FractionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Double = 0
+
+    func set(_ newValue: Double) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
