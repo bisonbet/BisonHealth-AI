@@ -96,13 +96,28 @@ struct AWSBedrockSettingsView: View {
             region: editingRegion
         )
 
-        guard edited != credentialsManager.credentials else { return }
+        // Emptying both fields is a request to remove the stored credentials, not an
+        // unfinished edit. Staging it in memory would leave the Keychain pair in place
+        // to reappear on the next launch, with no other way to delete it.
+        if edited.accessKeyId.isEmpty, edited.secretAccessKey.isEmpty {
+            if credentialsManager.hasStoredCredentials {
+                credentialsManager.deleteCredentials()
+            }
+            return
+        }
 
         if edited.accessKeyId.isEmpty || edited.secretAccessKey.isEmpty {
             credentialsManager.stageCredentials(edited)
-        } else {
-            credentialsManager.updateCredentials(edited)
+            return
         }
+
+        // A legacy conflict is cleared by re-saving, which is what the recovery
+        // suggestion asks the user to do. The form is prefilled with the Keychain
+        // values, so that save has to go through even when nothing was edited.
+        let resolvesLegacyConflict = credentialsManager.lastError == .legacyCredentialConflict
+        guard edited != credentialsManager.credentials || resolvesLegacyConflict else { return }
+
+        credentialsManager.updateCredentials(edited)
     }
 
     private var headerSection: some View {

@@ -6,6 +6,7 @@ import Security
 final class InMemoryKeychain: KeychainStoring {
     private var items: [String: Data] = [:]
     var storeError: Error?
+    var deleteError: Error?
 
     func store(data: Data, for account: String) throws {
         if let storeError { throw storeError }
@@ -17,6 +18,7 @@ final class InMemoryKeychain: KeychainStoring {
     }
 
     func delete(for account: String) throws {
+        if let deleteError { throw deleteError }
         items.removeValue(forKey: account)
     }
 
@@ -262,6 +264,39 @@ final class SettingsManagerTests: XCTestCase {
         // Losing the key outright is worse than leaving the plaintext copy in place.
         XCTAssertEqual(manager.openAICompatibleAPIKey, "synthetic-legacy-api-key")
         XCTAssertEqual(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"), "synthetic-legacy-api-key")
+    }
+
+    func testFailedKeychainDeletionIsNotReportedAsACleanedKey() {
+        let name = "SettingsManagerTests.\(UUID().uuidString)"
+        guard let isolatedDefaults = UserDefaults(suiteName: name) else {
+            XCTFail("Unable to create an isolated UserDefaults suite")
+            return
+        }
+        addTeardownBlock { isolatedDefaults.removePersistentDomain(forName: name) }
+        isolatedDefaults.set("synthetic-legacy-api-key", forKey: "openAICompatibleAPIKey")
+
+        let keychain = InMemoryKeychain()
+        let manager = SettingsManager(userDefaults: isolatedDefaults, keychain: keychain)
+        XCTAssertNil(manager.openAICompatibleKeyStorageError)
+
+        keychain.deleteError = KeychainError.deleteFailed(errSecIO)
+        manager.openAICompatibleAPIKey = ""
+        manager.saveSettings()
+
+        // The secure copy survived, so the key must not be presented as cleared and the
+        // legacy copy must not be dropped on the strength of a failed deletion.
+        XCTAssertNotNil(manager.openAICompatibleKeyStorageError)
+        XCTAssertEqual(
+            try? keychain.retrieveString(for: "settings.openAICompatible.apiKey.v1"),
+            "synthetic-legacy-api-key"
+        )
+
+        // Once deletion succeeds, both copies go and the error clears.
+        keychain.deleteError = nil
+        manager.saveSettings()
+        XCTAssertNil(manager.openAICompatibleKeyStorageError)
+        XCTAssertNil(try? keychain.retrieveString(for: "settings.openAICompatible.apiKey.v1"))
+        XCTAssertNil(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"))
     }
 
     func testClearingAPIKeyRemovesBothTheKeychainAndLegacyCopies() {

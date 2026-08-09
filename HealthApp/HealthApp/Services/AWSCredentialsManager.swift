@@ -70,6 +70,15 @@ final class AWSCredentialsManager: ObservableObject {
         }
     }
 
+    /// Whether any credential material is currently held, in the Keychain or in a
+    /// legacy plaintext copy. Lets a caller distinguish "clear this" from "there was
+    /// never anything here".
+    var hasStoredCredentials: Bool {
+        !credentials.accessKeyId.isEmpty
+            || !credentials.secretAccessKey.isEmpty
+            || userDefaults.data(forKey: Self.legacyCredentialsKey) != nil
+    }
+
     // MARK: - Credential Updates
 
     /// Updates the in-memory value without persisting it. Used while a form is still

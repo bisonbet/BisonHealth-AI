@@ -340,7 +340,9 @@ class AppLog: NSObject {
     /// localized text that may contain prompts, health context, or response bodies.
     static func sanitizedErrorDescription(_ error: Error) -> String {
         if let providerError = error as? OpenAICompatibleError {
-            return boundedLogText(providerError.localizedDescription)
+            // Deliberately not localizedDescription: that carries the provider-supplied
+            // request ID, which is untrusted response data and must not be persisted.
+            return boundedLogText(providerError.loggableDescription)
         }
 
         if let urlError = error as? URLError {

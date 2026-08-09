@@ -1059,13 +1059,23 @@ struct OpenAICompatibleFailure: Equatable {
         self.message = Self.safeMessage(message)
     }
 
+    /// Shown to the user for the current failure. Ephemeral: it is held in `lastError`
+    /// and rendered in the UI, never written to a file.
     var localizedDescription: String {
+        var description = loggableDescription
+        if let requestIdentifier {
+            description += " [request ID: \(requestIdentifier)]"
+        }
+        return String(description.prefix(512))
+    }
+
+    /// The form written to durable logs. The request ID is omitted: it is an untrusted
+    /// response header, and constraining its characters and length does not establish
+    /// that a provider did not put PHI or a credential in it.
+    var loggableDescription: String {
         var description = "\(provider) request failed (HTTP \(statusCode))"
         if let message {
             description += ": \(message)"
-        }
-        if let requestIdentifier {
-            description += " [request ID: \(requestIdentifier)]"
         }
         return String(description.prefix(512))
     }
@@ -1106,8 +1116,8 @@ enum OpenAICompatibleError: LocalizedError {
     }
 
     /// Builds a safe failure from an HTTP response. The response body is deliberately
-    /// not a parameter: it can carry PHI, prompts, or credentials, and only the status
-    /// line and a shape-checked request ID are safe to retain.
+    /// not a parameter: it can carry PHI, prompts, or credentials. The request ID is
+    /// kept only for the user-facing description, never for durable logs.
     static func requestFailed(
         response: HTTPURLResponse,
         provider: String = "OpenAI-compatible"
@@ -1137,6 +1147,18 @@ enum OpenAICompatibleError: LocalizedError {
             return "Configuration updates require app restart"
         case .authenticationFailed:
             return "Authentication failed - check your API key"
+        }
+    }
+
+    /// The description safe to write to durable logs. Identical to `errorDescription`
+    /// except for a request failure, whose user-facing text carries the untrusted
+    /// provider request ID.
+    var loggableDescription: String {
+        switch self {
+        case .requestFailed(let failure):
+            return failure.loggableDescription
+        default:
+            return errorDescription ?? String(describing: self)
         }
     }
 

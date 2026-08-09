@@ -162,6 +162,10 @@ class SettingsManager: ObservableObject {
 
     // Connection statuses
     @Published var openAICompatibleStatus: ConnectionStatus = .unknown
+
+    /// Set when the API key could not be written to or removed from the Keychain, so
+    /// the UI never presents a key as saved or cleared while the opposite is true.
+    @Published private(set) var openAICompatibleKeyStorageError: String?
     
     // Backup settings
     @Published var backupSettings = BackupSettings()
@@ -262,10 +266,18 @@ class SettingsManager: ObservableObject {
         }
 
         if openAICompatibleAPIKey.isEmpty {
-            clearAPIKeyCopies()
+            if clearAPIKeyCopies() {
+                openAICompatibleKeyStorageError = nil
+            } else {
+                openAICompatibleKeyStorageError = "The API key could not be removed from secure storage "
+                    + "and may still be present the next time the app starts."
+                AppLog.shared.settings("Could not remove the API key from secure storage", level: .error)
+            }
         } else if persistAPIKey(openAICompatibleAPIKey) {
             userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+            openAICompatibleKeyStorageError = nil
         } else {
+            openAICompatibleKeyStorageError = "The API key could not be saved to secure storage."
             AppLog.shared.settings("Could not verify the API key in secure storage", level: .error)
         }
         userDefaults.set(openAICompatibleContextSize, forKey: "openAICompatibleContextSize")
@@ -317,9 +329,19 @@ class SettingsManager: ObservableObject {
 
     /// Removes the Keychain copy *and* any legacy plaintext copy, so clearing the key
     /// cannot be undone by the legacy fallback on the next launch.
-    private func clearAPIKeyCopies() {
-        _ = try? keychain.delete(for: kcOpenAICompatibleKey)
+    ///
+    /// Returns `false` if the secure copy could not be removed. The legacy copy is then
+    /// left alone as well: reporting the key as cleared while it survives in the
+    /// Keychain — and returns on the next launch — is worse than reporting the failure.
+    @discardableResult
+    private func clearAPIKeyCopies() -> Bool {
+        do {
+            try keychain.delete(for: kcOpenAICompatibleKey)
+        } catch {
+            return false
+        }
         userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+        return true
     }
     
     // MARK: - Service Client Management
@@ -652,8 +674,8 @@ class SettingsManager: ObservableObject {
         openAICompatibleContextSize = 32768  // Reset to 32k default
         openAICompatibleStatus = .unknown
         modelPreferences.openAICompatibleModel = ""
-        clearAPIKeyCopies()
         invalidateOpenAICompatibleClient()
+        // saveSettings() removes both key copies, and reports it if that fails.
         saveSettings()
     }
     

@@ -73,6 +73,13 @@ struct OpenAICompatibleSettingsView: View {
                             settingsManager.openAICompatibleStatus = .unknown
                         }
 
+                    if let keyStorageError = settingsManager.openAICompatibleKeyStorageError {
+                        Label(keyStorageError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .accessibilityLabel("API key storage error: \(keyStorageError)")
+                    }
+
                     Text("Leave blank if your server doesn't require authentication")
                         .font(.caption)
                         .foregroundColor(.secondary)

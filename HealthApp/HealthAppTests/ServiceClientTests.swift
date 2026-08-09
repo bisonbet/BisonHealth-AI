@@ -150,6 +150,33 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey), legacyData)
     }
 
+    func testResavingUnchangedCredentialsResolvesALegacyConflict() throws {
+        // The conflict warning tells the user to re-enter and save. The form is
+        // prefilled from the Keychain, so that save carries unchanged values and must
+        // still clear the plaintext copy and the warning.
+        let keychainCredentials = makeCredentials()
+        let conflicting = AWSCredentials(
+            accessKeyId: "different-synthetic-access-key",
+            secretAccessKey: "different-synthetic-secret-key",
+            region: "us-west-2"
+        )
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = keychainCredentials
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(try JSONEncoder().encode(conflicting), forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertEqual(manager.lastError, .legacyCredentialConflict)
+
+        if case .failure(let error) = manager.updateCredentials(manager.credentials) {
+            XCTFail("Re-saving the loaded credentials should succeed: \(error.localizedDescription)")
+        }
+
+        XCTAssertNil(manager.lastError)
+        XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
+    }
+
     func testAWSCredentialsDeletionRemovesKeychainAndLegacyCopies() throws {
         let storage = MockAWSCredentialsStorage()
         storage.storedCredentials = makeCredentials()
@@ -165,6 +192,48 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertNil(storage.storedCredentials)
         XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
         XCTAssertEqual(manager.credentials, .default)
+    }
+
+    func testAWSCredentialsReportStoredMaterialForClearDetection() throws {
+        let storage = MockAWSCredentialsStorage()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let empty = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertFalse(empty.hasStoredCredentials)
+
+        storage.storedCredentials = makeCredentials()
+        let populated = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertTrue(populated.hasStoredCredentials)
+
+        // A legacy plaintext copy alone still counts as material to remove.
+        let legacyOnlyStorage = MockAWSCredentialsStorage()
+        let (legacyDefaults, legacySuite) = makeUserDefaults()
+        defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
+        legacyDefaults.set(
+            try JSONEncoder().encode(makeCredentials()),
+            forKey: AWSCredentialsManager.legacyCredentialsKey
+        )
+        let migrated = AWSCredentialsManager(storage: legacyOnlyStorage, userDefaults: legacyDefaults)
+        XCTAssertTrue(migrated.hasStoredCredentials)
+    }
+
+    func testStagingCredentialsDoesNotRemoveTheStoredPair() {
+        // Staging is for an unfinished edit; only an explicit delete may remove material.
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = makeCredentials()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        manager.stageCredentials(AWSCredentials(
+            accessKeyId: "",
+            secretAccessKey: "synthetic-secret-key",
+            region: "us-east-1"
+        ))
+
+        XCTAssertNotNil(storage.storedCredentials)
+        XCTAssertTrue(manager.hasStoredCredentials)
     }
 
     func testAWSCredentialsValidationRejectsEmptyAndPartialValues() {
@@ -332,6 +401,58 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertFalse(retainedContent.contains("Synthetic Patient"))
         XCTAssertFalse(retainedContent.contains("synthetic-api-key"))
         XCTAssertTrue(retainedContent.contains("Underlying error type"))
+    }
+
+    func testProviderRequestIdentifierIsWithheldFromDurableLogs() {
+        // A request ID is untrusted response data: a character allowlist cannot show it
+        // is free of PHI, so it may inform the user but must not be persisted.
+        guard let response = syntheticHTTPResponse(
+            statusCode: 502,
+            headers: ["x-request-id": "JaneDoe-MRN123"]
+        ) else {
+            XCTFail("Unable to create synthetic HTTP response")
+            return
+        }
+
+        let error = OpenAICompatibleError.requestFailed(response: response)
+
+        XCTAssertTrue(error.localizedDescription.contains("JaneDoe-MRN123"))
+        XCTAssertFalse(error.loggableDescription.contains("JaneDoe-MRN123"))
+        XCTAssertTrue(error.loggableDescription.contains("HTTP 502"))
+        XCTAssertEqual(AppLog.sanitizedErrorDescription(error), error.loggableDescription)
+    }
+
+    func testProviderRequestIdentifierNeverReachesPersistedLogs() {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppLogRequestIDTests-\(UUID().uuidString)", isDirectory: true)
+        let logger = AppLog(
+            logDirectory: rootURL.appendingPathComponent("Logs", isDirectory: true),
+            errorBufferURL: rootURL.appendingPathComponent("error-buffer.log"),
+            metricKitDiagnosticsURL: rootURL.appendingPathComponent("metric-kit.log")
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        guard let response = syntheticHTTPResponse(
+            statusCode: 500,
+            headers: ["x-request-id": "JaneDoe-MRN123"]
+        ) else {
+            XCTFail("Unable to create synthetic HTTP response")
+            return
+        }
+        logger.error(
+            "OpenAI-compatible chat request failed",
+            error: OpenAICompatibleError.requestFailed(response: response),
+            category: .ai
+        )
+
+        let retainedContent = [
+            logger.getCurrentLogContent(),
+            logger.getCombinedLogFileContent(),
+            logger.getErrorBufferContent()
+        ].compactMap { $0 }.joined(separator: "\n")
+
+        XCTAssertFalse(retainedContent.contains("JaneDoe-MRN123"))
+        XCTAssertTrue(retainedContent.contains("HTTP 500"))
     }
 
     func testRedactionCoversJSONQuotedProviderValues() {
