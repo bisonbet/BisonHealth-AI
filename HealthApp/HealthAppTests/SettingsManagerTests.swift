@@ -234,6 +234,30 @@ final class SettingsManagerTests: XCTestCase {
         XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://nas"))
     }
 
+    func testOpenAIEndpointValidatorDoesNotTruncatePublicHostsAtAPercentSign() {
+        // URLComponents decodes the host, so "nas%25.evil.example.test" arrives as
+        // "nas%.evil.example.test". Treating that percent sign as an IPv6 zone ID would
+        // truncate it to the LAN-looking label "nas" and permit cleartext to a public
+        // domain. Zone IDs belong to IPv6 literals only.
+        XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("http://nas%25.evil.example.test/v1"))
+        XCTAssertFalse(OpenAICompatibleEndpointValidator.isPrivateNetworkHost("nas%.evil.example.test"))
+
+        // A genuine IPv6 zone ID is still handled.
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://[fe80::1%25en0]:8000"))
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isPrivateNetworkHost("fe80::1%en0"))
+    }
+
+    func testOpenAIEndpointValidatorRejectsPublicHostsThatMerelyContainLocalSuffixes() {
+        let rejected = [
+            "http://foo.local.evil.example.test",   // ".local" is not the suffix
+            "http://example.milan",                 // ends in "lan" but not ".lan"
+            "http://internal.example.test"
+        ]
+        for endpoint in rejected {
+            XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid(endpoint), "Should reject \(endpoint)")
+        }
+    }
+
     func testOpenAIEndpointValidatorTreatsIPv4MappedIPv6ByItsIPv4Value() {
         XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://[::ffff:192.168.1.10]:8000"))
         XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("http://[::ffff:8.8.8.8]:8000"))
@@ -377,6 +401,56 @@ final class SettingsManagerTests: XCTestCase {
         XCTAssertNil(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"))
         XCTAssertNil(manager.openAICompatibleKeyStorageError)
         XCTAssertTrue(manager.openAICompatibleAPIKey.isEmpty)
+    }
+
+    func testUnreadableAPIKeyIsRetriedRatherThanLatchedForTheSession() {
+        // The item is stored WhenUnlockedThisDeviceOnly, so a launch while the device is
+        // locked fails the read. Latching that would leave the key unusable until the
+        // process restarts, with every request going out unauthenticated.
+        let name = "SettingsManagerTests.\(UUID().uuidString)"
+        guard let isolatedDefaults = UserDefaults(suiteName: name) else {
+            XCTFail("Unable to create an isolated UserDefaults suite")
+            return
+        }
+        addTeardownBlock { isolatedDefaults.removePersistentDomain(forName: name) }
+
+        let keychain = InMemoryKeychain()
+        try? keychain.store(string: "synthetic-current-key", for: "settings.openAICompatible.apiKey.v1")
+        keychain.retrieveError = KeychainError.retrieveFailed(errSecInteractionNotAllowed)
+
+        let manager = SettingsManager(userDefaults: isolatedDefaults, keychain: keychain)
+        XCTAssertTrue(manager.openAICompatibleAPIKey.isEmpty)
+        XCTAssertNotNil(manager.openAICompatibleKeyStorageError)
+
+        // While still locked, the retry reports failure and changes nothing.
+        XCTAssertFalse(manager.reloadAPIKeyIfUnreadable())
+        XCTAssertTrue(manager.openAICompatibleAPIKey.isEmpty)
+
+        // Once the device unlocks, the key becomes available without a relaunch.
+        keychain.retrieveError = nil
+        XCTAssertTrue(manager.reloadAPIKeyIfUnreadable())
+        XCTAssertEqual(manager.openAICompatibleAPIKey, "synthetic-current-key")
+        XCTAssertNil(manager.openAICompatibleKeyStorageError)
+    }
+
+    func testRetryDoesNotOverwriteAKeyTheUserTypedWhileStorageWasUnreadable() {
+        let name = "SettingsManagerTests.\(UUID().uuidString)"
+        guard let isolatedDefaults = UserDefaults(suiteName: name) else {
+            XCTFail("Unable to create an isolated UserDefaults suite")
+            return
+        }
+        addTeardownBlock { isolatedDefaults.removePersistentDomain(forName: name) }
+
+        let keychain = InMemoryKeychain()
+        try? keychain.store(string: "synthetic-old-key", for: "settings.openAICompatible.apiKey.v1")
+        keychain.retrieveError = KeychainError.retrieveFailed(errSecInteractionNotAllowed)
+
+        let manager = SettingsManager(userDefaults: isolatedDefaults, keychain: keychain)
+        manager.openAICompatibleAPIKey = "synthetic-user-entered-key"
+
+        keychain.retrieveError = nil
+        XCTAssertTrue(manager.reloadAPIKeyIfUnreadable())
+        XCTAssertEqual(manager.openAICompatibleAPIKey, "synthetic-user-entered-key")
     }
 
     func testKeychainStoreUpdatesInPlaceWithoutDeletingFirst() throws {

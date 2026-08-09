@@ -56,6 +56,10 @@ final class AWSCredentialsManager: ObservableObject {
     private let storage: any AWSCredentialsStorage
     private let userDefaults: UserDefaults
 
+    /// Set when the stored credentials could not be read or decoded. The in-memory
+    /// value is then `.default`, which means "unknown", not "nothing is stored".
+    private var storageIsUnreadable = false
+
     init(
         storage: any AWSCredentialsStorage = AWSCredentialsHelper(),
         userDefaults: UserDefaults = .standard
@@ -70,19 +74,47 @@ final class AWSCredentialsManager: ObservableObject {
         } catch let error as AWSCredentialsError {
             self.credentials = .default
             self.lastError = error
+            self.storageIsUnreadable = true
         } catch {
             self.credentials = .default
             self.lastError = .storageUnavailable
+            self.storageIsUnreadable = true
         }
     }
 
     /// Whether any credential material is currently held, in the Keychain or in a
     /// legacy plaintext copy. Lets a caller distinguish "clear this" from "there was
     /// never anything here".
+    ///
+    /// A store that could not be read counts as holding material. The in-memory value
+    /// falls back to `.default` when loading fails — a malformed Keychain item decodes
+    /// to nothing, a locked device reads nothing — and inferring emptiness from that
+    /// would make the material impossible to delete through the UI.
     var hasStoredCredentials: Bool {
-        !credentials.accessKeyId.isEmpty
+        storageIsUnreadable
+            || !credentials.accessKeyId.isEmpty
             || !credentials.secretAccessKey.isEmpty
             || userDefaults.data(forKey: Self.legacyCredentialsKey) != nil
+    }
+
+    /// Re-reads credentials that could not be loaded earlier.
+    ///
+    /// A read can fail for reasons that pass: the Keychain is unavailable before first
+    /// unlock, for instance. Without a retry the credentials stay unusable for the whole
+    /// process and every Bedrock request goes out unauthenticated.
+    @discardableResult
+    func reloadIfUnreadable() -> Bool {
+        guard storageIsUnreadable else { return true }
+
+        do {
+            let result = try Self.loadStoredCredentials(storage: storage, userDefaults: userDefaults)
+            credentials = result.credentials ?? .default
+            lastError = result.warning
+            storageIsUnreadable = false
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Credential Updates
@@ -113,6 +145,8 @@ final class AWSCredentialsManager: ObservableObject {
             try persistAndVerify(newCredentials)
             lastError = nil
             hasUnsavedChanges = false
+            // A verified write replaces whatever could not be read before.
+            storageIsUnreadable = false
             return .success(())
         } catch let error as AWSCredentialsError {
             lastError = error
@@ -144,6 +178,8 @@ final class AWSCredentialsManager: ObservableObject {
             credentials = .default
             lastError = nil
             hasUnsavedChanges = false
+            // Whatever was unreadable is now gone.
+            storageIsUnreadable = false
             return .success(())
         } catch let error as AWSCredentialsError {
             lastError = error

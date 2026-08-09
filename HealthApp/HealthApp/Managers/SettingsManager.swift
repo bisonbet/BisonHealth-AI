@@ -351,6 +351,35 @@ class SettingsManager: ObservableObject {
         userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
     }
 
+    /// Re-reads a key that could not be loaded earlier.
+    ///
+    /// The item is stored `WhenUnlockedThisDeviceOnly`, so a launch that happens while
+    /// the device is locked — a background launch, for instance — fails the read.
+    /// Latching that failure would leave the key unusable for the rest of the process
+    /// even after the user unlocks: the provider client would be built without it and
+    /// every request would go out unauthenticated against an apparently empty field.
+    @discardableResult
+    func reloadAPIKeyIfUnreadable() -> Bool {
+        guard apiKeyStorageIsUnreadable else { return true }
+
+        do {
+            let storedAPIKey = try keychain.retrieveString(for: kcOpenAICompatibleKey)
+            apiKeyStorageIsUnreadable = false
+            openAICompatibleKeyStorageError = nil
+
+            // Never clobber something the user typed while the key was unreadable.
+            if let storedAPIKey, openAICompatibleAPIKey.isEmpty {
+                openAICompatibleAPIKey = storedAPIKey
+                userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+                // A client built during the unreadable window has no key.
+                invalidateOpenAICompatibleClient()
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Removes the key because the user asked for it directly, rather than because the
     /// field happens to be empty.
     ///
@@ -422,6 +451,9 @@ class SettingsManager: ObservableObject {
     #endif
 
     func getOpenAICompatibleClient() -> OpenAICompatibleClient {
+        // Self-heal a read that failed earlier, before a client is built without the key.
+        reloadAPIKeyIfUnreadable()
+
         let client: OpenAICompatibleClient
         if openAICompatibleClient == nil {
             let temperature = UserDefaults.standard.double(forKey: "openAICompatibleTemperature")
@@ -460,6 +492,9 @@ class SettingsManager: ObservableObject {
     }
 
     func getBedrockClient() -> BedrockClient {
+        // Self-heal a read that failed earlier, before a client is built without them.
+        AWSCredentialsManager.shared.reloadIfUnreadable()
+
         // Use shared credentials and selected model (matches working pattern)
         let sharedCredentials = AWSCredentialsManager.shared.credentials
         let config = AWSBedrockConfig(

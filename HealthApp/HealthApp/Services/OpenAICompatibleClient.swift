@@ -74,11 +74,16 @@ struct OpenAICompatibleEndpointValidator {
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
             .lowercased()
 
-        // Drop a trailing root label ("nas.local.") and any IPv6 zone ID ("fe80::1%en0").
+        // Drop a trailing root label ("nas.local.").
         if normalizedHost.hasSuffix(".") {
             normalizedHost.removeLast()
         }
-        if let zoneSeparator = normalizedHost.firstIndex(of: "%") {
+        // A zone ID ("fe80::1%en0") belongs only to an IPv6 literal. A percent sign in
+        // any other host is not a zone ID, and truncating there would turn a public
+        // name into a private-looking one: URLComponents decodes "nas%25.evil.test" to
+        // the host "nas%.evil.test", which would otherwise be read as the LAN label
+        // "nas". Such a host is left whole and simply fails every check below.
+        if normalizedHost.contains(":"), let zoneSeparator = normalizedHost.firstIndex(of: "%") {
             normalizedHost = String(normalizedHost[normalizedHost.startIndex..<zoneSeparator])
         }
         guard !normalizedHost.isEmpty else { return false }

@@ -296,6 +296,46 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertTrue(migrated.hasStoredCredentials)
     }
 
+    func testMalformedKeychainCredentialsCanStillBeCleared() {
+        // A Keychain item that fails to decode leaves the in-memory value at .default.
+        // Inferring "nothing stored" from that would make the material impossible to
+        // remove through the settings screen, which only deletes when something is held.
+        let storage = MockAWSCredentialsStorage()
+        storage.loadError = .invalidData
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertEqual(manager.credentials, .default)
+        XCTAssertTrue(manager.hasStoredCredentials, "Unreadable material still needs removing")
+
+        storage.storedCredentials = makeCredentials()
+        if case .failure(let error) = manager.deleteCredentials() {
+            XCTFail("Deleting unreadable credentials should succeed: \(error.localizedDescription)")
+        }
+        XCTAssertNil(storage.storedCredentials)
+        XCTAssertFalse(manager.hasStoredCredentials)
+    }
+
+    func testUnreadableCredentialsAreRetriedRatherThanLatched() {
+        let storage = MockAWSCredentialsStorage()
+        storage.loadError = .keychainError(errSecInteractionNotAllowed)
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertEqual(manager.credentials, .default)
+        XCTAssertFalse(manager.reloadIfUnreadable())
+
+        // Once the Keychain becomes available the credentials load without a relaunch.
+        let credentials = makeCredentials()
+        storage.loadError = nil
+        storage.storedCredentials = credentials
+        XCTAssertTrue(manager.reloadIfUnreadable())
+        XCTAssertEqual(manager.credentials, credentials)
+        XCTAssertNil(manager.lastError)
+    }
+
     func testStagingCredentialsDoesNotRemoveTheStoredPair() {
         // Staging is for an unfinished edit; only an explicit delete may remove material.
         let storage = MockAWSCredentialsStorage()
@@ -604,8 +644,10 @@ private final class MockAWSCredentialsStorage: AWSCredentialsStorage {
     var readBackCredentials: AWSCredentials?
     var saveError: AWSCredentialsError?
     var deleteError: AWSCredentialsError?
+    var loadError: AWSCredentialsError?
 
     func loadCredentials() throws -> AWSCredentials? {
+        if let loadError { throw loadError }
         if storedCredentials != nil, let readBackCredentials {
             return readBackCredentials
         }
