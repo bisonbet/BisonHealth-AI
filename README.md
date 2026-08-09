@@ -288,9 +288,6 @@ Detailed documentation is available in the repository:
 - **[Agent Guidelines](AGENTS.md)** - Development guidelines and coding standards
 - **[Codebase Agent Instructions](AGENT_CODEBASE_INSTRUCTIONS.md)** - Detailed codebase map for AI coding agents
 - **[Historical Docling Formats Note](DOCLING_FORMATS_EXPLANATION.md)** - Legacy format reference; not the current document-processing path
-- **[Requirements](.kiro/specs/ios-health-app/requirements.md)** - Detailed user stories and acceptance criteria
-- **[Design](.kiro/specs/ios-health-app/design.md)** - Architecture and technical design
-- **[Tasks](.kiro/specs/ios-health-app/tasks.md)** - Implementation roadmap and task breakdown
 
 ## 🤝 Contributing
 
