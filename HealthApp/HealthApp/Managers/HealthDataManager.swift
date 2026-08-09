@@ -353,18 +353,6 @@ class HealthDataManager: ObservableObject {
         )
     }
     
-    func exportHealthDataAsPDF() async throws -> URL {
-        // Create PDF report
-        let pdfData = try await generatePDFReport()
-        
-        let fileName = "HealthData_Report_\(Date().formatted(date: .numeric, time: .omitted))"
-        return try fileSystemManager.createExportFile(
-            data: pdfData,
-            fileName: fileName,
-            fileType: .pdf
-        )
-    }
-    
     // MARK: - Data Validation
     func validateHealthData<T: HealthDataProtocol>(_ data: T) -> ValidationResult {
         switch data.type {
@@ -503,28 +491,6 @@ class HealthDataManager: ObservableObject {
         return merged
     }
     
-    private func generatePDFReport() async throws -> Data {
-        // This is a placeholder implementation
-        // In a real app, you would use a PDF generation library
-        let totalDocuments = imagingReports.count + healthCheckups.count
-        let reportContent = """
-        Health Data Report
-        Generated: \(Date().formatted())
-
-        Personal Information:
-        \(personalInfo?.name ?? "Not provided")
-
-        Blood Test Results: \(bloodTests.count) tests
-        Medical Documents: \(totalDocuments) documents
-        """
-
-        guard let data = reportContent.data(using: .utf8) else {
-            throw HealthDataError.exportFailed("Failed to generate PDF report")
-        }
-
-        return data
-    }
-
     // MARK: - HealthKit Sync
 
     /// Sync health data from Apple Health

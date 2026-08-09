@@ -1,6 +1,7 @@
 import Foundation
 import AWSBedrockRuntime
 import AWSClientRuntime
+import SmithyIdentity
 
 // MARK: - AWS Bedrock Models for Health App
 enum AWSBedrockModel: String, CaseIterable {
@@ -102,8 +103,6 @@ struct AWSBedrockConfig: Equatable {
     let temperature: Double
     let maxTokens: Int
     let timeout: TimeInterval
-    let useProfile: Bool
-    let profileName: String?
 
     static let `default` = AWSBedrockConfig(
         region: "us-east-1",
@@ -113,17 +112,15 @@ struct AWSBedrockConfig: Equatable {
         model: .claudeSonnet45,
         temperature: 0.1,
         maxTokens: 4096,
-        timeout: 300.0,
-        useProfile: false,
-        profileName: nil
+        timeout: 300.0
     )
 
     var isValid: Bool {
-        if useProfile {
-            return !region.isEmpty && profileName != nil && !profileName!.isEmpty
-        } else {
-            return !region.isEmpty && !accessKeyId.isEmpty && !secretAccessKey.isEmpty
-        }
+        let requiredFieldsArePresent = !region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !accessKeyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !secretAccessKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let sessionTokenIsValid = sessionToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != true
+        return requiredFieldsArePresent && sessionTokenIsValid
     }
 }
 
@@ -167,27 +164,34 @@ class BedrockClient: ObservableObject, AIProviderInterface {
             throw BedrockError.invalidConfiguration
         }
 
-        // Set environment variables for AWS SDK to use
-        setenv("AWS_ACCESS_KEY_ID", config.accessKeyId, 1)
-        setenv("AWS_SECRET_ACCESS_KEY", config.secretAccessKey, 1)
-        setenv("AWS_DEFAULT_REGION", config.region, 1)
-
-        if let sessionToken = config.sessionToken {
-            setenv("AWS_SESSION_TOKEN", sessionToken, 1)
-        }
-
         do {
-            let clientConfig = try await BedrockRuntimeClient.BedrockRuntimeClientConfig(
-                region: config.region
-            )
+            let clientConfig = try await Self.makeClientConfig(for: config)
 
-            // AWS SDK for Swift will automatically use environment variables
             let client = BedrockRuntimeClient(config: clientConfig)
             self.bedrockClient = client
             return client
         } catch {
             throw BedrockError.networkError(error)
         }
+    }
+
+    /// Builds a client configuration with credentials supplied directly to the SDK.
+    /// This keeps credentials out of process-wide environment variables while preserving
+    /// the optional session-token path supported by AWS's credential identity type.
+    static func makeClientConfig(
+        for config: AWSBedrockConfig
+    ) async throws -> BedrockRuntimeClient.BedrockRuntimeClientConfig {
+        let identity = AWSCredentialIdentity(
+            accessKey: config.accessKeyId,
+            secret: config.secretAccessKey,
+            sessionToken: config.sessionToken
+        )
+        let resolver = StaticAWSCredentialIdentityResolver(identity)
+
+        return try await BedrockRuntimeClient.BedrockRuntimeClientConfig(
+            awsCredentialIdentityResolver: resolver,
+            region: config.region
+        )
     }
 
     // MARK: - AIProviderInterface Implementation
@@ -500,9 +504,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                     model: model,
                     temperature: self.config.temperature,
                     maxTokens: self.config.maxTokens,
-                    timeout: self.config.timeout,
-                    useProfile: self.config.useProfile,
-                    profileName: self.config.profileName
+                    timeout: self.config.timeout
                 )
                 updateConfig(updatedConfig)
             }
@@ -585,9 +587,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 model: model,
                 temperature: config.temperature,
                 maxTokens: config.maxTokens,
-                timeout: config.timeout,
-                useProfile: config.useProfile,
-                profileName: config.profileName
+                timeout: config.timeout
             )
             updateConfig(updatedConfig)
         }
@@ -1116,9 +1116,7 @@ extension BedrockClient {
             model: AWSBedrockModel(rawValue: model) ?? .claudeSonnet45,
             temperature: 0.1,
             maxTokens: 4096,
-            timeout: 300.0,
-            useProfile: false,
-            profileName: nil
+            timeout: 300.0
         )
         return BedrockClient(config: config)
     }

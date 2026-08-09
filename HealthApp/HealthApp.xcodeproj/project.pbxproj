@@ -12,7 +12,6 @@
 		1414D77B2F049E6F00EA287A /* HealthContextJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1414D77A2F049E6F00EA287A /* HealthContextJSON.swift */; };
 		1419E6312EF6EFB2009BE031 /* AIConnectionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */; };
 		1423481A2EA07B3300059087 /* NetworkError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348162EA07B3300059087 /* NetworkError.swift */; };
-		1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348182EA07B3300059087 /* PendingOperationsManager.swift */; };
 		1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142348172EA07B3300059087 /* NetworkManager.swift */; };
 		1423481E2EA07B4E00059087 /* OfflineIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */; };
 		142348202EA07B6300059087 /* NetworkingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1423481F2EA07B6300059087 /* NetworkingTests.swift */; };
@@ -198,7 +197,6 @@
 		1419E62F2EF6EFB2009BE031 /* AIConnectionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConnectionStatus.swift; sourceTree = "<group>"; };
 		142348162EA07B3300059087 /* NetworkError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkError.swift; sourceTree = "<group>"; };
 		142348172EA07B3300059087 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
-		142348182EA07B3300059087 /* PendingOperationsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingOperationsManager.swift; sourceTree = "<group>"; };
 		1423481D2EA07B4E00059087 /* OfflineIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineIndicatorView.swift; sourceTree = "<group>"; };
 		1423481F2EA07B6300059087 /* NetworkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkingTests.swift; sourceTree = "<group>"; };
 		142348212EA07F5D00059087 /* OpenAICompatibleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleSettingsView.swift; sourceTree = "<group>"; };
@@ -319,6 +317,7 @@
 			D0C0A1012F20000100TEST04 /* AIChatManagerReliabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManagerReliabilityTests.swift; sourceTree = "<group>"; };
 			DEF123456789BACKUP00002 /* BackupManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManagementView.swift; sourceTree = "<group>"; };
 		ENT123456789ENTITLE0001 /* HealthApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HealthApp.entitlements; sourceTree = "<group>"; };
+		INFOPLIST0000000000PLIST1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F8B3C606DD5E2444E3A41AEF /* NetworkRetryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkRetryManager.swift; sourceTree = "<group>"; };
 		FF73574BCD254FCF859CBF45 /* UnifiedContextSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedContextSelectorView.swift; sourceTree = "<group>"; };
 		H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
@@ -390,7 +389,6 @@
 			children = (
 				142348162EA07B3300059087 /* NetworkError.swift */,
 				142348172EA07B3300059087 /* NetworkManager.swift */,
-				142348182EA07B3300059087 /* PendingOperationsManager.swift */,
 			);
 			name = Networking;
 			path = HealthApp/Networking;
@@ -446,6 +444,7 @@
 				A1000004294A0000000000001 /* ContentView.swift */,
 				A1000006294A0000000000001 /* Assets.xcassets */,
 				ENT123456789ENTITLE0001 /* HealthApp.entitlements */,
+				INFOPLIST0000000000PLIST1 /* Info.plist */,
 				A1000009294A0000000000002 /* Preview Content */,
 			);
 			path = HealthApp;
@@ -819,7 +818,6 @@
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
 				143446972E78B62F00961754 /* FamilyHistoryEditorView.swift in Sources */,
 				1423481A2EA07B3300059087 /* NetworkError.swift in Sources */,
-				1423481B2EA07B3300059087 /* PendingOperationsManager.swift in Sources */,
 				1423481C2EA07B3300059087 /* NetworkManager.swift in Sources */,
 				A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */,
 				A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */,
@@ -1037,7 +1035,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -1095,7 +1093,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -1118,19 +1116,21 @@
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HealthApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "BisonHealth AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "BisonHealth needs access to your health data to provide personalized health insights and sync your vitals, sleep data, and other health metrics with the AI doctor for better health recommendations.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "BisonHealth would like to save your health data to Apple Health to keep your health information synchronized across your devices.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BisonHealth AI connects to AI servers you run on your own local network, such as Ollama or LM Studio, so your health data can be processed without leaving your network.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1160,19 +1160,21 @@
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HealthApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "BisonHealth AI";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "BisonHealth needs access to your health data to provide personalized health insights and sync your vitals, sleep data, and other health metrics with the AI doctor for better health recommendations.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "BisonHealth would like to save your health data to Apple Health to keep your health information synchronized across your devices.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BisonHealth AI connects to AI servers you run on your own local network, such as Ollama or LM Studio, so your health data can be processed without leaving your network.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1198,7 +1200,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1220,7 +1222,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1241,7 +1243,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1262,7 +1264,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4W55VW7UXX;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bisonhealthai.app.HealthAppUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

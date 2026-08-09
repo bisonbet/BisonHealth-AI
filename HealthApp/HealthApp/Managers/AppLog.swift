@@ -56,18 +56,22 @@ enum LogCategory: String, CaseIterable {
 /// Zero overhead in production — the OS handles persistence, compression, and pruning.
 /// Also provides file-based persistence, a crash-surviving error buffer, and crash detection.
 class AppLog: NSObject {
-    static let shared = AppLog()
+    static let shared = AppLog(receivesMetricKitDiagnostics: true)
 
     // MARK: - Properties
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.bisonhealth"
     private static let cleanShutdownKey = "AppLog_CleanShutdown"
     private static let maxErrorBufferLines = 500
     private static let maxMetricKitLogBytes = 512 * 1024
+    private static let maxLoggedErrorDescriptionLength = 512
 
     private let loggers: [LogCategory: os.Logger]
-    private let fileManager = FileManager.default
+    private let fileManager: FileManager
     private let logQueue = DispatchQueue(label: "com.bisonhealth.applog", qos: .utility)
     private let logQueueKey = DispatchSpecificKey<String>()
+    private let logDirectoryOverride: URL?
+    private let errorBufferURLOverride: URL?
+    private let metricKitDiagnosticsURLOverride: URL?
     private var logFileURL: URL?
     private let maxLogFileSize: Int = 5 * 1024 * 1024 // 5MB
     private let maxLogFiles: Int = 3
@@ -77,6 +81,9 @@ class AppLog: NSObject {
 
     /// URL for the persistent error buffer file
     private var errorBufferURL: URL? {
+        if let errorBufferURLOverride {
+            return errorBufferURLOverride
+        }
         guard let supportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -84,6 +91,9 @@ class AppLog: NSObject {
     }
 
     private var metricKitDiagnosticsURL: URL? {
+        if let metricKitDiagnosticsURLOverride {
+            return metricKitDiagnosticsURLOverride
+        }
         guard let supportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -97,7 +107,24 @@ class AppLog: NSObject {
     #endif
 
     // MARK: - Initialization
-    private override init() {
+    /// Creates a logger. The URL overrides are intentionally injectable so tests can
+    /// verify persisted/exported redaction in an isolated temporary directory.
+    ///
+    /// `receivesMetricKitDiagnostics` defaults to `false` because MXMetricManager
+    /// retains its subscribers for the process lifetime: only the long-lived shared
+    /// logger should register, or every throwaway instance leaks.
+    init(
+        fileManager: FileManager = .default,
+        logDirectory: URL? = nil,
+        errorBufferURL: URL? = nil,
+        metricKitDiagnosticsURL: URL? = nil,
+        receivesMetricKitDiagnostics: Bool = false
+    ) {
+        self.fileManager = fileManager
+        self.logDirectoryOverride = logDirectory
+        self.errorBufferURLOverride = errorBufferURL
+        self.metricKitDiagnosticsURLOverride = metricKitDiagnosticsURL
+
         // Create os.Logger instances for each category
         var map = [LogCategory: os.Logger]()
         for category in LogCategory.allCases {
@@ -110,12 +137,32 @@ class AppLog: NSObject {
         setupLogFile()
         setupCrashSupportFile(at: errorBufferURL)
         setupCrashSupportFile(at: metricKitDiagnosticsURL)
-        registerMetricKitSubscriber()
+        if receivesMetricKitDiagnostics {
+            registerMetricKitSubscriber()
+        }
     }
 
     // MARK: - Setup
 
     private func setupLogFile() {
+        if let logDirectoryOverride {
+            if !fileManager.fileExists(atPath: logDirectoryOverride.path) {
+                try? fileManager.createDirectory(at: logDirectoryOverride, withIntermediateDirectories: true)
+            }
+
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            var mutableURL = logDirectoryOverride
+            try? mutableURL.setResourceValues(resourceValues)
+
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            let dateString = dateFormatter.string(from: Date())
+            logFileURL = logDirectoryOverride.appendingPathComponent("app-\(dateString).log")
+            rotateLogsIfNeeded()
+            return
+        }
+
         guard let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return
         }
@@ -181,9 +228,7 @@ class AppLog: NSObject {
 
     private func registerMetricKitSubscriber() {
         #if canImport(MetricKit)
-        if #available(iOS 14.0, *) {
-            MXMetricManager.shared.add(self)
-        }
+        MXMetricManager.shared.add(self)
         #endif
     }
 
@@ -274,19 +319,49 @@ class AppLog: NSObject {
     }
 
     func error(_ message: String, error: Error? = nil, category: LogCategory = .general, file: String = #file, function: String = #function, line: Int = #line) {
-        var fullMessage = message
+        var fullMessage = AppLog.redactForSupport(message)
         if let error = error {
-            fullMessage += " - Error: \(error.localizedDescription)"
+            fullMessage += " - Error: \(AppLog.sanitizedErrorDescription(error))"
         }
         log(fullMessage, level: .error, category: category, file: file, function: function, line: line)
     }
 
     func critical(_ message: String, error: Error? = nil, category: LogCategory = .general, file: String = #file, function: String = #function, line: Int = #line) {
-        var fullMessage = message
+        var fullMessage = AppLog.redactForSupport(message)
         if let error = error {
-            fullMessage += " - Error: \(error.localizedDescription)"
+            fullMessage += " - Error: \(AppLog.sanitizedErrorDescription(error))"
         }
         log(fullMessage, level: .critical, category: category, file: file, function: function, line: line)
+    }
+
+    /// Returns an error description that is safe to place in durable logs.
+    /// Provider errors expose their own structured, sanitized description; other
+    /// errors are represented by stable type/code information rather than arbitrary
+    /// localized text that may contain prompts, health context, or response bodies.
+    static func sanitizedErrorDescription(_ error: Error) -> String {
+        if let providerError = error as? OpenAICompatibleError {
+            // Deliberately not localizedDescription: that carries the provider-supplied
+            // request ID, which is untrusted response data and must not be persisted.
+            return boundedLogText(providerError.loggableDescription)
+        }
+
+        if let urlError = error as? URLError {
+            return "Network error (\(urlError.code.rawValue))"
+        }
+
+        if error is DecodingError {
+            return "Response decoding failed"
+        }
+
+        return boundedLogText("Underlying error type: \(String(describing: type(of: error)))")
+    }
+
+    private static func boundedLogText(_ text: String) -> String {
+        let compactText = text
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(compactText.prefix(maxLoggedErrorDescriptionLength))
     }
 
     // MARK: - Core Logging
@@ -541,6 +616,8 @@ class AppLog: NSObject {
     static func redactForSupport(_ text: String) -> String {
         var output = text
         let replacements: [(pattern: String, template: String, options: NSRegularExpression.Options)] = [
+            (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer [REDACTED_TOKEN]", []),
+            (#"(?i)\b((?:authorization|x-api-key|api[-_ ]?key|access[-_ ]?token|secret|password))\s*[:=]\s*(?:Bearer\s+)?[^,;\s}\]]+"#, "$1[REDACTED_CREDENTIAL]", []),
             (#"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, "[REDACTED_EMAIL]", [.caseInsensitive]),
             (#"\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b"#, "[REDACTED_PHONE]", []),
             (#"\b\d{3}-\d{2}-\d{4}\b"#, "[REDACTED_SSN]", []),
@@ -549,6 +626,9 @@ class AppLog: NSObject {
             (#"/Users/[^\s]+"#, "[REDACTED_PATH]", []),
             (#"(['"])[^'"\n]*(?:\.pdf|\.png|\.jpg|\.jpeg|\.heic|\.docx|\.txt|\.csv)\1"#, "\"[REDACTED_FILENAME]\"", [.caseInsensitive]),
             (#"\b((?:patient|name|full name|date of birth|dob|mrn|medical record number|member id|insurance id)\s*[:=]\s*)[^,\n;]+"#, "$1[REDACTED]", [.caseInsensitive]),
+            // The value delimiter is captured so the closing quote must match the
+            // opening one; \2 is a backreference, not a literal.
+            (#"(?i)([\"']?(?:message|error|detail|prompt|context|content|response)[\"']?\s*[:=]\s*)([\"'])[^\"'\n]*\2"#, "$1$2[REDACTED]$2", []),
             (#"(User selected '[^']+' = )[^ ]+"#, "$1[REDACTED_VALUE]", []),
             (#"\b\d+(?:\.\d+)?\s?(?:bpm|br/min|lbs|kg|F|mg/dL|mmHg|%)\b"#, "[REDACTED_VALUE]", [.caseInsensitive])
         ]
@@ -607,7 +687,6 @@ class AppLog: NSObject {
 typealias Logger = AppLog
 
 #if canImport(MetricKit)
-@available(iOS 14.0, *)
 extension AppLog: MXMetricManagerSubscriber {
     func didReceive(_ payloads: [MXDiagnosticPayload]) {
         for payload in payloads {

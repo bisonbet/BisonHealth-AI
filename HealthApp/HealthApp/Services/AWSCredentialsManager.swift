@@ -6,95 +6,270 @@
 //
 
 import Foundation
-import AWSClientRuntime
 
 // MARK: - Shared AWS Configuration
 
 struct AWSCredentials: Equatable, Codable {
     let accessKeyId: String
     let secretAccessKey: String
+    let sessionToken: String?
     let region: String
 
+    init(
+        accessKeyId: String,
+        secretAccessKey: String,
+        sessionToken: String? = nil,
+        region: String
+    ) {
+        self.accessKeyId = accessKeyId
+        self.secretAccessKey = secretAccessKey
+        self.sessionToken = sessionToken
+        self.region = region
+    }
+
     var isValid: Bool {
-        return !accessKeyId.isEmpty && !secretAccessKey.isEmpty && !region.isEmpty
+        AWSCredentialsHelper.validateCredentials(self).isValid
     }
 
     static let `default` = AWSCredentials(
         accessKeyId: "",
         secretAccessKey: "",
+        sessionToken: nil,
         region: "us-east-1"
     )
 }
 
 // MARK: - AWS Credentials Manager
 
-class AWSCredentialsManager: ObservableObject {
+final class AWSCredentialsManager: ObservableObject {
+    static let legacyCredentialsKey = "AWSCredentials"
+
     @Published var credentials: AWSCredentials
+    @Published private(set) var lastError: AWSCredentialsError?
 
-    private let userDefaults = UserDefaults.standard
-    private let credentialsKey = "AWSCredentials"
+    /// True when the in-memory credentials have not reached the Keychain, because a
+    /// save was attempted and failed. `updateCredentials` assigns before it persists,
+    /// so without this a caller comparing against `credentials` would see no difference
+    /// and never retry a transient failure.
+    @Published private(set) var hasUnsavedChanges = false
 
-    init() {
-        // Load saved credentials or use default
-        if let data = userDefaults.data(forKey: credentialsKey),
-           let savedCredentials = try? JSONDecoder().decode(AWSCredentials.self, from: data) {
-            self.credentials = savedCredentials
-        } else {
+    private let storage: any AWSCredentialsStorage
+    private let userDefaults: UserDefaults
+
+    /// Set when the stored credentials could not be read or decoded. The in-memory
+    /// value is then `.default`, which means "unknown", not "nothing is stored".
+    private var storageIsUnreadable = false
+
+    init(
+        storage: any AWSCredentialsStorage = AWSCredentialsHelper(),
+        userDefaults: UserDefaults = .standard
+    ) {
+        self.storage = storage
+        self.userDefaults = userDefaults
+
+        do {
+            let result = try Self.loadStoredCredentials(storage: storage, userDefaults: userDefaults)
+            self.credentials = result.credentials ?? .default
+            self.lastError = result.warning
+        } catch let error as AWSCredentialsError {
             self.credentials = .default
+            self.lastError = error
+            self.storageIsUnreadable = true
+        } catch {
+            self.credentials = .default
+            self.lastError = .storageUnavailable
+            self.storageIsUnreadable = true
         }
     }
 
-    func updateCredentials(_ newCredentials: AWSCredentials) {
-        self.credentials = newCredentials
-        saveCredentials()
-        configureEnvironmentVariables()
+    /// Whether any credential material is currently held, in the Keychain or in a
+    /// legacy plaintext copy. Lets a caller distinguish "clear this" from "there was
+    /// never anything here".
+    ///
+    /// A store that could not be read counts as holding material. The in-memory value
+    /// falls back to `.default` when loading fails — a malformed Keychain item decodes
+    /// to nothing, a locked device reads nothing — and inferring emptiness from that
+    /// would make the material impossible to delete through the UI.
+    var hasStoredCredentials: Bool {
+        storageIsUnreadable
+            || !credentials.accessKeyId.isEmpty
+            || !credentials.secretAccessKey.isEmpty
+            || userDefaults.data(forKey: Self.legacyCredentialsKey) != nil
     }
 
-    func updateAccessKey(_ accessKey: String) {
-        let updated = AWSCredentials(
-            accessKeyId: accessKey,
-            secretAccessKey: credentials.secretAccessKey,
-            region: credentials.region
-        )
-        updateCredentials(updated)
-    }
+    /// Re-reads credentials that could not be loaded earlier.
+    ///
+    /// A read can fail for reasons that pass: the Keychain is unavailable before first
+    /// unlock, for instance. Without a retry the credentials stay unusable for the whole
+    /// process and every Bedrock request goes out unauthenticated.
+    @discardableResult
+    func reloadIfUnreadable() -> Bool {
+        guard storageIsUnreadable else { return true }
 
-    func updateSecretKey(_ secretKey: String) {
-        let updated = AWSCredentials(
-            accessKeyId: credentials.accessKeyId,
-            secretAccessKey: secretKey,
-            region: credentials.region
-        )
-        updateCredentials(updated)
-    }
-
-    func updateRegion(_ region: String) {
-        let updated = AWSCredentials(
-            accessKeyId: credentials.accessKeyId,
-            secretAccessKey: credentials.secretAccessKey,
-            region: region
-        )
-        updateCredentials(updated)
-    }
-
-    private func saveCredentials() {
-        if let data = try? JSONEncoder().encode(credentials) {
-            userDefaults.set(data, forKey: credentialsKey)
+        do {
+            let result = try Self.loadStoredCredentials(storage: storage, userDefaults: userDefaults)
+            credentials = result.credentials ?? .default
+            lastError = result.warning
+            storageIsUnreadable = false
+            return true
+        } catch {
+            return false
         }
     }
 
-    private func configureEnvironmentVariables() {
-        // Set environment variables for AWS SDK
-        if credentials.isValid {
-            setenv("AWS_ACCESS_KEY_ID", credentials.accessKeyId, 1)
-            setenv("AWS_SECRET_ACCESS_KEY", credentials.secretAccessKey, 1)
-            setenv("AWS_DEFAULT_REGION", credentials.region, 1)
+    // MARK: - Credential Updates
+
+    /// Updates the in-memory value without persisting it. Used while a form is still
+    /// incomplete, so partially typed input is neither written to the Keychain nor
+    /// reported to the user as a failure.
+    func stageCredentials(_ newCredentials: AWSCredentials) {
+        credentials = newCredentials
+        if case .validationFailed = lastError {
+            lastError = nil
         }
     }
 
-    // Call this when app starts to ensure environment variables are set
-    func initializeEnvironment() {
-        configureEnvironmentVariables()
+    @discardableResult
+    func updateCredentials(_ newCredentials: AWSCredentials) -> Result<Void, AWSCredentialsError> {
+        credentials = newCredentials
+
+        let validation = AWSCredentialsHelper.validateCredentials(newCredentials)
+        guard validation.isValid else {
+            let error = AWSCredentialsError.validationFailed(validation.issues)
+            lastError = error
+            hasUnsavedChanges = true
+            return .failure(error)
+        }
+
+        do {
+            try persistAndVerify(newCredentials)
+            lastError = nil
+            hasUnsavedChanges = false
+            // A verified write replaces whatever could not be read before.
+            storageIsUnreadable = false
+            return .success(())
+        } catch let error as AWSCredentialsError {
+            lastError = error
+            hasUnsavedChanges = true
+            return .failure(error)
+        } catch {
+            lastError = .storageUnavailable
+            hasUnsavedChanges = true
+            return .failure(.storageUnavailable)
+        }
+    }
+
+    /// Confirms the loaded Keychain credentials as the ones to keep and drops the
+    /// conflicting legacy copy. Requires an explicit user choice, because the conflict
+    /// means two different credential sets exist and only the user knows which is
+    /// wanted.
+    @discardableResult
+    func resolveLegacyConflictKeepingCurrent() -> Result<Void, AWSCredentialsError> {
+        guard lastError == .legacyCredentialConflict else { return .success(()) }
+        return updateCredentials(credentials)
+    }
+
+    @discardableResult
+    func deleteCredentials() -> Result<Void, AWSCredentialsError> {
+        do {
+            // Preserve the legacy value if current Keychain deletion fails.
+            try storage.deleteCredentials()
+            userDefaults.removeObject(forKey: Self.legacyCredentialsKey)
+            credentials = .default
+            lastError = nil
+            hasUnsavedChanges = false
+            // Whatever was unreadable is now gone.
+            storageIsUnreadable = false
+            return .success(())
+        } catch let error as AWSCredentialsError {
+            lastError = error
+            return .failure(error)
+        } catch {
+            lastError = .storageUnavailable
+            return .failure(.storageUnavailable)
+        }
+    }
+
+    // MARK: - Migration
+
+    private struct StoredCredentialsResult {
+        let credentials: AWSCredentials?
+        let warning: AWSCredentialsError?
+    }
+
+    private static func loadStoredCredentials(
+        storage: any AWSCredentialsStorage,
+        userDefaults: UserDefaults
+    ) throws -> StoredCredentialsResult {
+        // 1. Keychain is authoritative.
+        if let keychainCredentials = try storage.loadCredentials() {
+            let validation = AWSCredentialsHelper.validateCredentials(keychainCredentials)
+            guard validation.isValid else {
+                throw AWSCredentialsError.validationFailed(validation.issues)
+            }
+
+            guard let legacyData = userDefaults.data(forKey: legacyCredentialsKey) else {
+                return StoredCredentialsResult(credentials: keychainCredentials, warning: nil)
+            }
+
+            guard let legacyCredentials = try? JSONDecoder().decode(AWSCredentials.self, from: legacyData),
+                  AWSCredentialsHelper.validateCredentials(legacyCredentials).isValid,
+                  legacyCredentials == keychainCredentials else {
+                // Keep a conflicting legacy value for explicit user recovery instead of
+                // silently deleting credential material that could still be needed.
+                return StoredCredentialsResult(
+                    credentials: keychainCredentials,
+                    warning: .legacyCredentialConflict
+                )
+            }
+
+            // A previous migration may have succeeded even if its immediate read-back
+            // verification failed. Remove the matching plaintext copy on recovery.
+            userDefaults.removeObject(forKey: legacyCredentialsKey)
+            return StoredCredentialsResult(credentials: keychainCredentials, warning: nil)
+        }
+
+        // 2. Only when Keychain is absent, inspect the legacy UserDefaults value.
+        guard let legacyData = userDefaults.data(forKey: legacyCredentialsKey) else {
+            return StoredCredentialsResult(credentials: nil, warning: nil)
+        }
+
+        // 3. Decode and validate before attempting migration.
+        let legacyCredentials: AWSCredentials
+        do {
+            legacyCredentials = try JSONDecoder().decode(AWSCredentials.self, from: legacyData)
+        } catch {
+            throw AWSCredentialsError.invalidData
+        }
+
+        let validation = AWSCredentialsHelper.validateCredentials(legacyCredentials)
+        guard validation.isValid else {
+            throw AWSCredentialsError.validationFailed(validation.issues)
+        }
+
+        // 4. Save to Keychain.
+        try storage.saveCredentials(legacyCredentials)
+
+        // 5. Read back and verify the exact saved value.
+        guard let verifiedCredentials = try storage.loadCredentials(),
+              verifiedCredentials == legacyCredentials else {
+            // 6. Do not remove the legacy value if verification failed.
+            throw AWSCredentialsError.verificationFailed
+        }
+
+        // 6. Remove the legacy value only after successful verification.
+        userDefaults.removeObject(forKey: legacyCredentialsKey)
+        return StoredCredentialsResult(credentials: verifiedCredentials, warning: nil)
+    }
+
+    private func persistAndVerify(_ newCredentials: AWSCredentials) throws {
+        // A save or read-back failure leaves any legacy value untouched.
+        try storage.saveCredentials(newCredentials)
+        guard let verifiedCredentials = try storage.loadCredentials(),
+              verifiedCredentials == newCredentials else {
+            throw AWSCredentialsError.verificationFailed
+        }
+        userDefaults.removeObject(forKey: Self.legacyCredentialsKey)
     }
 }
 

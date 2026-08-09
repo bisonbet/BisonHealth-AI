@@ -1,8 +1,17 @@
-# Docling Formats Usage Explanation
+# Historical Docling Formats Note
 
-## What Gets Sent to the AI Doctor
+This document describes the former Docling server integration. It is retained for
+historical/legacy compatibility only. The current app does not require or call a
+Docling server.
 
-When you select a medical document for AI context, here's what actually gets sent:
+The active document path is `NativeDocumentExtractor` (PDFKit and Vision OCR),
+orchestrated by `DocumentProcessor`. Structured medical data is then handled by
+`MedicalDocumentExtractor`.
+
+## Historical AI-Context Formatting
+
+When the former integration supplied a medical document for AI context, the
+following representations were used:
 
 ### Primary Path (Preferred): Sections from JSON
 ```
@@ -26,9 +35,9 @@ Document Content:
 [Full document text, truncated to 5000 chars]
 ```
 
-## Where JSON is Used
+## Historical JSON Handling
 
-**JSON format is essential** for structured extraction:
+**JSON format was essential** for structured extraction in that integration:
 
 1. **Section Extraction** (`MedicalDocumentExtractor.extractSections()`):
    - Parses JSON structure (`body.children`)
@@ -41,39 +50,39 @@ Document Content:
    - This becomes `extractedText` in the database
    - Used as fallback if section extraction fails
 
-## Where Markdown is Used
+## Historical Markdown Handling
 
-**Markdown is currently redundant** but kept as a safety net:
+**Markdown was redundant** in that implementation but was kept as a safety net:
 
-1. **Stored but not actively used**: Markdown from Docling is stored in `result.extractedText` but we extract text from JSON instead
+1. **Stored but not actively used**: Markdown from Docling was stored in `result.extractedText`, while text was extracted from JSON instead
 2. **Fallback only**: If JSON parsing fails completely, markdown could be used
 3. **Future use**: Could be used for display/rendering in the UI
 
-## Current Flow
+## Historical Flow
 
 ```
-Docling Request:
+Former Docling request:
   ├─ Request: md + json formats
   
-Docling Response:
-  ├─ md_content: Markdown text (currently unused)
+Former Docling response:
+  ├─ md_content: Markdown text (unused in that implementation)
   └─ json_content: Structured JSON with body.children
   
-Processing:
+Former processing:
   ├─ JSON → MedicalDocumentExtractor
   │   ├─ extractSections() → Creates sections from JSON structure
   │   └─ extractFullText() → Extracts text from JSON structure
   │
   └─ Markdown → Stored but not used (redundant)
   
-AI Context:
+Historical AI context:
   ├─ If sections exist → Send organized sections
   └─ If no sections → Send extractedText (from JSON, not markdown)
 ```
 
-## Recommendation
+## Historical Recommendation
 
-**We could optimize by only requesting JSON**, since:
+The former implementation could have requested only JSON, since:
 - Sections come from JSON structure
 - Text extraction comes from JSON structure  
 - Markdown is stored but not used
@@ -83,17 +92,16 @@ However, keeping markdown provides:
 - Future UI rendering capabilities
 - Easier debugging (markdown is human-readable)
 
-## Answer to Your Question
+## Historical Answers
 
-**What's sent to AI doctor?**
+**What was sent to the AI doctor?**
 - **Sections** (extracted from JSON) - organized by type like "Findings:", "Impression:"
 - **Fallback**: Full text (extracted from JSON, not markdown)
 
-**Why do we need JSON?**
+**Why did that implementation need JSON?**
 - JSON structure (`body.children` with `label` fields) is the ONLY way to programmatically identify section boundaries
 - Markdown doesn't have structured labels - it's just text with formatting
 
-**Why do we request markdown?**
-- Currently redundant - we extract everything from JSON
-- Kept as safety net and for potential future use
-
+**Why did that implementation request markdown?**
+- It was redundant - the implementation extracted everything from JSON
+- It was kept as a safety net and for potential future use

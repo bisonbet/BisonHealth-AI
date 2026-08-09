@@ -33,8 +33,8 @@ Thank you for your interest in contributing to BisonHealth AI! This document pro
 
 ### Prerequisites
 
-- Xcode 15.0 or later
-- iOS 17.0+ deployment target
+- Xcode 26.0 or later
+- iOS 26.0+ deployment target
 - Swift 5.9+
 - Git
 

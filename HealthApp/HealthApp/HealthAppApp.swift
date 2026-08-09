@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import Foundation
 #if os(iOS)
 import UIKit
 #endif
@@ -10,9 +11,16 @@ struct HealthAppApp: App {
     @StateObject private var appSettingsManager = AppSettingsManager.shared
     @Environment(\.scenePhase) private var scenePhase
 
+    static let legacyPendingOperationsKey = "com.bisonhealth.pendingoperations"
+
     init() {
+        Self.removeLegacyPendingOperations()
         AppChrome.configure()
         AppTestRuntimeBootstrap.bootstrapIfNeeded()
+    }
+
+    static func removeLegacyPendingOperations(from userDefaults: UserDefaults = .standard) {
+        userDefaults.removeObject(forKey: legacyPendingOperationsKey)
     }
     
     var body: some Scene {

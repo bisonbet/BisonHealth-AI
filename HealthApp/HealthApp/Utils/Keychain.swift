@@ -2,32 +2,62 @@ import Foundation
 import Security
 import CryptoKit
 
+// MARK: - Keychain Storage
+
+/// The generic item operations callers depend on. Extracted so components that
+/// persist secrets can be tested without mutating the real login keychain.
+protocol KeychainStoring {
+    func store(data: Data, for account: String) throws
+    func retrieve(for account: String) throws -> Data?
+    func delete(for account: String) throws
+    func store(string: String, for account: String) throws
+    func retrieveString(for account: String) throws -> String?
+}
+
 // MARK: - Keychain Helper
-class Keychain {
+class Keychain: KeychainStoring {
 
     private let service = "com.healthapp.encryption"
     private let encryptionKeyAccount = "health_data_encryption_key"
 
+    // MARK: - Writing
+
+    /// Writes an item, updating in place when it already exists.
+    ///
+    /// Deliberately not delete-then-add: if the add failed after the delete succeeded,
+    /// the previous value would already be destroyed. A failed update leaves the stored
+    /// item untouched, so a transient Keychain error cannot lose a key.
+    private func write(data: Data, account: String) throws {
+        let identityQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+
+        let updateStatus = SecItemUpdate(identityQuery as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return
+        }
+        guard updateStatus == errSecItemNotFound else {
+            throw KeychainError.storeFailed(updateStatus)
+        }
+
+        var addQuery = identityQuery
+        addQuery.merge(attributes) { current, _ in current }
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw KeychainError.storeFailed(addStatus)
+        }
+    }
+
     // MARK: - Encryption Key Management
     func storeEncryptionKey(_ key: SymmetricKey) throws {
         let keyData = key.withUnsafeBytes { Data($0) }
-        
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: encryptionKeyAccount,
-            kSecValueData as String: keyData,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        
-        // Delete any existing key first
-        SecItemDelete(query as CFDictionary)
-        
-        let status = SecItemAdd(query as CFDictionary, nil)
-        
-        guard status == errSecSuccess else {
-            throw KeychainError.storeFailed(status)
-        }
+        try write(data: keyData, account: encryptionKeyAccount)
     }
     
     func getEncryptionKey() throws -> SymmetricKey? {
@@ -72,22 +102,7 @@ class Keychain {
 
     // MARK: - Generic Keychain Operations
     func store(data: Data, for account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        
-        // Delete any existing item first
-        SecItemDelete(query as CFDictionary)
-        
-        let status = SecItemAdd(query as CFDictionary, nil)
-        
-        guard status == errSecSuccess else {
-            throw KeychainError.storeFailed(status)
-        }
+        try write(data: data, account: account)
     }
     
     func retrieve(for account: String) throws -> Data? {

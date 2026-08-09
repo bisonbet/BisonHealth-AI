@@ -1,0 +1,63 @@
+# SwiftLint policy for the native app and its tests.
+#
+# The repository has pre-existing style and size debt. Those rules remain
+# intentionally deferred below so new safety and correctness findings stay
+# actionable without turning this cleanup into a repository-wide rewrite.
+
+included:
+  - HealthApp
+  - HealthAppTests
+  - HealthAppUITests
+
+excluded:
+  - ../legacy
+  - legacy
+  - build
+  - .build
+  - DerivedData
+  - ../DerivedData
+  - Pods
+  - Carthage
+  - "**/Generated"
+  - "**/*.generated.swift"
+
+# Existing force-unwrapping and implicitly-unwrapped-optional findings are
+# tracked in SwiftLintBaseline.json for incremental remediation. New
+# violations still fail the canonical lint command.
+baseline: SwiftLintBaseline.json
+
+# Keep safety and correctness rules enabled. These are limited to established
+# style, size, and mechanical cleanup debt rather than crash-risk rules.
+disabled_rules:
+  - closure_parameter_position
+  - control_statement
+  - cyclomatic_complexity
+  - empty_enum_arguments
+  - file_length
+  - for_where
+  - function_body_length
+  - function_parameter_count
+  - identifier_name
+  - implicit_optional_initialization
+  - large_tuple
+  - leading_whitespace
+  - line_length
+  - multiple_closures_with_trailing_closure
+  - nesting
+  - non_optional_string_data_conversion
+  - redundant_discardable_let
+  - redundant_string_enum_value
+  - statement_position
+  - todo
+  - trailing_comma
+  - trailing_newline
+  - trailing_whitespace
+  - type_body_length
+  - unused_closure_parameter
+  - unused_optional_binding
+  - vertical_whitespace
+
+opt_in_rules:
+  - fatal_error_message
+  - force_unwrapping
+  - implicitly_unwrapped_optional

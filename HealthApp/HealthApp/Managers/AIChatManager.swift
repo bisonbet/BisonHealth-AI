@@ -29,7 +29,6 @@ class AIChatManager: ObservableObject {
     private let automaticallyUpdateContextOnSelection: Bool
     private let networkMonitor: NetworkMonitor
     private let networkManager = NetworkManager.shared
-    private let pendingOperationsManager = PendingOperationsManager.shared
     private let errorHandler = ErrorHandler.shared
     private let retryManager = NetworkRetryManager.shared
     
@@ -113,8 +112,6 @@ class AIChatManager: ObservableObject {
                             await self.checkConnection()
                         }
 
-                        // Process any pending operations
-                        await self.pendingOperationsManager.retryAllOperations()
                     } else {
                         self.isConnected = false
                     }
@@ -909,22 +906,6 @@ class AIChatManager: ObservableObject {
                 await generateTitleIfNeeded(for: conversations[index])
             }
         } catch {
-            // Queue for retry if network error
-            if error is OpenAICompatibleError || error is DecodingError {
-                throw error
-            }
-            let networkError = NetworkError.from(error: error)
-            if networkError.isRetryable {
-                AppLog.shared.ai("[Chat] Network error, queueing message for retry", level: .warning)
-                await pendingOperationsManager.queueChatMessage(
-                    conversationId: conversationId,
-                    message: content,
-                    context: context,
-                    useStreaming: false,
-                    model: currentModelName(),
-                    systemPrompt: selectedDoctor?.systemPrompt
-                )
-            }
             throw error
         }
     }

@@ -4,7 +4,7 @@
 
 ## Quick Facts
 
-- **Platform**: iOS 17.0+ (Universal - iPhone & iPad)
+- **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 5.9+ with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
 - **Database**: SQLite with CryptoKit encryption (current version: 8)
@@ -19,20 +19,20 @@
 ```
 BisonHealth-AI/
 ├── HealthApp/                    # Main iOS application
-│   ├── HealthApp/                # App source (113 Swift files)
-│   │   ├── Models/               # 10 files - Data models
-│   │   ├── Views/                # 54 files - SwiftUI views
-│   │   ├── Managers/             # 10 files - Business logic (ViewModels)
-│   │   ├── Services/             # 10 files - External integrations
-│   │   ├── Database/             # 7 files - SQLite + encryption
-│   │   ├── Networking/           # 3 files - Network layer
-│   │   ├── Utils/                # 14 files - Utilities
-│   │   └── ViewModels/           # 1 file
-│   ├── HealthAppTests/           # 13 unit test files
-│   ├── HealthAppUITests/         # 6 UI test files
+│   ├── HealthApp/                # App source
+│   │   ├── Models/               # Data models
+│   │   ├── Views/                # SwiftUI views
+│   │   ├── Managers/             # Business logic (ViewModels)
+│   │   ├── Services/             # External integrations
+│   │   ├── Database/             # SQLite + encryption
+│   │   ├── Networking/           # Network layer
+│   │   ├── Utils/                # Utilities
+│   │   └── ViewModels/           # View models
+│   ├── HealthAppTests/           # Unit tests
+│   ├── HealthAppUITests/         # UI tests
 │   └── HealthApp.xcodeproj/      # Xcode project
 ├── .claude/                      # Claude AI configuration
-└── *.md                          # 17+ documentation files
+└── *.md                          # Documentation files
 ```
 
 ---
@@ -365,22 +365,22 @@ struct NewAIProviderSettingsView: View { }
 - **Frameworks**: PDFKit (digital PDFs) + Vision OCR (scans, photos)
 - **Formats**: PDF, DOCX, images (JPEG, PNG, HEIC)
 - **Integration**: `NativeDocumentExtractor.swift`, `DocumentProcessor.swift`
-- **Note**: The former Docling server integration was removed (2026-07); `DOCLING_FORMATS_EXPLANATION.md` is historical
+- **Note**: Docling is retained only as a historical/legacy compatibility reference; no Docling server is required or used by the current path
 
 ---
 
 ## Testing
 
-### Test Files (19 total)
+### Test Files
 
-**Unit Tests** (`HealthAppTests/` - 13 files):
+**Unit Tests** (`HealthAppTests/`):
 - `ModelTests.swift` - Model validation
 - `DatabaseTests.swift` - Database operations
 - `HealthDataManagerTests.swift` - Manager logic
 - `ServiceClientTests.swift` - Service integrations
 - `ChatIntegrationTests.swift` - End-to-end tests
 
-**UI Tests** (`HealthAppUITests/` - 6 files):
+**UI Tests** (`HealthAppUITests/`):
 - `ChatInterfaceUITests.swift` - Chat interface
 - `DocumentManagementUITests.swift` - Document management
 - `AccessibilityUITests.swift` - Accessibility features
@@ -390,11 +390,18 @@ struct NewAIProviderSettingsView: View { }
 ```bash
 # Unit tests
 xcodebuild test -scheme HealthApp \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 
 # iPad tests
 xcodebuild test -scheme HealthApp \
   -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M4)'
+```
+
+To inspect the current source and test-file counts:
+
+```bash
+find HealthApp/HealthApp -type f -name '*.swift' | wc -l
+find HealthApp/HealthAppTests HealthApp/HealthAppUITests -type f -name '*.swift' | wc -l
 ```
 
 ---
@@ -422,6 +429,17 @@ AuthKey_*.p8                # API keys
 
 ---
 
+## Definition of Done
+
+Before finishing:
+- Remove code made unused by this change.
+- Remove commented-out implementation blocks introduced or exposed by this change.
+- Merge newly duplicated helpers when behavior and ownership are identical.
+- Verify no secrets or PHI were added to source, tests, fixtures, or logs.
+- Run focused tests and inspect the final diff.
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
@@ -432,8 +450,8 @@ AuthKey_*.p8                # API keys
 - Resolve packages: `xcodebuild -resolvePackageDependencies`
 
 **Simulator Issues**
-- Use iPhone 16 Pro or iPad Pro 11-inch (M4)
-- Install iOS 18.6 runtime via Xcode > Settings > Platforms
+- Use iPhone 17 Pro or iPad Pro 11-inch (M4)
+- Install the required simulator runtime via Xcode > Settings > Platforms
 
 **Database Migration Errors**
 - Check console logs for migration errors
@@ -484,7 +502,7 @@ Emoji prefixes for filtering:
 - `CONTRIBUTING.md` - Contribution guidelines
 - `AGENTS.md` - AI agent guidelines
 - `MEDICAL_DOCUMENTS_IMPLEMENTATION.md` - Document processing
-- `DOCLING_FORMATS_EXPLANATION.md` - Docling API reference
+- `DOCLING_FORMATS_EXPLANATION.md` - Historical/legacy Docling formats note
 
 ---
 
@@ -501,11 +519,9 @@ cd BisonHealth-AI
 open HealthApp/HealthApp.xcodeproj
 ```
 
-**Statistics**:
-- 122 Swift files (Models: 11, Views: 58, Managers: 11, Services: 12, Database: 8, Utils: 14)
-- 20 test files (14 unit, 6 UI)
+**Current project facts**:
 - Database version: 8
-- iOS 17.0+ deployment target
+- iOS 26.0+ deployment target
 
 ---
 

@@ -1,9 +1,200 @@
 import Foundation
+import Darwin
+
+// MARK: - OpenAI-Compatible Endpoint Validation
+
+enum OpenAICompatibleEndpointValidationError: Equatable, Error {
+    case malformedURL
+    case missingHost
+    case unsupportedScheme
+    case embeddedCredentials
+    case publicHTTP
+
+    var userMessage: String {
+        switch self {
+        case .malformedURL:
+            return "Enter a complete server URL, such as https://api.example.com."
+        case .missingHost:
+            return "The server URL must include a host name or IP address."
+        case .unsupportedScheme:
+            return "Use an http:// or https:// server URL."
+        case .embeddedCredentials:
+            return "Remove the username and password from the server URL."
+        case .publicHTTP:
+            return "Plain HTTP is only allowed for servers on your local network "
+                + "(for example 192.168.1.10, 10.0.0.5, my-server.local, or localhost). "
+                + "Use HTTPS to reach a server over the internet."
+        }
+    }
+}
+
+struct OpenAICompatibleEndpointValidator {
+    static func validate(_ value: String) -> Result<URL, OpenAICompatibleEndpointValidationError> {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty, let url = URL(string: trimmedValue) else {
+            return .failure(.malformedURL)
+        }
+
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return .failure(.malformedURL)
+        }
+
+        guard let scheme = components.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
+            return .failure(.unsupportedScheme)
+        }
+
+        guard components.user == nil, components.password == nil else {
+            return .failure(.embeddedCredentials)
+        }
+
+        guard let host = components.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return .failure(.missingHost)
+        }
+
+        // Cleartext HTTP is confined to hosts that cannot be routed over the public
+        // internet. Self-hosted inference servers (Ollama, LM Studio, vLLM, LiteLLM)
+        // normally run on the LAN without a certificate, so blocking those outright
+        // would disable the feature for its main use case.
+        if scheme == "http", !Self.isPrivateNetworkHost(host) {
+            return .failure(.publicHTTP)
+        }
+
+        return .success(url)
+    }
+
+    // MARK: - Private Network Hosts
+
+    /// Domain suffixes that resolve only inside a local network.
+    private static let privateHostSuffixes = [".local", ".localhost", ".home.arpa", ".internal", ".lan"]
+
+    /// Whether the host is reachable only on the local network: a loopback, private,
+    /// link-local, or unique-local address, or a name that cannot resolve publicly.
+    static func isPrivateNetworkHost(_ host: String) -> Bool {
+        var normalizedHost = host
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .lowercased()
+
+        // Drop a trailing root label ("nas.local.").
+        if normalizedHost.hasSuffix(".") {
+            normalizedHost.removeLast()
+        }
+        // A zone ID ("fe80::1%en0") belongs only to an IPv6 literal. A percent sign in
+        // any other host is not a zone ID, and truncating there would turn a public
+        // name into a private-looking one: URLComponents decodes "nas%25.evil.test" to
+        // the host "nas%.evil.test", which would otherwise be read as the LAN label
+        // "nas". Such a host is left whole and simply fails every check below.
+        if normalizedHost.contains(":"), let zoneSeparator = normalizedHost.firstIndex(of: "%") {
+            normalizedHost = String(normalizedHost[normalizedHost.startIndex..<zoneSeparator])
+        }
+        guard !normalizedHost.isEmpty else { return false }
+
+        // A numeric host is judged by every reading a resolver might take, and is
+        // allowed only if all of them are private. The strict and lenient parsers
+        // disagree wherever a component has a leading zero — "010.010.010.010" is
+        // 10.10.10.10 to inet_pton but 8.8.8.8 to inet_aton and to DNS — and the
+        // lenient parser additionally accepts whole-integer and hex spellings such as
+        // "134744072" and "0x8080808". Requiring agreement means no spelling of a
+        // routable address can be mistaken for a LAN host and sent cleartext.
+        let numericReadings = [
+            strictIPv4Address(normalizedHost),
+            lenientIPv4Address(normalizedHost)
+        ].compactMap { $0 }
+        if !numericReadings.isEmpty {
+            return numericReadings.allSatisfy(isPrivateIPv4)
+        }
+
+        if let ipv6 = ipv6Address(normalizedHost) {
+            return isPrivateIPv6(ipv6)
+        }
+
+        if normalizedHost == "localhost" {
+            return true
+        }
+        if privateHostSuffixes.contains(where: { normalizedHost.hasSuffix($0) }) {
+            return true
+        }
+        // A single-label name ("ollama-box") has no public DNS meaning; it can only be
+        // resolved by a local search domain, mDNS, or the hosts file. Numeric spellings
+        // never reach here — inet_aton claims them above.
+        return !normalizedHost.contains(".")
+    }
+
+    /// Canonical dotted-quad only.
+    private static func strictIPv4Address(_ host: String) -> UInt32? {
+        var address = in_addr()
+        guard inet_pton(AF_INET, host, &address) == 1 else { return nil }
+        return UInt32(bigEndian: address.s_addr)
+    }
+
+    /// The permissive reading a resolver uses: dotted-quad, but also shortened,
+    /// octal, hex, and whole-integer forms.
+    private static func lenientIPv4Address(_ host: String) -> UInt32? {
+        var address = in_addr()
+        guard inet_aton(host, &address) == 1 else { return nil }
+        return UInt32(bigEndian: address.s_addr)
+    }
+
+    private static func ipv6Address(_ host: String) -> [UInt8]? {
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, host, &address) == 1 else { return nil }
+        return withUnsafeBytes(of: &address) { Array($0) }
+    }
+
+    private static func isPrivateIPv4(_ address: UInt32) -> Bool {
+        let firstOctet = (address >> 24) & 0xFF
+        let secondOctet = (address >> 16) & 0xFF
+
+        switch (firstOctet, secondOctet) {
+        case (127, _):                  return true  // 127.0.0.0/8   loopback
+        case (10, _):                   return true  // 10.0.0.0/8    RFC 1918
+        case (172, 16...31):            return true  // 172.16.0.0/12 RFC 1918
+        case (192, 168):                return true  // 192.168.0.0/16 RFC 1918
+        case (169, 254):                return true  // 169.254.0.0/16 RFC 3927 link-local
+        default:                        return false
+        }
+    }
+
+    private static func isPrivateIPv6(_ address: [UInt8]) -> Bool {
+        guard address.count == 16 else { return false }
+
+        // ::1 loopback
+        if address.dropLast().allSatisfy({ $0 == 0 }), address[15] == 1 {
+            return true
+        }
+        // ::ffff:0:0/96 — an IPv4 address in IPv6 form, judged on its IPv4 value.
+        if address[0..<10].allSatisfy({ $0 == 0 }), address[10] == 0xFF, address[11] == 0xFF {
+            let mapped = address[12...].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            return isPrivateIPv4(mapped)
+        }
+        // fc00::/7 unique local
+        if address[0] & 0xFE == 0xFC {
+            return true
+        }
+        // fe80::/10 link-local
+        return address[0] == 0xFE && address[1] & 0xC0 == 0x80
+    }
+
+    static func validatedURL(_ value: String) -> URL? {
+        guard case .success(let url) = validate(value) else { return nil }
+        return url
+    }
+
+    static func validationError(for value: String) -> OpenAICompatibleEndpointValidationError? {
+        guard case .failure(let error) = validate(value) else { return nil }
+        return error
+    }
+
+    static func isValid(_ value: String) -> Bool {
+        validatedURL(value) != nil
+    }
+}
 
 // MARK: - OpenAI Compatible Client
 /// Client for OpenAI-compatible API servers (LiteLLM, LocalAI, vLLM, etc.)
 @MainActor
 class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
+
+    private static let providerName = "OpenAI-compatible"
 
     // MARK: - Published Properties
     @Published var isConnected = false
@@ -11,7 +202,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     @Published var lastError: Error?
 
     // MARK: - Properties
-    private let baseURL: URL
+    private let baseURL: URL?
     private let apiKey: String?
     private let session: URLSession
     private let timeout: TimeInterval
@@ -29,25 +220,8 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     var declaresVisionSupport: Bool = false
 
     // MARK: - Initialization
-    init(baseURL: String, apiKey: String? = nil, timeout: TimeInterval = 300.0, defaultModel: String? = nil, temperature: Double = 0.1, maxTokens: Int = 2048, contextSize: Int = 32768) {
-        guard let url = URL(string: baseURL) else {
-            self.baseURL = URL(string: "http://localhost:8000")!
-            self.apiKey = apiKey
-            self.timeout = timeout
-            self.defaultModel = defaultModel
-            self.temperature = temperature
-            self.maxTokens = maxTokens
-            self.contextSize = contextSize
-
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = timeout
-            self.session = URLSession(configuration: config)
-
-            AppLog.shared.ai("Invalid base URL, using default", level: .warning)
-            return
-        }
-
-        self.baseURL = url
+    init(baseURL: String, apiKey: String? = nil, timeout: TimeInterval = 300.0, defaultModel: String? = nil, temperature: Double = 0.1, maxTokens: Int = 2048, contextSize: Int = 32768, session: URLSession? = nil) {
+        self.baseURL = OpenAICompatibleEndpointValidator.validatedURL(baseURL)
         self.apiKey = apiKey
         self.timeout = timeout
         self.defaultModel = defaultModel
@@ -57,9 +231,83 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
-        self.session = URLSession(configuration: config)
+        self.session = session ?? URLSession(configuration: config)
 
-        AppLog.shared.ai("OpenAI-compatible client initialized")
+        if self.baseURL == nil {
+            AppLog.shared.ai("OpenAI-compatible client initialized with a rejected endpoint", level: .warning)
+        } else {
+            AppLog.shared.ai("OpenAI-compatible client initialized")
+        }
+    }
+
+    // MARK: - Safe Diagnostics
+
+    /// Scheme, host, and port only — the endpoint's identity and nothing else.
+    ///
+    /// These strings reach durable log files, and every other part of a provider URL
+    /// can carry something that must not be persisted: userinfo and path segments are a
+    /// common place for proxy tokens (`https://host/proxy/<token>/v1`), and a
+    /// user-configured path can contain PHI. The generic redactor cannot scrub an
+    /// arbitrary path, so the path is dropped rather than filtered. Callers already
+    /// name the operation, so nothing useful is lost.
+    static func safeURLDescription(_ url: URL) -> String {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme,
+              let host = components.host,
+              !host.isEmpty else {
+            return "configured provider URL"
+        }
+
+        // An IPv6 literal may arrive with or without its brackets depending on how the
+        // URL was built, so normalize to exactly one pair.
+        let bareHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let formattedHost = bareHost.contains(":") ? "[\(bareHost)]" : bareHost
+        guard let port = components.port else {
+            return "\(scheme)://\(formattedHost)"
+        }
+        return "\(scheme)://\(formattedHost):\(port)"
+    }
+
+    private func providerRequestFailure(
+        operation: String,
+        response: HTTPURLResponse
+    ) -> OpenAICompatibleError {
+        let error = OpenAICompatibleError.requestFailed(
+            response: response,
+            provider: Self.providerName
+        )
+        AppLog.shared.error(
+            "OpenAI-compatible \(operation) request failed",
+            error: error,
+            category: .ai
+        )
+        return error
+    }
+
+    private func providerConnectionFailure(operation: String, error: Error) {
+        lastError = error
+        AppLog.shared.error(
+            "OpenAI-compatible \(operation) connection failed",
+            error: error,
+            category: .ai
+        )
+    }
+
+    private func invalidProviderResponse(operation: String, error: OpenAICompatibleError) -> OpenAICompatibleError {
+        AppLog.shared.error(
+            "OpenAI-compatible \(operation) returned an invalid response",
+            error: error,
+            category: .ai
+        )
+        return error
+    }
+
+    private func validatedBaseURLForRequest() throws -> URL {
+        guard let baseURL,
+              let validatedURL = OpenAICompatibleEndpointValidator.validatedURL(baseURL.absoluteString) else {
+            throw OpenAICompatibleError.invalidURL
+        }
+        return validatedURL
     }
 
     // MARK: - Connection Management
@@ -79,13 +327,14 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             connectionStatus = .disconnected
             isConnected = false
             lastError = error
-            AppLog.shared.ai("Connection failed: \(error.localizedDescription)", level: .error)
+            AppLog.shared.error("OpenAI-compatible connection failed", error: error, category: .ai)
             throw error
         }
     }
 
     // MARK: - Chat Completion
     func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+        let baseURL = try validatedBaseURLForRequest()
         let messagesURL = baseURL.appendingPathComponent("/v1/chat/completions")
 
         var request = URLRequest(url: messagesURL)
@@ -132,7 +381,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Debug: Log request with sanitized headers and truncated body
-        AppLog.shared.ai("Sending request to \(messagesURL)")
+        AppLog.shared.ai("Sending request to \(Self.safeURLDescription(messagesURL))")
         AppLog.shared.ai("Model: \(currentModel ?? defaultModel ?? "(none)")", level: .debug)
 
         // Log request metadata only (no body content — it contains health data)
@@ -150,9 +399,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-                AppLog.shared.ai("Request failed with status \(httpResponse.statusCode)", level: .error)
-                throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
+                throw providerRequestFailure(operation: "chat", response: httpResponse)
             }
 
             // Parse response
@@ -192,11 +439,16 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 )
             }
 
-            AppLog.shared.ai("Unable to parse chat response (\(data.count) bytes)", level: .error)
-            throw OpenAICompatibleError.emptyResponse
+            let error = invalidProviderResponse(operation: "chat", error: .emptyResponse)
+            throw error
 
         } catch {
-            lastError = error
+            if let providerError = error as? OpenAICompatibleError,
+               case .requestFailed = providerError {
+                lastError = providerError
+            } else {
+                providerConnectionFailure(operation: "chat", error: error)
+            }
             throw error
         }
     }
@@ -215,6 +467,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         ocrText: String,
         schemaPrompt: String
     ) async throws -> String {
+        let baseURL = try validatedBaseURLForRequest()
         let messagesURL = baseURL.appendingPathComponent("/v1/chat/completions")
 
         // Build multimodal content parts: page images followed by the instruction text
@@ -270,14 +523,20 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             }
             request.httpBody = body
-            let (data, response) = try await session.data(for: request)
+            let (data, response): (Data, URLResponse)
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch {
+                providerConnectionFailure(operation: "vision", error: error)
+                throw error
+            }
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw OpenAICompatibleError.invalidResponse
+                throw invalidProviderResponse(operation: "vision", error: .invalidResponse)
             }
             return (data, httpResponse)
         }
 
-        AppLog.shared.ai("Vision extraction request: \(pages.count) pages to \(messagesURL)")
+        AppLog.shared.ai("Vision extraction request: \(pages.count) pages to \(Self.safeURLDescription(messagesURL))")
         var (data, httpResponse) = try await send(makeBody(includeResponseFormat: true))
 
         if (400...499).contains(httpResponse.statusCode) {
@@ -287,8 +546,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
+            throw providerRequestFailure(operation: "vision", response: httpResponse)
         }
 
         let decoder = JSONDecoder()
@@ -300,7 +558,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         if let fallbackContent = try? parseFlexibleChatContent(from: data) {
             return fallbackContent.content
         }
-        throw OpenAICompatibleError.emptyResponse
+        throw invalidProviderResponse(operation: "vision", error: .emptyResponse)
     }
 
     // MARK: - Streaming Chat Completion
@@ -313,6 +571,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         onUpdate: @escaping (String) -> Void,
         onComplete: @escaping (OpenAICompatibleChatResponse) -> Void
     ) async throws {
+        let baseURL = try validatedBaseURLForRequest()
         let messagesURL = baseURL.appendingPathComponent("/v1/chat/completions")
 
         var request = URLRequest(url: messagesURL)
@@ -391,28 +650,31 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        AppLog.shared.ai("Starting streaming request to \(messagesURL)")
+        AppLog.shared.ai("Starting streaming request to \(Self.safeURLDescription(messagesURL))")
 
         let startTime = Date()
         var accumulatedContent = ""
         var responseModel: String? = nil
 
-        // Use URLSession bytes for streaming
-        let (bytes, response) = try await session.bytes(for: request)
+        // Use URLSession bytes for streaming.
+        let stream: (URLSession.AsyncBytes, URLResponse)
+        do {
+            stream = try await session.bytes(for: request)
+        } catch {
+            providerConnectionFailure(operation: "streaming", error: error)
+            throw error
+        }
+        let (bytes, response) = stream
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAICompatibleError.invalidResponse
+            throw invalidProviderResponse(operation: "streaming", error: .invalidResponse)
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            // Try to read error message
-            var errorData = Data()
-            for try await byte in bytes {
-                errorData.append(byte)
-            }
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            AppLog.shared.ai("Streaming request failed with status \(httpResponse.statusCode)", level: .error)
-            throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, errorMessage)
+            // The body is deliberately not read: it can carry PHI or credentials and
+            // nothing safe can be derived from it. Leaving the sequence unconsumed
+            // cancels the transfer instead of downloading an error body of any size.
+            throw providerRequestFailure(operation: "streaming", response: httpResponse)
         }
 
         // Parse SSE stream
@@ -630,6 +892,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Models
     func listModels() async throws -> [String] {
+        let baseURL = try validatedBaseURLForRequest()
         let modelsURL = baseURL.appendingPathComponent("/v1/models")
 
         var request = URLRequest(url: modelsURL)
@@ -645,11 +908,11 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw OpenAICompatibleError.invalidResponse
+                throw invalidProviderResponse(operation: "models", error: .invalidResponse)
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                throw OpenAICompatibleError.requestFailed(httpResponse.statusCode, "Failed to list models")
+                throw providerRequestFailure(operation: "models", response: httpResponse)
             }
 
             let decoder = JSONDecoder()
@@ -663,11 +926,15 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 return flexibleModels
             }
 
-            AppLog.shared.ai("Unable to parse models response (\(data.count) bytes)", level: .error)
-            throw OpenAICompatibleError.invalidResponse
+            throw invalidProviderResponse(operation: "models", error: .invalidResponse)
 
         } catch {
-            lastError = error
+            if let providerError = error as? OpenAICompatibleError,
+               case .requestFailed = providerError {
+                lastError = providerError
+            } else {
+                providerConnectionFailure(operation: "models", error: error)
+            }
             throw error
         }
     }
@@ -813,13 +1080,97 @@ struct OpenAIModelsResponse: Codable {
 }
 
 // MARK: - Errors
+struct OpenAICompatibleFailure: Equatable {
+    let statusCode: Int
+    let provider: String
+    let requestIdentifier: String?
+    let message: String?
+
+    init(
+        statusCode: Int,
+        provider: String = "OpenAI-compatible",
+        requestIdentifier: String? = nil,
+        message: String? = nil
+    ) {
+        self.statusCode = statusCode
+        self.provider = String(provider.prefix(64))
+        self.requestIdentifier = Self.safeRequestIdentifier(requestIdentifier)
+        self.message = Self.safeMessage(message)
+    }
+
+    /// Shown to the user for the current failure. Ephemeral: it is held in `lastError`
+    /// and rendered in the UI, never written to a file.
+    var localizedDescription: String {
+        var description = loggableDescription
+        if let requestIdentifier {
+            description += " [request ID: \(requestIdentifier)]"
+        }
+        return String(description.prefix(512))
+    }
+
+    /// The form written to durable logs. The request ID is omitted: it is an untrusted
+    /// response header, and constraining its characters and length does not establish
+    /// that a provider did not put PHI or a credential in it.
+    var loggableDescription: String {
+        var description = "\(provider) request failed (HTTP \(statusCode))"
+        if let message {
+            description += ": \(message)"
+        }
+        return String(description.prefix(512))
+    }
+
+    private static func safeRequestIdentifier(_ identifier: String?) -> String? {
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 128 else { return nil }
+
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._:/-"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return trimmed
+    }
+
+    private static func safeMessage(_ message: String?) -> String? {
+        guard let message else { return nil }
+        let redacted = AppLog.redactForSupport(message)
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !redacted.isEmpty else { return nil }
+        return String(redacted.prefix(256))
+    }
+}
+
 enum OpenAICompatibleError: LocalizedError {
     case invalidURL
     case invalidResponse
     case emptyResponse
-    case requestFailed(Int, String)
+    case requestFailed(OpenAICompatibleFailure)
     case configurationUpdateNotSupported
     case authenticationFailed
+
+    /// Compatibility overload for existing internal callers. The message is
+    /// sanitized and bounded before it is retained in the error value.
+    static func requestFailed(_ statusCode: Int, _ message: String) -> OpenAICompatibleError {
+        .requestFailed(OpenAICompatibleFailure(statusCode: statusCode, message: message))
+    }
+
+    /// Builds a safe failure from an HTTP response. The response body is deliberately
+    /// not a parameter: it can carry PHI, prompts, or credentials. The request ID is
+    /// kept only for the user-facing description, never for durable logs.
+    static func requestFailed(
+        response: HTTPURLResponse,
+        provider: String = "OpenAI-compatible"
+    ) -> OpenAICompatibleError {
+        let requestIdentifier = ["x-request-id", "request-id", "x-amzn-requestid"]
+            .compactMap { response.value(forHTTPHeaderField: $0) }
+            .first
+
+        return .requestFailed(OpenAICompatibleFailure(
+            statusCode: response.statusCode,
+            provider: provider,
+            requestIdentifier: requestIdentifier
+        ))
+    }
 
     var errorDescription: String? {
         switch self {
@@ -829,12 +1180,24 @@ enum OpenAICompatibleError: LocalizedError {
             return "Invalid response from server"
         case .emptyResponse:
             return "Server returned empty response"
-        case .requestFailed(let code, let message):
-            return "Request failed (\(code)): \(message)"
+        case .requestFailed(let failure):
+            return failure.localizedDescription
         case .configurationUpdateNotSupported:
             return "Configuration updates require app restart"
         case .authenticationFailed:
             return "Authentication failed - check your API key"
+        }
+    }
+
+    /// The description safe to write to durable logs. Identical to `errorDescription`
+    /// except for a request failure, whose user-facing text carries the untrusted
+    /// provider request ID.
+    var loggableDescription: String {
+        switch self {
+        case .requestFailed(let failure):
+            return failure.loggableDescription
+        default:
+            return errorDescription ?? String(describing: self)
         }
     }
 
@@ -844,10 +1207,10 @@ enum OpenAICompatibleError: LocalizedError {
             return "Check the server URL in settings"
         case .invalidResponse, .emptyResponse:
             return "Verify the server is OpenAI-compatible"
-        case .requestFailed(let code, _):
-            if code == 401 {
+        case .requestFailed(let failure):
+            if failure.statusCode == 401 {
                 return "Check your API key in settings"
-            } else if (500...599).contains(code) {
+            } else if (500...599).contains(failure.statusCode) {
                 return "Server error - try again later"
             }
             return "Check your request and try again"

@@ -33,7 +33,9 @@ class FileSystemManager: ObservableObject {
         } else if let runtimeBaseDirectory = AppTestRuntime.fileSystemBaseDirectoryForUITesting() {
             self.baseDirectory = runtimeBaseDirectory
         } else {
-            let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            guard let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                throw FileSystemError.documentsDirectoryUnavailable
+            }
             self.baseDirectory = appDocuments.appendingPathComponent("HealthApp")
         }
         
@@ -211,7 +213,8 @@ class FileSystemManager: ObservableObject {
     private func generatePDFThumbnail(documentURL: URL, thumbnailURL: URL) async throws -> URL {
         let pdfData = try retrieveDocument(from: documentURL)
         
-        guard let pdfDocument = CGPDFDocument(CGDataProvider(data: pdfData as CFData)!),
+        guard let dataProvider = CGDataProvider(data: pdfData as CFData),
+              let pdfDocument = CGPDFDocument(dataProvider),
               let firstPage = pdfDocument.page(at: 1) else {
             throw FileSystemError.thumbnailGenerationFailed
         }
@@ -237,7 +240,9 @@ class FileSystemManager: ObservableObject {
     
     private func generateGenericThumbnail(documentType: DocumentType, thumbnailURL: URL) throws -> URL {
         let iconName = documentType.icon
-        let systemImage = UIImage(systemName: iconName) ?? UIImage(systemName: "doc")!
+        guard let systemImage = UIImage(systemName: iconName) ?? UIImage(systemName: "doc") else {
+            throw FileSystemError.thumbnailGenerationFailed
+        }
         
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 200))
         let thumbnail = renderer.image { context in
@@ -594,6 +599,7 @@ enum ExportFileType {
 // MARK: - File System Errors
 enum FileSystemError: LocalizedError {
     case directoryCreationFailed
+    case documentsDirectoryUnavailable
     case fileNotFound
     case encryptionFailed
     case decryptionFailed
@@ -606,6 +612,8 @@ enum FileSystemError: LocalizedError {
         switch self {
         case .directoryCreationFailed:
             return "Failed to create directory structure"
+        case .documentsDirectoryUnavailable:
+            return "The app documents directory is unavailable"
         case .fileNotFound:
             return "File not found"
         case .encryptionFailed:

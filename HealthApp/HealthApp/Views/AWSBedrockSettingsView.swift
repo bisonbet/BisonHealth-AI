@@ -24,6 +24,13 @@ struct AWSBedrockSettingsView: View {
     @State private var editingSecretKey: String = ""
     @State private var editingRegion: String = "us-east-1"
 
+    private enum CredentialField: Hashable {
+        case accessKey
+        case secretKey
+    }
+
+    @FocusState private var focusedField: CredentialField?
+
     private let regions = [
         "us-east-1": "US East (N. Virginia)",
         "us-east-2": "US East (Ohio)",
@@ -73,6 +80,49 @@ struct AWSBedrockSettingsView: View {
                 selectedModel = AWSBedrockModel.claudeSonnet45.rawValue
             }
         }
+        .onDisappear {
+            // Catches a user who leaves the screen without dismissing the keyboard.
+            commitCredentials()
+        }
+    }
+
+    /// Persists the edited credentials as a single unit. An incomplete form is a normal
+    /// intermediate state, so it is staged in memory rather than reported as an error.
+    private func commitCredentials() {
+        let edited = AWSCredentials(
+            accessKeyId: editingAccessKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            secretAccessKey: editingSecretKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            sessionToken: credentialsManager.credentials.sessionToken,
+            region: editingRegion
+        )
+
+        // Emptying both fields is a request to remove the stored credentials, not an
+        // unfinished edit. Staging it in memory would leave the Keychain pair in place
+        // to reappear on the next launch, with no other way to delete it.
+        if edited.accessKeyId.isEmpty, edited.secretAccessKey.isEmpty {
+            if credentialsManager.hasStoredCredentials {
+                credentialsManager.deleteCredentials()
+            }
+            return
+        }
+
+        if edited.accessKeyId.isEmpty || edited.secretAccessKey.isEmpty {
+            credentialsManager.stageCredentials(edited)
+            return
+        }
+
+        // Only an actual edit is persisted, or a retry of a save that failed —
+        // updateCredentials assigns before it persists, so after a failure the edited
+        // pair already equals the in-memory one and would otherwise never be retried.
+        //
+        // A legacy conflict is deliberately not included here: it is resolved by the
+        // explicit button below, never by navigating away, because the manager kept the
+        // conflicting copy for recovery and merely opening this screen must not decide
+        // which credential survives.
+        let retriesFailedSave = credentialsManager.hasUnsavedChanges
+        guard edited != credentialsManager.credentials || retriesFailedSave else { return }
+
+        credentialsManager.updateCredentials(edited)
     }
 
     private var headerSection: some View {
@@ -149,15 +199,13 @@ struct AWSBedrockSettingsView: View {
                 if showingCredentials {
                     TextField("Enter Access Key ID", text: $editingAccessKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingAccessKey) { _, newValue in
-                            credentialsManager.updateAccessKey(newValue)
-                        }
+                        .focused($focusedField, equals: .accessKey)
+                        .onSubmit { commitCredentials() }
                 } else {
                     SecureField("Enter Access Key ID", text: $editingAccessKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingAccessKey) { _, newValue in
-                            credentialsManager.updateAccessKey(newValue)
-                        }
+                        .focused($focusedField, equals: .accessKey)
+                        .onSubmit { commitCredentials() }
                 }
 
                 HStack {
@@ -172,15 +220,20 @@ struct AWSBedrockSettingsView: View {
                 if showingCredentials {
                     TextField("Enter Secret Access Key", text: $editingSecretKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingSecretKey) { _, newValue in
-                            credentialsManager.updateSecretKey(newValue)
-                        }
+                        .focused($focusedField, equals: .secretKey)
+                        .onSubmit { commitCredentials() }
                 } else {
                     SecureField("Enter Secret Access Key", text: $editingSecretKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingSecretKey) { _, newValue in
-                            credentialsManager.updateSecretKey(newValue)
-                        }
+                        .focused($focusedField, equals: .secretKey)
+                        .onSubmit { commitCredentials() }
+                }
+            }
+            // Credentials are written to the Keychain when a field is committed, not
+            // on every keystroke: each save also performs a verifying read-back.
+            .onChange(of: focusedField) { previousField, _ in
+                if previousField != nil {
+                    commitCredentials()
                 }
             }
 
@@ -195,6 +248,23 @@ struct AWSBedrockSettingsView: View {
                     .foregroundColor(.secondary)
             }
             .padding(.vertical, 4)
+
+            if credentialsManager.lastError == .legacyCredentialConflict {
+                // Resolving the conflict discards one of two stored credential copies,
+                // so it takes a deliberate tap rather than happening on navigation.
+                Button("Keep the credentials shown above") {
+                    credentialsManager.resolveLegacyConflictKeepingCurrent()
+                }
+                .font(.caption)
+                .accessibilityHint("Removes the older, conflicting copy of your AWS credentials")
+            }
+
+            if let storageError = credentialsManager.lastError {
+                Label(storageError.localizedDescription, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .accessibilityLabel("AWS credential storage error: \(storageError.localizedDescription)")
+            }
         }
     }
 
@@ -207,8 +277,8 @@ struct AWSBedrockSettingsView: View {
                             .tag(key)
                     }
                 }
-                .onChange(of: editingRegion) { _, newValue in
-                    credentialsManager.updateRegion(newValue)
+                .onChange(of: editingRegion) { _, _ in
+                    commitCredentials()
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -432,13 +502,11 @@ struct AWSBedrockSettingsView: View {
             region: credentialsManager.credentials.region,
             accessKeyId: credentialsManager.credentials.accessKeyId,
             secretAccessKey: credentialsManager.credentials.secretAccessKey,
-            sessionToken: nil,
+            sessionToken: credentialsManager.credentials.sessionToken,
             model: selectedModelEnum,
             temperature: temperature,
             maxTokens: maxTokens,
-            timeout: 300.0,
-            useProfile: false,
-            profileName: nil
+            timeout: 300.0
         )
     }
 }

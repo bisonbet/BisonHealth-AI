@@ -4,6 +4,7 @@
 - iOS app: `HealthApp/HealthApp` (SwiftUI Views, ViewModels, Services, Models, Assets)
 - Unit tests: `HealthApp/HealthAppTests`; UI tests: `HealthApp/HealthAppUITests`
 - Xcode project: `HealthApp/HealthApp.xcodeproj` (scheme: `HealthApp`)
+- Active document extraction: `NativeDocumentExtractor.swift` (PDFKit + Vision), orchestrated by `DocumentProcessor.swift`; Docling references are historical/legacy only.
 - Legacy reference: `legacy/` is a different app copied here for reference only (do not modify).
 
 ## Legacy Reference
@@ -29,6 +30,7 @@ Note: Our default Simulator target is `iPhone 17 Pro`. If that runtime isn't ins
 
 ### Adding New Files to Xcode Project
 - **CRITICAL**: When creating new Swift files, they MUST be added to the Xcode project (`HealthApp/HealthApp.xcodeproj/project.pbxproj`).
+- Make only the required project-file entries for that new file; do not rewrite unrelated project-file content.
 - Required steps:
   1. Add PBXBuildFile entry in the PBXBuildFile section
   2. Add PBXFileReference entry in the PBXFileReference section
@@ -50,7 +52,7 @@ Note: Our default Simulator target is `iPhone 17 Pro`. If that runtime isn't ins
 
 ## Security & Configuration Tips
 - Do not commit secrets or PHI. Data is local and encrypted; follow patterns in `Services/` and `Database` usage.
-- Network calls must use TLS and validate responses (see `OpenAICompatibleClient.swift`, `BedrockClient.swift`, `DoclingClient.swift`).
+- Network calls must use TLS and validate responses (see `OpenAICompatibleClient.swift` and `BedrockClient.swift`).
 
 ## Local Development Notes
 
@@ -58,3 +60,12 @@ Note: Our default Simulator target is `iPhone 17 Pro`. If that runtime isn't ins
 - Prefer the default Simulator destination unless you have confirmed another installed simulator is a better fit for the change.
 - SwiftLint may be used for style/static checks when installed: `cd HealthApp && swiftlint lint`.
 - Configure AI providers from Settings when testing against external services.
+
+## Definition of Done
+
+Before finishing:
+- Remove code made unused by this change.
+- Remove commented-out implementation blocks introduced or exposed by this change.
+- Merge newly duplicated helpers when behavior and ownership are identical.
+- Verify no secrets or PHI were added to source, tests, fixtures, or logs.
+- Run focused tests and inspect the final diff.

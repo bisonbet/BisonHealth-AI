@@ -35,7 +35,6 @@ class DocumentManager: ObservableObject {
     private let documentProcessor: DocumentProcessor
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
-    private let pendingOperationsManager = PendingOperationsManager.shared
     
     // MARK: - Computed Properties
     var filteredDocuments: [MedicalDocument] {
@@ -261,16 +260,6 @@ class DocumentManager: ObservableObject {
                 await refreshDocuments()
             } catch {
                 lastError = error
-
-                // Queue for retry if network error
-                let networkError = NetworkError.from(error: error)
-                if networkError.isRetryable {
-                    AppLog.shared.documents("Network error, queueing document for retry", level: .warning)
-                    await pendingOperationsManager.queueDocumentProcessing(
-                        documentId: document.id,
-                        immediately: immediately
-                    )
-                }
             }
         } else {
             await documentProcessor.addToQueue(document, priority: .normal)

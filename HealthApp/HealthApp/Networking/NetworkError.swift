@@ -155,7 +155,7 @@ enum NetworkError: LocalizedError {
         case .timedOut:
             return .connectionTimeout
         case .cannotFindHost, .cannotConnectToHost:
-            return .hostUnreachable(urlError.failureURLString ?? "unknown host")
+            return .hostUnreachable(urlError.failingURL?.absoluteString ?? "unknown host")
         case .cancelled:
             return .cancelled
         default:

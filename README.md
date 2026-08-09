@@ -4,7 +4,7 @@
 
 <div align="center">
 
-![iOS](https://img.shields.io/badge/iOS-17.0+-blue?style=for-the-badge&logo=apple)
+![iOS](https://img.shields.io/badge/iOS-26.0+-blue?style=for-the-badge&logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-5.9+-orange?style=for-the-badge&logo=swift)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-blue?style=for-the-badge&logo=swift)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
@@ -23,17 +23,17 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 
 ### ✨ Key Features
 
-- 📱 **Universal iOS App** - Built with SwiftUI for iOS 17+, optimized for both iPhone and iPad
+- 📱 **Universal iOS App** - Built with SwiftUI for iOS 26+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally on-device, no cloud backup
 - 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
 - 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Primary Care, Chronic Health AI, and more)
-- 📄 **Smart Document Processing** - Automatic OCR and extraction of health data from documents using Docling
+- 📄 **Smart Document Processing** - Automatic OCR and health-data extraction through the native PDFKit/Vision pipeline (`NativeDocumentExtractor` and `DocumentProcessor`)
 - 🏥 **Medical Document Management** - Support for 11 document types including imaging reports, lab reports, prescriptions, discharge summaries, and more
 - 🩺 **Comprehensive Health Data** - Personal info, blood tests, medical documents with structured extraction
 - 💬 **AI Chat with Context** - Intelligent conversations with your health data as context, including current date/time awareness
 - 📊 **Data Export** - Export your data in JSON or PDF formats
 - 🌙 **Accessibility** - Full support for Dark Mode, VoiceOver, and Dynamic Type
-- 🔄 **Offline Support** - Queue operations when offline, automatic retry when connection restored
+- 🔄 **Offline Status** - View local data while offline; network-dependent provider operations report failure clearly and support explicit retry
 - 📡 **Streaming Responses** - Real-time AI responses for better user experience
 - 🎯 **Context Selection** - Choose which health data and documents to include in AI conversations
 
@@ -78,7 +78,7 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 │  │   ├── On-Device MLX Client                               │
 │  │   ├── AWS Bedrock Client                                 │
 │  │   └── OpenAI-Compatible Client                           │
-│  ├── Docling Client (Document Processing)                   │
+│  ├── Native Document Extractor (PDFKit + Vision)             │
 │  └── Medical Document Extractor (AI-Enhanced)             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -87,12 +87,11 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 
 ### Prerequisites
 
-- Xcode 15.0 or later
-- iOS 17.0+ deployment target
+- Xcode 26.0 or later
+- iOS 26.0+ deployment target
 - Swift 5.9+
 - `llama.xcframework` for on-device inference (see [Install the llama framework](#install-the-llama-framework) — required to build, not included in the repo)
 - Optional AWS Bedrock or OpenAI-compatible endpoint for remote AI functionality
-- Optional Docling server for document processing
 
 ### Installation
 
@@ -126,7 +125,7 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 
 5. **Configure External Services:**
    - Download an on-device model, or configure AWS Bedrock / an OpenAI-compatible endpoint for AI chat functionality
-   - Set up your Docling server for document processing if you want remote document conversion
+   - Import documents through the native on-device extraction path; configure a provider endpoint only when remote AI processing is needed
    - Configure providers and optional server endpoints in the app settings
 
 ### Building and Running
@@ -190,18 +189,17 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 
 ### Document Processing Setup
 
-**Docling Server** - Required for document processing
-- Set up Docling server for document parsing and OCR
-- Configure hostname and port in app settings
-- Processes PDFs, images, and other document formats
-- Extracts structured data and text from medical documents
+**Native document extraction** - No Docling server is required
+- `NativeDocumentExtractor` uses PDFKit for digital PDFs and Vision OCR for scans, photos, and image-based documents
+- `DocumentProcessor` orchestrates the active extraction and processing path
+- `MedicalDocumentExtractor` maps extracted text into structured medical data
 
 ### Privacy Settings
 
 - **Local Storage** - All health data encrypted and stored locally
 - **No Cloud Backup** - Health data never leaves the device (iCloud/CloudKit backup removed for HIPAA compliance)
 - **Data Export** - Export your data anytime in JSON or PDF format
-- **No Cloud Dependencies** - Core functionality works completely offline
+- **On-Device Extraction** - Native document text extraction does not require a remote server; configured remote AI providers do require network access
 
 ## 👨‍⚕️ AI Doctor Personas
 
@@ -244,7 +242,7 @@ HealthApp/
 │   │   ├── MLXOnDeviceClient.swift
 │   │   ├── BedrockClient.swift
 │   │   ├── OpenAICompatibleClient.swift
-│   │   ├── DoclingClient.swift
+│   │   ├── NativeDocumentExtractor.swift
 │   │   └── MedicalDocumentExtractor.swift
 │   ├── Database/            # SQLite database management
 │   │   ├── DatabaseManager.swift
@@ -253,7 +251,7 @@ HealthApp/
 │   │   └── DatabaseManager+Chat.swift
 │   ├── Networking/          # Network management
 │   │   ├── NetworkManager.swift
-│   │   └── PendingOperationsManager.swift
+│   │   └── NetworkError.swift
 │   └── Utils/               # Utility functions and extensions
 ├── HealthAppTests/          # Unit tests
 ├── HealthAppUITests/        # UI tests
@@ -269,26 +267,26 @@ HealthApp/
 - **Combine** - Reactive programming framework for state management
 - **MarkdownUI** - Rich text rendering for AI responses
 - **AWS SDK** - AWS Bedrock integration for cloud AI
-- **Network Framework** - Network monitoring and offline support
+- **Network Framework** - Network connectivity monitoring and status
 
 ### Testing
 
 ```bash
 # Run unit tests
-xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 
 # Run UI tests
-xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
-Note: Default simulator target is `iPhone 16 Pro`. If not available, use another device like `iPhone 15`.
+Note: The canonical simulator target is `iPhone 17 Pro`. If it is not installed locally, use another installed simulator temporarily.
 
 ## 📖 Documentation
 
 Detailed documentation is available in the repository:
 
 - **[Medical Documents Implementation](MEDICAL_DOCUMENTS_IMPLEMENTATION.md)** - Comprehensive guide to medical document processing
-- **[Docling Formats Explanation](DOCLING_FORMATS_EXPLANATION.md)** - Understanding Docling output formats
+- **[Historical Docling Formats Note](DOCLING_FORMATS_EXPLANATION.md)** - Legacy format reference; not the current document-processing path
 - **[Agent Guidelines](AGENTS.md)** - Development guidelines and coding standards
 - **[Requirements](.kiro/specs/ios-health-app/requirements.md)** - Detailed user stories and acceptance criteria
 - **[Design](.kiro/specs/ios-health-app/design.md)** - Architecture and technical design
@@ -334,7 +332,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Phase 2.6** - AI doctor personas and specialized prompts
 - [x] **Phase 2.7** - Medical document OCR and structured extraction
 - [x] **Phase 2.8** - Context selection and priority management
-- [x] **Phase 2.9** - Offline functionality and network handling
+- [x] **Phase 2.9** - Offline status and network handling
 - [x] **Phase 2.10** - Streaming AI responses
 - [x] **Phase 2.11** - Current date/time injection for temporal awareness
 
