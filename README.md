@@ -90,7 +90,6 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 - Xcode 26.0 or later
 - iOS 26.0+ deployment target
 - Swift 5.9+
-- `llama.xcframework` for on-device inference (see [Install the llama framework](#install-the-llama-framework) — required to build, not included in the repo)
 - Optional AWS Bedrock or OpenAI-compatible endpoint for remote AI functionality
 
 ### Installation
@@ -110,20 +109,7 @@ BisonHealth AI follows a modular, privacy-focused architecture:
    - Dependencies are managed via Swift Package Manager
    - Xcode will automatically resolve packages on first build
 
-4. **Install the llama framework:**
-
-   The app uses `llama.cpp` for on-device inference via a prebuilt `llama.xcframework`. This binary is **not** checked into the repository (it is large and platform-specific) and is git-ignored, so you must install it manually before building.
-
-   - Place the framework at `Frameworks/llama.xcframework`, relative to the repository root:
-     ```
-     BisonHealth-AI/
-     └── Frameworks/
-         └── llama.xcframework/
-     ```
-   - You can obtain it by building [llama.cpp](https://github.com/ggml-org/llama.cpp) as an Apple multi-platform `xcframework` (its build scripts produce one), or by copying a prebuilt `llama.xcframework` provided by the team.
-   - The Xcode project links against this path, so a missing or misplaced framework will cause build/link failures.
-
-5. **Configure External Services:**
+4. **Configure External Services:**
    - Download an on-device model, or configure AWS Bedrock / an OpenAI-compatible endpoint for AI chat functionality
    - Import documents through the native on-device extraction path; configure a provider endpoint only when remote AI processing is needed
    - Configure providers and optional server endpoints in the app settings
