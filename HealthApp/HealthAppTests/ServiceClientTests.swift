@@ -150,6 +150,54 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey), legacyData)
     }
 
+    func testLegacyConflictIsOnlyResolvedByAnExplicitChoice() throws {
+        // Two different credential sets exist and only the user knows which is wanted,
+        // so nothing short of a deliberate action may discard either one.
+        let keychainCredentials = makeCredentials()
+        let conflicting = AWSCredentials(
+            accessKeyId: "different-synthetic-access-key",
+            secretAccessKey: "different-synthetic-secret-key",
+            region: "us-west-2"
+        )
+        let legacyData = try JSONEncoder().encode(conflicting)
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = keychainCredentials
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(legacyData, forKey: AWSCredentialsManager.legacyCredentialsKey)
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertEqual(manager.lastError, .legacyCredentialConflict)
+
+        // Staging (an unfinished edit) must not resolve it.
+        manager.stageCredentials(keychainCredentials)
+        XCTAssertEqual(manager.lastError, .legacyCredentialConflict)
+        XCTAssertEqual(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey), legacyData)
+
+        // The explicit choice does.
+        if case .failure(let error) = manager.resolveLegacyConflictKeepingCurrent() {
+            XCTFail("Resolving the conflict should succeed: \(error.localizedDescription)")
+        }
+        XCTAssertNil(manager.lastError)
+        XCTAssertEqual(manager.credentials, keychainCredentials)
+        XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
+    }
+
+    func testResolvingConflictIsANoOpWhenNoConflictExists() {
+        let storage = MockAWSCredentialsStorage()
+        storage.storedCredentials = makeCredentials()
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertNil(manager.lastError)
+
+        if case .failure = manager.resolveLegacyConflictKeepingCurrent() {
+            XCTFail("Resolving without a conflict should be a no-op")
+        }
+        XCTAssertNil(manager.lastError)
+    }
+
     func testResavingUnchangedCredentialsResolvesALegacyConflict() throws {
         // The conflict warning tells the user to re-enter and save. The form is
         // prefilled from the Keychain, so that save carries unchanged values and must

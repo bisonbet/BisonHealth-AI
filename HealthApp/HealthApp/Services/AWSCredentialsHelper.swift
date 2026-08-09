@@ -187,7 +187,7 @@ enum AWSCredentialsError: LocalizedError, Equatable {
         case .validationFailed:
             return "Please check the AWS credential fields."
         case .legacyCredentialConflict:
-            return "Re-enter and save the intended AWS credentials to remove the legacy copy."
+            return "Keep the credentials shown above, or enter the ones you want and save."
         default:
             return "Check app permissions and try again."
         }

@@ -111,11 +111,11 @@ struct AWSBedrockSettingsView: View {
             return
         }
 
-        // A legacy conflict is cleared by re-saving, which is what the recovery
-        // suggestion asks the user to do. The form is prefilled with the Keychain
-        // values, so that save has to go through even when nothing was edited.
-        let resolvesLegacyConflict = credentialsManager.lastError == .legacyCredentialConflict
-        guard edited != credentialsManager.credentials || resolvesLegacyConflict else { return }
+        // Only an actual edit is persisted. A legacy conflict is resolved by the
+        // explicit button below, never by navigating away: the manager kept the
+        // conflicting copy for recovery, so merely opening this screen must not decide
+        // which credential survives.
+        guard edited != credentialsManager.credentials else { return }
 
         credentialsManager.updateCredentials(edited)
     }
@@ -243,6 +243,16 @@ struct AWSBedrockSettingsView: View {
                     .foregroundColor(.secondary)
             }
             .padding(.vertical, 4)
+
+            if credentialsManager.lastError == .legacyCredentialConflict {
+                // Resolving the conflict discards one of two stored credential copies,
+                // so it takes a deliberate tap rather than happening on navigation.
+                Button("Keep the credentials shown above") {
+                    credentialsManager.resolveLegacyConflictKeepingCurrent()
+                }
+                .font(.caption)
+                .accessibilityHint("Removes the older, conflicting copy of your AWS credentials")
+            }
 
             if let storageError = credentialsManager.lastError {
                 Label(storageError.localizedDescription, systemImage: "exclamationmark.triangle")

@@ -115,6 +115,16 @@ final class AWSCredentialsManager: ObservableObject {
         }
     }
 
+    /// Confirms the loaded Keychain credentials as the ones to keep and drops the
+    /// conflicting legacy copy. Requires an explicit user choice, because the conflict
+    /// means two different credential sets exist and only the user knows which is
+    /// wanted.
+    @discardableResult
+    func resolveLegacyConflictKeepingCurrent() -> Result<Void, AWSCredentialsError> {
+        guard lastError == .legacyCredentialConflict else { return .success(()) }
+        return updateCredentials(credentials)
+    }
+
     @discardableResult
     func deleteCredentials() -> Result<Void, AWSCredentialsError> {
         do {

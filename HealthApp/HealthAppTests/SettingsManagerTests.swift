@@ -266,6 +266,27 @@ final class SettingsManagerTests: XCTestCase {
         XCTAssertEqual(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"), "synthetic-legacy-api-key")
     }
 
+    func testKeychainStoreUpdatesInPlaceWithoutDeletingFirst() throws {
+        // The write must not be delete-then-add: an add that failed after the delete
+        // succeeded would destroy the previous value. Repeated writes should therefore
+        // update one item rather than recreate it.
+        let keychain = Keychain()
+        let account = "SettingsManagerTests.rotation.\(UUID().uuidString)"
+        addTeardownBlock { try? keychain.delete(for: account) }
+
+        try keychain.store(string: "synthetic-first-value", for: account)
+        XCTAssertEqual(try keychain.retrieveString(for: account), "synthetic-first-value")
+
+        try keychain.store(string: "synthetic-second-value", for: account)
+        XCTAssertEqual(try keychain.retrieveString(for: account), "synthetic-second-value")
+
+        try keychain.delete(for: account)
+        XCTAssertNil(try keychain.retrieveString(for: account))
+
+        // Deleting an item that is not there is not an error.
+        XCTAssertNoThrow(try keychain.delete(for: account))
+    }
+
     func testFailedKeychainDeletionIsNotReportedAsACleanedKey() {
         let name = "SettingsManagerTests.\(UUID().uuidString)"
         guard let isolatedDefaults = UserDefaults(suiteName: name) else {
