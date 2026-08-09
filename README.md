@@ -26,10 +26,12 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 26+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally on-device, no cloud backup
 - 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
-- 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Primary Care, Chronic Health AI, and more)
+- 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Primary Care, Orthopedic Specialist, Clinical Nutritionist, Exercise Specialist, Internal Medicine, Dentist, Orthodontist, Physical Therapist)
 - 📄 **Smart Document Processing** - Automatic OCR and health-data extraction through the native PDFKit/Vision pipeline (`NativeDocumentExtractor` and `DocumentProcessor`)
 - 🏥 **Medical Document Management** - Support for 11 document types including imaging reports, lab reports, prescriptions, discharge summaries, and more
 - 🩺 **Comprehensive Health Data** - Personal info, blood tests, medical documents with structured extraction
+- ⌚️ **Apple Health Sync** - Import vitals, sleep, and characteristics from HealthKit (`HealthKitManager`)
+- 🗓️ **Appointment Prep** - AI-generated prep notes for upcoming doctor visits, pulling relevant health data and medications (`AppointmentPrepManager`)
 - 💬 **AI Chat with Context** - Intelligent conversations with your health data as context, including current date/time awareness
 - 📊 **Data Export** - Export your data in JSON or PDF formats
 - 🌙 **Accessibility** - Full support for Dark Mode, VoiceOver, and Dynamic Type
@@ -90,7 +92,6 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 - Xcode 26.0 or later
 - iOS 26.0+ deployment target
 - Swift 5.9+
-- `llama.xcframework` for on-device inference (see [Install the llama framework](#install-the-llama-framework) — required to build, not included in the repo)
 - Optional AWS Bedrock or OpenAI-compatible endpoint for remote AI functionality
 
 ### Installation
@@ -107,23 +108,10 @@ BisonHealth AI follows a modular, privacy-focused architecture:
    ```
 
 3. **Install Dependencies:**
-   - Dependencies are managed via Swift Package Manager
+   - Dependencies are managed via Swift Package Manager (including `mlx-swift-lm` for on-device inference)
    - Xcode will automatically resolve packages on first build
 
-4. **Install the llama framework:**
-
-   The app uses `llama.cpp` for on-device inference via a prebuilt `llama.xcframework`. This binary is **not** checked into the repository (it is large and platform-specific) and is git-ignored, so you must install it manually before building.
-
-   - Place the framework at `Frameworks/llama.xcframework`, relative to the repository root:
-     ```
-     BisonHealth-AI/
-     └── Frameworks/
-         └── llama.xcframework/
-     ```
-   - You can obtain it by building [llama.cpp](https://github.com/ggml-org/llama.cpp) as an Apple multi-platform `xcframework` (its build scripts produce one), or by copying a prebuilt `llama.xcframework` provided by the team.
-   - The Xcode project links against this path, so a missing or misplaced framework will cause build/link failures.
-
-5. **Configure External Services:**
+4. **Configure External Services:**
    - Download an on-device model, or configure AWS Bedrock / an OpenAI-compatible endpoint for AI chat functionality
    - Import documents through the native on-device extraction path; configure a provider endpoint only when remote AI processing is needed
    - Configure providers and optional server endpoints in the app settings
@@ -140,6 +128,8 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 ### Currently Implemented
 - **Personal Information** - Demographics, date of birth, medical history, medications, allergies, family history
 - **Blood Test Results** - Comprehensive lab results with reference ranges, abnormal value detection
+- **Apple Health Sync** - Import vitals (blood pressure, heart rate, temperature, oxygen saturation, respiratory rate, weight, height), sleep analysis, and characteristics (date of birth, biological sex, blood type) via `HealthKitManager`
+- **Appointment Prep** - AI-generated prep documents for upcoming doctor visits, drawing on relevant health data and medications
 - **Medical Documents** - Full support for 11 document categories:
   - Doctor's Notes
   - Imaging Reports (X-rays, MRIs, CT scans, ultrasounds)
@@ -163,7 +153,7 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 
 ### Planned Features
 - **Health Checkups** - Regular health assessments and vital signs
-- **Wearable Data Integration** - Apple Health, fitness trackers
+- **Wearable Data Integration** - Direct fitness tracker integration beyond Apple Health
 
 ## 🔧 Configuration
 
@@ -178,8 +168,8 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 
 2. **AWS Bedrock** - Cloud AI service
    - Configure AWS credentials (access key, secret key, region)
-   - Supports Claude Sonnet 4 and Llama 4 Maverick models
-   - Large context windows (200k tokens for Claude Sonnet 4)
+   - Supports Claude Sonnet 4.5, Llama 4 Maverick, and Amazon Nova Premier models
+   - Large context windows (200k tokens for Claude Sonnet 4.5)
    - Requires AWS account and Bedrock access
 
 3. **OpenAI-Compatible Servers** - For LiteLLM, LocalAI, vLLM, etc.
@@ -205,13 +195,14 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 
 BisonHealth AI includes multiple specialized AI doctor personas, each with unique expertise and communication styles:
 
-- **Root Cause Analysis & Long Term Health** - Systematic approach to identifying root causes with structured analysis
 - **Primary Care Physician** - General healthcare with clinical precision and professional communication
-- **Chronic Health AI** - Specialized in managing chronic conditions with comprehensive symptom tracking
 - **Orthopedic Specialist** - Focus on musculoskeletal conditions and joint issues
 - **Clinical Nutritionist** - Evidence-based nutrition advice and meal planning
 - **Exercise Specialist** - Exercise programs, rehabilitation, and injury prevention
 - **Internal Medicine** - Complex medical conditions and adult diseases
+- **Dentist** - General dental health and oral care guidance
+- **Orthodontist** - Orthodontic treatment and alignment questions
+- **Physical Therapist** - Rehabilitation, mobility, and injury recovery
 
 Each doctor persona has a customized system prompt that guides their responses and ensures they only use the health data explicitly provided in context. The AI is aware of the current date and time, allowing it to calculate patient age, assess document recency, and provide time-aware medical guidance.
 
@@ -226,28 +217,35 @@ HealthApp/
 │   │   ├── PersonalHealthInfo.swift
 │   │   ├── BloodTestResult.swift
 │   │   ├── MedicalDocument.swift
+│   │   ├── AppointmentPrep.swift
 │   │   ├── ChatModels.swift
 │   │   └── Doctor.swift
 │   ├── Views/               # SwiftUI views and components
 │   │   ├── ChatDetailView.swift
 │   │   ├── MedicalDocumentDetailView.swift
 │   │   ├── UnifiedContextSelectorView.swift
-│   │   └── [40+ view files]
+│   │   ├── AppointmentPrepView.swift
+│   │   └── [50+ view files]
 │   ├── Managers/            # MVVM view models/business logic
 │   │   ├── HealthDataManager.swift
 │   │   ├── DocumentManager.swift
 │   │   ├── AIChatManager.swift
+│   │   ├── AppointmentPrepManager.swift
+│   │   ├── HealthKitManager.swift
 │   │   └── SettingsManager.swift
 │   ├── Services/            # External service clients
-│   │   ├── MLXOnDeviceClient.swift
 │   │   ├── BedrockClient.swift
 │   │   ├── OpenAICompatibleClient.swift
 │   │   ├── NativeDocumentExtractor.swift
 │   │   └── MedicalDocumentExtractor.swift
+│   ├── MLXOnDeviceLLM/      # On-device MLX inference
+│   │   ├── MLXOnDeviceClient.swift
+│   │   └── MLXModelDownloadManager.swift
 │   ├── Database/            # SQLite database management
 │   │   ├── DatabaseManager.swift
 │   │   ├── DatabaseManager+HealthData.swift
 │   │   ├── DatabaseManager+MedicalDocuments.swift
+│   │   ├── DatabaseManager+AppointmentPrep.swift
 │   │   └── DatabaseManager+Chat.swift
 │   ├── Networking/          # Network management
 │   │   ├── NetworkManager.swift
@@ -263,10 +261,12 @@ HealthApp/
 - **SwiftUI** - Modern iOS UI framework with universal app support
 - **SQLite.swift** - Type-safe SQLite wrapper for local data storage
 - **CryptoKit** - Encryption for sensitive health data
-- **VisionKit** - Document scanning capabilities
+- **VisionKit / Vision / PDFKit** - Document scanning and OCR
+- **HealthKit** - Apple Health data sync
 - **Combine** - Reactive programming framework for state management
-- **MarkdownUI** - Rich text rendering for AI responses
-- **AWS SDK** - AWS Bedrock integration for cloud AI
+- **mlx-swift-lm** - On-device LLM inference (MLX)
+- **Textual** - Structured markdown rendering for AI chat responses
+- **AWS SDK for Swift** - AWS Bedrock integration for cloud AI
 - **Network Framework** - Network connectivity monitoring and status
 
 ### Testing
@@ -285,16 +285,16 @@ Note: The canonical simulator target is `iPhone 17 Pro`. If it is not installed 
 
 Detailed documentation is available in the repository:
 
-- **[Medical Documents Implementation](MEDICAL_DOCUMENTS_IMPLEMENTATION.md)** - Comprehensive guide to medical document processing
-- **[Historical Docling Formats Note](DOCLING_FORMATS_EXPLANATION.md)** - Legacy format reference; not the current document-processing path
 - **[Agent Guidelines](AGENTS.md)** - Development guidelines and coding standards
+- **[Codebase Agent Instructions](AGENT_CODEBASE_INSTRUCTIONS.md)** - Detailed codebase map for AI coding agents
+- **[Historical Docling Formats Note](DOCLING_FORMATS_EXPLANATION.md)** - Legacy format reference; not the current document-processing path
 - **[Requirements](.kiro/specs/ios-health-app/requirements.md)** - Detailed user stories and acceptance criteria
 - **[Design](.kiro/specs/ios-health-app/design.md)** - Architecture and technical design
 - **[Tasks](.kiro/specs/ios-health-app/tasks.md)** - Implementation roadmap and task breakdown
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our contributing guidelines for details on:
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on:
 
 - Code style and conventions
 - Testing requirements
@@ -321,7 +321,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Issues** - Report bugs or request features via GitHub Issues
 - **Discussions** - Join community discussions in GitHub Discussions
-- **Documentation** - Check the `/Docs/` directory for detailed guides
+- **Documentation** - See the [Documentation](#-documentation) section above
 
 ## 🗺️ Roadmap
 
@@ -335,9 +335,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Phase 2.9** - Offline status and network handling
 - [x] **Phase 2.10** - Streaming AI responses
 - [x] **Phase 2.11** - Current date/time injection for temporal awareness
+- [x] **Phase 2.12** - Apple Health (HealthKit) sync
+- [x] **Phase 2.13** - AI-generated appointment prep
 
 ### 🚧 In Progress / Planned
-- [ ] **Phase 3** - Wearable device integration and Apple Health sync
+- [ ] **Phase 3** - Direct wearable/fitness tracker integration beyond Apple Health
 - [ ] **Phase 4** - Advanced AI features and health insights
 - [ ] **Phase 5** - Multi-language support and accessibility enhancements
 
@@ -347,6 +349,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ for health data privacy and user empowerment**
 
-[Report Bug](https://github.com/bisonbet/BisonHealth-AI/issues) • [Request Feature](https://github.com/bisonbet/BisonHealth-AI/issues) • [Documentation](Docs/)
+[Report Bug](https://github.com/bisonbet/BisonHealth-AI/issues) • [Request Feature](https://github.com/bisonbet/BisonHealth-AI/issues) • [Documentation](#-documentation)
 
 </div>
