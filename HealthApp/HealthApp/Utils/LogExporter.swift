@@ -75,6 +75,9 @@ struct LogExporter {
 
     // MARK: - Log Gathering
 
+    /// `@MainActor` for the `UIDevice.current` reads below. The only caller,
+    /// `exportLogs(from:context:)`, is already main-actor isolated.
+    @MainActor
     private static func gatherLogs() -> String {
         var sections: [String] = []
 
@@ -212,7 +215,12 @@ enum LogExportContext {
     }
 }
 
-private final class MailComposeDelegate: NSObject, MFMailComposeViewControllerDelegate {
+/// `@preconcurrency` on the conformance: `MFMailComposeViewControllerDelegate` predates
+/// strict concurrency and is not annotated, but UIKit delivers this callback on the main
+/// thread, so the main-actor isolation this class needs (it dismisses a view controller)
+/// is sound.
+@MainActor
+private final class MailComposeDelegate: NSObject, @preconcurrency MFMailComposeViewControllerDelegate {
     static let shared = MailComposeDelegate()
 
     func mailComposeController(

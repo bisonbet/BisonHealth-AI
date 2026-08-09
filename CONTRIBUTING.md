@@ -35,7 +35,7 @@ Thank you for your interest in contributing to BisonHealth AI! This document pro
 
 - Xcode 26.0 or later
 - iOS 26.0+ deployment target
-- Swift 5.9+
+- Swift 6 language mode (strict concurrency checking is enabled project-wide)
 - Git
 
 ### Local Development

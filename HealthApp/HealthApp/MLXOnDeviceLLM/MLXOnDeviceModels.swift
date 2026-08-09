@@ -10,7 +10,7 @@ import Foundation
 // MARK: - Model Type
 
 /// Whether a model is a text-only LLM or a Vision-Language Model
-public enum MLXModelType: String, Codable, CaseIterable {
+public enum MLXModelType: String, Codable, CaseIterable, Sendable {
     case llm
     case vlm
 
@@ -32,7 +32,7 @@ public enum MLXModelType: String, Codable, CaseIterable {
 // MARK: - Default Model Settings
 
 /// Default sampling parameters for a model
-public struct MLXModelDefaultSettings: Equatable, Codable {
+public struct MLXModelDefaultSettings: Equatable, Codable, Sendable {
     public let temperature: Float
     public let topP: Float
     public let maxTokens: Int
@@ -54,7 +54,7 @@ public struct MLXModelDefaultSettings: Equatable, Codable {
 // MARK: - Model Info
 
 /// Represents an MLX on-device model available for download
-public struct MLXModelInfo: Identifiable, Equatable, Codable {
+public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let displayName: String
     public let description: String

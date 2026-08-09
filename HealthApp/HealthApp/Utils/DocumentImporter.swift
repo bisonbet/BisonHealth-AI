@@ -423,17 +423,20 @@ class DocumentImporter: NSObject, ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             if result.itemProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
+                    // Downcast here rather than inside the Task: `NSItemProviderReading` is not
+                    // Sendable, so the existential cannot cross into the main actor, but `UIImage` can.
+                    let image = object as? UIImage
                     Task { @MainActor in
                         if let error = error {
                             continuation.resume(throwing: error)
                             return
                         }
-                        
-                        guard let image = object as? UIImage else {
+
+                        guard let image else {
                             continuation.resume(throwing: DocumentImportError.imageProcessingFailed)
                             return
                         }
-                        
+
                         do {
                             let document = try await self?.importImage(image)
                             if let document = document {

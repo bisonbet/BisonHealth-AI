@@ -19,7 +19,12 @@ struct DocumentCameraView: UIViewControllerRepresentable {
         Coordinator(self)
     }
     
-    class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+    /// `@preconcurrency` on the conformance: `VNDocumentCameraViewControllerDelegate`
+    /// predates strict concurrency and is unannotated, but VisionKit delivers these
+    /// callbacks on the main thread, which is where the main-actor-isolated `parent`
+    /// (a `View`) must be touched.
+    @MainActor
+    class Coordinator: NSObject, @preconcurrency VNDocumentCameraViewControllerDelegate {
         let parent: DocumentCameraView
         
         init(_ parent: DocumentCameraView) {

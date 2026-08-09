@@ -41,6 +41,7 @@ struct AWSCredentials: Equatable, Codable {
 
 // MARK: - AWS Credentials Manager
 
+@MainActor
 final class AWSCredentialsManager: ObservableObject {
     static let legacyCredentialsKey = "AWSCredentials"
 

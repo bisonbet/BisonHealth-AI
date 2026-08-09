@@ -530,8 +530,19 @@ class MedicalDocumentExtractor {
         Identify the most relevant sections in the document (e.g., Chief Complaint, Findings, Impression, Medications, etc.).
         """
 
-        let response = try await aiClient.sendMessage(prompt, context: "")
-        return try parseAIResponse(response.content, fallbackText: fallbackText, fileName: fileName)
+        let responseContent = try await Self.requestCompletion(prompt, from: aiClient)
+        return try parseAIResponse(responseContent, fallbackText: fallbackText, fileName: fileName)
+    }
+
+    /// Bridges to the main-actor-isolated AI clients and returns only the response text.
+    /// `AIResponse` carries a `[String: Any]` metadata bag and so is not `Sendable`; keeping
+    /// it on the main actor lets the surrounding extraction and parsing stay off it.
+    @MainActor
+    private static func requestCompletion(
+        _ prompt: String,
+        from aiClient: any AIProviderInterface
+    ) async throws -> String {
+        try await aiClient.sendMessage(prompt, context: "").content
     }
 
     /// Split text into chunks on line boundaries.

@@ -87,7 +87,9 @@ struct AccessibilityLabelBuilder {
 
 // MARK: - Device Type Helper
 
-/// Helper for device-specific accessibility features
+/// Helper for device-specific accessibility features.
+/// `@MainActor` because every value derives from the main-actor-isolated device idiom.
+@MainActor
 struct DeviceAccessibilityHelper {
     static var isIPad: Bool {
         PlatformCapabilities.isIPadInterface || PlatformCapabilities.isIPadAppOnMac

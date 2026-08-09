@@ -403,7 +403,10 @@ struct EnhancedMessageBubbleView: View, Equatable {
     /// - Only re-renders if message content, status, or error state changes
     /// - Excludes timestamp and metadata to prevent re-renders on every state update
     /// - Critical for performance: prevents full view rebuild for each streamed character
-    static func == (lhs: EnhancedMessageBubbleView, rhs: EnhancedMessageBubbleView) -> Bool {
+    /// `nonisolated` because `Equatable` is not main-actor isolated while `View`
+    /// conformance isolates this type. Every property read below is a `Sendable`
+    /// stored property, which SE-0434 makes implicitly `nonisolated`.
+    nonisolated static func == (lhs: EnhancedMessageBubbleView, rhs: EnhancedMessageBubbleView) -> Bool {
         lhs.message.id == rhs.message.id &&
         lhs.message.content == rhs.message.content &&
         lhs.message.status == rhs.message.status &&

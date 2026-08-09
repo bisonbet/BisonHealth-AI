@@ -121,9 +121,7 @@ class AIChatManager: ObservableObject {
 
         // Keep legacy monitor for compatibility
         networkMonitor.onNetworkStatusChanged = { [weak self] isConnected in
-            Task { @MainActor in
-                self?.isOffline = !isConnected
-            }
+            self?.isOffline = !isConnected
         }
         networkMonitor.startMonitoring()
     }
@@ -1144,21 +1142,28 @@ class AIChatManager: ObservableObject {
 }
 
 // MARK: - Network Monitor
-class NetworkMonitor {
+/// Wraps `NWPathMonitor`. Path updates are delivered on a background queue, so the
+/// subscriber callback is hopped to the main actor here rather than at each call site.
+@MainActor
+final class NetworkMonitor {
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "NetworkMonitor")
-    
-    var onNetworkStatusChanged: ((Bool) -> Void)?
-    
+
+    var onNetworkStatusChanged: (@MainActor (Bool) -> Void)?
+
     func startMonitoring() {
         monitor.pathUpdateHandler = { [weak self] path in
             let isConnected = path.status == .satisfied
-            self?.onNetworkStatusChanged?(isConnected)
+            Task { @MainActor in
+                self?.onNetworkStatusChanged?(isConnected)
+            }
         }
         monitor.start(queue: queue)
     }
-    
-    func stopMonitoring() {
+
+    /// `nonisolated` so `deinit`, which is never actor-isolated, can still stop the
+    /// monitor. `NWPathMonitor.cancel()` is safe to call from any thread.
+    nonisolated func stopMonitoring() {
         monitor.cancel()
     }
 }

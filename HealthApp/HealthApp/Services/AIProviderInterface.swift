@@ -1,8 +1,12 @@
 import Foundation
 
 // MARK: - AI Provider Interface
+/// `Sendable` is required rather than merely implied: every conformer is a `@MainActor`
+/// class and so is already implicitly `Sendable`, but without the constraint the
+/// `any AIProviderInterface` existential is not, and cannot be handed to main-actor code
+/// from the nonisolated extraction pipeline.
 @MainActor
-protocol AIProviderInterface: ObservableObject {
+protocol AIProviderInterface: ObservableObject, Sendable {
     var isConnected: Bool { get }
     var connectionStatus: ProviderConnectionStatus { get }
     var lastError: Error? { get }

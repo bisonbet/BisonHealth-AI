@@ -554,6 +554,24 @@ class NativeDocumentExtractor {
 
     // MARK: - Photo Preprocessing
 
+    /// The corners and confidence of a detected document rectangle, in normalized
+    /// coordinates. A `Sendable` stand-in for `VNRectangleObservation`, which is not.
+    private struct DocumentQuad: Sendable {
+        let topLeft: CGPoint
+        let topRight: CGPoint
+        let bottomLeft: CGPoint
+        let bottomRight: CGPoint
+        let confidence: Float
+
+        init(_ observation: VNRectangleObservation) {
+            self.topLeft = observation.topLeft
+            self.topRight = observation.topRight
+            self.bottomLeft = observation.bottomLeft
+            self.bottomRight = observation.bottomRight
+            self.confidence = observation.confidence
+        }
+    }
+
     /// Preprocess a photographed document before OCR: detect the document quad,
     /// correct perspective, and boost readability with grayscale + contrast.
     /// Scanner captures (VisionKit) are already perspective-corrected; this
@@ -566,7 +584,7 @@ class NativeDocumentExtractor {
     /// Detect a document quad and apply perspective correction if found with
     /// good confidence. Returns nil when no reliable quad is detected.
     private func perspectiveCorrectedImage(_ cgImage: CGImage) async -> CGImage? {
-        let quad: VNRectangleObservation? = await withCheckedContinuation { continuation in
+        let quad: DocumentQuad? = await withCheckedContinuation { continuation in
             let request = VNDetectDocumentSegmentationRequest { request, error in
                 guard error == nil,
                       let observation = (request.results as? [VNRectangleObservation])?.first,
@@ -574,7 +592,9 @@ class NativeDocumentExtractor {
                     continuation.resume(returning: nil)
                     return
                 }
-                continuation.resume(returning: observation)
+                // Flattened here because `VNRectangleObservation` is not Sendable and so
+                // cannot be resumed across the continuation.
+                continuation.resume(returning: DocumentQuad(observation))
             }
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])

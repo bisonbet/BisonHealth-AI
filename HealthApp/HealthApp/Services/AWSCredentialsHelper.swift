@@ -15,7 +15,10 @@ final class AWSCredentialsHelper: AWSCredentialsStorage {
     // Deliberately distinct from the database-encryption Keychain service/account.
     static let keychainService = "com.bisonhealth.aws.credentials"
     static let keychainAccount = "aws-bedrock"
-    private static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    // Computed rather than stored: the Security framework's accessibility constants are
+    // immutable CFStrings, but CFString is not Sendable, so a stored static would be
+    // rejected as global mutable state.
+    private static var keychainAccessibility: CFString { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly }
 
     // MARK: - Credential Management
 

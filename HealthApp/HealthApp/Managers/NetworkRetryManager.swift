@@ -41,8 +41,10 @@ enum RetryResult<T> {
 }
 
 // MARK: - Network Retry Manager
-/// Manages retry logic with exponential backoff and jitter for network operations
-class NetworkRetryManager {
+/// Manages retry logic with exponential backoff and jitter for network operations.
+/// Stateless — every operation works purely from its arguments, so the shared
+/// instance is safe to use from any isolation domain.
+final class NetworkRetryManager: Sendable {
     static let shared = NetworkRetryManager()
 
     private init() {}
@@ -50,11 +52,11 @@ class NetworkRetryManager {
     // MARK: - Retry with Async/Await
 
     /// Retry an async operation with exponential backoff
-    func retry<T>(
-        operation: @escaping () async throws -> T,
+    func retry<T: Sendable>(
+        operation: @escaping @Sendable () async throws -> T,
         configuration: RetryConfiguration = .default,
-        shouldRetry: ((Error) -> Bool)? = nil,
-        onRetry: ((Int, Error, TimeInterval) -> Void)? = nil
+        shouldRetry: (@Sendable (Error) -> Bool)? = nil,
+        onRetry: (@Sendable (Int, Error, TimeInterval) -> Void)? = nil
     ) async -> RetryResult<T> {
         var lastError: Error?
 
@@ -103,11 +105,11 @@ class NetworkRetryManager {
     }
 
     /// Retry an async throwing operation with exponential backoff
-    func retryThrowing<T>(
-        operation: @escaping () async throws -> T,
+    func retryThrowing<T: Sendable>(
+        operation: @escaping @Sendable () async throws -> T,
         configuration: RetryConfiguration = .default,
-        shouldRetry: ((Error) -> Bool)? = nil,
-        onRetry: ((Int, Error, TimeInterval) -> Void)? = nil
+        shouldRetry: (@Sendable (Error) -> Bool)? = nil,
+        onRetry: (@Sendable (Int, Error, TimeInterval) -> Void)? = nil
     ) async throws -> T {
         let result = await retry(
             operation: operation,
@@ -178,9 +180,9 @@ class NetworkRetryManager {
 // MARK: - Convenience Extensions
 extension NetworkRetryManager {
     /// Quick retry for network operations
-    func retryNetworkOperation<T>(
-        _ operation: @escaping () async throws -> T,
-        onRetry: ((Int, Error, TimeInterval) -> Void)? = nil
+    func retryNetworkOperation<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T,
+        onRetry: (@Sendable (Int, Error, TimeInterval) -> Void)? = nil
     ) async -> RetryResult<T> {
         await retry(
             operation: operation,
@@ -191,9 +193,9 @@ extension NetworkRetryManager {
     }
 
     /// Quick retry for critical operations (more attempts)
-    func retryCriticalOperation<T>(
-        _ operation: @escaping () async throws -> T,
-        onRetry: ((Int, Error, TimeInterval) -> Void)? = nil
+    func retryCriticalOperation<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T,
+        onRetry: (@Sendable (Int, Error, TimeInterval) -> Void)? = nil
     ) async -> RetryResult<T> {
         await retry(
             operation: operation,

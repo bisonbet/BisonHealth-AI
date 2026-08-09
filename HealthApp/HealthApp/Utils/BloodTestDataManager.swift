@@ -1,6 +1,7 @@
 import Foundation
 
 // MARK: - Blood Test Data Manager
+@MainActor
 class BloodTestDataManager: ObservableObject {
 
     // MARK: - Singleton

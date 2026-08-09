@@ -55,7 +55,17 @@ enum LogCategory: String, CaseIterable {
 /// Always-on logging via Apple's Unified Logging System (OSLog).
 /// Zero overhead in production — the OS handles persistence, compression, and pruning.
 /// Also provides file-based persistence, a crash-surviving error buffer, and crash detection.
-class AppLog: NSObject {
+///
+/// `@unchecked Sendable` rather than actor-isolated: `log()` is called synchronously from
+/// every isolation domain in the app, so isolating it would force every call site async.
+/// The two mutable properties are safe under the following invariants — preserve them:
+/// - `logFileURL` is assigned only by `setupLogFile()`, which runs during `init` before the
+///   instance escapes. Its only other caller, `clearAllLogs()`, currently has no callers;
+///   invoking it from off the main actor would break this invariant.
+/// - `previousSessionCrashed` is written once by `markLaunch()` at startup and read only on
+///   the main actor.
+/// Everything else is `let`, and file writes are already serialized through `logQueue`.
+final class AppLog: NSObject, @unchecked Sendable {
     static let shared = AppLog(receivesMetricKitDiagnostics: true)
 
     // MARK: - Properties

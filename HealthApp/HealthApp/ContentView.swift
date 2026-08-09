@@ -135,6 +135,9 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// `@MainActor` because it constructs `View`s whose initializers are main-actor
+    /// isolated; this enum is not itself a `View`, so it gets no isolation by inference.
+    @MainActor
     @ViewBuilder
     var destination: some View {
         switch self {

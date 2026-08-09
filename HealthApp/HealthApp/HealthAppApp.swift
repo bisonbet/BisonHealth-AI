@@ -58,6 +58,9 @@ struct HealthAppApp: App {
 // MARK: - App Chrome
 
 private enum AppChrome {
+    /// `@MainActor` because every `UIAppearance` proxy it touches is main-actor isolated.
+    /// The only caller is `App.init()`, which is already on the main actor.
+    @MainActor
     static func configure() {
         #if os(iOS)
         let navigationAppearance = UINavigationBarAppearance()
