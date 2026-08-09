@@ -299,13 +299,10 @@ class SettingsManager: ObservableObject {
             // The field is empty because the stored key could not be read, not because
             // the user cleared it. saveSettings() also runs for unrelated settings, so
             // deleting here would destroy a key the user never saw and never touched.
-            // The warning raised at load time still stands.
-        } else if clearAPIKeyCopies() {
-            openAICompatibleKeyStorageError = nil
+            // The warning raised at load time still stands, and resetServerSettings()
+            // clears the key explicitly when removal really is what was asked for.
         } else {
-            openAICompatibleKeyStorageError = "The API key could not be removed from secure storage "
-                + "and may still be present the next time the app starts."
-            AppLog.shared.settings("Could not remove the API key from secure storage", level: .error)
+            clearAPIKeyOnUserRequest()
         }
         userDefaults.set(openAICompatibleContextSize, forKey: "openAICompatibleContextSize")
 
@@ -352,6 +349,24 @@ class SettingsManager: ObservableObject {
             return
         }
         userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+    }
+
+    /// Removes the key because the user asked for it directly, rather than because the
+    /// field happens to be empty.
+    ///
+    /// This overrides the unreadable-storage safeguard in `saveSettings()`. That
+    /// safeguard exists to stop an unrelated save from deleting a key nobody chose to
+    /// remove; an explicit reset is that choice, and leaving an unreadable item behind
+    /// would let it reappear after a later successful read.
+    private func clearAPIKeyOnUserRequest() {
+        if clearAPIKeyCopies() {
+            apiKeyStorageIsUnreadable = false
+            openAICompatibleKeyStorageError = nil
+        } else {
+            openAICompatibleKeyStorageError = "The API key could not be removed from secure storage "
+                + "and may still be present the next time the app starts."
+            AppLog.shared.settings("Could not remove the API key from secure storage", level: .error)
+        }
     }
 
     /// Removes the Keychain copy *and* any legacy plaintext copy, so clearing the key
@@ -702,7 +717,9 @@ class SettingsManager: ObservableObject {
         openAICompatibleStatus = .unknown
         modelPreferences.openAICompatibleModel = ""
         invalidateOpenAICompatibleClient()
-        // saveSettings() removes both key copies, and reports it if that fails.
+        // Deliberate before saveSettings(): a reset must delete the key even when the
+        // stored item could not be read, which the empty-field path declines to do.
+        clearAPIKeyOnUserRequest()
         saveSettings()
     }
     

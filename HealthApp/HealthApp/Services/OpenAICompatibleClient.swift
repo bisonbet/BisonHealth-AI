@@ -237,18 +237,30 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Safe Diagnostics
 
-    private func safeURLDescription(_ url: URL) -> String {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+    /// Scheme, host, and port only — the endpoint's identity and nothing else.
+    ///
+    /// These strings reach durable log files, and every other part of a provider URL
+    /// can carry something that must not be persisted: userinfo and path segments are a
+    /// common place for proxy tokens (`https://host/proxy/<token>/v1`), and a
+    /// user-configured path can contain PHI. The generic redactor cannot scrub an
+    /// arbitrary path, so the path is dropped rather than filtered. Callers already
+    /// name the operation, so nothing useful is lost.
+    static func safeURLDescription(_ url: URL) -> String {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme,
+              let host = components.host,
+              !host.isEmpty else {
             return "configured provider URL"
         }
 
-        // URL userinfo, query items, and fragments can contain credentials or
-        // request data. Keep only the endpoint identity in durable diagnostics.
-        components.user = nil
-        components.password = nil
-        components.query = nil
-        components.fragment = nil
-        return components.string ?? "configured provider URL"
+        // An IPv6 literal may arrive with or without its brackets depending on how the
+        // URL was built, so normalize to exactly one pair.
+        let bareHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let formattedHost = bareHost.contains(":") ? "[\(bareHost)]" : bareHost
+        guard let port = components.port else {
+            return "\(scheme)://\(formattedHost)"
+        }
+        return "\(scheme)://\(formattedHost):\(port)"
     }
 
     private func providerRequestFailure(
@@ -364,7 +376,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Debug: Log request with sanitized headers and truncated body
-        AppLog.shared.ai("Sending request to \(safeURLDescription(messagesURL))")
+        AppLog.shared.ai("Sending request to \(Self.safeURLDescription(messagesURL))")
         AppLog.shared.ai("Model: \(currentModel ?? defaultModel ?? "(none)")", level: .debug)
 
         // Log request metadata only (no body content — it contains health data)
@@ -519,7 +531,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             return (data, httpResponse)
         }
 
-        AppLog.shared.ai("Vision extraction request: \(pages.count) pages to \(safeURLDescription(messagesURL))")
+        AppLog.shared.ai("Vision extraction request: \(pages.count) pages to \(Self.safeURLDescription(messagesURL))")
         var (data, httpResponse) = try await send(makeBody(includeResponseFormat: true))
 
         if (400...499).contains(httpResponse.statusCode) {
@@ -633,7 +645,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        AppLog.shared.ai("Starting streaming request to \(safeURLDescription(messagesURL))")
+        AppLog.shared.ai("Starting streaming request to \(Self.safeURLDescription(messagesURL))")
 
         let startTime = Date()
         var accumulatedContent = ""

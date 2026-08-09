@@ -533,6 +533,32 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertTrue(retainedContent.contains("HTTP 500"))
     }
 
+    func testProviderURLDiagnosticsKeepOnlyTheEndpointIdentity() {
+        // A configured base URL can carry a proxy token or PHI in its path, and these
+        // strings are written to log files where the generic redactor cannot scrub an
+        // arbitrary path.
+        let cases: [(String, String)] = [
+            ("https://host.example.test/patient/MRN123/v1/chat/completions", "https://host.example.test"),
+            ("https://host.example.test:8443/proxy/secret-token/v1", "https://host.example.test:8443"),
+            ("http://192.168.1.10:11434/v1/models", "http://192.168.1.10:11434"),
+            ("https://user:pass@host.example.test/v1?key=synthetic", "https://host.example.test"),
+            ("http://[fd00::1]:8000/v1/chat", "http://[fd00::1]:8000")
+        ]
+
+        for (raw, expected) in cases {
+            guard let url = URL(string: raw) else {
+                XCTFail("Unable to build \(raw)")
+                continue
+            }
+            let described = OpenAICompatibleClient.safeURLDescription(url)
+            XCTAssertEqual(described, expected)
+            XCTAssertFalse(described.contains("MRN123"))
+            XCTAssertFalse(described.contains("secret-token"))
+            XCTAssertFalse(described.contains("pass"))
+            XCTAssertFalse(described.contains("synthetic"))
+        }
+    }
+
     func testRedactionCoversJSONQuotedProviderValues() {
         // Regression: the closing delimiter in this rule was written as the literal
         // two-character sequence `"'` instead of a character class, so quoted JSON

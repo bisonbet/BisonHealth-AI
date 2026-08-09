@@ -352,6 +352,33 @@ final class SettingsManagerTests: XCTestCase {
         XCTAssertNil(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"))
     }
 
+    func testResetRemovesAnUnreadableAPIKey() {
+        let name = "SettingsManagerTests.\(UUID().uuidString)"
+        guard let isolatedDefaults = UserDefaults(suiteName: name) else {
+            XCTFail("Unable to create an isolated UserDefaults suite")
+            return
+        }
+        addTeardownBlock { isolatedDefaults.removePersistentDomain(forName: name) }
+        isolatedDefaults.set("synthetic-stale-legacy-key", forKey: "openAICompatibleAPIKey")
+
+        let keychain = InMemoryKeychain()
+        try? keychain.store(string: "synthetic-current-key", for: "settings.openAICompatible.apiKey.v1")
+        keychain.retrieveError = KeychainError.retrieveFailed(errSecIO)
+
+        let manager = SettingsManager(userDefaults: isolatedDefaults, keychain: keychain)
+        XCTAssertNotNil(manager.openAICompatibleKeyStorageError)
+
+        // An explicit reset is a deliberate request to remove the key, so it must go
+        // through even though the stored item could not be read. Otherwise the key
+        // reappears the next time a read succeeds.
+        manager.resetServerSettings()
+
+        XCTAssertNil(keychain.storedValue(for: "settings.openAICompatible.apiKey.v1"))
+        XCTAssertNil(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"))
+        XCTAssertNil(manager.openAICompatibleKeyStorageError)
+        XCTAssertTrue(manager.openAICompatibleAPIKey.isEmpty)
+    }
+
     func testKeychainStoreUpdatesInPlaceWithoutDeletingFirst() throws {
         // The write must not be delete-then-add: an add that failed after the delete
         // succeeded would destroy the previous value. Repeated writes should therefore
