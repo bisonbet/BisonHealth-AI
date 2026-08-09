@@ -545,11 +545,28 @@ class SettingsManager: ObservableObject {
         await mlxOnDeviceClient.unloadModel()
     }
 
+    /// Release the extraction model once a document run is done. Nothing else
+    /// unloads it, and leaving ~2.4GB resident after extraction is what pushes
+    /// the app into a memory kill on the next import.
+    func releaseOnDeviceExtractionModel() async {
+        guard let mlxOnDeviceExtractionClient else { return }
+        AppLog.shared.settings("Releasing on-device extraction model after document run")
+        await mlxOnDeviceExtractionClient.unloadModel()
+    }
+
     // Force recreation of clients when configuration changes
     func invalidateClients() {
+        // Dropping the reference alone leaves the weights resident until the
+        // container happens to deallocate; unload explicitly.
+        let discarded = [mlxOnDeviceClient, mlxOnDeviceExtractionClient].compactMap { $0 }
         openAICompatibleClient = nil
         mlxOnDeviceClient = nil
         mlxOnDeviceExtractionClient = nil
+        Task {
+            for client in discarded {
+                await client.unloadModel()
+            }
+        }
     }
 
     func invalidateOpenAICompatibleClient() {
@@ -557,7 +574,9 @@ class SettingsManager: ObservableObject {
     }
 
     func invalidateOnDeviceExtractionClient() {
+        let discarded = mlxOnDeviceExtractionClient
         mlxOnDeviceExtractionClient = nil
+        Task { await discarded?.unloadModel() }
     }
 
     @discardableResult
@@ -625,13 +644,23 @@ class SettingsManager: ObservableObject {
     // MARK: - App Lifecycle
 
     func suspendOnDeviceLLMForBackground() async {
-        guard let mlxOnDeviceClient = mlxOnDeviceClient else { return }
-        await mlxOnDeviceClient.suspendForBackground()
+        // The extraction client holds its own model — usually the largest one
+        // loaded — so it has to be suspended too, not just the chat client.
+        if let mlxOnDeviceClient {
+            await mlxOnDeviceClient.suspendForBackground()
+        }
+        if let mlxOnDeviceExtractionClient {
+            await mlxOnDeviceExtractionClient.suspendForBackground()
+        }
     }
 
     func resumeOnDeviceLLMAfterForeground() async {
-        guard let mlxOnDeviceClient = mlxOnDeviceClient else { return }
-        await mlxOnDeviceClient.resumeAfterForeground()
+        if let mlxOnDeviceClient {
+            await mlxOnDeviceClient.resumeAfterForeground()
+        }
+        if let mlxOnDeviceExtractionClient {
+            await mlxOnDeviceExtractionClient.resumeAfterForeground()
+        }
     }
 
     // MARK: - Validation

@@ -131,39 +131,58 @@ class DocumentProcessor: ObservableObject {
     // MARK: - Processing Control
     func startProcessing() async {
         guard !isProcessing else { return }
-        
+
         isProcessing = true
         processingProgress = 0.0
-        
-        while !processingQueue.isEmpty && processingTasks.count < maxConcurrentProcessing {
-            guard let queueItem = processingQueue.first else { break }
-            
-            // Remove from queue
-            processingQueue.removeFirst()
-            
-            // Start processing task
-            let task = Task {
-                await processQueueItem(queueItem)
+
+        // Drain until the queue is actually empty. Documents added while a
+        // batch is in flight land in `processingQueue` with nothing to pick
+        // them up, so a single pass leaves them stuck at `.queued` forever.
+        // `isProcessing` is re-checked because `pauseProcessing()` clears it.
+        while isProcessing && !processingQueue.isEmpty {
+            while !processingQueue.isEmpty && processingTasks.count < currentConcurrencyLimit {
+                guard let queueItem = processingQueue.first else { break }
+
+                // Remove from queue
+                processingQueue.removeFirst()
+
+                // Start processing task
+                let task = Task {
+                    await processQueueItem(queueItem)
+                }
+
+                processingTasks[queueItem.document.id] = task
             }
-            
-            processingTasks[queueItem.document.id] = task
-        }
-        
-        // Wait for all tasks to complete
-        await withTaskGroup(of: Void.self) { group in
-            for (_, task) in processingTasks {
-                group.addTask {
-                    await task.value
+
+            // Wait for this batch to complete. Captured up front so a
+            // concurrent `pauseProcessing()` clearing the dictionary can't
+            // strand this await.
+            let batch = processingTasks
+            await withTaskGroup(of: Void.self) { group in
+                for (_, task) in batch {
+                    group.addTask {
+                        await task.value
+                    }
                 }
             }
+
+            processingTasks.removeAll()
         }
-        
-        processingTasks.removeAll()
+
         isProcessing = false
         processingProgress = 1.0
-        
+
         // Send completion notification
         await sendProcessingCompletionNotification()
+    }
+
+    /// On-device extraction drives a single shared MLX runtime, so documents
+    /// must run one at a time — concurrent runs tear down each other's model
+    /// container and buffer pool mid-generation. Cloud providers can overlap.
+    private var currentConcurrencyLimit: Int {
+        settingsManager.modelPreferences.extractionProvider == .onDeviceLLM
+            ? 1
+            : maxConcurrentProcessing
     }
     
     func pauseProcessing() {
@@ -341,11 +360,17 @@ class DocumentProcessor: ObservableObject {
             lastProcessedDocument = currentItem.document
             
             AppLog.shared.documents("Document '\(currentItem.document.fileName)' processed successfully")
-            
+
+            // Hand the extraction model back before returning, so the next
+            // queued document doesn't start while this one's ~2.4GB is still
+            // resident. Awaited rather than deferred for exactly that ordering.
+            await settingsManager.releaseOnDeviceExtractionModel()
+
             // Send success notification
             await sendProcessingSuccessNotification(for: currentItem.document)
-            
+
         } catch {
+            await settingsManager.releaseOnDeviceExtractionModel()
             AppLog.shared.error("Processing failed for '\(currentItem.document.fileName)': \(error.localizedDescription)", error: error, category: .documents)
             
             // Log specific error types and check for known iOS permission issues

@@ -321,52 +321,64 @@ class NativeDocumentExtractor {
 
         AppLog.shared.documents("PDFKit Tier 1: extracted usable text from \(pagesWithGoodText)/\(pageCount) pages")
 
-        // If PDFKit got good text from all pages, we're done
-        if pagesNeedingOCR.isEmpty {
-            let fullText = pdfKitPages.map { $0.text }.joined(separator: "\n\n--- Page Break ---\n\n")
-            AppLog.shared.documents("PDFKit extraction complete — \(fullText.count) chars, all pages had embedded text")
-
-            return ExtractionResult(
-                text: fullText,
-                method: .pdfKit,
-                pageCount: pageCount,
-                confidence: 0.95,
-                perPageText: pdfKitPages
-            )
-        }
-
-        // Tier 2: OCR pages that need it
-        AppLog.shared.documents("Vision OCR Tier 2: running OCR on \(pagesNeedingOCR.count) pages that lack embedded text")
+        // Tier 2: OCR *every* page, even ones with embedded text.
+        //
+        // Embedded PDF text is not enough to find lab values. Many lab vendors
+        // draw tables column-by-column, so `page.string` returns every test
+        // name in one run and every value in another — rows the deterministic
+        // parser can never rejoin. PDFKit's per-character geometry can't repair
+        // that either: on these files `characterBounds` reports degenerate
+        // boxes (zero-height glyphs, one character 114pt wide).
+        //
+        // Vision's observations carry trustworthy coordinates, which is what
+        // the parser's row-grouping path needs to see a table as rows. OCR runs
+        // ~1-2s/page, against ~75s/page for the on-device vision model.
         var finalPages = pdfKitPages
         var ocrPageCount = 0
+        var pagesWithObservations = 0
 
-        for pageIndex in pagesNeedingOCR {
+        for pageIndex in 0..<pageCount {
             guard let page = pdfDocument.page(at: pageIndex) else { continue }
+            let hasEmbeddedText = !pagesNeedingOCR.contains(pageIndex)
 
             do {
                 let cgImage = try renderPDFPageToImage(page)
                 let ocrResult = try await performOCR(on: cgImage)
 
-                let reconstructedText = reconstructTextWithLayout(from: ocrResult.observations, pageSize: page.bounds(for: .mediaBox).size)
+                guard !ocrResult.observations.isEmpty else { continue }
 
-                if !reconstructedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let tables = await detectTables(on: cgImage, pageNumber: pageIndex + 1)
-                    finalPages[pageIndex] = PageText(
-                        pageNumber: pageIndex + 1,
-                        text: reconstructedText,
-                        observations: ocrResult.observations,
-                        tables: tables.isEmpty ? nil : tables
-                    )
-                    ocrPageCount += 1
-                }
+                let reconstructedText = reconstructTextWithLayout(from: ocrResult.observations, pageSize: page.bounds(for: .mediaBox).size)
+                let hasReconstructedText = !reconstructedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                // Embedded text stays authoritative for the page's prose — it
+                // has no OCR character errors. The observations are added for
+                // their geometry.
+                if !hasEmbeddedText && !hasReconstructedText { continue }
+
+                let tables = await detectTables(on: cgImage, pageNumber: pageIndex + 1)
+                finalPages[pageIndex] = PageText(
+                    pageNumber: pageIndex + 1,
+                    text: hasEmbeddedText ? finalPages[pageIndex].text : reconstructedText,
+                    observations: ocrResult.observations,
+                    tables: tables.isEmpty ? nil : tables
+                )
+                pagesWithObservations += 1
+                if !hasEmbeddedText { ocrPageCount += 1 }
             } catch {
                 AppLog.shared.documents("Vision OCR failed for page \(pageIndex + 1): \(error.localizedDescription)", level: .warning)
                 // Keep whatever PDFKit got (possibly empty)
             }
         }
 
-        let method: ExtractionMethod = pagesWithGoodText > 0 ? .hybrid : .visionOCR
-        let avgConfidence = pagesWithGoodText > 0 ? 0.90 : 0.85
+        AppLog.shared.documents("Vision OCR: attached row geometry to \(pagesWithObservations)/\(pageCount) pages (\(ocrPageCount) had no embedded text)")
+
+        let method: ExtractionMethod
+        if pagesWithGoodText == pageCount {
+            method = .pdfKit
+        } else {
+            method = pagesWithGoodText > 0 ? .hybrid : .visionOCR
+        }
+        let avgConfidence = pagesWithGoodText == pageCount ? 0.95 : (pagesWithGoodText > 0 ? 0.90 : 0.85)
         let fullText = finalPages.map { $0.text }.joined(separator: "\n\n--- Page Break ---\n\n")
 
         guard !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

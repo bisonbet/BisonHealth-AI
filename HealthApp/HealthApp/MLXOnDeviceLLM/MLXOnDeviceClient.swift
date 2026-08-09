@@ -16,6 +16,79 @@ import MLXLLM
 import MLXVLM
 #endif
 
+// MARK: - GPU Serialization
+
+/// Serializes every MLX GPU operation in the process.
+///
+/// MLX's model containers, its buffer pool and `MLX.Memory.clearCache()` are
+/// process-global, and generation runs on background executors. Releasing the
+/// pool (or dropping a container) while another task has work in flight frees
+/// buffers a live Metal command buffer still references, which aborts with
+/// "command buffer references deallocated object".
+///
+/// Chat and document extraction use separate clients but the same GPU, so the
+/// gate is shared across every instance. Generation is gated per response —
+/// one chat reply, one document page — rather than per document, so a long
+/// extraction run doesn't lock the user out of chat for minutes.
+@MainActor
+final class MLXGPUGate {
+    static let shared = MLXGPUGate()
+
+    private var isBusy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    private init() {}
+
+    func acquire() async {
+        while isBusy {
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        isBusy = true
+    }
+
+    func release() {
+        isBusy = false
+        if !waiters.isEmpty {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
+// MARK: - Model Residency
+
+/// Enforces that at most one MLX model is resident at a time.
+///
+/// Chat and document extraction use separate clients, and a 4-bit 4B model is
+/// ~2.4GB. Two resident at once gets the app jetsammed ("Terminated due to
+/// memory issue"), so loading a model evicts every other client's.
+@MainActor
+final class MLXModelResidency {
+    static let shared = MLXModelResidency()
+
+    private final class Box {
+        weak var client: MLXOnDeviceClient?
+        init(_ client: MLXOnDeviceClient) { self.client = client }
+    }
+
+    private var boxes: [Box] = []
+
+    private init() {}
+
+    func register(_ client: MLXOnDeviceClient) {
+        boxes.removeAll { $0.client == nil || $0.client === client }
+        boxes.append(Box(client))
+    }
+
+    /// Unload every other client's model. Caller must hold ``MLXGPUGate``.
+    func evictAll(except keeping: MLXOnDeviceClient) {
+        boxes.removeAll { $0.client == nil }
+        for box in boxes {
+            guard let client = box.client, client !== keeping else { continue }
+            client.evictResidentModel()
+        }
+    }
+}
+
 // MARK: - MLX On-Device Client
 
 @MainActor
@@ -52,13 +125,30 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     private var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
 
-    private let visionExtractionMaxTokens = 1024
+    /// A dense lab page can carry 25+ results; the JSON for that runs ~1000
+    /// tokens. The old 1024 cap truncated mid-object, which made the whole
+    /// response unparseable and silently fell back to scraping prose.
+    private let visionExtractionMaxTokens = 1536
+
+    /// Must fit vision tokens + prompt + output. A 1024px page is ~1300 vision
+    /// tokens (32x32 px per token), prompt ~250, output up to 1536.
     private let visionExtractionMaxKVSize = 4096
+
+    /// Page images are rendered at 1024px on the long edge; matching that here
+    /// keeps them at native size. `ChatSession` otherwise best-fits to 512x512,
+    /// which reduces a letter-size lab table to ~5 pixels per line of text.
+    private let visionExtractionImageSize = CGSize(width: 1024, height: 1024)
+
+    /// Qwen3.5's chat template prefills `<think>` into the prompt unless
+    /// `enable_thinking` is explicitly false. Left on, the model spends its
+    /// whole token budget reasoning and never reaches the JSON.
+    private let visionExtractionTemplateContext: [String: any Sendable] = ["enable_thinking": false]
 
     // MARK: - Init
 
     init(modelProvider: @escaping @MainActor () -> MLXModelInfo = { MLXModelInfo.selectedModel }) {
         self.modelProvider = modelProvider
+        MLXModelResidency.shared.register(self)
     }
 
     // MARK: - AIProviderInterface Methods
@@ -75,8 +165,11 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             return false
         }
 
+        await MLXGPUGate.shared.acquire()
+        defer { MLXGPUGate.shared.release() }
+
         do {
-            try await loadModel()
+            try await performLoadModel()
 
             let session = try makeIsolatedSession(maxTokensOverride: 10)
 
@@ -100,7 +193,10 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #if targetEnvironment(simulator)
         throw MLXOnDeviceError.simulatorNotSupported
         #else
-        try await ensureModelLoaded()
+        await MLXGPUGate.shared.acquire()
+        defer { MLXGPUGate.shared.release() }
+
+        try await ensureModelLoadedLocked()
 
         let instructions = buildInstructions(systemPrompt: nil, healthContext: context)
         let session = try makeIsolatedSession(instructions: instructions)
@@ -157,7 +253,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         throw MLXOnDeviceError.simulatorNotSupported
         #else
         let startTime = Date()
-        try await ensureModelLoaded()
+
+        // Held for the whole reply: the session, its KV cache and the buffer
+        // pool must not be torn down by an extraction run mid-generation.
+        await MLXGPUGate.shared.acquire()
+        defer { MLXGPUGate.shared.release() }
+
+        try await ensureModelLoadedLocked()
 
         guard let modelContainer else {
             throw MLXOnDeviceError.modelNotLoaded
@@ -242,6 +344,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     // MARK: - Model Lifecycle
 
     func loadModel() async throws {
+        await MLXGPUGate.shared.acquire()
+        defer { MLXGPUGate.shared.release() }
+        try await performLoadModel()
+    }
+
+    /// Caller must already hold ``MLXGPUGate``.
+    private func performLoadModel() async throws {
         #if targetEnvironment(simulator)
         throw MLXOnDeviceError.simulatorNotSupported
         #else
@@ -252,8 +361,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         }
 
         if isModelLoaded {
-            await unloadModel()
+            performUnloadModel()
         }
+
+        // Never two resident at once — that combination is what gets the app
+        // killed for memory during document extraction.
+        MLXModelResidency.shared.evictAll(except: self)
 
         // Check if model is downloaded
         guard MLXModelDownloadManager.shared.isModelDownloaded(selectedModel) else {
@@ -293,6 +406,24 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     }
 
     func unloadModel() async {
+        await MLXGPUGate.shared.acquire()
+        defer { MLXGPUGate.shared.release() }
+        performUnloadModel()
+    }
+
+    /// Evict this client's model to make room for another. Caller must hold
+    /// ``MLXGPUGate`` — ``MLXModelResidency`` is only reached from load paths
+    /// that already hold it.
+    fileprivate func evictResidentModel() {
+        guard isModelLoaded else { return }
+        AppLog.shared.mlx("[MLXClient] Evicting \(currentModelInfo?.displayName ?? "model") — another model is loading")
+        performUnloadModel()
+    }
+
+    /// Caller must already hold ``MLXGPUGate``. Dropping the container and
+    /// clearing the cache outside the gate can free buffers that an in-flight
+    /// command buffer from another client still references.
+    fileprivate func performUnloadModel() {
         #if !targetEnvironment(simulator)
         chatSession = nil
         modelContainer = nil
@@ -311,8 +442,16 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         guard !isSuspendedForBackground else { return }
         isSuspendedForBackground = true
         AppLog.shared.mlx("[MLXClient] Suspended for background")
-        // MLX uses unified memory so model stays in RAM; no special action needed.
-        // For memory pressure, the OS can reclaim GPU cache automatically.
+
+        // A backgrounded app holding ~2.4GB is the first thing the OS reclaims,
+        // and it takes the whole process with it. Give the model back entirely;
+        // it reloads in ~3s on return. Take the gate first — tearing down while
+        // work is in flight is exactly what strands a live command buffer.
+        #if !targetEnvironment(simulator)
+        await MLXGPUGate.shared.acquire()
+        defer { MLXGPUGate.shared.release() }
+        performUnloadModel()
+        #endif
     }
 
     func resumeAfterForeground() async {
@@ -323,9 +462,10 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     // MARK: - Private Helpers
 
-    private func ensureModelLoaded() async throws {
+    /// Caller must already hold ``MLXGPUGate``.
+    private func ensureModelLoadedLocked() async throws {
         if !isModelLoaded {
-            try await loadModel()
+            try await performLoadModel()
         }
     }
 
@@ -362,7 +502,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     private func makeIsolatedSession(
         instructions: String? = nil,
         maxTokensOverride: Int? = nil,
-        maxKVSizeOverride: Int? = nil
+        maxKVSizeOverride: Int? = nil,
+        processing: UserInput.Processing = .init(resize: CGSize(width: 512, height: 512)),
+        additionalContext: [String: any Sendable]? = nil
     ) throws -> ChatSession {
         guard let modelContainer else {
             throw MLXOnDeviceError.modelNotLoaded
@@ -374,7 +516,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             generateParameters: currentGenerateParameters(
                 maxTokensOverride: maxTokensOverride,
                 maxKVSizeOverride: maxKVSizeOverride
-            )
+            ),
+            processing: processing,
+            additionalContext: additionalContext
         )
     }
 
@@ -433,7 +577,7 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
         guard supportsVisionExtraction else {
             throw MLXOnDeviceError.generationFailed("Selected on-device model does not support image input")
         }
-        try await ensureModelLoaded()
+        try await loadModel()
 
         var mergedLabValues: [[String: Any]] = []
         var mergedMetadata: [String: Any] = [:]
@@ -444,16 +588,27 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
                 continue
             }
 
-            // Fresh session per page: no KV-cache accumulation across pages
-            let session = try makeIsolatedSession(
-                instructions: "You are a precise medical laboratory data extraction engine. You respond with valid JSON only — no prose, no markdown fences.",
-                maxTokensOverride: visionExtractionMaxTokens,
-                maxKVSizeOverride: visionExtractionMaxKVSize
-            )
+            // One page = one gate hold. The generation and the cache clear that
+            // follows it must be atomic with respect to every other MLX user,
+            // and releasing between pages keeps chat responsive.
+            await MLXGPUGate.shared.acquire()
 
-            let pagePrompt = Self.compactVisionExtractionPrompt(pageNumber: page.pageNumber)
-
+            // The model can be unloaded between pages (background suspend,
+            // provider change), so re-check rather than trusting the load above.
             do {
+                try await ensureModelLoadedLocked()
+
+                // Fresh session per page: no KV-cache accumulation across pages
+                let session = try makeIsolatedSession(
+                    instructions: "You are a precise medical laboratory data extraction engine. You respond with valid JSON only — no prose, no markdown fences.",
+                    maxTokensOverride: visionExtractionMaxTokens,
+                    maxKVSizeOverride: visionExtractionMaxKVSize,
+                    processing: UserInput.Processing(resize: visionExtractionImageSize),
+                    additionalContext: visionExtractionTemplateContext
+                )
+
+                let pagePrompt = Self.compactVisionExtractionPrompt(pageNumber: page.pageNumber)
+
                 let response = try await session.respond(to: pagePrompt, image: .ciImage(ciImage))
                 let parsedCount = mergePageJSON(
                     response,
@@ -465,7 +620,9 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
             } catch {
                 AppLog.shared.mlx("[MLXClient] VLM extraction failed for page \(page.pageNumber): \(error.localizedDescription)", level: .warning)
             }
+
             MLX.Memory.clearCache()
+            MLXGPUGate.shared.release()
         }
 
         var combined: [String: Any] = mergedMetadata
@@ -485,6 +642,11 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
         metadata: inout [String: Any]
     ) -> Int {
         guard let json = Self.parseJSONObject(from: response) else {
+            // The tail is where truncation and stray prose show up, and this
+            // path is otherwise invisible in the logs.
+            let tail = String(response.suffix(240)).replacingOccurrences(of: "\n", with: " ")
+            AppLog.shared.mlx("[MLXClient] Unparseable VLM page \(pageNumber) output ends: …\(tail)", level: .warning)
+
             let fallbackValues = Self.recoverLabValueJSON(fromPlainText: response, pageNumber: pageNumber)
             if !fallbackValues.isEmpty {
                 labValues.append(contentsOf: fallbackValues)
@@ -562,7 +724,84 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
             }
         }
 
+        // Nothing closed cleanly — the response was probably cut off at the
+        // token limit. Salvage the entries that did complete.
+        if let salvaged = decodeJSONObject(closeTruncatedJSON(cleaned)) {
+            return salvaged
+        }
+
         return nil
+    }
+
+    /// Rebuild a parseable object from output that stopped mid-emission:
+    /// discard the trailing partial entry, then close whatever is still open.
+    private static func closeTruncatedJSON(_ text: String) -> String {
+        // Whichever bracket opens first — anchoring on "{" would strip the
+        // wrapper off a bare array response and lose every entry in it.
+        let openers = [text.firstIndex(of: "{"), text.firstIndex(of: "[")].compactMap { $0 }
+        guard let startIndex = openers.min() else {
+            return text
+        }
+
+        // Walk the text tracking structure, remembering the last position where
+        // an element was complete — that is the furthest safe truncation point.
+        var depths: [Character] = []
+        var inString = false
+        var isEscaped = false
+        var lastCompleteElement: String.Index?
+        var index = startIndex
+
+        while index < text.endIndex {
+            let char = text[index]
+            if isEscaped {
+                isEscaped = false
+            } else if char == "\\" {
+                isEscaped = true
+            } else if char == "\"" {
+                inString.toggle()
+            } else if !inString {
+                switch char {
+                case "{", "[":
+                    depths.append(char)
+                case "}", "]":
+                    if !depths.isEmpty { depths.removeLast() }
+                    lastCompleteElement = index
+                case ",":
+                    lastCompleteElement = text.index(before: index)
+                default:
+                    break
+                }
+            }
+            index = text.index(after: index)
+        }
+
+        guard !depths.isEmpty else { return text }
+
+        // Drop the incomplete tail, then re-derive what is still open.
+        var salvaged = lastCompleteElement.map { String(text[startIndex...$0]) } ?? String(text[startIndex...])
+
+        depths = []
+        inString = false
+        isEscaped = false
+        for char in salvaged {
+            if isEscaped {
+                isEscaped = false
+            } else if char == "\\" {
+                isEscaped = true
+            } else if char == "\"" {
+                inString.toggle()
+            } else if !inString {
+                if char == "{" || char == "[" { depths.append(char) }
+                if (char == "}" || char == "]"), !depths.isEmpty { depths.removeLast() }
+            }
+        }
+
+        if inString { salvaged += "\"" }
+        for opener in depths.reversed() {
+            salvaged += opener == "{" ? "}" : "]"
+        }
+
+        return salvaged
     }
 
     private static func decodeJSONObject(_ text: String) -> [String: Any]? {
@@ -586,6 +825,13 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
             with: "",
             options: .regularExpression
         )
+
+        // Reasoning models are handed an *open* `<think>` by the chat template,
+        // so the response contains only the closing tag. Everything before it
+        // is reasoning, not answer.
+        if let closingTag = cleaned.range(of: "</think>", options: .backwards) {
+            cleaned = String(cleaned[closingTag.upperBound...])
+        }
         cleaned = cleaned.replacingOccurrences(of: #"```(?:json)?"#, with: "", options: .regularExpression)
         cleaned = cleaned.replacingOccurrences(of: "```", with: "")
         cleaned = cleaned.replacingOccurrences(of: "\u{201C}", with: "\"")

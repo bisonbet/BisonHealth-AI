@@ -206,19 +206,11 @@ class AppState: ObservableObject {
         setupColorScheme()
         observeSettingsChanges()
         syncHealthKitOnLaunch()
-        preloadOnDeviceLLMIfNeeded()
-    }
 
-    private func preloadOnDeviceLLMIfNeeded() {
-        guard !AppTestRuntime.shouldDisableMLXPreload else { return }
-
-        // Preload on-device LLM in background so it's ready when user opens AI chat
-        // This is done after a short delay to not compete with app launch tasks
-        Task {
-            // Small delay to let the app finish launching
-            try? await Task.sleep(for: .seconds(2))
-            settingsManager.preloadOnDeviceLLMIfNeeded()
-        }
+        // On-device models are deliberately NOT preloaded. A 4-bit 4B model is
+        // ~2.4GB resident; holding one from launch leaves too little headroom
+        // and the OS jetsams the app during document extraction. Models load on
+        // first use and unload when that use ends.
     }
 
     private func syncHealthKitOnLaunch() {

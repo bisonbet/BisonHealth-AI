@@ -356,6 +356,17 @@ final class LabReportParser {
         // Match against the standardized registry — try the name as-is, then
         // extended by one token (handles "CA 125" where "125" looks like a value)
         var match = BloodTestResult.matchLabParameter(name: name, testType: testType)
+
+        // OCR glues superscript footnote markers onto test names ("BUN01",
+        // "Chloride °1"). Registry containment needs 4+ characters, so short
+        // names like BUN fail outright. Retry without the marker — only after
+        // the raw name misses, so "Vitamin B12" and "T3" are never stripped.
+        if match == nil, let stripped = Self.strippingFootnoteMarker(from: name) {
+            if let strippedMatch = BloodTestResult.matchLabParameter(name: stripped, testType: testType) {
+                match = strippedMatch
+                name = stripped
+            }
+        }
         if match == nil, foundIndex + 1 < cells.count,
            isValueToken(cells[foundIndex + 1]) || splitValueUnit(cells[foundIndex + 1]) != nil {
             let extendedName = "\(name) \(foundValue)"
@@ -425,6 +436,24 @@ final class LabReportParser {
             confidence: confidence,
             validation: validation
         )
+    }
+
+    /// Drop a trailing footnote marker — a 1-2 digit superscript, optionally
+    /// wrapped in the stray punctuation OCR produces for it. Returns nil when
+    /// there is nothing to strip or when stripping would leave no name.
+    static func strippingFootnoteMarker(from name: String) -> String? {
+        let stripped = name.replacingOccurrences(
+            of: #"[\s"'`°*†‡]*\d{1,2}[\s"'`°*†‡]*$"#,
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard stripped != name,
+              stripped.count >= 2,
+              stripped.rangeOfCharacter(from: .letters) != nil else {
+            return nil
+        }
+        return stripped
     }
 
     // MARK: - Token Classification
