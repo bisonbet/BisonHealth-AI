@@ -4,7 +4,7 @@
 
 ## Quick Facts
 
-- **Platform**: iOS 17.0+ (Universal - iPhone & iPad)
+- **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 5.9+ with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
 - **Database**: SQLite with CryptoKit encryption (current version: 8)
@@ -521,7 +521,7 @@ open HealthApp/HealthApp.xcodeproj
 
 **Current project facts**:
 - Database version: 8
-- iOS 17.0+ deployment target
+- iOS 26.0+ deployment target
 
 ---
 

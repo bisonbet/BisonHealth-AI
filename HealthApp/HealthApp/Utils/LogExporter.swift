@@ -125,10 +125,6 @@ struct LogExporter {
     }
 
     private static func fetchOSLogEntries() -> String {
-        guard #available(iOS 15.0, *) else {
-            return "(OSLogStore requires iOS 15+)"
-        }
-
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
             let position = store.position(date: Date().addingTimeInterval(-86400)) // 24 hours ago

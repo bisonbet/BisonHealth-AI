@@ -72,9 +72,18 @@ final class AWSCredentialsManager: ObservableObject {
 
     // MARK: - Credential Updates
 
+    /// Updates the in-memory value without persisting it. Used while a form is still
+    /// incomplete, so partially typed input is neither written to the Keychain nor
+    /// reported to the user as a failure.
+    func stageCredentials(_ newCredentials: AWSCredentials) {
+        credentials = newCredentials
+        if case .validationFailed = lastError {
+            lastError = nil
+        }
+    }
+
     @discardableResult
     func updateCredentials(_ newCredentials: AWSCredentials) -> Result<Void, AWSCredentialsError> {
-        // Keep field-by-field editing responsive, but never persist an incomplete value.
         credentials = newCredentials
 
         let validation = AWSCredentialsHelper.validateCredentials(newCredentials)
@@ -95,36 +104,6 @@ final class AWSCredentialsManager: ObservableObject {
             lastError = .storageUnavailable
             return .failure(.storageUnavailable)
         }
-    }
-
-    @discardableResult
-    func updateAccessKey(_ accessKey: String) -> Result<Void, AWSCredentialsError> {
-        updateCredentials(AWSCredentials(
-            accessKeyId: accessKey,
-            secretAccessKey: credentials.secretAccessKey,
-            sessionToken: credentials.sessionToken,
-            region: credentials.region
-        ))
-    }
-
-    @discardableResult
-    func updateSecretKey(_ secretKey: String) -> Result<Void, AWSCredentialsError> {
-        updateCredentials(AWSCredentials(
-            accessKeyId: credentials.accessKeyId,
-            secretAccessKey: secretKey,
-            sessionToken: credentials.sessionToken,
-            region: credentials.region
-        ))
-    }
-
-    @discardableResult
-    func updateRegion(_ region: String) -> Result<Void, AWSCredentialsError> {
-        updateCredentials(AWSCredentials(
-            accessKeyId: credentials.accessKeyId,
-            secretAccessKey: credentials.secretAccessKey,
-            sessionToken: credentials.sessionToken,
-            region: region
-        ))
     }
 
     @discardableResult

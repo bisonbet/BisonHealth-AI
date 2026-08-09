@@ -24,6 +24,13 @@ struct AWSBedrockSettingsView: View {
     @State private var editingSecretKey: String = ""
     @State private var editingRegion: String = "us-east-1"
 
+    private enum CredentialField: Hashable {
+        case accessKey
+        case secretKey
+    }
+
+    @FocusState private var focusedField: CredentialField?
+
     private let regions = [
         "us-east-1": "US East (N. Virginia)",
         "us-east-2": "US East (Ohio)",
@@ -72,6 +79,29 @@ struct AWSBedrockSettingsView: View {
                 AppLog.shared.ui("Invalid stored model '\(selectedModel)', resetting to default", level: .warning)
                 selectedModel = AWSBedrockModel.claudeSonnet45.rawValue
             }
+        }
+        .onDisappear {
+            // Catches a user who leaves the screen without dismissing the keyboard.
+            commitCredentials()
+        }
+    }
+
+    /// Persists the edited credentials as a single unit. An incomplete form is a normal
+    /// intermediate state, so it is staged in memory rather than reported as an error.
+    private func commitCredentials() {
+        let edited = AWSCredentials(
+            accessKeyId: editingAccessKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            secretAccessKey: editingSecretKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            sessionToken: credentialsManager.credentials.sessionToken,
+            region: editingRegion
+        )
+
+        guard edited != credentialsManager.credentials else { return }
+
+        if edited.accessKeyId.isEmpty || edited.secretAccessKey.isEmpty {
+            credentialsManager.stageCredentials(edited)
+        } else {
+            credentialsManager.updateCredentials(edited)
         }
     }
 
@@ -149,15 +179,13 @@ struct AWSBedrockSettingsView: View {
                 if showingCredentials {
                     TextField("Enter Access Key ID", text: $editingAccessKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingAccessKey) { _, newValue in
-                            credentialsManager.updateAccessKey(newValue)
-                        }
+                        .focused($focusedField, equals: .accessKey)
+                        .onSubmit { commitCredentials() }
                 } else {
                     SecureField("Enter Access Key ID", text: $editingAccessKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingAccessKey) { _, newValue in
-                            credentialsManager.updateAccessKey(newValue)
-                        }
+                        .focused($focusedField, equals: .accessKey)
+                        .onSubmit { commitCredentials() }
                 }
 
                 HStack {
@@ -172,15 +200,20 @@ struct AWSBedrockSettingsView: View {
                 if showingCredentials {
                     TextField("Enter Secret Access Key", text: $editingSecretKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingSecretKey) { _, newValue in
-                            credentialsManager.updateSecretKey(newValue)
-                        }
+                        .focused($focusedField, equals: .secretKey)
+                        .onSubmit { commitCredentials() }
                 } else {
                     SecureField("Enter Secret Access Key", text: $editingSecretKey)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onChange(of: editingSecretKey) { _, newValue in
-                            credentialsManager.updateSecretKey(newValue)
-                        }
+                        .focused($focusedField, equals: .secretKey)
+                        .onSubmit { commitCredentials() }
+                }
+            }
+            // Credentials are written to the Keychain when a field is committed, not
+            // on every keystroke: each save also performs a verifying read-back.
+            .onChange(of: focusedField) { previousField, _ in
+                if previousField != nil {
+                    commitCredentials()
                 }
             }
 
@@ -214,8 +247,8 @@ struct AWSBedrockSettingsView: View {
                             .tag(key)
                     }
                 }
-                .onChange(of: editingRegion) { _, newValue in
-                    credentialsManager.updateRegion(newValue)
+                .onChange(of: editingRegion) { _, _ in
+                    commitCredentials()
                 }
 
                 VStack(alignment: .leading, spacing: 8) {

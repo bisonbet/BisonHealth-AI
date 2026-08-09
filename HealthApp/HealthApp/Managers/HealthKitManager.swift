@@ -566,14 +566,10 @@ class HealthKitManager: ObservableObject {
         for (date, samplesForDate) in groupedSleep.sorted(by: { $0.key > $1.key }).prefix(limit) {
             // Filter for actual sleep (not in bed)
             let sleepSamples = samplesForDate.filter { sample in
-                if #available(iOS 16.0, *) {
-                    return sample.value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepCore.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
-                } else {
-                    return sample.value == HKCategoryValueSleepAnalysis.asleep.rawValue
-                }
+                sample.value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepCore.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
             }
 
             guard !sleepSamples.isEmpty else { continue }
@@ -586,32 +582,19 @@ class HealthKitManager: ObservableObject {
             let startTime = sleepSamples.map { $0.startDate }.min() ?? date
             let endTime = sleepSamples.map { $0.endDate }.max() ?? date
 
-            // Calculate sleep stages if available (iOS 16+)
-            var deepSleep: Int?
-            var remSleep: Int?
-            var coreSleep: Int?
-            var awake: Int?
-
-            if #available(iOS 16.0, *) {
-                deepSleep = calculateSleepStageMinutes(samples: samplesForDate, stage: .asleepDeep)
-                remSleep = calculateSleepStageMinutes(samples: samplesForDate, stage: .asleepREM)
-                coreSleep = calculateSleepStageMinutes(samples: samplesForDate, stage: .asleepCore)
-                awake = calculateSleepStageMinutes(samples: samplesForDate, stage: .awake)
-            }
+            let deepSleep = calculateSleepStageMinutes(samples: samplesForDate, stage: .asleepDeep)
+            let remSleep = calculateSleepStageMinutes(samples: samplesForDate, stage: .asleepREM)
+            let coreSleep = calculateSleepStageMinutes(samples: samplesForDate, stage: .asleepCore)
+            let awake = calculateSleepStageMinutes(samples: samplesForDate, stage: .awake)
 
             // Calculate in bed time (includes all sleep + awake in bed)
             let inBedSamples = samplesForDate.filter { sample in
-                if #available(iOS 16.0, *) {
-                    return sample.value == HKCategoryValueSleepAnalysis.inBed.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepCore.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.awake.rawValue
-                } else {
-                    return sample.value == HKCategoryValueSleepAnalysis.inBed.rawValue ||
-                           sample.value == HKCategoryValueSleepAnalysis.asleep.rawValue
-                }
+                sample.value == HKCategoryValueSleepAnalysis.inBed.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepCore.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue ||
+                sample.value == HKCategoryValueSleepAnalysis.awake.rawValue
             }
 
             let inBedMinutes = calculateUnionMinutes(samples: inBedSamples)
@@ -633,7 +616,6 @@ class HealthKitManager: ObservableObject {
         return sleepDataArray.sorted { $0.date > $1.date }
     }
 
-    @available(iOS 16.0, *)
     private func calculateSleepStageMinutes(samples: [HKCategorySample], stage: HKCategoryValueSleepAnalysis) -> Int? {
         let stageSamples = samples.filter { $0.value == stage.rawValue }
         guard !stageSamples.isEmpty else { return nil }

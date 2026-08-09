@@ -483,10 +483,8 @@ class NativeDocumentExtractor {
             // Medical vocabulary so test names/units aren't "corrected" into English words
             request.customWords = Self.medicalLexicon
 
-            // Use revision 3 for best accuracy on iOS 17+
-            if #available(iOS 17.0, *) {
-                request.revision = VNRecognizeTextRequestRevision3
-            }
+            // Revision 3 gives the best accuracy.
+            request.revision = VNRecognizeTextRequestRevision3
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
@@ -498,15 +496,13 @@ class NativeDocumentExtractor {
         return ocrResult
     }
 
-    // MARK: - Document Structure Recognition (iOS 26+)
+    // MARK: - Document Structure Recognition
 
     /// Detect table structures on a page image using Vision's document-structure
-    /// recognition. Returns [] below iOS 26 or when no tables are found.
+    /// recognition. Returns [] when no tables are found.
     /// The geometry-based row grouping remains the primary text path; tables are
     /// additive signal for the deterministic lab parser.
     private func detectTables(on cgImage: CGImage, pageNumber: Int) async -> [RecognizedTable] {
-        guard #available(iOS 26.0, *) else { return [] }
-
         do {
             let request = RecognizeDocumentsRequest()
             let observations = try await request.perform(on: cgImage)

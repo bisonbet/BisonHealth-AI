@@ -56,7 +56,7 @@ enum LogCategory: String, CaseIterable {
 /// Zero overhead in production — the OS handles persistence, compression, and pruning.
 /// Also provides file-based persistence, a crash-surviving error buffer, and crash detection.
 class AppLog: NSObject {
-    static let shared = AppLog()
+    static let shared = AppLog(receivesMetricKitDiagnostics: true)
 
     // MARK: - Properties
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.bisonhealth"
@@ -109,11 +109,16 @@ class AppLog: NSObject {
     // MARK: - Initialization
     /// Creates a logger. The URL overrides are intentionally injectable so tests can
     /// verify persisted/exported redaction in an isolated temporary directory.
+    ///
+    /// `receivesMetricKitDiagnostics` defaults to `false` because MXMetricManager
+    /// retains its subscribers for the process lifetime: only the long-lived shared
+    /// logger should register, or every throwaway instance leaks.
     init(
         fileManager: FileManager = .default,
         logDirectory: URL? = nil,
         errorBufferURL: URL? = nil,
-        metricKitDiagnosticsURL: URL? = nil
+        metricKitDiagnosticsURL: URL? = nil,
+        receivesMetricKitDiagnostics: Bool = false
     ) {
         self.fileManager = fileManager
         self.logDirectoryOverride = logDirectory
@@ -132,7 +137,9 @@ class AppLog: NSObject {
         setupLogFile()
         setupCrashSupportFile(at: errorBufferURL)
         setupCrashSupportFile(at: metricKitDiagnosticsURL)
-        registerMetricKitSubscriber()
+        if receivesMetricKitDiagnostics {
+            registerMetricKitSubscriber()
+        }
     }
 
     // MARK: - Setup
@@ -221,9 +228,7 @@ class AppLog: NSObject {
 
     private func registerMetricKitSubscriber() {
         #if canImport(MetricKit)
-        if #available(iOS 14.0, *) {
-            MXMetricManager.shared.add(self)
-        }
+        MXMetricManager.shared.add(self)
         #endif
     }
 
@@ -619,7 +624,9 @@ class AppLog: NSObject {
             (#"/Users/[^\s]+"#, "[REDACTED_PATH]", []),
             (#"(['"])[^'"\n]*(?:\.pdf|\.png|\.jpg|\.jpeg|\.heic|\.docx|\.txt|\.csv)\1"#, "\"[REDACTED_FILENAME]\"", [.caseInsensitive]),
             (#"\b((?:patient|name|full name|date of birth|dob|mrn|medical record number|member id|insurance id)\s*[:=]\s*)[^,\n;]+"#, "$1[REDACTED]", [.caseInsensitive]),
-            (#"(?i)([\"']?(?:message|error|detail|prompt|context|content|response)[\"']?\s*[:=]\s*[\"'])[^\"'\n]*(\"')"#, "$1[REDACTED]$2", []),
+            // The value delimiter is captured so the closing quote must match the
+            // opening one; \2 is a backreference, not a literal.
+            (#"(?i)([\"']?(?:message|error|detail|prompt|context|content|response)[\"']?\s*[:=]\s*)([\"'])[^\"'\n]*\2"#, "$1$2[REDACTED]$2", []),
             (#"(User selected '[^']+' = )[^ ]+"#, "$1[REDACTED_VALUE]", []),
             (#"\b\d+(?:\.\d+)?\s?(?:bpm|br/min|lbs|kg|F|mg/dL|mmHg|%)\b"#, "[REDACTED_VALUE]", [.caseInsensitive])
         ]
@@ -678,7 +685,6 @@ class AppLog: NSObject {
 typealias Logger = AppLog
 
 #if canImport(MetricKit)
-@available(iOS 14.0, *)
 extension AppLog: MXMetricManagerSubscriber {
     func didReceive(_ payloads: [MXDiagnosticPayload]) {
         for payload in payloads {

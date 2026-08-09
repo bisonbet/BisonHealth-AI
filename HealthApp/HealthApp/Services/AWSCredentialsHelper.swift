@@ -97,8 +97,14 @@ final class AWSCredentialsHelper: AWSCredentialsStorage {
         if credentials.secretAccessKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issues.append("Secret key is required")
         }
-        if credentials.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // The region is interpolated into the SDK's endpoint host, so its shape is
+        // checked. Key formats are deliberately not checked: they vary across
+        // long-lived, temporary (ASIA), and role-derived credentials.
+        let trimmedRegion = credentials.region.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedRegion.isEmpty {
             issues.append("Region is required")
+        } else if trimmedRegion.range(of: #"^[a-z]{2}(-[a-z]+)+-[0-9]+$"#, options: .regularExpression) == nil {
+            issues.append("Region format should be like 'us-east-1'")
         }
         if let sessionToken = credentials.sessionToken,
            sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

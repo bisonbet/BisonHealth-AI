@@ -181,14 +181,21 @@ class SettingsManager: ObservableObject {
     #endif
 
     private let userDefaults: UserDefaults
-    private let keychain = Keychain()
+    private let keychain: any KeychainStoring
 
     // Keychain keys for reinstall persistence
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
-    
-    init(userDefaults: UserDefaults = .standard) {
+
+    // UserDefaults keys
+    private static let baseURLKey = "openAICompatibleBaseURL"
+    /// Plaintext API key written by builds before Keychain storage. Read once, then
+    /// removed as soon as a Keychain copy is verified.
+    private static let legacyAPIKeyKey = "openAICompatibleAPIKey"
+
+    init(userDefaults: UserDefaults = .standard, keychain: any KeychainStoring = Keychain()) {
         self.userDefaults = userDefaults
+        self.keychain = keychain
         loadSettings()
     }
 
@@ -196,18 +203,22 @@ class SettingsManager: ObservableObject {
 
     func loadSettings() {
         // Load OpenAI-compatible configuration
-        if let storedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL") {
-            if let validatedURL = OpenAICompatibleEndpointValidator.validatedURL(storedBaseURL) {
-                openAICompatibleBaseURL = validatedURL.absoluteString
-            } else {
-                userDefaults.removeObject(forKey: "openAICompatibleBaseURL")
-            }
+        if let storedBaseURL = userDefaults.string(forKey: Self.baseURLKey), !storedBaseURL.isEmpty {
+            // A rejected endpoint is kept rather than deleted so the user can see and
+            // correct what they configured. Validity is enforced where the endpoint is
+            // used, by hasValidOpenAICompatibleConfig() and by the client itself.
+            openAICompatibleBaseURL = OpenAICompatibleEndpointValidator.validatedURL(storedBaseURL)?.absoluteString
+                ?? storedBaseURL
         }
         if let storedAPIKey = try? keychain.retrieveString(for: kcOpenAICompatibleKey) {
             openAICompatibleAPIKey = storedAPIKey
-        } else if let legacyAPIKey = userDefaults.string(forKey: "openAICompatibleAPIKey") {
-            // Legacy fallback from older builds
+            // An earlier migration may have written the Keychain copy but failed to
+            // clear the plaintext one. The secure copy is confirmed present here.
+            userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+        } else if let legacyAPIKey = userDefaults.string(forKey: Self.legacyAPIKeyKey) {
+            // Legacy plaintext fallback from older builds.
             openAICompatibleAPIKey = legacyAPIKey
+            migrateLegacyAPIKey(legacyAPIKey)
         }
         if let storedContextSize = userDefaults.object(forKey: "openAICompatibleContextSize") as? Int {
             openAICompatibleContextSize = storedContextSize
@@ -237,20 +248,25 @@ class SettingsManager: ObservableObject {
     }
     
     func saveSettings() {
-        // Save OpenAI-compatible configuration
-        if let validatedURL = OpenAICompatibleEndpointValidator.validatedURL(openAICompatibleBaseURL) {
-            userDefaults.set(validatedURL.absoluteString, forKey: "openAICompatibleBaseURL")
-        } else if let persistedBaseURL = userDefaults.string(forKey: "openAICompatibleBaseURL"),
-                  !OpenAICompatibleEndpointValidator.isValid(persistedBaseURL) {
-            // Do not preserve an invalid value left by an older build. A prior
-            // valid persisted endpoint remains untouched while the user edits an
-            // invalid value in memory.
-            userDefaults.removeObject(forKey: "openAICompatibleBaseURL")
-        }
-        if openAICompatibleAPIKey.isEmpty {
-            _ = try? keychain.delete(for: kcOpenAICompatibleKey)
+        // Save OpenAI-compatible configuration. What the user configured is persisted
+        // as entered (normalized when valid) so an in-progress or rejected edit is never
+        // silently replaced by an older value.
+        let trimmedBaseURL = openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedBaseURL.isEmpty {
+            userDefaults.removeObject(forKey: Self.baseURLKey)
         } else {
-            _ = try? keychain.store(string: openAICompatibleAPIKey, for: kcOpenAICompatibleKey)
+            userDefaults.set(
+                OpenAICompatibleEndpointValidator.validatedURL(trimmedBaseURL)?.absoluteString ?? trimmedBaseURL,
+                forKey: Self.baseURLKey
+            )
+        }
+
+        if openAICompatibleAPIKey.isEmpty {
+            clearAPIKeyCopies()
+        } else if persistAPIKey(openAICompatibleAPIKey) {
+            userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+        } else {
+            AppLog.shared.settings("Could not verify the API key in secure storage", level: .error)
         }
         userDefaults.set(openAICompatibleContextSize, forKey: "openAICompatibleContextSize")
 
@@ -272,6 +288,38 @@ class SettingsManager: ObservableObject {
 
         // Sync with UserDefaults
         userDefaults.synchronize()
+    }
+
+    // MARK: - API Key Storage
+
+    /// Writes the key to the Keychain and confirms it reads back, mirroring the AWS
+    /// credential path. Returns `false` when the secure copy cannot be verified, in
+    /// which case no plaintext copy may be removed.
+    private func persistAPIKey(_ apiKey: String) -> Bool {
+        do {
+            try keychain.store(string: apiKey, for: kcOpenAICompatibleKey)
+            return try keychain.retrieveString(for: kcOpenAICompatibleKey) == apiKey
+        } catch {
+            return false
+        }
+    }
+
+    /// Migrates a plaintext key written by an older build, removing it only once the
+    /// Keychain copy is verified. A failed write leaves the legacy value in place so
+    /// the key is not lost.
+    private func migrateLegacyAPIKey(_ legacyAPIKey: String) {
+        guard persistAPIKey(legacyAPIKey) else {
+            AppLog.shared.settings("Retaining the legacy API key: secure storage is unavailable", level: .warning)
+            return
+        }
+        userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+    }
+
+    /// Removes the Keychain copy *and* any legacy plaintext copy, so clearing the key
+    /// cannot be undone by the legacy fallback on the next launch.
+    private func clearAPIKeyCopies() {
+        _ = try? keychain.delete(for: kcOpenAICompatibleKey)
+        userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
     }
     
     // MARK: - Service Client Management
@@ -604,7 +652,7 @@ class SettingsManager: ObservableObject {
         openAICompatibleContextSize = 32768  // Reset to 32k default
         openAICompatibleStatus = .unknown
         modelPreferences.openAICompatibleModel = ""
-        _ = try? keychain.delete(for: kcOpenAICompatibleKey)
+        clearAPIKeyCopies()
         invalidateOpenAICompatibleClient()
         saveSettings()
     }

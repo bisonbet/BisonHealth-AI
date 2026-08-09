@@ -4,7 +4,7 @@
 
 <div align="center">
 
-![iOS](https://img.shields.io/badge/iOS-17.0+-blue?style=for-the-badge&logo=apple)
+![iOS](https://img.shields.io/badge/iOS-26.0+-blue?style=for-the-badge&logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-5.9+-orange?style=for-the-badge&logo=swift)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-blue?style=for-the-badge&logo=swift)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
@@ -23,7 +23,7 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 
 ### ✨ Key Features
 
-- 📱 **Universal iOS App** - Built with SwiftUI for iOS 17+, optimized for both iPhone and iPad
+- 📱 **Universal iOS App** - Built with SwiftUI for iOS 26+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally on-device, no cloud backup
 - 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
 - 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Root Cause Analysis, Primary Care, Chronic Health AI, and more)
@@ -87,8 +87,8 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 
 ### Prerequisites
 
-- Xcode 15.0 or later
-- iOS 17.0+ deployment target
+- Xcode 26.0 or later
+- iOS 26.0+ deployment target
 - Swift 5.9+
 - `llama.xcframework` for on-device inference (see [Install the llama framework](#install-the-llama-framework) — required to build, not included in the repo)
 - Optional AWS Bedrock or OpenAI-compatible endpoint for remote AI functionality

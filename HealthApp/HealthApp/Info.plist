@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Remaining keys are generated from the INFOPLIST_KEY_* build settings
+	  (GENERATE_INFOPLIST_FILE stays on and merges into this file). This file exists
+	  only for NSAppTransportSecurity, which is a dictionary and so cannot be
+	  expressed as a build setting.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!--
+		  From iOS 17 on, ATS blocks cleartext connections to IP addresses by default.
+		  Self-hosted OpenAI-compatible inference servers (Ollama, LM Studio, vLLM,
+		  LiteLLM) normally run on the LAN over plain HTTP with no certificate, so
+		  without this the local-server feature cannot connect at all.
+
+		  This is the narrow exception: it permits cleartext only to private and
+		  link-local IP ranges, .local domains, and unqualified host names. Public
+		  hosts still require HTTPS, and OpenAICompatibleEndpointValidator enforces
+		  the same rule in the app before a request is ever built.
+		-->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

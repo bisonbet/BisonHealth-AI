@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 // MARK: - OpenAI-Compatible Endpoint Validation
 
@@ -16,11 +17,13 @@ enum OpenAICompatibleEndpointValidationError: Equatable, Error {
         case .missingHost:
             return "The server URL must include a host name or IP address."
         case .unsupportedScheme:
-            return "Use HTTPS, or HTTP only with localhost, 127.0.0.1, or ::1."
+            return "Use an http:// or https:// server URL."
         case .embeddedCredentials:
             return "Remove the username and password from the server URL."
         case .publicHTTP:
-            return "For non-local servers, use HTTPS. HTTP is limited to local loopback addresses."
+            return "Plain HTTP is only allowed for servers on your local network "
+                + "(for example 192.168.1.10, 10.0.0.5, my-server.local, or localhost). "
+                + "Use HTTPS to reach a server over the internet."
         }
     }
 }
@@ -48,16 +51,100 @@ struct OpenAICompatibleEndpointValidator {
             return .failure(.missingHost)
         }
 
-        if scheme == "http" {
-            let normalizedHost = host
-                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                .lowercased()
-            guard normalizedHost == "localhost" || normalizedHost == "127.0.0.1" || normalizedHost == "::1" else {
-                return .failure(.publicHTTP)
-            }
+        // Cleartext HTTP is confined to hosts that cannot be routed over the public
+        // internet. Self-hosted inference servers (Ollama, LM Studio, vLLM, LiteLLM)
+        // normally run on the LAN without a certificate, so blocking those outright
+        // would disable the feature for its main use case.
+        if scheme == "http", !Self.isPrivateNetworkHost(host) {
+            return .failure(.publicHTTP)
         }
 
         return .success(url)
+    }
+
+    // MARK: - Private Network Hosts
+
+    /// Domain suffixes that resolve only inside a local network.
+    private static let privateHostSuffixes = [".local", ".localhost", ".home.arpa", ".internal", ".lan"]
+
+    /// Whether the host is reachable only on the local network: a loopback, private,
+    /// link-local, or unique-local address, or a name that cannot resolve publicly.
+    static func isPrivateNetworkHost(_ host: String) -> Bool {
+        var normalizedHost = host
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .lowercased()
+
+        // Drop a trailing root label ("nas.local.") and any IPv6 zone ID ("fe80::1%en0").
+        if normalizedHost.hasSuffix(".") {
+            normalizedHost.removeLast()
+        }
+        if let zoneSeparator = normalizedHost.firstIndex(of: "%") {
+            normalizedHost = String(normalizedHost[normalizedHost.startIndex..<zoneSeparator])
+        }
+        guard !normalizedHost.isEmpty else { return false }
+
+        if let ipv4 = ipv4Address(normalizedHost) {
+            return isPrivateIPv4(ipv4)
+        }
+        if let ipv6 = ipv6Address(normalizedHost) {
+            return isPrivateIPv6(ipv6)
+        }
+
+        if normalizedHost == "localhost" {
+            return true
+        }
+        if privateHostSuffixes.contains(where: { normalizedHost.hasSuffix($0) }) {
+            return true
+        }
+        // A single-label name ("ollama-box") has no public DNS meaning; it can only be
+        // resolved by a local search domain, mDNS, or the hosts file.
+        return !normalizedHost.contains(".")
+    }
+
+    private static func ipv4Address(_ host: String) -> UInt32? {
+        var address = in_addr()
+        guard inet_pton(AF_INET, host, &address) == 1 else { return nil }
+        return UInt32(bigEndian: address.s_addr)
+    }
+
+    private static func ipv6Address(_ host: String) -> [UInt8]? {
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, host, &address) == 1 else { return nil }
+        return withUnsafeBytes(of: &address) { Array($0) }
+    }
+
+    private static func isPrivateIPv4(_ address: UInt32) -> Bool {
+        let firstOctet = (address >> 24) & 0xFF
+        let secondOctet = (address >> 16) & 0xFF
+
+        switch (firstOctet, secondOctet) {
+        case (127, _):                  return true  // 127.0.0.0/8   loopback
+        case (10, _):                   return true  // 10.0.0.0/8    RFC 1918
+        case (172, 16...31):            return true  // 172.16.0.0/12 RFC 1918
+        case (192, 168):                return true  // 192.168.0.0/16 RFC 1918
+        case (169, 254):                return true  // 169.254.0.0/16 RFC 3927 link-local
+        default:                        return false
+        }
+    }
+
+    private static func isPrivateIPv6(_ address: [UInt8]) -> Bool {
+        guard address.count == 16 else { return false }
+
+        // ::1 loopback
+        if address.dropLast().allSatisfy({ $0 == 0 }), address[15] == 1 {
+            return true
+        }
+        // ::ffff:0:0/96 — an IPv4 address in IPv6 form, judged on its IPv4 value.
+        if address[0..<10].allSatisfy({ $0 == 0 }), address[10] == 0xFF, address[11] == 0xFF {
+            let mapped = address[12...].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            return isPrivateIPv4(mapped)
+        }
+        // fc00::/7 unique local
+        if address[0] & 0xFE == 0xFC {
+            return true
+        }
+        // fe80::/10 link-local
+        return address[0] == 0xFE && address[1] & 0xC0 == 0x80
     }
 
     static func validatedURL(_ value: String) -> URL? {
@@ -81,7 +168,6 @@ struct OpenAICompatibleEndpointValidator {
 class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     private static let providerName = "OpenAI-compatible"
-    private static let maxStreamingErrorBytes = 4 * 1024
 
     // MARK: - Published Properties
     @Published var isConnected = false
@@ -145,12 +231,10 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
 
     private func providerRequestFailure(
         operation: String,
-        response: HTTPURLResponse,
-        body: Data
+        response: HTTPURLResponse
     ) -> OpenAICompatibleError {
         let error = OpenAICompatibleError.requestFailed(
             response: response,
-            body: body,
             provider: Self.providerName
         )
         AppLog.shared.error(
@@ -276,7 +360,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                throw providerRequestFailure(operation: "chat", response: httpResponse, body: data)
+                throw providerRequestFailure(operation: "chat", response: httpResponse)
             }
 
             // Parse response
@@ -423,7 +507,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw providerRequestFailure(operation: "vision", response: httpResponse, body: data)
+            throw providerRequestFailure(operation: "vision", response: httpResponse)
         }
 
         let decoder = JSONDecoder()
@@ -533,8 +617,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         var accumulatedContent = ""
         var responseModel: String? = nil
 
-        // Use URLSession bytes for streaming. Only a bounded prefix of a failed
-        // response is retained, and it is never included in the error object.
+        // Use URLSession bytes for streaming.
         let stream: (URLSession.AsyncBytes, URLResponse)
         do {
             stream = try await session.bytes(for: request)
@@ -549,15 +632,10 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            // Drain the stream so URLSession can finish it, but retain only a
-            // bounded prefix for safe diagnostics.
-            var errorData = Data()
-            for try await byte in bytes {
-                if errorData.count < Self.maxStreamingErrorBytes {
-                    errorData.append(byte)
-                }
-            }
-            throw providerRequestFailure(operation: "streaming", response: httpResponse, body: errorData)
+            // The body is deliberately not read: it can carry PHI or credentials and
+            // nothing safe can be derived from it. Leaving the sequence unconsumed
+            // cancels the transfer instead of downloading an error body of any size.
+            throw providerRequestFailure(operation: "streaming", response: httpResponse)
         }
 
         // Parse SSE stream
@@ -795,7 +873,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                throw providerRequestFailure(operation: "models", response: httpResponse, body: data)
+                throw providerRequestFailure(operation: "models", response: httpResponse)
             }
 
             let decoder = JSONDecoder()
@@ -1027,10 +1105,11 @@ enum OpenAICompatibleError: LocalizedError {
         .requestFailed(OpenAICompatibleFailure(statusCode: statusCode, message: message))
     }
 
-    /// Builds a safe failure from an HTTP response without retaining its body.
+    /// Builds a safe failure from an HTTP response. The response body is deliberately
+    /// not a parameter: it can carry PHI, prompts, or credentials, and only the status
+    /// line and a shape-checked request ID are safe to retain.
     static func requestFailed(
         response: HTTPURLResponse,
-        body _: Data,
         provider: String = "OpenAI-compatible"
     ) -> OpenAICompatibleError {
         let requestIdentifier = ["x-request-id", "request-id", "x-amzn-requestid"]

@@ -240,10 +240,7 @@ final class ServiceClientTests: XCTestCase {
             return
         }
 
-        let error = OpenAICompatibleError.requestFailed(
-            response: response,
-            body: Data(rawResponseBody.utf8)
-        )
+        let error = OpenAICompatibleError.requestFailed(response: response)
         let description = error.localizedDescription
 
         XCTAssertFalse(description.contains(rawResponseBody))
@@ -335,6 +332,33 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertFalse(retainedContent.contains("Synthetic Patient"))
         XCTAssertFalse(retainedContent.contains("synthetic-api-key"))
         XCTAssertTrue(retainedContent.contains("Underlying error type"))
+    }
+
+    func testRedactionCoversJSONQuotedProviderValues() {
+        // Regression: the closing delimiter in this rule was written as the literal
+        // two-character sequence `"'` instead of a character class, so quoted JSON
+        // values — the exact shape a provider error body takes — were never redacted.
+        let cases = [
+            #"{"message": "patient John Doe, glucose 92"}"#,
+            #"{"error": "upstream said: Synthetic Patient"}"#,
+            "{'detail': 'Synthetic Patient record'}",
+            #"response: "raw provider body with Synthetic Patient""#
+        ]
+
+        for rawText in cases {
+            let redacted = AppLog.redactForSupport(rawText)
+            XCTAssertTrue(redacted.contains("[REDACTED]"), "Not redacted: \(rawText)")
+            XCTAssertFalse(redacted.contains("Synthetic Patient"), "Leaked name: \(redacted)")
+            XCTAssertFalse(redacted.contains("John Doe"), "Leaked name: \(redacted)")
+        }
+    }
+
+    func testRedactionLeavesUnquotedTextWithMatchedDelimitersIntact() {
+        // The rule only applies to a quoted value, and the closing quote must match
+        // the opening one, so an unterminated value cannot swallow the rest of a line.
+        let redacted = AppLog.redactForSupport(#"status: ok, message: "first", tail: keep-me"#)
+
+        XCTAssertTrue(redacted.contains("keep-me"))
     }
 
     private func syntheticHTTPResponse(statusCode: Int, headers: [String: String] = [:]) -> HTTPURLResponse? {

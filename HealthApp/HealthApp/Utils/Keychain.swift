@@ -2,8 +2,20 @@ import Foundation
 import Security
 import CryptoKit
 
+// MARK: - Keychain Storage
+
+/// The generic item operations callers depend on. Extracted so components that
+/// persist secrets can be tested without mutating the real login keychain.
+protocol KeychainStoring {
+    func store(data: Data, for account: String) throws
+    func retrieve(for account: String) throws -> Data?
+    func delete(for account: String) throws
+    func store(string: String, for account: String) throws
+    func retrieveString(for account: String) throws -> String?
+}
+
 // MARK: - Keychain Helper
-class Keychain {
+class Keychain: KeychainStoring {
 
     private let service = "com.healthapp.encryption"
     private let encryptionKeyAccount = "health_data_encryption_key"
