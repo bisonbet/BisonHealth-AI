@@ -174,7 +174,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             let session = try makeIsolatedSession(maxTokensOverride: 10)
 
             // Quick test: generate a short response
-            let testResult = try await session.respond(to: "Say OK")
+            let testResult = try await collectResponse(from: session, to: "Say OK")
 
             let success = !testResult.isEmpty
             connectionStatus = success ? .connected : .error(MLXOnDeviceError.generationFailed("Empty test response"))
@@ -203,7 +203,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
         let startTime = Date()
 
-        let response = try await session.respond(to: message)
+        let response = try await collectResponse(from: session, to: message)
         let responseTime = Date().timeIntervalSince(startTime)
 
         return MLXOnDeviceResponse(
@@ -522,6 +522,25 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         )
     }
 
+    /// Collect a full response from a session.
+    ///
+    /// `ChatSession.respond(to:)` is a nonisolated `async` method, so calling it
+    /// from this `@MainActor` type would send the main-actor-isolated,
+    /// non-`Sendable` session across an isolation boundary. `streamResponse` is
+    /// synchronous — it only hands `Sendable` state to its own internal task —
+    /// so accumulating its chunks here is the isolation-safe equivalent.
+    private func collectResponse(
+        from session: ChatSession,
+        to prompt: String,
+        image: UserInput.Image? = nil
+    ) async throws -> String {
+        var output = ""
+        for try await chunk in session.streamResponse(to: prompt, image: image) {
+            output += chunk
+        }
+        return output
+    }
+
     private func makeChatHistory(from conversationHistory: [ChatMessage]) -> [Chat.Message] {
         conversationHistory.compactMap { message in
             switch message.role {
@@ -609,7 +628,11 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
 
                 let pagePrompt = Self.compactVisionExtractionPrompt(pageNumber: page.pageNumber)
 
-                let response = try await session.respond(to: pagePrompt, image: .ciImage(ciImage))
+                let response = try await collectResponse(
+                    from: session,
+                    to: pagePrompt,
+                    image: .ciImage(ciImage)
+                )
                 let parsedCount = mergePageJSON(
                     response,
                     pageNumber: page.pageNumber,
