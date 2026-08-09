@@ -111,11 +111,16 @@ struct AWSBedrockSettingsView: View {
             return
         }
 
-        // Only an actual edit is persisted. A legacy conflict is resolved by the
-        // explicit button below, never by navigating away: the manager kept the
-        // conflicting copy for recovery, so merely opening this screen must not decide
+        // Only an actual edit is persisted, or a retry of a save that failed —
+        // updateCredentials assigns before it persists, so after a failure the edited
+        // pair already equals the in-memory one and would otherwise never be retried.
+        //
+        // A legacy conflict is deliberately not included here: it is resolved by the
+        // explicit button below, never by navigating away, because the manager kept the
+        // conflicting copy for recovery and merely opening this screen must not decide
         // which credential survives.
-        guard edited != credentialsManager.credentials else { return }
+        let retriesFailedSave = credentialsManager.hasUnsavedChanges
+        guard edited != credentialsManager.credentials || retriesFailedSave else { return }
 
         credentialsManager.updateCredentials(edited)
     }

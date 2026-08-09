@@ -187,6 +187,10 @@ class SettingsManager: ObservableObject {
     private let userDefaults: UserDefaults
     private let keychain: any KeychainStoring
 
+    /// Set when the stored API key could not be read. An empty in-memory key then means
+    /// "unknown", not "cleared", and must not be used as a reason to delete anything.
+    private var apiKeyStorageIsUnreadable = false
+
     // Keychain keys for reinstall persistence
     private let kcModelPrefsKey = "settings.modelPreferences.v1"
     private let kcOpenAICompatibleKey = "settings.openAICompatible.apiKey.v1"
@@ -214,15 +218,30 @@ class SettingsManager: ObservableObject {
             openAICompatibleBaseURL = OpenAICompatibleEndpointValidator.validatedURL(storedBaseURL)?.absoluteString
                 ?? storedBaseURL
         }
-        if let storedAPIKey = try? keychain.retrieveString(for: kcOpenAICompatibleKey) {
-            openAICompatibleAPIKey = storedAPIKey
-            // An earlier migration may have written the Keychain copy but failed to
-            // clear the plaintext one. The secure copy is confirmed present here.
-            userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
-        } else if let legacyAPIKey = userDefaults.string(forKey: Self.legacyAPIKeyKey) {
-            // Legacy plaintext fallback from older builds.
-            openAICompatibleAPIKey = legacyAPIKey
-            migrateLegacyAPIKey(legacyAPIKey)
+        // A read failure is not the same as an absent key. Treating it as absence would
+        // fall through to the legacy branch and overwrite a perfectly good Keychain item
+        // with a stale plaintext one, so only a successful `nil` may trigger migration.
+        do {
+            if let storedAPIKey = try keychain.retrieveString(for: kcOpenAICompatibleKey) {
+                openAICompatibleAPIKey = storedAPIKey
+                apiKeyStorageIsUnreadable = false
+                // An earlier migration may have written the Keychain copy but failed to
+                // clear the plaintext one. The secure copy is confirmed present here.
+                userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+            } else {
+                apiKeyStorageIsUnreadable = false
+                if let legacyAPIKey = userDefaults.string(forKey: Self.legacyAPIKeyKey) {
+                    // Legacy plaintext fallback from older builds.
+                    openAICompatibleAPIKey = legacyAPIKey
+                    migrateLegacyAPIKey(legacyAPIKey)
+                }
+            }
+        } catch {
+            // Leave both copies untouched: neither read nor overwritten.
+            apiKeyStorageIsUnreadable = true
+            openAICompatibleKeyStorageError = "The saved API key could not be read from secure storage. "
+                + "Enter it again to replace it."
+            AppLog.shared.settings("Could not read the API key from secure storage", level: .error)
         }
         if let storedContextSize = userDefaults.object(forKey: "openAICompatibleContextSize") as? Int {
             openAICompatibleContextSize = storedContextSize
@@ -265,20 +284,28 @@ class SettingsManager: ObservableObject {
             )
         }
 
-        if openAICompatibleAPIKey.isEmpty {
-            if clearAPIKeyCopies() {
+        if !openAICompatibleAPIKey.isEmpty {
+            // An entered key is authoritative, and replacing an unreadable item is the
+            // documented way out of that state.
+            if persistAPIKey(openAICompatibleAPIKey) {
+                userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+                apiKeyStorageIsUnreadable = false
                 openAICompatibleKeyStorageError = nil
             } else {
-                openAICompatibleKeyStorageError = "The API key could not be removed from secure storage "
-                    + "and may still be present the next time the app starts."
-                AppLog.shared.settings("Could not remove the API key from secure storage", level: .error)
+                openAICompatibleKeyStorageError = "The API key could not be saved to secure storage."
+                AppLog.shared.settings("Could not verify the API key in secure storage", level: .error)
             }
-        } else if persistAPIKey(openAICompatibleAPIKey) {
-            userDefaults.removeObject(forKey: Self.legacyAPIKeyKey)
+        } else if apiKeyStorageIsUnreadable {
+            // The field is empty because the stored key could not be read, not because
+            // the user cleared it. saveSettings() also runs for unrelated settings, so
+            // deleting here would destroy a key the user never saw and never touched.
+            // The warning raised at load time still stands.
+        } else if clearAPIKeyCopies() {
             openAICompatibleKeyStorageError = nil
         } else {
-            openAICompatibleKeyStorageError = "The API key could not be saved to secure storage."
-            AppLog.shared.settings("Could not verify the API key in secure storage", level: .error)
+            openAICompatibleKeyStorageError = "The API key could not be removed from secure storage "
+                + "and may still be present the next time the app starts."
+            AppLog.shared.settings("Could not remove the API key from secure storage", level: .error)
         }
         userDefaults.set(openAICompatibleContextSize, forKey: "openAICompatibleContextSize")
 

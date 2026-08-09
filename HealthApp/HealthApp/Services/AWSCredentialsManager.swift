@@ -47,6 +47,12 @@ final class AWSCredentialsManager: ObservableObject {
     @Published var credentials: AWSCredentials
     @Published private(set) var lastError: AWSCredentialsError?
 
+    /// True when the in-memory credentials have not reached the Keychain, because a
+    /// save was attempted and failed. `updateCredentials` assigns before it persists,
+    /// so without this a caller comparing against `credentials` would see no difference
+    /// and never retry a transient failure.
+    @Published private(set) var hasUnsavedChanges = false
+
     private let storage: any AWSCredentialsStorage
     private let userDefaults: UserDefaults
 
@@ -99,18 +105,22 @@ final class AWSCredentialsManager: ObservableObject {
         guard validation.isValid else {
             let error = AWSCredentialsError.validationFailed(validation.issues)
             lastError = error
+            hasUnsavedChanges = true
             return .failure(error)
         }
 
         do {
             try persistAndVerify(newCredentials)
             lastError = nil
+            hasUnsavedChanges = false
             return .success(())
         } catch let error as AWSCredentialsError {
             lastError = error
+            hasUnsavedChanges = true
             return .failure(error)
         } catch {
             lastError = .storageUnavailable
+            hasUnsavedChanges = true
             return .failure(.storageUnavailable)
         }
     }
@@ -133,6 +143,7 @@ final class AWSCredentialsManager: ObservableObject {
             userDefaults.removeObject(forKey: Self.legacyCredentialsKey)
             credentials = .default
             lastError = nil
+            hasUnsavedChanges = false
             return .success(())
         } catch let error as AWSCredentialsError {
             lastError = error

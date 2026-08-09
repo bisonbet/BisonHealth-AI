@@ -83,9 +83,21 @@ struct OpenAICompatibleEndpointValidator {
         }
         guard !normalizedHost.isEmpty else { return false }
 
-        if let ipv4 = ipv4Address(normalizedHost) {
-            return isPrivateIPv4(ipv4)
+        // A numeric host is judged by every reading a resolver might take, and is
+        // allowed only if all of them are private. The strict and lenient parsers
+        // disagree wherever a component has a leading zero — "010.010.010.010" is
+        // 10.10.10.10 to inet_pton but 8.8.8.8 to inet_aton and to DNS — and the
+        // lenient parser additionally accepts whole-integer and hex spellings such as
+        // "134744072" and "0x8080808". Requiring agreement means no spelling of a
+        // routable address can be mistaken for a LAN host and sent cleartext.
+        let numericReadings = [
+            strictIPv4Address(normalizedHost),
+            lenientIPv4Address(normalizedHost)
+        ].compactMap { $0 }
+        if !numericReadings.isEmpty {
+            return numericReadings.allSatisfy(isPrivateIPv4)
         }
+
         if let ipv6 = ipv6Address(normalizedHost) {
             return isPrivateIPv6(ipv6)
         }
@@ -97,13 +109,23 @@ struct OpenAICompatibleEndpointValidator {
             return true
         }
         // A single-label name ("ollama-box") has no public DNS meaning; it can only be
-        // resolved by a local search domain, mDNS, or the hosts file.
+        // resolved by a local search domain, mDNS, or the hosts file. Numeric spellings
+        // never reach here — inet_aton claims them above.
         return !normalizedHost.contains(".")
     }
 
-    private static func ipv4Address(_ host: String) -> UInt32? {
+    /// Canonical dotted-quad only.
+    private static func strictIPv4Address(_ host: String) -> UInt32? {
         var address = in_addr()
         guard inet_pton(AF_INET, host, &address) == 1 else { return nil }
+        return UInt32(bigEndian: address.s_addr)
+    }
+
+    /// The permissive reading a resolver uses: dotted-quad, but also shortened,
+    /// octal, hex, and whole-integer forms.
+    private static func lenientIPv4Address(_ host: String) -> UInt32? {
+        var address = in_addr()
+        guard inet_aton(host, &address) == 1 else { return nil }
         return UInt32(bigEndian: address.s_addr)
     }
 

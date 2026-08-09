@@ -183,6 +183,36 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: AWSCredentialsManager.legacyCredentialsKey))
     }
 
+    func testFailedSaveCanBeRetriedWithUnchangedCredentials() {
+        // updateCredentials assigns before it persists, so after a failure the edited
+        // pair equals the in-memory one. Without an unsaved marker the screen, which has
+        // no separate save button, could never retry a transient Keychain failure.
+        let storage = MockAWSCredentialsStorage()
+        storage.saveError = .keychainError(errSecIO)
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AWSCredentialsManager(storage: storage, userDefaults: defaults)
+        XCTAssertFalse(manager.hasUnsavedChanges)
+
+        let credentials = makeCredentials()
+        guard case .failure = manager.updateCredentials(credentials) else {
+            XCTFail("Expected the save to fail")
+            return
+        }
+        XCTAssertTrue(manager.hasUnsavedChanges)
+        XCTAssertEqual(manager.credentials, credentials)
+        XCTAssertNil(storage.storedCredentials)
+
+        // The same pair, retried once storage recovers, now persists.
+        storage.saveError = nil
+        if case .failure(let error) = manager.updateCredentials(credentials) {
+            XCTFail("Retry should succeed: \(error.localizedDescription)")
+        }
+        XCTAssertFalse(manager.hasUnsavedChanges)
+        XCTAssertEqual(storage.storedCredentials, credentials)
+    }
+
     func testResolvingConflictIsANoOpWhenNoConflictExists() {
         let storage = MockAWSCredentialsStorage()
         storage.storedCredentials = makeCredentials()

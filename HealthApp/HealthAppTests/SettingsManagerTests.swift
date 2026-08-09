@@ -7,6 +7,13 @@ final class InMemoryKeychain: KeychainStoring {
     private var items: [String: Data] = [:]
     var storeError: Error?
     var deleteError: Error?
+    var retrieveError: Error?
+
+    /// Reads the backing store directly, bypassing `retrieveError`, so a test can assert
+    /// what actually survived a simulated read failure.
+    func storedValue(for account: String) -> String? {
+        items[account].flatMap { String(data: $0, encoding: .utf8) }
+    }
 
     func store(data: Data, for account: String) throws {
         if let storeError { throw storeError }
@@ -14,7 +21,8 @@ final class InMemoryKeychain: KeychainStoring {
     }
 
     func retrieve(for account: String) throws -> Data? {
-        items[account]
+        if let retrieveError { throw retrieveError }
+        return items[account]
     }
 
     func delete(for account: String) throws {
@@ -193,6 +201,39 @@ final class SettingsManagerTests: XCTestCase {
         }
     }
 
+    func testOpenAIEndpointValidatorRejectsNoncanonicalPublicIPv4LiteralsOverHTTP() {
+        // Resolvers accept whole-integer, hex, octal and shortened IPv4 spellings. Each
+        // of these denotes a routable address, so none may be taken for a LAN host.
+        // 010.010.010.010 is the sharp case: strict parsing reads it as private
+        // 10.10.10.10 while the resolver reads it as 8.8.8.8.
+        let rejected = [
+            "http://134744072",          // decimal 8.8.8.8
+            "http://0x8080808",          // hex 8.8.8.8
+            "http://010.010.010.010",    // 10.10.10.10 strictly, 8.8.8.8 to a resolver
+            "http://8.8.8",              // shortened 8.8.0.8
+            "http://0177.0.0.1"          // 177.0.0.1 strictly, 127.0.0.1 to a resolver
+        ]
+        for endpoint in rejected {
+            XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid(endpoint), "Should reject \(endpoint)")
+        }
+
+        // A numeric spelling of a genuinely private address stays allowed: the rule is
+        // about where the request goes, not how the user typed it.
+        let allowed = [
+            "http://3232235777",         // decimal 192.168.1.1
+            "http://2130706433"          // decimal 127.0.0.1
+        ]
+        for endpoint in allowed {
+            XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid(endpoint), "Should allow \(endpoint)")
+        }
+    }
+
+    func testOpenAIEndpointValidatorStillAcceptsRealHostNames() {
+        // The numeric checks must not swallow ordinary single-label LAN names.
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://ollama-box"))
+        XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://nas"))
+    }
+
     func testOpenAIEndpointValidatorTreatsIPv4MappedIPv6ByItsIPv4Value() {
         XCTAssertTrue(OpenAICompatibleEndpointValidator.isValid("http://[::ffff:192.168.1.10]:8000"))
         XCTAssertFalse(OpenAICompatibleEndpointValidator.isValid("http://[::ffff:8.8.8.8]:8000"))
@@ -264,6 +305,51 @@ final class SettingsManagerTests: XCTestCase {
         // Losing the key outright is worse than leaving the plaintext copy in place.
         XCTAssertEqual(manager.openAICompatibleAPIKey, "synthetic-legacy-api-key")
         XCTAssertEqual(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"), "synthetic-legacy-api-key")
+    }
+
+    func testUnreadableKeychainKeyIsNotOverwrittenByTheLegacyCopy() {
+        let name = "SettingsManagerTests.\(UUID().uuidString)"
+        guard let isolatedDefaults = UserDefaults(suiteName: name) else {
+            XCTFail("Unable to create an isolated UserDefaults suite")
+            return
+        }
+        addTeardownBlock { isolatedDefaults.removePersistentDomain(forName: name) }
+        isolatedDefaults.set("synthetic-stale-legacy-key", forKey: "openAICompatibleAPIKey")
+
+        let keychain = InMemoryKeychain()
+        try? keychain.store(string: "synthetic-current-key", for: "settings.openAICompatible.apiKey.v1")
+        keychain.retrieveError = KeychainError.retrieveFailed(errSecIO)
+
+        let manager = SettingsManager(userDefaults: isolatedDefaults, keychain: keychain)
+
+        // A read failure is not an absent key: the good secure value must survive, and
+        // the stale plaintext one must not be written over it.
+        XCTAssertNotNil(manager.openAICompatibleKeyStorageError)
+        XCTAssertEqual(
+            keychain.storedValue(for: "settings.openAICompatible.apiKey.v1"),
+            "synthetic-current-key"
+        )
+        XCTAssertEqual(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"), "synthetic-stale-legacy-key")
+
+        // An unrelated settings save must not delete the key just because the field is
+        // empty — the field is empty only because the read failed.
+        manager.openAICompatibleContextSize = 16384
+        manager.saveSettings()
+        XCTAssertEqual(
+            keychain.storedValue(for: "settings.openAICompatible.apiKey.v1"),
+            "synthetic-current-key"
+        )
+
+        // Entering a key replaces the unreadable item and clears the warning.
+        keychain.retrieveError = nil
+        manager.openAICompatibleAPIKey = "synthetic-replacement-key"
+        manager.saveSettings()
+        XCTAssertNil(manager.openAICompatibleKeyStorageError)
+        XCTAssertEqual(
+            keychain.storedValue(for: "settings.openAICompatible.apiKey.v1"),
+            "synthetic-replacement-key"
+        )
+        XCTAssertNil(isolatedDefaults.string(forKey: "openAICompatibleAPIKey"))
     }
 
     func testKeychainStoreUpdatesInPlaceWithoutDeletingFirst() throws {
