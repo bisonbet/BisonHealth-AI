@@ -42,10 +42,54 @@ struct LabValueCandidate {
     let sourceSnippet: String
     let confidence: Double
     let validation: BloodTestValueValidator.ValidationResult
+    /// Name-match quality is separate from extraction confidence. Fuzzy name
+    /// matches may be reviewed but must not be silently auto-imported.
+    let matchConfidence: Double
+    let specimen: LabSpecimen?
+    let collection: LabCollection?
+
+    init(
+        standardKey: String,
+        parameter: LabParameter,
+        originalTestName: String,
+        value: String,
+        unit: String?,
+        referenceRange: String?,
+        abnormalFlag: String?,
+        testType: BloodTestResult.LabTestType,
+        source: CandidateSource,
+        pageNumber: Int?,
+        sourceSnippet: String,
+        confidence: Double,
+        validation: BloodTestValueValidator.ValidationResult,
+        matchConfidence: Double = 1.0,
+        specimen: LabSpecimen? = nil,
+        collection: LabCollection? = nil
+    ) {
+        self.standardKey = standardKey
+        self.parameter = parameter
+        self.originalTestName = originalTestName
+        self.value = value
+        self.unit = unit
+        self.referenceRange = referenceRange
+        self.abnormalFlag = abnormalFlag
+        self.testType = testType
+        self.source = source
+        self.pageNumber = pageNumber
+        self.sourceSnippet = sourceSnippet
+        self.confidence = confidence
+        self.validation = validation
+        self.matchConfidence = matchConfidence
+        self.specimen = specimen
+        self.collection = collection
+    }
 
     var isAbnormal: Bool {
-        guard let flag = abnormalFlag?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() else { return false }
-        return !flag.isEmpty && flag != "NORMAL" && flag != "N"
+        BloodTestValueValidator.isAbnormal(
+            value: value,
+            referenceRange: referenceRange ?? parameter.referenceRange,
+            flag: abnormalFlag
+        )
     }
 
     var isValid: Bool {
@@ -56,6 +100,7 @@ struct LabValueCandidate {
     var validationReason: String? {
         switch validation {
         case .valid: return nil
+        case .unitMismatch(let reason): return reason
         case .invalidType(let reason): return reason
         case .outOfRange(let reason, _): return reason
         case .missingData(let reason): return reason
@@ -64,11 +109,10 @@ struct LabValueCandidate {
 
     /// Value + unit normalized for cross-source agreement comparison.
     var normalizedValueKey: String {
-        let normalizedValue = value
-            .replacingOccurrences(of: ",", with: "")
-            .replacingOccurrences(of: " ", with: "")
-            .lowercased()
-        let normalizedUnit = unit.map { BloodTestValueValidator.canonicalUnit($0) } ?? ""
+        let normalizedValue = BloodTestValueValidator.normalizedValue(value)
+        let normalizedUnit = unit.map {
+            BloodTestValueValidator.canonicalUnit($0, for: parameter)
+        } ?? BloodTestValueValidator.canonicalUnit(parameter.unit ?? "", for: parameter)
         return "\(normalizedValue)|\(normalizedUnit)"
     }
 }
@@ -411,8 +455,10 @@ final class LabReportParser {
             referenceRange: referenceRange ?? parameter.referenceRange,
             standardParam: parameter
         )
-        if case .valid = validation, !BloodTestValueValidator.validateUnit(unit, for: parameter) {
-            validation = .invalidType(reason: "Unit '\(unit ?? "")' does not match expected unit '\(parameter.unit ?? "")' for \(parameter.name)")
+        if case .valid = validation {
+            if case .mismatch(let reason) = BloodTestValueValidator.unitValidation(unit, for: parameter) {
+                validation = .unitMismatch(reason: reason)
+            }
         }
 
         // Flag disagreement doesn't invalidate (labs use their own ranges) but lowers confidence
@@ -420,6 +466,8 @@ final class LabReportParser {
         if !BloodTestValueValidator.flagConsistency(value: foundValue, referenceRange: referenceRange, flag: flag) {
             confidence *= 0.85
         }
+
+        let context = LabMeasurementContext.infer(testName: name, parameter: parameter, unit: unit)
 
         return LabValueCandidate(
             standardKey: standardKey,
@@ -434,7 +482,10 @@ final class LabReportParser {
             pageNumber: pageNumber,
             sourceSnippet: String(snippet.prefix(200)),
             confidence: confidence,
-            validation: validation
+            validation: validation,
+            matchConfidence: matchConfidence,
+            specimen: context.specimen,
+            collection: context.collection
         )
     }
 
@@ -647,14 +698,22 @@ enum LabCandidateReconciler {
                     reason: candidate.validationReason,
                     sources: entry.sources,
                     pageNumber: candidate.pageNumber,
-                    sourceSnippet: candidate.sourceSnippet
+                    sourceSnippet: candidate.sourceSnippet,
+                    specimen: candidate.specimen ?? candidate.parameter.defaultSpecimen,
+                    collection: candidate.collection ?? candidate.parameter.defaultCollection
                 )
             }
 
             guard let parameterName = group.first?.parameter.name else { continue }
 
-            // The auto-accept rule: BOTH single distinct value AND validation passed
-            let isAutoAccepted = distinct.count == 1 && distinct[0].representative.isValid
+            // A value must be structurally valid, have a strong name match, and
+            // not be clinically abnormal before it can be silently imported.
+            // Abnormal values remain importable but require an explicit review.
+            let representative = distinct[0].representative
+            let isAutoAccepted = distinct.count == 1
+                && representative.isValid
+                && representative.matchConfidence >= 0.7
+                && !representative.isAbnormal
 
             let importGroup = BloodTestImportGroup(
                 standardTestName: parameterName,
@@ -688,6 +747,7 @@ enum LabCandidateReconciler {
     private static func validationStatus(for candidate: LabValueCandidate) -> BloodTestImportCandidate.ValidationStatus {
         switch candidate.validation {
         case .valid: return .valid
+        case .unitMismatch: return .unitMismatch
         case .invalidType: return .invalidType
         case .outOfRange: return .outOfRange
         case .missingData: return .missingData
@@ -721,6 +781,8 @@ enum CloudVisionLabExtraction {
               "unit": "unit as printed, or null",
               "referenceRange": "range as printed (e.g. 70-100, <200), or null",
               "flag": "H, L, High, Low, Critical, or null",
+              "specimen": "SERUM, PLASMA, WHOLE_BLOOD, URINE, or null",
+              "collection": "RANDOM, SPOT, 24_HOUR, TIMED, or null",
               "page": 1
             }
           ],
@@ -734,6 +796,7 @@ enum CloudVisionLabExtraction {
         different values (different draw times), include both.
         - Preserve test names, values, units, and ranges exactly as printed.
         - Include both percent and absolute CBC differential values as separate entries.
+        - Preserve explicit specimen and urine collection context when printed; do not invent it.
         - "page" is the 1-based index of the attached image the value appears on.
         """
     }
@@ -790,9 +853,19 @@ enum CloudVisionLabExtraction {
                 referenceRange: referenceRange ?? match.parameter.referenceRange,
                 standardParam: match.parameter
             )
-            if case .valid = validation, !BloodTestValueValidator.validateUnit(unit, for: match.parameter) {
-                validation = .invalidType(reason: "Unit '\(unit ?? "")' does not match expected unit '\(match.parameter.unit ?? "")'")
+            if case .valid = validation {
+                if case .mismatch(let reason) = BloodTestValueValidator.unitValidation(unit, for: match.parameter) {
+                    validation = .unitMismatch(reason: reason)
+                }
             }
+
+            let context = LabMeasurementContext.infer(
+                testName: testName,
+                parameter: match.parameter,
+                unit: unit,
+                reportedSpecimen: entry["specimen"] as? String,
+                reportedCollection: entry["collection"] as? String
+            )
 
             result.candidates.append(LabValueCandidate(
                 standardKey: match.key,
@@ -807,7 +880,10 @@ enum CloudVisionLabExtraction {
                 pageNumber: page,
                 sourceSnippet: "Vision model: \(testName) = \(value)\(unit.map { " \($0)" } ?? "")",
                 confidence: 0.9 * match.matchConfidence,
-                validation: validation
+                validation: validation,
+                matchConfidence: match.matchConfidence,
+                specimen: context.specimen,
+                collection: context.collection
             ))
         }
 

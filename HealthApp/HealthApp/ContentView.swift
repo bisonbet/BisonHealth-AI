@@ -1008,7 +1008,9 @@ struct DocumentsView: View {
                     isAbnormal: selectedCandidate.isAbnormal,
                     category: standardParam.category,
                     notes: notes,
-                    confidence: selectedCandidate.confidence
+                    confidence: selectedCandidate.confidence,
+                    specimen: selectedCandidate.specimen ?? standardParam.defaultSpecimen,
+                    collection: selectedCandidate.collection ?? standardParam.defaultCollection
                 )
                 updatedResults.append(newItem)
                 processedKeys.insert(standardKey)

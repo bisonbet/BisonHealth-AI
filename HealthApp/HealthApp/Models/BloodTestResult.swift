@@ -62,6 +62,28 @@ struct BloodTestResult: HealthDataProtocol {
     }
 }
 
+// MARK: - Lab Measurement Context
+/// The specimen and collection context needed to interpret a laboratory value.
+/// These fields are optional on persisted records so existing imports remain
+/// backward compatible while new imports retain the context inferred from the
+/// report.
+enum LabSpecimen: String, Codable, Hashable {
+    case blood
+    case serum
+    case plasma
+    case wholeBlood = "whole_blood"
+    case urine
+    case unspecified
+}
+
+enum LabCollection: String, Codable, Hashable {
+    case notApplicable = "not_applicable"
+    case random
+    case spot
+    case twentyFourHour = "twenty_four_hour"
+    case timed
+}
+
 // MARK: - Blood Test Item
 struct BloodTestItem: Codable, Identifiable {
     let id: UUID
@@ -73,6 +95,8 @@ struct BloodTestItem: Codable, Identifiable {
     var category: BloodTestCategory?
     var notes: String?
     var confidence: Double?
+    var specimen: LabSpecimen?
+    var collection: LabCollection?
     
     init(
         id: UUID = UUID(),
@@ -83,7 +107,9 @@ struct BloodTestItem: Codable, Identifiable {
         isAbnormal: Bool = false,
         category: BloodTestCategory? = nil,
         notes: String? = nil,
-        confidence: Double? = nil
+        confidence: Double? = nil,
+        specimen: LabSpecimen? = nil,
+        collection: LabCollection? = nil
     ) {
         self.id = id
         self.name = name
@@ -94,6 +120,8 @@ struct BloodTestItem: Codable, Identifiable {
         self.category = category
         self.notes = notes
         self.confidence = confidence
+        self.specimen = specimen
+        self.collection = collection
     }
 }
 
@@ -256,6 +284,101 @@ struct LabParameter: Codable {
     }
 }
 
+extension LabParameter {
+    /// A conservative default. The actual report specimen, when present, is
+    /// more authoritative than this inferred value.
+    var defaultSpecimen: LabSpecimen {
+        switch category {
+        case .urinalysis, .urineChemistry, .urineMicrobiology:
+            return .urine
+        default:
+            return .blood
+        }
+    }
+
+    /// Collection defaults are derived from the measurement represented by the
+    /// key, not from a generic "urine" label.
+    var defaultCollection: LabCollection {
+        guard defaultSpecimen == .urine else { return .notApplicable }
+
+        switch key {
+        case "urine_urea_nitrogen",
+             "urine_creatinine_clearance",
+             "urine_calcium",
+             "urine_uric_acid",
+             "urine_phosphate",
+             "urine_magnesium":
+            return .twentyFourHour
+        case "urine_protein_creatinine_ratio", "urine_albumin_creatinine_ratio":
+            return .spot
+        default:
+            return .random
+        }
+    }
+}
+
+enum LabMeasurementContext {
+    /// Infer only what can be supported by the parameter name, report labels,
+    /// and explicit specimen/collection fields. Unknown context stays generic.
+    static func infer(
+        testName: String?,
+        parameter: LabParameter,
+        unit: String? = nil,
+        reportedSpecimen: String? = nil,
+        reportedCollection: String? = nil
+    ) -> (specimen: LabSpecimen, collection: LabCollection) {
+        let normalizedName = BloodTestResult.normalizeLabName(testName ?? "")
+
+        let specimen = parseSpecimen(reportedSpecimen)
+            ?? (normalizedName.contains("plasma") ? .plasma : nil)
+            ?? (normalizedName.contains("serum") ? .serum : nil)
+            ?? (normalizedName.contains("whole_blood") ? .wholeBlood : nil)
+            ?? parameter.defaultSpecimen
+
+        var collection = parseCollection(reportedCollection)
+        if collection == nil,
+           normalizedName.contains("24_hour") || normalizedName.contains("24h") || normalizedName.contains("24_hr") {
+            collection = .twentyFourHour
+        }
+        if collection == nil, normalizedName.contains("spot") {
+            collection = .spot
+        }
+        if collection == nil, normalizedName.contains("random") {
+            collection = .random
+        }
+        if collection == nil,
+           unit?.lowercased().replacingOccurrences(of: " ", with: "").contains("/24h") == true {
+            collection = .twentyFourHour
+        }
+        return (specimen, collection ?? parameter.defaultCollection)
+    }
+
+    private static func parseSpecimen(_ raw: String?) -> LabSpecimen? {
+        guard let raw else { return nil }
+        switch BloodTestResult.normalizeLabName(raw) {
+        case "blood": return .blood
+        case "serum": return .serum
+        case "plasma": return .plasma
+        case "whole_blood", "wholeblood": return .wholeBlood
+        case "urine": return .urine
+        default: return nil
+        }
+    }
+
+    private static func parseCollection(_ raw: String?) -> LabCollection? {
+        guard let raw else { return nil }
+        let normalized = BloodTestResult.normalizeLabName(raw)
+        switch normalized {
+        case "random": return .random
+        case "spot": return .spot
+        case "24h", "24_hr", "24_hour", "twenty_four_hour", "timed_24_hour": return .twentyFourHour
+        case "timed": return .timed
+        case "na", "not_applicable": return .notApplicable
+        default: return nil
+        }
+    }
+}
+
 // MARK: - Comprehensive Lab Parameters (Based on Legacy Schema)
 extension BloodTestResult {
     static let standardizedLabParameters: [String: LabParameter] = [
@@ -285,11 +408,11 @@ extension BloodTestResult {
 
         // Basic/Comprehensive Metabolic Panel
         "glucose": LabParameter(name: "Glucose", key: "glucose", unit: "mg/dL", referenceRange: "70-100", category: .basicMetabolicPanel, description: "Glucose, blood sugar"),
-        "sodium": LabParameter(name: "Sodium", key: "sodium", unit: "mEq/L", referenceRange: "136-145", category: .basicMetabolicPanel, description: "Sodium"),
-        "potassium": LabParameter(name: "Potassium", key: "potassium", unit: "mEq/L", referenceRange: "3.5-5.0", category: .basicMetabolicPanel, description: "Potassium"),
-        "chloride": LabParameter(name: "Chloride", key: "chloride", unit: "mEq/L", referenceRange: "98-107", category: .basicMetabolicPanel, description: "Chloride"),
-        "co2_bicarbonate": LabParameter(name: "CO2 (Bicarbonate)", key: "co2_bicarbonate", unit: "mEq/L", referenceRange: "22-29", category: .basicMetabolicPanel, description: "CO2, Serum Bicarbonate"),
-        "anion_gap": LabParameter(name: "Anion Gap", key: "anion_gap", unit: "mEq/L", referenceRange: "7-16", category: .basicMetabolicPanel, description: "Anion Gap"),
+        "sodium": LabParameter(name: "Sodium", key: "sodium", unit: "mmol/L", referenceRange: "136-145", category: .basicMetabolicPanel, description: "Sodium"),
+        "potassium": LabParameter(name: "Potassium", key: "potassium", unit: "mmol/L", referenceRange: "3.5-5.0", category: .basicMetabolicPanel, description: "Potassium"),
+        "chloride": LabParameter(name: "Chloride", key: "chloride", unit: "mmol/L", referenceRange: "98-107", category: .basicMetabolicPanel, description: "Chloride"),
+        "co2_bicarbonate": LabParameter(name: "CO2 (Bicarbonate)", key: "co2_bicarbonate", unit: "mmol/L", referenceRange: "22-29", category: .basicMetabolicPanel, description: "CO2, Serum Bicarbonate"),
+        "anion_gap": LabParameter(name: "Anion Gap", key: "anion_gap", unit: "mmol/L", referenceRange: "7-16", category: .basicMetabolicPanel, description: "Anion Gap"),
         "bun": LabParameter(name: "Blood Urea Nitrogen", key: "bun", unit: "mg/dL", referenceRange: "7-20", category: .kidneyFunction, description: "BUN, Blood Urea Nitrogen"),
         "creatinine": LabParameter(name: "Creatinine", key: "creatinine", unit: "mg/dL", referenceRange: "0.6-1.2", category: .kidneyFunction, description: "Creatinine, kidney function indicator"),
         "egfr": LabParameter(name: "eGFR", key: "egfr", unit: "mL/min/1.73m²", referenceRange: ">60", category: .kidneyFunction, description: "eGFR, Estimated Glomerular Filtration Rate"),
@@ -501,21 +624,21 @@ extension BloodTestResult {
         
         // Urine Chemistry
         "urine_creatinine": LabParameter(name: "Urine Creatinine", key: "urine_creatinine", unit: "mg/dL", referenceRange: "20-320", category: .urineChemistry, description: "Urine creatinine"),
-        "urine_protein_quantitative": LabParameter(name: "Urine Protein (Quantitative)", key: "urine_protein_quantitative", unit: "mg/dL", referenceRange: "<150", category: .urineChemistry, description: "Quantitative urine protein"),
-        "urine_albumin": LabParameter(name: "Urine Albumin", key: "urine_albumin", unit: "mg/dL", referenceRange: "<30", category: .urineChemistry, description: "Urine albumin"),
-        "urine_microalbumin": LabParameter(name: "Urine Microalbumin", key: "urine_microalbumin", unit: "mg/g", referenceRange: "<30", category: .urineChemistry, description: "Urine microalbumin"),
+        "urine_protein_quantitative": LabParameter(name: "Urine Protein (Concentration)", key: "urine_protein_quantitative", unit: "mg/dL", referenceRange: nil, category: .urineChemistry, description: "Quantitative urine protein concentration; collection context required"),
+        "urine_albumin": LabParameter(name: "Urine Albumin (Concentration)", key: "urine_albumin", unit: "mg/dL", referenceRange: nil, category: .urineChemistry, description: "Urine albumin concentration; collection context required"),
+        "urine_microalbumin": LabParameter(name: "Urine Microalbumin (Concentration)", key: "urine_microalbumin", unit: "mg/dL", referenceRange: nil, category: .urineChemistry, description: "Urine microalbumin concentration; do not confuse with ACR"),
         "urine_protein_creatinine_ratio": LabParameter(name: "Urine Protein/Creatinine Ratio", key: "urine_protein_creatinine_ratio", unit: "mg/g", referenceRange: "<150", category: .urineChemistry, description: "Urine protein to creatinine ratio"),
         "urine_albumin_creatinine_ratio": LabParameter(name: "Urine Albumin/Creatinine Ratio", key: "urine_albumin_creatinine_ratio", unit: "mg/g", referenceRange: "<30", category: .urineChemistry, description: "Urine albumin to creatinine ratio (ACR)"),
-        "urine_sodium": LabParameter(name: "Urine Sodium", key: "urine_sodium", unit: "mEq/L", referenceRange: "40-220", category: .urineChemistry, description: "Urine sodium"),
-        "urine_potassium": LabParameter(name: "Urine Potassium", key: "urine_potassium", unit: "mEq/L", referenceRange: "25-125", category: .urineChemistry, description: "Urine potassium"),
-        "urine_chloride": LabParameter(name: "Urine Chloride", key: "urine_chloride", unit: "mEq/L", referenceRange: "110-250", category: .urineChemistry, description: "Urine chloride"),
-        "urine_osmolality": LabParameter(name: "Urine Osmolality", key: "urine_osmolality", unit: "mOsm/kg", referenceRange: "50-1200", category: .urineChemistry, description: "Urine osmolality"),
-        "urine_urea_nitrogen": LabParameter(name: "Urine Urea Nitrogen", key: "urine_urea_nitrogen", unit: "g/24h", referenceRange: "12-20", category: .urineChemistry, description: "Urine urea nitrogen"),
-        "urine_creatinine_clearance": LabParameter(name: "Creatinine Clearance", key: "urine_creatinine_clearance", unit: "mL/min", referenceRange: "90-140", category: .urineChemistry, description: "Creatinine clearance (24-hour urine)"),
-        "urine_calcium": LabParameter(name: "Urine Calcium", key: "urine_calcium", unit: "mg/24h", referenceRange: "100-300", category: .urineChemistry, description: "24-hour urine calcium"),
-        "urine_uric_acid": LabParameter(name: "Urine Uric Acid", key: "urine_uric_acid", unit: "mg/24h", referenceRange: "250-750", category: .urineChemistry, description: "24-hour urine uric acid"),
-        "urine_phosphate": LabParameter(name: "Urine Phosphate", key: "urine_phosphate", unit: "mg/24h", referenceRange: "400-1300", category: .urineChemistry, description: "24-hour urine phosphate"),
-        "urine_magnesium": LabParameter(name: "Urine Magnesium", key: "urine_magnesium", unit: "mg/24h", referenceRange: "73-122", category: .urineChemistry, description: "24-hour urine magnesium"),
+        "urine_sodium": LabParameter(name: "Urine Sodium", key: "urine_sodium", unit: "mmol/L", referenceRange: nil, category: .urineChemistry, description: "Urine sodium concentration; spot versus timed collection required"),
+        "urine_potassium": LabParameter(name: "Urine Potassium", key: "urine_potassium", unit: "mmol/L", referenceRange: nil, category: .urineChemistry, description: "Urine potassium concentration; spot versus timed collection required"),
+        "urine_chloride": LabParameter(name: "Urine Chloride", key: "urine_chloride", unit: "mmol/L", referenceRange: nil, category: .urineChemistry, description: "Urine chloride concentration; spot versus timed collection required"),
+        "urine_osmolality": LabParameter(name: "Urine Osmolality", key: "urine_osmolality", unit: "mOsm/kg", referenceRange: nil, category: .urineChemistry, description: "Urine osmolality; hydration and collection context required"),
+        "urine_urea_nitrogen": LabParameter(name: "Urine Urea Nitrogen", key: "urine_urea_nitrogen", unit: "g/24h", referenceRange: nil, category: .urineChemistry, description: "Urine urea nitrogen, 24-hour collection"),
+        "urine_creatinine_clearance": LabParameter(name: "Creatinine Clearance", key: "urine_creatinine_clearance", unit: "mL/min", referenceRange: nil, category: .urineChemistry, description: "Creatinine clearance, 24-hour urine; distinct from indexed eGFR"),
+        "urine_calcium": LabParameter(name: "Urine Calcium", key: "urine_calcium", unit: "mg/24h", referenceRange: nil, category: .urineChemistry, description: "24-hour urine calcium"),
+        "urine_uric_acid": LabParameter(name: "Urine Uric Acid", key: "urine_uric_acid", unit: "mg/24h", referenceRange: nil, category: .urineChemistry, description: "24-hour urine uric acid"),
+        "urine_phosphate": LabParameter(name: "Urine Phosphate", key: "urine_phosphate", unit: "mg/24h", referenceRange: nil, category: .urineChemistry, description: "24-hour urine phosphate"),
+        "urine_magnesium": LabParameter(name: "Urine Magnesium", key: "urine_magnesium", unit: "mg/24h", referenceRange: nil, category: .urineChemistry, description: "24-hour urine magnesium"),
         
         // Urine Microbiology
         "urine_culture": LabParameter(name: "Urine Culture", key: "urine_culture", unit: "", referenceRange: "No growth", category: .urineMicrobiology, description: "Urine culture result"),
@@ -569,6 +692,8 @@ extension BloodTestResult {
         "creatinine": ["creat", "serum_creatinine", "cr", "creatinine_serum"],
         "egfr": ["estimated_gfr", "gfr", "egfr_estimated", "glomerular_filtration_rate", "egfr_non_african_american", "egfr_african_american"],
         "bun_creatinine_ratio": ["bun_cr_ratio", "bun_creat_ratio", "urea_creatinine_ratio"],
+        "abo_blood_type": ["abo", "abo_group", "abo_rh", "abo_rh_type", "blood_group", "blood_group_and_rh", "blood_type"],
+        "rh_factor": ["rh", "rhesus", "rhesus_factor", "rh_type"],
         "cystatin_c": ["cys_c"],
         "calcium": ["ca", "calcium_serum", "calcium_total", "total_calcium"],
         "albumin": ["alb", "albumin_serum"],

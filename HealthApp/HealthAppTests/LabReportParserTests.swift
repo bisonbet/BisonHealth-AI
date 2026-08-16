@@ -81,6 +81,43 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertFalse(BloodTestValueValidator.validateUnit("mg/dL", for: wbc))
     }
 
+    func testElectrolyteUnitsAreAnalyteAware() {
+        for key in ["sodium", "potassium", "chloride", "co2_bicarbonate", "anion_gap"] {
+            guard let parameter = BloodTestResult.standardizedLabParameters[key] else {
+                XCTFail("Missing catalog parameter: \(key)")
+                return
+            }
+            XCTAssertTrue(BloodTestValueValidator.validateUnit("mmol/L", for: parameter))
+            XCTAssertTrue(BloodTestValueValidator.validateUnit("mEq/L", for: parameter))
+        }
+
+        guard let calcium = BloodTestResult.standardizedLabParameters["calcium"] else {
+            XCTFail("Missing calcium catalog parameter")
+            return
+        }
+        XCTAssertFalse(BloodTestValueValidator.validateUnit("mmol/L", for: calcium), "Unit equivalence must not be global across analytes")
+    }
+
+    func testEGFRUnitFormattingVariantsNormalize() {
+        guard let egfr = BloodTestResult.standardizedLabParameters["egfr"] else {
+            XCTFail("Missing eGFR catalog parameter")
+            return
+        }
+        for unit in ["mL/min/1.73", "mL/min/1.73m2", "mL/min/1.73m²", "mL/min/1.73 m²"] {
+            XCTAssertTrue(BloodTestValueValidator.validateUnit(unit, for: egfr), "Expected eGFR unit variant to validate: \(unit)")
+        }
+        XCTAssertFalse(BloodTestValueValidator.validateUnit("mL/min", for: egfr), "Unindexed clearance must remain distinct from eGFR")
+    }
+
+    func testDimensionlessParametersRejectReportedConcentrationUnits() {
+        guard let ratio = BloodTestResult.standardizedLabParameters["bun_creatinine_ratio"] else {
+            XCTFail("Missing BUN/Creatinine Ratio catalog parameter")
+            return
+        }
+        XCTAssertTrue(BloodTestValueValidator.validateUnit(nil, for: ratio))
+        XCTAssertFalse(BloodTestValueValidator.validateUnit("mg/dL", for: ratio))
+    }
+
     func testFlagConsistency() {
         XCTAssertTrue(BloodTestValueValidator.flagConsistency(value: "250", referenceRange: "70-100", flag: "H"))
         XCTAssertTrue(BloodTestValueValidator.flagConsistency(value: "80", referenceRange: "70-100", flag: nil))
@@ -102,6 +139,93 @@ final class LabReportParserTests: XCTestCase {
         if case .valid = result {} else {
             XCTFail("Qualitative urinalysis value should validate, got \(result)")
         }
+    }
+
+    func testQualitativeAndBloodTypeVariantsAreValidForTheirParameters() {
+        let ketones = BloodTestResult.standardizedLabParameters["urine_ketones"]
+        let protein = BloodTestResult.standardizedLabParameters["urine_protein"]
+        let abo = BloodTestResult.standardizedLabParameters["abo_blood_type"]
+
+        if case .valid = BloodTestValueValidator.validateValue("Small", testName: "Urine Ketones", referenceRange: nil, standardParam: ketones) {} else {
+            XCTFail("Small urine ketone result should validate")
+        }
+        if case .valid = BloodTestValueValidator.validateValue("1+", testName: "Urine Protein", referenceRange: nil, standardParam: protein) {} else {
+            XCTFail("Semi-quantitative urine protein result should validate")
+        }
+        if case .valid = BloodTestValueValidator.validateValue("O+", testName: "ABO Blood Type", referenceRange: nil, standardParam: abo) {} else {
+            XCTFail("ABO/Rh blood type result should validate")
+        }
+        if case .valid = BloodTestValueValidator.validateValue("AB positive", testName: "ABO Blood Type", referenceRange: nil, standardParam: abo) {} else {
+            XCTFail("Spelled-out ABO/Rh result should validate")
+        }
+
+        let urineCulture = BloodTestResult.standardizedLabParameters["urine_culture"]
+        if case .valid = BloodTestValueValidator.validateValue("No growth", testName: "Urine Culture", referenceRange: nil, standardParam: urineCulture) {} else {
+            XCTFail("Urine culture's multi-word qualitative result should validate")
+        }
+
+        let urobilinogen = BloodTestResult.standardizedLabParameters["urine_urobilinogen"]
+        if case .valid = BloodTestValueValidator.validateValue("Normal", testName: "Urine Urobilinogen", referenceRange: nil, standardParam: urobilinogen) {} else {
+            XCTFail("Urine qualitative normal result should validate")
+        }
+        XCTAssertFalse(BloodTestValueValidator.isAbnormal(value: "Negative", referenceRange: "Negative", flag: nil))
+        XCTAssertTrue(BloodTestValueValidator.isAbnormal(value: "Positive", referenceRange: "Negative", flag: nil))
+
+        let serumGlucose = BloodTestResult.standardizedLabParameters["glucose"]
+        if case .valid = BloodTestValueValidator.validateValue("Negative", testName: "Glucose", referenceRange: nil, standardParam: serumGlucose) {
+            XCTFail("Qualitative urine values must not validate as arbitrary serum results")
+        }
+    }
+
+    func testAbnormalNumericValueRemainsImportableAndIsMarkedAbnormal() {
+        guard let glucose = BloodTestResult.standardizedLabParameters["glucose"] else {
+            XCTFail("Missing glucose catalog parameter")
+            return
+        }
+        let validation = BloodTestValueValidator.validateValue(
+            "250",
+            testName: glucose.name,
+            referenceRange: "70-100",
+            standardParam: glucose
+        )
+        if case .valid = validation {} else {
+            XCTFail("Out-of-range numeric results must remain importable")
+        }
+
+        let candidate = LabValueCandidate(
+            standardKey: glucose.key,
+            parameter: glucose,
+            originalTestName: glucose.name,
+            value: "250",
+            unit: "mg/dL",
+            referenceRange: "70-100",
+            abnormalFlag: nil,
+            testType: .blood,
+            source: .deterministicRow,
+            pageNumber: 1,
+            sourceSnippet: "Glucose 250 mg/dL 70-100",
+            confidence: 0.95,
+            validation: validation
+        )
+        let results = LabCandidateReconciler.reconcile([candidate])
+        XCTAssertTrue(results.autoAccepted.isEmpty, "Abnormal values should require explicit review")
+        XCTAssertEqual(results.needsReview.first?.candidates.first?.value, "250")
+        XCTAssertTrue(results.needsReview.first?.candidates.first?.isAbnormal == true)
+    }
+
+    func testUrineMeasurementContextDistinguishesSpotAndTwentyFourHour() {
+        guard let acr = BloodTestResult.standardizedLabParameters["urine_albumin_creatinine_ratio"],
+              let calcium = BloodTestResult.standardizedLabParameters["urine_calcium"] else {
+            XCTFail("Missing urine chemistry catalog parameter")
+            return
+        }
+        let acrContext = LabMeasurementContext.infer(testName: acr.name, parameter: acr, unit: acr.unit)
+        let calciumContext = LabMeasurementContext.infer(testName: calcium.name, parameter: calcium, unit: calcium.unit)
+
+        XCTAssertEqual(acrContext.specimen, .urine)
+        XCTAssertEqual(acrContext.collection, .spot)
+        XCTAssertEqual(calciumContext.specimen, .urine)
+        XCTAssertEqual(calciumContext.collection, .twentyFourHour)
     }
 
     // MARK: - Range Parsing Tests
@@ -367,6 +491,81 @@ final class LabReportParserTests: XCTestCase {
 
         XCTAssertEqual(results.autoAccepted.count, 1, "Equivalent unit notations must merge as the same value")
         XCTAssertEqual(results.autoAccepted[0].candidates.count, 1)
+    }
+
+    func testReconcilerMergesNumericFormattingAndMissingUnit() {
+        let parameter = BloodTestResult.standardizedLabParameters["creatinine"]!
+        let first = LabValueCandidate(
+            standardKey: "creatinine",
+            parameter: parameter,
+            originalTestName: parameter.name,
+            value: "1.13",
+            unit: "mg/dL",
+            referenceRange: "0.6-1.2",
+            abnormalFlag: nil,
+            testType: .blood,
+            source: .deterministicRow,
+            pageNumber: 1,
+            sourceSnippet: "Creatinine 1.13 mg/dL",
+            confidence: 0.9,
+            validation: .valid
+        )
+        let second = LabValueCandidate(
+            standardKey: "creatinine",
+            parameter: parameter,
+            originalTestName: "Creatinine",
+            value: "1.130",
+            unit: nil,
+            referenceRange: "0.6-1.2",
+            abnormalFlag: nil,
+            testType: .blood,
+            source: .onDeviceVision,
+            pageNumber: 1,
+            sourceSnippet: "Creatinine 1.130",
+            confidence: 0.9,
+            validation: .valid
+        )
+
+        let results = LabCandidateReconciler.reconcile([first, second])
+        XCTAssertEqual(results.autoAccepted.count, 1)
+        XCTAssertEqual(results.autoAccepted.first?.candidates.count, 1)
+    }
+
+    func testFuzzyNameMatchRequiresReviewEvenWhenValueIsValid() {
+        let candidates = parser.parse(plainText: "Cholesterol Totl\t180\tmg/dL\t<200")
+        guard let candidate = candidates.first else {
+            XCTFail("Expected fuzzy cholesterol candidate")
+            return
+        }
+        XCTAssertEqual(candidate.standardKey, "cholesterol_total")
+        XCTAssertLessThan(candidate.matchConfidence, 0.7)
+
+        let results = LabCandidateReconciler.reconcile(candidates)
+        XCTAssertTrue(results.autoAccepted.isEmpty)
+        XCTAssertEqual(results.needsReview.first?.standardKey, "cholesterol_total")
+    }
+
+    func testBUNCreatinineRatioDoesNotJoinCreatinineGroup() {
+        let candidates = parser.parse(plainText: """
+        Creatinine\t1.13\tmg/dL\t0.6-1.2
+        BUN/Creatinine Ratio\t10\t\t9-20
+        """)
+        let results = LabCandidateReconciler.reconcile(candidates)
+        let keys = Set((results.autoAccepted + results.needsReview).map(\.standardKey))
+        XCTAssertEqual(keys, Set(["creatinine", "bun_creatinine_ratio"]))
+    }
+
+    func testWrongUnitRemainsExplicitlySelectableForReview() {
+        let candidates = parser.parse(plainText: "Sodium\t143\tmg/dL\t134-144")
+        let results = LabCandidateReconciler.reconcile(candidates)
+        guard let candidate = results.needsReview.first?.candidates.first else {
+            XCTFail("Expected unit-warning candidate")
+            return
+        }
+
+        XCTAssertEqual(candidate.validationStatus, .unitMismatch)
+        XCTAssertTrue(candidate.isSelectable)
+        XCTAssertTrue(results.autoAccepted.isEmpty)
     }
 
     func testReconcilerHandlesMixedDocument() {

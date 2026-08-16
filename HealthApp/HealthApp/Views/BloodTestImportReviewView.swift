@@ -104,7 +104,7 @@ struct BloodTestImportReviewView: View {
     private var headerSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Review \(importGroups.count + demotedGroups.count) extracted test results")
+                Text("Review \(importGroups.count + demotedGroups.count + autoAcceptedGroups.count) extracted test results")
                     .font(.headline)
 
                 Text("Please review values before importing. You can deselect items to ignore them.")
@@ -370,8 +370,9 @@ struct BloodTestImportReviewView: View {
         .clipped()
         .onTapGesture {
             AppLog.shared.ui("Candidate tapped: \(candidate.displayValue)")
-            // Only allow selection of valid candidates
-            if candidate.validationStatus == .valid {
+            // Allow explicit selection of parseable values with a unit warning;
+            // structurally invalid OCR values remain non-selectable.
+            if candidate.isSelectable {
                 // Update both the state and the binding
                 ignoredGroupIds.remove(groupId)
                 selectedIds[groupId] = candidate.id
@@ -380,7 +381,7 @@ struct BloodTestImportReviewView: View {
                 group.wrappedValue = updatedGroup
             }
         }
-        .opacity(candidate.validationStatus == .valid ? 1.0 : 0.6)
+        .opacity(candidate.isSelectable ? 1.0 : 0.6)
         .zIndex(0)
     }
     
@@ -412,6 +413,8 @@ struct BloodTestImportReviewView: View {
         switch status {
         case .valid:
             return (.green, "Valid")
+        case .unitMismatch:
+            return (.orange, "Unit Warning — tap to import")
         case .invalidType:
             return (.red, "Invalid Type")
         case .outOfRange:
@@ -459,9 +462,6 @@ struct BloodTestImportReviewView: View {
         for group in importGroups + demotedGroups {
             if let recommended = group.recommendedCandidate {
                 selectedIds[group.id] = recommended.id
-                ignoredGroupIds.remove(group.id)
-            } else if let firstValid = group.candidates.first(where: { $0.validationStatus == .valid }) {
-                selectedIds[group.id] = firstValid.id
                 ignoredGroupIds.remove(group.id)
             }
         }

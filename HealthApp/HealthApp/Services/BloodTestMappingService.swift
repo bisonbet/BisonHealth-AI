@@ -84,7 +84,9 @@ class BloodTestMappingService: ObservableObject {
                         isAbnormal: candidate.isAbnormal,
                         category: category,
                         confidence: candidate.confidence,
-                        originalTestName: candidate.originalTestName
+                        originalTestName: candidate.originalTestName,
+                        specimen: candidate.specimen,
+                        collection: candidate.collection
                     )
                     draftResults.append(standardizedValue)
                 }
@@ -229,9 +231,19 @@ class BloodTestMappingService: ObservableObject {
                 referenceRange: value.referenceRange ?? match.parameter.referenceRange,
                 standardParam: match.parameter
             )
-            if case .valid = validation, !BloodTestValueValidator.validateUnit(value.unit, for: match.parameter) {
-                validation = .invalidType(reason: "Unit '\(value.unit ?? "")' does not match expected unit '\(match.parameter.unit ?? "")'")
+            if case .valid = validation {
+                if case .mismatch(let reason) = BloodTestValueValidator.unitValidation(value.unit, for: match.parameter) {
+                    validation = .unitMismatch(reason: reason)
+                }
             }
+
+            let context = LabMeasurementContext.infer(
+                testName: value.testName,
+                parameter: match.parameter,
+                unit: value.unit,
+                reportedSpecimen: value.specimen,
+                reportedCollection: value.collection
+            )
 
             candidates.append(LabValueCandidate(
                 standardKey: match.key,
@@ -246,7 +258,10 @@ class BloodTestMappingService: ObservableObject {
                 pageNumber: nil,
                 sourceSnippet: "AI extracted: \(value.testName) = \(value.value)\(value.unit.map { " \($0)" } ?? "")",
                 confidence: value.confidence * match.matchConfidence,
-                validation: validation
+                validation: validation,
+                matchConfidence: match.matchConfidence,
+                specimen: context.specimen,
+                collection: context.collection
             ))
         }
 
@@ -255,7 +270,7 @@ class BloodTestMappingService: ObservableObject {
     }
 
     // MARK: - Phase 2: Extract Lab Values with AI
-    private func extractLabValuesWithAI(from text: String, filterInvalid: Bool = true) async throws -> [ExtractedLabValue] {
+    private func extractLabValuesWithAI(from text: String, filterInvalid: Bool = false) async throws -> [ExtractedLabValue] {
         // Check if document is too large and needs chunking
         // Reduced from 15000 to 2000 to prevent OOM on iOS devices running local LLMs
         let maxChunkSize = 2000
@@ -273,7 +288,9 @@ class BloodTestMappingService: ObservableObject {
             allExtractedValues.append(contentsOf: chunkValues)
         }
 
-        // Optionally filter out invalid values (non-numeric, out of range, etc.)
+        // Structural filtering is opt-in for callers that explicitly need it.
+        // The import path retains parseable abnormal values and unit warnings
+        // so the review UI can make the final decision.
         let validValues: [ExtractedLabValue]
         if filterInvalid {
             validValues = BloodTestValueValidator.filterInvalidValues(
@@ -351,15 +368,17 @@ class BloodTestMappingService: ObservableObject {
         4. Unit (mg/dL, %, /HPF, etc. - leave empty if none)
         5. Reference range (e.g., "70-100", "<200", "Negative")
         6. Abnormal flag (High, Low, H, L, *, ↑, ↓, or "Normal" if none)
+        7. Specimen (SERUM, PLASMA, WHOLE_BLOOD, URINE, or "unknown")
+        8. Collection (RANDOM, SPOT, 24_HOUR, TIMED, or "unknown")
 
         Format (pipe-delimited, one per line):
-        TEST_NAME|TEST_TYPE|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
+        TEST_NAME|TEST_TYPE|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG|SPECIMEN|COLLECTION
 
         Examples:
-        Glucose|BLOOD|95|mg/dL|70-100|Normal
-        Total Cholesterol|BLOOD|220|mg/dL|<200|High
-        Urine Protein|URINE|Negative||Negative|Normal
-        Neutrophils|55|%|40-60|Normal
+        Glucose|BLOOD|95|mg/dL|70-100|Normal|SERUM|unknown
+        Total Cholesterol|BLOOD|220|mg/dL|<200|High|SERUM|unknown
+        Urine Protein|URINE|Negative||Negative|Normal|URINE|RANDOM
+        Neutrophils|BLOOD|55|%|40-60|Normal|WHOLE_BLOOD|unknown
 
         Rules:
         - Preserve test names exactly as written
@@ -392,12 +411,16 @@ class BloodTestMappingService: ObservableObject {
         var deduplicated: [ExtractedLabValue] = []
         
         for value in values {
-            // Normalize test name for comparison (remove common prefixes/suffixes, lowercase)
+            // Normalize identity without merging different units, specimens,
+            // collections, or test types.
+            let testType = value.testType.uppercased()
             let normalizedName = normalizeTestName(value.testName)
-            let normalizedValue = normalizeValue(value.value)
-            
-            // Create a unique key from normalized test name and value
-            let key = "\(normalizedName)|\(normalizedValue)"
+            let normalizedValue = BloodTestValueValidator.normalizedValue(value.value)
+            let normalizedUnit = value.unit.map { BloodTestValueValidator.canonicalUnit($0) } ?? ""
+            let normalizedSpecimen = value.specimen?.lowercased() ?? ""
+            let normalizedCollection = value.collection?.lowercased() ?? ""
+
+            let key = "\(testType)|\(normalizedName)|\(normalizedValue)|\(normalizedUnit)|\(normalizedSpecimen)|\(normalizedCollection)"
             
             if !seen.contains(key) {
                 seen.insert(key)
@@ -439,18 +462,6 @@ class BloodTestMappingService: ObservableObject {
         return normalized
     }
     
-    // MARK: - Normalize Value for Deduplication
-    private func normalizeValue(_ value: String) -> String {
-        // Remove whitespace and normalize decimal separators
-        var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Remove common formatting characters that don't affect the numeric value
-        normalized = normalized.replacingOccurrences(of: ",", with: "") // Remove thousands separators
-        normalized = normalized.replacingOccurrences(of: " ", with: "") // Remove spaces
-        
-        return normalized
-    }
-
     private func parseExtractedLabValues(from response: String) -> [ExtractedLabValue] {
         var values: [ExtractedLabValue] = []
 
@@ -469,6 +480,8 @@ class BloodTestMappingService: ObservableObject {
             let unit: String
             let referenceRange: String
             let abnormalFlag: String
+            let reportedSpecimen: String?
+            let reportedCollection: String?
             
             if components.count >= 6 {
                 // New format: TEST_NAME|TEST_TYPE|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG
@@ -478,6 +491,8 @@ class BloodTestMappingService: ObservableObject {
                 unit = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
                 referenceRange = components[4].trimmingCharacters(in: .whitespacesAndNewlines)
                 abnormalFlag = components[5].trimmingCharacters(in: .whitespacesAndNewlines)
+                reportedSpecimen = components.count >= 7 ? components[6].trimmingCharacters(in: .whitespacesAndNewlines) : nil
+                reportedCollection = components.count >= 8 ? components[7].trimmingCharacters(in: .whitespacesAndNewlines) : nil
             } else if components.count >= 5 {
                 // Old format: TEST_NAME|VALUE|UNIT|REFERENCE_RANGE|ABNORMAL_FLAG (backward compatibility)
                 testName = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -486,6 +501,8 @@ class BloodTestMappingService: ObservableObject {
                 unit = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
                 referenceRange = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
                 abnormalFlag = components[4].trimmingCharacters(in: .whitespacesAndNewlines)
+                reportedSpecimen = nil
+                reportedCollection = nil
             } else {
                 continue
             }
@@ -495,15 +512,22 @@ class BloodTestMappingService: ObservableObject {
             // Infer test type from name if not provided
             let inferredTestType = testType ?? inferTestType(from: testName)
 
+            let normalizedFlag = abnormalFlag.trimmingCharacters(in: .whitespacesAndNewlines)
             let extractedValue = ExtractedLabValue(
                 testName: testName,
                 value: valueString,
                 unit: unit == "unknown" || unit.isEmpty ? nil : unit,
                 referenceRange: referenceRange == "unknown" || referenceRange.isEmpty ? nil : referenceRange,
-                isAbnormal: abnormalFlag.lowercased() != "normal",
-                abnormalFlag: abnormalFlag == "Normal" ? nil : abnormalFlag,
+                isAbnormal: BloodTestValueValidator.isAbnormal(
+                    value: valueString,
+                    referenceRange: referenceRange == "unknown" || referenceRange.isEmpty ? nil : referenceRange,
+                    flag: normalizedFlag.isEmpty || normalizedFlag.caseInsensitiveCompare("normal") == .orderedSame ? nil : normalizedFlag
+                ),
+                abnormalFlag: normalizedFlag.isEmpty || normalizedFlag.caseInsensitiveCompare("normal") == .orderedSame ? nil : normalizedFlag,
                 confidence: 0.8, // Could be calculated based on text clarity
-                testType: inferredTestType
+                testType: inferredTestType,
+                specimen: reportedSpecimen == "unknown" || reportedSpecimen?.isEmpty == true ? nil : reportedSpecimen,
+                collection: reportedCollection == "unknown" || reportedCollection?.isEmpty == true ? nil : reportedCollection
             )
 
             values.append(extractedValue)
@@ -539,19 +563,33 @@ class BloodTestMappingService: ObservableObject {
                 for: extractedValue.testName,
                 testType: extractedValue.testType
             ) {
+                let context = LabMeasurementContext.infer(
+                    testName: extractedValue.testName,
+                    parameter: standardParam,
+                    unit: extractedValue.unit,
+                    reportedSpecimen: extractedValue.specimen,
+                    reportedCollection: extractedValue.collection
+                )
                 let mappedValue = StandardizedLabValue(
                     standardKey: standardParam.key,
                     standardName: standardParam.name,
                     value: extractedValue.value,
                     unit: extractedValue.unit ?? standardParam.unit,
                     referenceRange: extractedValue.referenceRange ?? standardParam.referenceRange,
-                    isAbnormal: extractedValue.isAbnormal,
+                    isAbnormal: BloodTestValueValidator.isAbnormal(
+                        value: extractedValue.value,
+                        referenceRange: extractedValue.referenceRange ?? standardParam.referenceRange,
+                        flag: extractedValue.abnormalFlag
+                    ),
                     category: standardParam.category,
                     confidence: calculateMappingConfidence(
                         original: extractedValue.testName,
                         standard: standardParam.name
                     ),
-                    originalTestName: extractedValue.testName
+                    originalTestName: extractedValue.testName,
+                    specimen: context.specimen,
+                    collection: context.collection,
+                    testType: extractedValue.testType
                 )
                 mappedValues.append(mappedValue)
             } else {
@@ -587,12 +625,18 @@ class BloodTestMappingService: ObservableObject {
             // Convert all values to candidates
             let candidates = group.map { value in
                 // Validate each candidate
-                let validation = BloodTestValueValidator.validateValue(
+                var validation = BloodTestValueValidator.validateValue(
                     value.value,
                     testName: value.standardName,
                     referenceRange: value.referenceRange,
                     standardParam: BloodTestResult.standardizedLabParameters[key]
                 )
+
+                if case .valid = validation,
+                   let parameter = BloodTestResult.standardizedLabParameters[key],
+                   case .mismatch(let reason) = BloodTestValueValidator.unitValidation(value.unit, for: parameter) {
+                    validation = .unitMismatch(reason: reason)
+                }
                 
                 let (status, reason) = validationToStatus(validation)
                 
@@ -605,7 +649,9 @@ class BloodTestMappingService: ObservableObject {
                     originalTestName: value.originalTestName,
                     confidence: value.confidence,
                     validationStatus: status,
-                    reason: reason
+                    reason: reason,
+                    specimen: value.specimen,
+                    collection: value.collection
                 )
             }
             
@@ -679,6 +725,8 @@ class BloodTestMappingService: ObservableObject {
         switch validation {
         case .valid:
             return (.valid, nil)
+        case .unitMismatch(let reason):
+            return (.unitMismatch, reason)
         case .invalidType(let reason):
             return (.invalidType, reason)
         case .outOfRange(let reason, _):
@@ -734,7 +782,9 @@ class BloodTestMappingService: ObservableObject {
                 notes: mappedValue.originalTestName != mappedValue.standardName
                     ? "Original name: \(mappedValue.originalTestName)"
                     : nil,
-                confidence: mappedValue.confidence
+                confidence: mappedValue.confidence,
+                specimen: mappedValue.specimen,
+                collection: mappedValue.collection
             )
         }
 
@@ -810,6 +860,8 @@ struct ExtractedLabValue: LabValueLike {
     let abnormalFlag: String?
     let confidence: Double
     let testType: String // "BLOOD" or "URINE"
+    let specimen: String?
+    let collection: String?
     
     init(
         testName: String,
@@ -819,7 +871,9 @@ struct ExtractedLabValue: LabValueLike {
         isAbnormal: Bool = false,
         abnormalFlag: String? = nil,
         confidence: Double = 0.8,
-        testType: String = "BLOOD"
+        testType: String = "BLOOD",
+        specimen: String? = nil,
+        collection: String? = nil
     ) {
         self.testName = testName
         self.value = value
@@ -829,6 +883,8 @@ struct ExtractedLabValue: LabValueLike {
         self.abnormalFlag = abnormalFlag
         self.confidence = confidence
         self.testType = testType
+        self.specimen = specimen
+        self.collection = collection
     }
 }
 
@@ -842,9 +898,40 @@ struct StandardizedLabValue: LabValueLike {
     let category: BloodTestCategory
     let confidence: Double
     let originalTestName: String
+    let specimen: LabSpecimen?
+    let collection: LabCollection?
+    let testType: String
     
     // LabValueLike conformance
     var testName: String { standardName }
+
+    init(
+        standardKey: String,
+        standardName: String,
+        value: String,
+        unit: String?,
+        referenceRange: String?,
+        isAbnormal: Bool,
+        category: BloodTestCategory,
+        confidence: Double,
+        originalTestName: String,
+        specimen: LabSpecimen? = nil,
+        collection: LabCollection? = nil,
+        testType: String = "BLOOD"
+    ) {
+        self.standardKey = standardKey
+        self.standardName = standardName
+        self.value = value
+        self.unit = unit
+        self.referenceRange = referenceRange
+        self.isAbnormal = isAbnormal
+        self.category = category
+        self.confidence = confidence
+        self.originalTestName = originalTestName
+        self.specimen = specimen
+        self.collection = collection
+        self.testType = testType
+    }
 }
 
 struct BloodTestMappingResult {

@@ -923,7 +923,9 @@ class DocumentProcessor: ObservableObject {
                 isAbnormal: candidate.isAbnormal,
                 category: parameter.category,
                 notes: candidate.originalTestName != parameter.name ? "Original name: \(candidate.originalTestName)" : nil,
-                confidence: candidate.confidence
+                confidence: candidate.confidence,
+                specimen: candidate.specimen ?? parameter.defaultSpecimen,
+                collection: candidate.collection ?? parameter.defaultCollection
             )
         }
     }
