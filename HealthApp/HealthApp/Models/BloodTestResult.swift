@@ -747,7 +747,16 @@ extension BloodTestResult {
         "homocysteine": ["hcy", "homocysteine_level"],
         // Inflammatory
         "crp_c_reactive_protein": ["crp", "c_reactive_protein", "reactive_protein"],
-        "hs_crp": ["high_sensitivity_crp", "hs_c_reactive_protein", "cardiac_crp", "crp_high_sensitivity"],
+        "hs_crp": [
+            "high_sensitivity_crp",
+            "hs_c_reactive_protein",
+            "cardiac_crp",
+            "crp_cardiac",
+            "c_reactive_protein_cardiac",
+            "cardiac_c_reactive_protein",
+            "c_reactive_protein_high_sensitivity",
+            "crp_high_sensitivity"
+        ],
         "esr": ["erythrocyte_sedimentation_rate", "sed_rate", "sedimentation_rate", "westergren"],
         "il6": ["interleukin_6", "il_6"],
         "tnf_alpha": ["tumor_necrosis_factor_alpha", "tnf_a", "tnf"],
@@ -919,7 +928,10 @@ extension BloodTestResult {
         var bestContainment: (key: String, parameter: LabParameter)?
         for (key, parameter) in standardizedLabParameters where typeMatches(parameter) {
             guard min(normalized.count, key.count) >= 4 else { continue }
-            if normalized.contains(key) || key.contains(normalized) {
+            let normalizedTokens = normalized.split(separator: "_")
+            let keyTokens = key.split(separator: "_")
+            if containsTokenSequence(keyTokens, in: normalizedTokens)
+                || containsTokenSequence(normalizedTokens, in: keyTokens) {
                 if bestContainment == nil || key.count > bestContainment!.key.count {
                     bestContainment = (key, parameter)
                 }
@@ -953,6 +965,23 @@ extension BloodTestResult {
         }
 
         return nil
+    }
+
+    /// Returns true only when the candidate is a complete underscore-delimited
+    /// token sequence within the larger name. This prevents `protein_c` from
+    /// matching the `protein_cardiac` suffix in cardiac CRP.
+    private static func containsTokenSequence(
+        _ candidate: [Substring],
+        in tokens: [Substring]
+    ) -> Bool {
+        guard !candidate.isEmpty, candidate.count <= tokens.count else { return false }
+        let lastStart = tokens.count - candidate.count
+        for start in 0...lastStart {
+            if Array(tokens[start..<(start + candidate.count)]) == candidate {
+                return true
+            }
+        }
+        return false
     }
 
     /// Levenshtein distance with early exit once `limit` is exceeded.

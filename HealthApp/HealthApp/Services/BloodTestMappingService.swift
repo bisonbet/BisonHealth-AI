@@ -231,11 +231,7 @@ class BloodTestMappingService: ObservableObject {
                 referenceRange: value.referenceRange ?? match.parameter.referenceRange,
                 standardParam: match.parameter
             )
-            if case .valid = validation {
-                if case .mismatch(let reason) = BloodTestValueValidator.unitValidation(value.unit, for: match.parameter) {
-                    validation = .unitMismatch(reason: reason)
-                }
-            }
+            validation = BloodTestValueValidator.applyingUnitValidation(validation, unit: value.unit, for: match.parameter)
 
             let context = LabMeasurementContext.infer(
                 testName: value.testName,
@@ -633,9 +629,8 @@ class BloodTestMappingService: ObservableObject {
                 )
 
                 if case .valid = validation,
-                   let parameter = BloodTestResult.standardizedLabParameters[key],
-                   case .mismatch(let reason) = BloodTestValueValidator.unitValidation(value.unit, for: parameter) {
-                    validation = .unitMismatch(reason: reason)
+                   let parameter = BloodTestResult.standardizedLabParameters[key] {
+                    validation = BloodTestValueValidator.applyingUnitValidation(validation, unit: value.unit, for: parameter)
                 }
                 
                 let (status, reason) = validationToStatus(validation)
@@ -727,6 +722,8 @@ class BloodTestMappingService: ObservableObject {
             return (.valid, nil)
         case .unitMismatch(let reason):
             return (.unitMismatch, reason)
+        case .ocrUnitMismatch(let reason):
+            return (.ocrUnitMismatch, reason)
         case .invalidType(let reason):
             return (.invalidType, reason)
         case .outOfRange(let reason, _):

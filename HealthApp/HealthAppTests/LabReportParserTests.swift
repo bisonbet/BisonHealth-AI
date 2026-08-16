@@ -33,6 +33,15 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(BloodTestResult.matchLabParameter(name: "eGFR", testType: .blood)?.key, "egfr")
     }
 
+    func testMatcherSeparatesProteinCFromCardiacCRP() {
+        XCTAssertEqual(BloodTestResult.matchLabParameter(name: "Protein C", testType: .blood)?.key, "protein_c")
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "C-Reactive Protein, Cardiac", testType: .blood)?.key,
+            "hs_crp"
+        )
+        XCTAssertEqual(BloodTestResult.matchLabParameter(name: "CRP Cardiac", testType: .blood)?.key, "hs_crp")
+    }
+
     func testMatcherKeepsPercentAndAbsoluteCBCDistinct() {
         // The classic failure mode: "Neutrophils Absolute" must not match the percent parameter
         XCTAssertEqual(BloodTestResult.matchLabParameter(name: "Neutrophils", testType: .blood)?.key, "neutrophils")
@@ -79,6 +88,39 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertTrue(BloodTestValueValidator.validateUnit(nil, for: wbc), "Missing unit should not fail validation")
         XCTAssertFalse(BloodTestValueValidator.validateUnit("%", for: wbc))
         XCTAssertFalse(BloodTestValueValidator.validateUnit("mg/dL", for: wbc))
+    }
+
+    func testTSHAcceptsEquivalentIUUnitRepresentations() {
+        guard let tsh = BloodTestResult.standardizedLabParameters["tsh"] else {
+            XCTFail("Missing TSH catalog parameter")
+            return
+        }
+
+        for unit in ["uIU/mL", "µIU/mL", "μIU/mL", "mIU/L"] {
+            XCTAssertTrue(
+                BloodTestValueValidator.validateUnit(unit, for: tsh),
+                "Expected TSH unit variant to validate: \(unit)"
+            )
+            XCTAssertEqual(BloodTestValueValidator.canonicalUnit(unit, for: tsh), "miu/l")
+        }
+    }
+
+    func testOCRUnitMismatchIsRetainedButNotImportable() {
+        let candidates = parser.parse(plainText: "MCHC\t33.3\tg/aL\t31.5-35.7")
+        guard let parsed = candidates.first else {
+            XCTFail("Expected MCHC candidate")
+            return
+        }
+
+        if case .ocrUnitMismatch = parsed.validation {
+            // Expected: the value is retained for provenance and review.
+        } else {
+            XCTFail("Expected g/aL to be classified as an OCR unit mismatch, got \(parsed.validation)")
+        }
+
+        let review = LabCandidateReconciler.reconcile(candidates)
+        XCTAssertEqual(review.needsReview.first?.candidates.first?.validationStatus, .ocrUnitMismatch)
+        XCTAssertFalse(review.needsReview.first?.candidates.first?.isSelectable == true)
     }
 
     func testElectrolyteUnitsAreAnalyteAware() {
@@ -493,8 +535,43 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(results.autoAccepted[0].candidates.count, 1)
     }
 
+    func testReconcilerMergesEquivalentTSHUnits() {
+        let results = LabCandidateReconciler.reconcile([
+            makeCandidate(key: "tsh", value: "1.230", unit: "uIU/mL", source: .deterministicRow),
+            makeCandidate(key: "tsh", value: "1.230", unit: "mIU/L", source: .onDeviceVision)
+        ])
+
+        XCTAssertEqual(results.autoAccepted.count, 1)
+        XCTAssertEqual(results.autoAccepted.first?.candidates.count, 1)
+    }
+
+    func testLowConfidenceSingletonRequiresExplicitReview() {
+        let candidate = BloodTestImportCandidate(
+            testName: "Lipoprotein(a)",
+            value: "24.4",
+            unit: "nmol/L",
+            referenceRange: "<75.0",
+            originalTestName: "Lipoprotein (a)",
+            confidence: 0.52,
+            validationStatus: .valid
+        )
+
+        let group = BloodTestImportGroup(
+            standardTestName: "Lipoprotein(a)",
+            standardKey: "lipoprotein_a",
+            candidates: [candidate]
+        )
+
+        XCTAssertNil(group.selectedCandidateId)
+        XCTAssertNil(group.recommendedCandidate)
+        XCTAssertTrue(group.hasValidCandidates)
+    }
+
     func testReconcilerMergesNumericFormattingAndMissingUnit() {
-        let parameter = BloodTestResult.standardizedLabParameters["creatinine"]!
+        guard let parameter = BloodTestResult.standardizedLabParameters["creatinine"] else {
+            XCTFail("Missing creatinine catalog parameter")
+            return
+        }
         let first = LabValueCandidate(
             standardKey: "creatinine",
             parameter: parameter,

@@ -24,6 +24,7 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
     enum ValidationStatus: Hashable {
         case valid
         case unitMismatch
+        case ocrUnitMismatch
         case invalidType
         case outOfRange
         case missingData
@@ -85,13 +86,14 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
         return validationStatus == .valid && !isAbnormal && confidence > 0.7
     }
 
-    /// A unit warning can be imported only after the user explicitly chooses
-    /// it. Structurally invalid values remain non-selectable.
+    /// A genuine unit warning can be imported only after the user explicitly
+    /// chooses it. Structurally invalid values and obvious OCR-unit errors
+    /// remain non-selectable.
     var isSelectable: Bool {
         switch validationStatus {
         case .valid, .unitMismatch, .outOfRange:
             return true
-        case .invalidType, .missingData:
+        case .ocrUnitMismatch, .invalidType, .missingData:
             return false
         }
     }
@@ -130,16 +132,12 @@ struct BloodTestImportGroup: Identifiable {
         // Default selection:
         // 1. If explicit selectedCandidateId provided, use it
         // 2. Else find the recommended candidate
-        // 3. Else if only one candidate is valid and normal, use it
-        // 4. Otherwise nil (user must choose/review)
+        // 3. Otherwise nil (user must choose/review). A valid but low-confidence
+        // singleton must not be silently imported.
         if let selectedId = selectedCandidateId {
             self.selectedCandidateId = selectedId
         } else if let recommended = candidates.first(where: { $0.isRecommended }) {
             self.selectedCandidateId = recommended.id
-        } else if candidates.count == 1,
-                  candidates[0].validationStatus == .valid,
-                  !candidates[0].isAbnormal {
-            self.selectedCandidateId = candidates[0].id
         } else {
             self.selectedCandidateId = nil
         }

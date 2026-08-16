@@ -101,6 +101,7 @@ struct LabValueCandidate {
         switch validation {
         case .valid: return nil
         case .unitMismatch(let reason): return reason
+        case .ocrUnitMismatch(let reason): return reason
         case .invalidType(let reason): return reason
         case .outOfRange(let reason, _): return reason
         case .missingData(let reason): return reason
@@ -455,11 +456,7 @@ final class LabReportParser {
             referenceRange: referenceRange ?? parameter.referenceRange,
             standardParam: parameter
         )
-        if case .valid = validation {
-            if case .mismatch(let reason) = BloodTestValueValidator.unitValidation(unit, for: parameter) {
-                validation = .unitMismatch(reason: reason)
-            }
-        }
+        validation = BloodTestValueValidator.applyingUnitValidation(validation, unit: unit, for: parameter)
 
         // Flag disagreement doesn't invalidate (labs use their own ranges) but lowers confidence
         var confidence = baseConfidence * matchConfidence
@@ -748,6 +745,7 @@ enum LabCandidateReconciler {
         switch candidate.validation {
         case .valid: return .valid
         case .unitMismatch: return .unitMismatch
+        case .ocrUnitMismatch: return .ocrUnitMismatch
         case .invalidType: return .invalidType
         case .outOfRange: return .outOfRange
         case .missingData: return .missingData
@@ -853,11 +851,7 @@ enum CloudVisionLabExtraction {
                 referenceRange: referenceRange ?? match.parameter.referenceRange,
                 standardParam: match.parameter
             )
-            if case .valid = validation {
-                if case .mismatch(let reason) = BloodTestValueValidator.unitValidation(unit, for: match.parameter) {
-                    validation = .unitMismatch(reason: reason)
-                }
-            }
+            validation = BloodTestValueValidator.applyingUnitValidation(validation, unit: unit, for: match.parameter)
 
             let context = LabMeasurementContext.infer(
                 testName: testName,

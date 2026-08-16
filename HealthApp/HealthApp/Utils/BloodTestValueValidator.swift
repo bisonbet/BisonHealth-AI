@@ -9,6 +9,10 @@ struct BloodTestValueValidator {
         /// The value is parseable and can be imported with an explicit warning,
         /// but the reported unit does not match the parameter policy.
         case unitMismatch(reason: String)
+        /// The reported unit is very likely an OCR corruption of the expected
+        /// unit. Keep the candidate for provenance, but never offer the raw
+        /// value for import.
+        case ocrUnitMismatch(reason: String)
         /// The extracted value itself is not a usable single result.
         case invalidType(reason: String)
         /// Retained for compatibility with older callers. New numeric values
@@ -281,6 +285,7 @@ struct BloodTestValueValidator {
     enum UnitValidation {
         case valid
         case mismatch(reason: String)
+        case ocrMismatch(reason: String)
     }
 
     static func validateUnit(_ unit: String?, for parameter: LabParameter) -> Bool {
@@ -303,11 +308,35 @@ struct BloodTestValueValidator {
 
         let allowedUnits = allowedCanonicalUnits(for: parameter)
         let canonical = canonicalUnit(unit, for: parameter)
+        if isLikelyOCRUnitVariant(canonical, expectedUnits: allowedUnits) {
+            return .ocrMismatch(
+                reason: "Reported unit '\(unit)' appears to be an OCR error for the expected unit of \(parameter.name)"
+            )
+        }
         guard allowedUnits.contains(canonical) else {
             let expectedDescription = allowedUnits.sorted().joined(separator: " or ")
             return .mismatch(reason: "Unit '\(unit)' does not match expected unit '\(expectedDescription)' for \(parameter.name)")
         }
         return .valid
+    }
+
+    /// Adds parameter-aware unit validation without replacing a value error
+    /// that was already found by the structural validator.
+    static func applyingUnitValidation(
+        _ validation: ValidationResult,
+        unit: String?,
+        for parameter: LabParameter
+    ) -> ValidationResult {
+        guard case .valid = validation else { return validation }
+
+        switch unitValidation(unit, for: parameter) {
+        case .valid:
+            return validation
+        case .mismatch(let reason):
+            return .unitMismatch(reason: reason)
+        case .ocrMismatch(let reason):
+            return .ocrUnitMismatch(reason: reason)
+        }
     }
 
     private static func allowedCanonicalUnits(for parameter: LabParameter) -> Set<String> {
@@ -333,6 +362,15 @@ struct BloodTestValueValidator {
         }
 
         return units
+    }
+
+    /// Detect only well-known OCR substitutions that would otherwise make a
+    /// duplicate look manually importable. This is intentionally narrow: a
+    /// generic edit-distance correction could turn a real unit conversion into
+    /// a false equivalent.
+    private static func isLikelyOCRUnitVariant(_ reported: String, expectedUnits: Set<String>) -> Bool {
+        guard expectedUnits.contains("g/dl") else { return false }
+        return ["g/al", "g/d1", "g/di"].contains(reported)
     }
 
     /// Normalize notational variants without applying unsafe global unit
@@ -364,6 +402,13 @@ struct BloodTestValueValidator {
 
     static func canonicalUnit(_ unit: String, for parameter: LabParameter) -> String {
         let normalized = canonicalUnit(unit)
+
+        // TSH is conventionally reported as either uIU/mL or mIU/L; these are
+        // numerically equivalent (1:1) representations for this analyte.
+        if parameter.key == "tsh", normalized == "uiu/ml" || normalized == "miu/l" {
+            return "miu/l"
+        }
+
         guard parameter.key == "egfr" else { return normalized }
 
         if normalized == "ml/min/1.73"
@@ -423,7 +468,7 @@ struct BloodTestValueValidator {
             switch validation {
             case .valid:
                 retainedValues.append(value)
-            case .unitMismatch(let reason):
+            case .unitMismatch(let reason), .ocrUnitMismatch(let reason):
                 AppLog.shared.healthData("BloodTestValueValidator: retaining value with unit warning: \(reason)", level: .warning)
                 retainedValues.append(value)
             case .outOfRange:
