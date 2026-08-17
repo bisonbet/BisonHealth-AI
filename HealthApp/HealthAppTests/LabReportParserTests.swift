@@ -67,6 +67,44 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(BloodTestResult.matchLabParameter(name: "Cholesterol Totl", testType: .blood)?.key, "cholesterol_total")
     }
 
+    func testMatcherToleratesSpecimenAndMethodSuffixes() {
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "25-Hydroxyvitamin D, Serum", testType: .blood)?.key,
+            "vitamin_d"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Vitamin D3, Serum", testType: .blood)?.key,
+            "vitamin_d"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "25-Hydroxyvitamin D LC/MS", testType: .blood)?.key,
+            "vitamin_d"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Glycohemoglobin A1c", testType: .blood)?.key,
+            "hemoglobin_a1c"
+        )
+    }
+
+    func testMatcherDoesNotStripSemanticallyLoadBearingWords() {
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Total Protein, Serum", testType: .blood)?.key,
+            "total_protein"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "LDL Cholesterol (Calc)", testType: .blood)?.key,
+            "ldl_chol_calc"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Bilirubin, Total", testType: .blood)?.key,
+            "bilirubin_total"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Urine Phosphate", testType: .urine)?.key,
+            "urine_phosphate"
+        )
+    }
+
     func testMatcherRejectsUnknownNames() {
         XCTAssertNil(BloodTestResult.matchLabParameter(name: "Patient Name", testType: .blood))
         XCTAssertNil(BloodTestResult.matchLabParameter(name: "xy", testType: .blood))
@@ -458,7 +496,8 @@ final class LabReportParserTests: XCTestCase {
         value: String,
         unit: String? = nil,
         source: CandidateSource = .deterministicRow,
-        valid: Bool = true
+        valid: Bool = true,
+        confidence: Double = 0.9
     ) -> LabValueCandidate {
         let parameter = BloodTestResult.standardizedLabParameters[key]!
         return LabValueCandidate(
@@ -473,7 +512,7 @@ final class LabReportParserTests: XCTestCase {
             source: source,
             pageNumber: 1,
             sourceSnippet: "\(parameter.name) \(value)",
-            confidence: 0.9,
+            confidence: confidence,
             validation: valid ? .valid : .invalidType(reason: "test")
         )
     }
@@ -545,26 +584,16 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(results.autoAccepted.first?.candidates.count, 1)
     }
 
-    func testLowConfidenceSingletonRequiresExplicitReview() {
-        let candidate = BloodTestImportCandidate(
-            testName: "Lipoprotein(a)",
-            value: "24.4",
-            unit: "nmol/L",
-            referenceRange: "<75.0",
-            originalTestName: "Lipoprotein (a)",
-            confidence: 0.52,
-            validationStatus: .valid
-        )
+    func testReconcilerRoutesLowConfidenceValidSingletonToReview() {
+        let results = LabCandidateReconciler.reconcile([
+            makeCandidate(key: "glucose", value: "98", confidence: 0.52)
+        ])
 
-        let group = BloodTestImportGroup(
-            standardTestName: "Lipoprotein(a)",
-            standardKey: "lipoprotein_a",
-            candidates: [candidate]
-        )
-
-        XCTAssertNil(group.selectedCandidateId)
-        XCTAssertNil(group.recommendedCandidate)
-        XCTAssertTrue(group.hasValidCandidates)
+        XCTAssertTrue(results.autoAccepted.isEmpty)
+        XCTAssertEqual(results.needsReview.count, 1)
+        XCTAssertFalse(results.needsReview[0].isAutoAccepted)
+        XCTAssertNil(results.needsReview[0].selectedCandidateId)
+        XCTAssertEqual(results.needsReview[0].candidates.first?.confidence, 0.52)
     }
 
     func testReconcilerMergesNumericFormattingAndMissingUnit() {

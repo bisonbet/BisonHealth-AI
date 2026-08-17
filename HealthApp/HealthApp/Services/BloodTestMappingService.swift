@@ -206,8 +206,8 @@ class BloodTestMappingService: ObservableObject {
     // MARK: - Candidate Extraction (reconciler pipeline)
     /// Extract lab value candidates for the multi-pass reconciliation pipeline.
     /// Unlike `mapDocumentToBloodTest`, invalid values are NOT filtered out —
-    /// they become review items per the auto-accept rule (single + valid → auto,
-    /// everything else → user review).
+    /// they become review items per the auto-accept rule (single, valid, normal,
+    /// strongly matched, and high-confidence → auto; everything else → review).
     func extractCandidates(
         from documentText: String,
         source: CandidateSource
@@ -628,8 +628,7 @@ class BloodTestMappingService: ObservableObject {
                     standardParam: BloodTestResult.standardizedLabParameters[key]
                 )
 
-                if case .valid = validation,
-                   let parameter = BloodTestResult.standardizedLabParameters[key] {
+                if let parameter = BloodTestResult.standardizedLabParameters[key] {
                     validation = BloodTestValueValidator.applyingUnitValidation(validation, unit: value.unit, for: parameter)
                 }
                 

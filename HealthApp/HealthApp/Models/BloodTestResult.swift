@@ -658,7 +658,7 @@ extension BloodTestResult {
         // Hemoglobin / CBC
         "hemoglobin": ["hgb", "hb", "hemoglobin_concentration"],
         "hematocrit": ["hct", "crit", "packed_cell_volume", "pcv"],
-        "hemoglobin_a1c": ["hba1c", "a1c", "glycated_hemoglobin", "glycosylated_hemoglobin", "hemoglobin_a1c_hba1c", "hgb_a1c"],
+        "hemoglobin_a1c": ["hba1c", "a1c", "glycated_hemoglobin", "glycosylated_hemoglobin", "glycohemoglobin", "glycohemoglobin_a1c", "hemoglobin_a1c_hba1c", "hgb_a1c"],
         "wbc": ["white_blood_cell_count", "white_blood_cells", "white_blood_cell", "leukocytes", "leukocyte_count", "wbc_count"],
         "rbc": ["red_blood_cell_count", "red_blood_cells", "red_blood_cell", "erythrocytes", "erythrocyte_count", "rbc_count"],
         "platelet_count": ["platelets", "plt", "platelet", "thrombocytes", "thrombocyte_count"],
@@ -878,6 +878,27 @@ extension BloodTestResult {
         return index
     }()
 
+    /// Trailing words that name the specimen or assay method rather than the analyte.
+    /// These intentionally exclude semantically load-bearing words such as
+    /// "total", "blood", "calc", and "calculated".
+    private static let nameDecorators: Set<Substring> = [
+        "serum", "plasma", "level", "levels", "result", "results",
+        "lc", "ms", "hplc", "immunoassay"
+    ]
+
+    /// Generate longest-first variants with trailing specimen/method words removed.
+    private static func decoratedVariants(of normalized: String) -> [String] {
+        var tokens = normalized.split(separator: "_")
+        var variants = [normalized]
+
+        while tokens.count > 1, let last = tokens.last, nameDecorators.contains(last) {
+            tokens.removeLast()
+            variants.append(tokens.joined(separator: "_"))
+        }
+
+        return variants
+    }
+
     // MARK: - Shared Lab Parameter Matcher
     /// Match a raw test name (as extracted from a document) to a standardized lab parameter.
     ///
@@ -898,47 +919,52 @@ extension BloodTestResult {
                 : !urineLabCategories.contains(parameter.category)
         }
 
+        let variants = decoratedVariants(of: normalized)
+
         // For urine tests, prefer the urine_-prefixed parameter for bare names
         // ("Glucose" on a urinalysis panel means urine_glucose, not serum glucose).
         if testType == .urine {
-            let prefixed = normalized.hasPrefix("urine_") ? normalized : "urine_" + normalized
-            if let parameter = standardizedLabParameters[prefixed] {
-                return (prefixed, parameter, 0.95)
+            for variant in variants {
+                let prefixed = variant.hasPrefix("urine_") ? variant : "urine_" + variant
+                if let parameter = standardizedLabParameters[prefixed], typeMatches(parameter) {
+                    return (prefixed, parameter, 0.95)
+                }
             }
         }
 
-        // 1. Exact key match
-        if let parameter = standardizedLabParameters[normalized], typeMatches(parameter) {
-            return (normalized, parameter, 1.0)
-        }
-
-        // 2. Exact alias match
-        if let key = aliasIndex[normalized], let parameter = standardizedLabParameters[key], typeMatches(parameter) {
-            return (key, parameter, 0.95)
-        }
-
-        // 3. Exact display-name match
-        if let key = nameIndex[normalized], let parameter = standardizedLabParameters[key], typeMatches(parameter) {
-            return (key, parameter, 0.95)
+        // 1-3. Exact key, alias, and display-name matches, retrying after
+        // progressively stripping trailing specimen/method decorators.
+        for variant in variants {
+            if let parameter = standardizedLabParameters[variant], typeMatches(parameter) {
+                return (variant, parameter, 1.0)
+            }
+            if let key = aliasIndex[variant], let parameter = standardizedLabParameters[key], typeMatches(parameter) {
+                return (key, parameter, 0.95)
+            }
+            if let key = nameIndex[variant], let parameter = standardizedLabParameters[key], typeMatches(parameter) {
+                return (key, parameter, 0.95)
+            }
         }
 
         // 4. Bounded containment — longest matching key wins so specific parameters
         //    beat generic ones. Requires the shorter side ≥ 4 chars to avoid
         //    accidental hits from short abbreviations.
-        var bestContainment: (key: String, parameter: LabParameter)?
-        for (key, parameter) in standardizedLabParameters where typeMatches(parameter) {
-            guard min(normalized.count, key.count) >= 4 else { continue }
-            let normalizedTokens = normalized.split(separator: "_")
-            let keyTokens = key.split(separator: "_")
-            if containsTokenSequence(keyTokens, in: normalizedTokens)
-                || containsTokenSequence(normalizedTokens, in: keyTokens) {
-                if bestContainment == nil || key.count > bestContainment!.key.count {
-                    bestContainment = (key, parameter)
+        for variant in variants {
+            let normalizedTokens = variant.split(separator: "_")
+            var bestContainment: (key: String, parameter: LabParameter)?
+            for (key, parameter) in standardizedLabParameters where typeMatches(parameter) {
+                guard min(variant.count, key.count) >= 4 else { continue }
+                let keyTokens = key.split(separator: "_")
+                if containsTokenSequence(keyTokens, in: normalizedTokens)
+                    || containsTokenSequence(normalizedTokens, in: keyTokens) {
+                    if bestContainment == nil || key.count > bestContainment!.key.count {
+                        bestContainment = (key, parameter)
+                    }
                 }
             }
-        }
-        if let match = bestContainment {
-            return (match.key, match.parameter, 0.6)
+            if let match = bestContainment {
+                return (match.key, match.parameter, 0.6)
+            }
         }
 
         // 5. Bounded edit distance against keys and aliases (OCR typo tolerance)
@@ -977,7 +1003,7 @@ extension BloodTestResult {
         guard !candidate.isEmpty, candidate.count <= tokens.count else { return false }
         let lastStart = tokens.count - candidate.count
         for start in 0...lastStart {
-            if Array(tokens[start..<(start + candidate.count)]) == candidate {
+            if tokens[start..<(start + candidate.count)].elementsEqual(candidate) {
                 return true
             }
         }

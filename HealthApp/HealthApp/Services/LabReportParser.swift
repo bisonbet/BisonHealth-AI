@@ -630,10 +630,11 @@ final class LabReportParser {
 // MARK: - Reconciled Lab Results
 /// Output of `LabCandidateReconciler`: groups partitioned by the auto-accept rule.
 struct ReconciledLabResults {
-    /// Exactly one distinct value that passed validation — imported without user review
+    /// Exactly one distinct, valid, normal, strongly matched, high-confidence
+    /// value — imported without user review.
     var autoAccepted: [BloodTestImportGroup]
     /// Multiple distinct values (likely OCR/extraction duplicates), or a single
-    /// value that failed validation — the user must decide
+    /// value failing an auto-accept check — the user must decide.
     var needsReview: [BloodTestImportGroup]
 
     var isEmpty: Bool { autoAccepted.isEmpty && needsReview.isEmpty }
@@ -644,8 +645,9 @@ struct ReconciledLabResults {
 /// on-device LLM, cloud) and applies the auto-accept rule:
 ///   - Candidates for the same test with the SAME normalized value+unit are merged —
 ///     cross-pass agreement is confirmation, not duplication.
-///   - Exactly 1 distinct value AND validation passed → auto-accepted (silent import).
-///   - 2+ distinct values, or a single invalid value → needs user review.
+///   - Exactly 1 distinct, valid, normal, strongly matched, high-confidence value
+///     → auto-accepted (silent import).
+///   - 2+ distinct values, or a value failing any auto-accept check → needs review.
 enum LabCandidateReconciler {
 
     static func reconcile(_ candidates: [LabValueCandidate]) -> ReconciledLabResults {
@@ -704,12 +706,13 @@ enum LabCandidateReconciler {
             guard let parameterName = group.first?.parameter.name else { continue }
 
             // A value must be structurally valid, have a strong name match, and
-            // not be clinically abnormal before it can be silently imported.
+            // have enough extraction confidence before it can be silently imported.
             // Abnormal values remain importable but require an explicit review.
             let representative = distinct[0].representative
             let isAutoAccepted = distinct.count == 1
                 && representative.isValid
                 && representative.matchConfidence >= 0.7
+                && distinct[0].confidence > 0.7
                 && !representative.isAbnormal
 
             let importGroup = BloodTestImportGroup(

@@ -107,7 +107,8 @@ struct BloodTestImportGroup: Identifiable {
     let standardKey: String
     let candidates: [BloodTestImportCandidate]
     var selectedCandidateId: UUID?
-    /// True when the reconciler auto-accepted this group (single candidate that passed validation)
+    /// True when the reconciler auto-accepted this group after its validation,
+    /// confidence, name-match, and normal-value checks passed.
     var isAutoAccepted: Bool = false
 
     /// Multiple distinct values were extracted for the same test — most likely an
