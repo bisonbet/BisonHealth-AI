@@ -415,6 +415,8 @@ struct BloodTestImportReviewView: View {
             return (.green, "Valid")
         case .unitMismatch:
             return (.orange, "Unit Warning — tap to import")
+        case .ocrUnitMismatch:
+            return (.red, "OCR Unit Error — cannot import")
         case .invalidType:
             return (.red, "Invalid Type")
         case .outOfRange:

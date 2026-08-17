@@ -33,6 +33,15 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(BloodTestResult.matchLabParameter(name: "eGFR", testType: .blood)?.key, "egfr")
     }
 
+    func testMatcherSeparatesProteinCFromCardiacCRP() {
+        XCTAssertEqual(BloodTestResult.matchLabParameter(name: "Protein C", testType: .blood)?.key, "protein_c")
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "C-Reactive Protein, Cardiac", testType: .blood)?.key,
+            "hs_crp"
+        )
+        XCTAssertEqual(BloodTestResult.matchLabParameter(name: "CRP Cardiac", testType: .blood)?.key, "hs_crp")
+    }
+
     func testMatcherKeepsPercentAndAbsoluteCBCDistinct() {
         // The classic failure mode: "Neutrophils Absolute" must not match the percent parameter
         XCTAssertEqual(BloodTestResult.matchLabParameter(name: "Neutrophils", testType: .blood)?.key, "neutrophils")
@@ -58,6 +67,44 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(BloodTestResult.matchLabParameter(name: "Cholesterol Totl", testType: .blood)?.key, "cholesterol_total")
     }
 
+    func testMatcherToleratesSpecimenAndMethodSuffixes() {
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "25-Hydroxyvitamin D, Serum", testType: .blood)?.key,
+            "vitamin_d"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Vitamin D3, Serum", testType: .blood)?.key,
+            "vitamin_d"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "25-Hydroxyvitamin D LC/MS", testType: .blood)?.key,
+            "vitamin_d"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Glycohemoglobin A1c", testType: .blood)?.key,
+            "hemoglobin_a1c"
+        )
+    }
+
+    func testMatcherDoesNotStripSemanticallyLoadBearingWords() {
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Total Protein, Serum", testType: .blood)?.key,
+            "total_protein"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "LDL Cholesterol (Calc)", testType: .blood)?.key,
+            "ldl_chol_calc"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Bilirubin, Total", testType: .blood)?.key,
+            "bilirubin_total"
+        )
+        XCTAssertEqual(
+            BloodTestResult.matchLabParameter(name: "Urine Phosphate", testType: .urine)?.key,
+            "urine_phosphate"
+        )
+    }
+
     func testMatcherRejectsUnknownNames() {
         XCTAssertNil(BloodTestResult.matchLabParameter(name: "Patient Name", testType: .blood))
         XCTAssertNil(BloodTestResult.matchLabParameter(name: "xy", testType: .blood))
@@ -79,6 +126,39 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertTrue(BloodTestValueValidator.validateUnit(nil, for: wbc), "Missing unit should not fail validation")
         XCTAssertFalse(BloodTestValueValidator.validateUnit("%", for: wbc))
         XCTAssertFalse(BloodTestValueValidator.validateUnit("mg/dL", for: wbc))
+    }
+
+    func testTSHAcceptsEquivalentIUUnitRepresentations() {
+        guard let tsh = BloodTestResult.standardizedLabParameters["tsh"] else {
+            XCTFail("Missing TSH catalog parameter")
+            return
+        }
+
+        for unit in ["uIU/mL", "µIU/mL", "μIU/mL", "mIU/L"] {
+            XCTAssertTrue(
+                BloodTestValueValidator.validateUnit(unit, for: tsh),
+                "Expected TSH unit variant to validate: \(unit)"
+            )
+            XCTAssertEqual(BloodTestValueValidator.canonicalUnit(unit, for: tsh), "miu/l")
+        }
+    }
+
+    func testOCRUnitMismatchIsRetainedButNotImportable() {
+        let candidates = parser.parse(plainText: "MCHC\t33.3\tg/aL\t31.5-35.7")
+        guard let parsed = candidates.first else {
+            XCTFail("Expected MCHC candidate")
+            return
+        }
+
+        if case .ocrUnitMismatch = parsed.validation {
+            // Expected: the value is retained for provenance and review.
+        } else {
+            XCTFail("Expected g/aL to be classified as an OCR unit mismatch, got \(parsed.validation)")
+        }
+
+        let review = LabCandidateReconciler.reconcile(candidates)
+        XCTAssertEqual(review.needsReview.first?.candidates.first?.validationStatus, .ocrUnitMismatch)
+        XCTAssertFalse(review.needsReview.first?.candidates.first?.isSelectable == true)
     }
 
     func testElectrolyteUnitsAreAnalyteAware() {
@@ -416,7 +496,8 @@ final class LabReportParserTests: XCTestCase {
         value: String,
         unit: String? = nil,
         source: CandidateSource = .deterministicRow,
-        valid: Bool = true
+        valid: Bool = true,
+        confidence: Double = 0.9
     ) -> LabValueCandidate {
         let parameter = BloodTestResult.standardizedLabParameters[key]!
         return LabValueCandidate(
@@ -431,7 +512,7 @@ final class LabReportParserTests: XCTestCase {
             source: source,
             pageNumber: 1,
             sourceSnippet: "\(parameter.name) \(value)",
-            confidence: 0.9,
+            confidence: confidence,
             validation: valid ? .valid : .invalidType(reason: "test")
         )
     }
@@ -483,6 +564,19 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertGreaterThan(candidate.confidence, 0.9, "Cross-source agreement should boost confidence")
     }
 
+    func testReconcilerDoesNotBoostConfidenceForSameSourceDuplicates() {
+        let results = LabCandidateReconciler.reconcile([
+            makeCandidate(key: "glucose", value: "98", source: .deterministicRow, confidence: 0.66),
+            makeCandidate(key: "glucose", value: "98", source: .deterministicRow, confidence: 0.66)
+        ])
+
+        XCTAssertTrue(results.autoAccepted.isEmpty, "Repeated rows from one extraction source must not become auto-accepted")
+        XCTAssertEqual(results.needsReview.count, 1)
+        XCTAssertEqual(results.needsReview[0].candidates.count, 1)
+        XCTAssertEqual(results.needsReview[0].candidates[0].confidence, 0.66)
+        XCTAssertEqual(results.needsReview[0].candidates[0].sources, [.deterministicRow])
+    }
+
     func testReconcilerMergesEquivalentUnitNotations() {
         let results = LabCandidateReconciler.reconcile([
             makeCandidate(key: "wbc", value: "6.4", unit: "K/uL", source: .deterministicRow),
@@ -493,8 +587,33 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertEqual(results.autoAccepted[0].candidates.count, 1)
     }
 
+    func testReconcilerMergesEquivalentTSHUnits() {
+        let results = LabCandidateReconciler.reconcile([
+            makeCandidate(key: "tsh", value: "1.230", unit: "uIU/mL", source: .deterministicRow),
+            makeCandidate(key: "tsh", value: "1.230", unit: "mIU/L", source: .onDeviceVision)
+        ])
+
+        XCTAssertEqual(results.autoAccepted.count, 1)
+        XCTAssertEqual(results.autoAccepted.first?.candidates.count, 1)
+    }
+
+    func testReconcilerRoutesLowConfidenceValidSingletonToReview() {
+        let results = LabCandidateReconciler.reconcile([
+            makeCandidate(key: "glucose", value: "98", confidence: 0.52)
+        ])
+
+        XCTAssertTrue(results.autoAccepted.isEmpty)
+        XCTAssertEqual(results.needsReview.count, 1)
+        XCTAssertFalse(results.needsReview[0].isAutoAccepted)
+        XCTAssertNil(results.needsReview[0].selectedCandidateId)
+        XCTAssertEqual(results.needsReview[0].candidates.first?.confidence, 0.52)
+    }
+
     func testReconcilerMergesNumericFormattingAndMissingUnit() {
-        let parameter = BloodTestResult.standardizedLabParameters["creatinine"]!
+        guard let parameter = BloodTestResult.standardizedLabParameters["creatinine"] else {
+            XCTFail("Missing creatinine catalog parameter")
+            return
+        }
         let first = LabValueCandidate(
             standardKey: "creatinine",
             parameter: parameter,
