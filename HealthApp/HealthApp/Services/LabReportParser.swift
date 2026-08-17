@@ -666,7 +666,8 @@ enum LabCandidateReconciler {
             for candidate in group {
                 let valueKey = candidate.normalizedValueKey
                 if var existing = mergedByValue[valueKey] {
-                    if !existing.sources.contains(candidate.source) {
+                    let isIndependentSource = !existing.sources.contains(candidate.source)
+                    if isIndependentSource {
                         existing.sources.append(candidate.source)
                     }
                     // Prefer the more complete representative (has unit/range) and
@@ -674,7 +675,10 @@ enum LabCandidateReconciler {
                     if representativeScore(candidate) > representativeScore(existing.representative) {
                         existing = (candidate, existing.sources, existing.confidence)
                     }
-                    existing.confidence = min(0.99, max(existing.confidence, candidate.confidence) + 0.05)
+                    let highestConfidence = max(existing.confidence, candidate.confidence)
+                    existing.confidence = isIndependentSource
+                        ? min(0.99, highestConfidence + 0.05)
+                        : highestConfidence
                     mergedByValue[valueKey] = existing
                 } else {
                     mergedByValue[valueKey] = (candidate, [candidate.source], candidate.confidence)

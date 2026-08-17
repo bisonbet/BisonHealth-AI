@@ -564,6 +564,19 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertGreaterThan(candidate.confidence, 0.9, "Cross-source agreement should boost confidence")
     }
 
+    func testReconcilerDoesNotBoostConfidenceForSameSourceDuplicates() {
+        let results = LabCandidateReconciler.reconcile([
+            makeCandidate(key: "glucose", value: "98", source: .deterministicRow, confidence: 0.66),
+            makeCandidate(key: "glucose", value: "98", source: .deterministicRow, confidence: 0.66)
+        ])
+
+        XCTAssertTrue(results.autoAccepted.isEmpty, "Repeated rows from one extraction source must not become auto-accepted")
+        XCTAssertEqual(results.needsReview.count, 1)
+        XCTAssertEqual(results.needsReview[0].candidates.count, 1)
+        XCTAssertEqual(results.needsReview[0].candidates[0].confidence, 0.66)
+        XCTAssertEqual(results.needsReview[0].candidates[0].sources, [.deterministicRow])
+    }
+
     func testReconcilerMergesEquivalentUnitNotations() {
         let results = LabCandidateReconciler.reconcile([
             makeCandidate(key: "wbc", value: "6.4", unit: "K/uL", source: .deterministicRow),
