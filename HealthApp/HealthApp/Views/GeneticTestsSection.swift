@@ -179,11 +179,22 @@ struct GeneticTestsListView: View {
 // MARK: - Genetic Test Record
 struct GeneticTestRecordView: View {
     @ObservedObject private var documentProcessor: DocumentProcessor
+    @ObservedObject private var documentManager: DocumentManager
+    @Environment(\.dismiss) private var dismiss
     @State private var currentDocument: MedicalDocument
     @State private var activeReview: PendingGeneticTestReview?
+    @State private var editingTest: GeneticTestResult?
+    @State private var editingItem: GeneticTestItem?
+    @State private var showingDeleteConfirmation = false
+    @State private var errorMessage: String?
 
-    init(document: MedicalDocument, documentProcessor: DocumentProcessor = .shared) {
+    init(
+        document: MedicalDocument,
+        documentProcessor: DocumentProcessor = .shared,
+        documentManager: DocumentManager = .shared
+    ) {
         self.documentProcessor = documentProcessor
+        self.documentManager = documentManager
         self._currentDocument = State(initialValue: document)
     }
 
@@ -209,17 +220,39 @@ struct GeneticTestRecordView: View {
                         labeledTextSection(title: "Reported Limitations", text: limitations)
                     }
                 } else {
-                    ContentUnavailableView(
-                        "No Structured Genetic Result",
-                        systemImage: HealthDataType.geneticProfile.icon,
-                        description: Text("The original report is still available in Documents, but no structured finding has been extracted yet.")
-                    )
+                    VStack(spacing: 12) {
+                        ContentUnavailableView(
+                            "No Structured Genetic Result",
+                            systemImage: HealthDataType.geneticProfile.icon,
+                            description: Text("The original report is still available in Documents, but no structured finding has been extracted yet.")
+                        )
+
+                        Button("Create Structured Result", systemImage: "plus") {
+                            beginTestEditing()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
             }
             .padding()
         }
         .navigationTitle("Genetic Test")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button("Edit Test Information", systemImage: "pencil") {
+                        beginTestEditing()
+                    }
+                    Divider()
+                    Button("Delete Genetic Test", systemImage: "trash", role: .destructive) {
+                        showingDeleteConfirmation = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
         .sheet(item: $activeReview) { review in
             GeneticTestImportReviewView(review: review) { acceptedIssueIDs, skippedIssueIDs in
                 completeReview(
@@ -228,6 +261,32 @@ struct GeneticTestRecordView: View {
                     skippedIssueIDs: skippedIssueIDs
                 )
             }
+        }
+        .sheet(item: $editingTest) { result in
+            GeneticTestEditorView(result: result) { updatedResult in
+                persist(updatedResult)
+            }
+        }
+        .sheet(item: $editingItem) { item in
+            GeneticTestItemEditorView(item: item) { updatedItem in
+                persist(updatedItem: updatedItem)
+            }
+        }
+        .alert("Delete Genetic Test?", isPresented: $showingDeleteConfirmation) {
+            Button("Delete Test and Source Report", role: .destructive) {
+                deleteTest()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently removes the structured test, its source document, and the imported file from this device.")
+        }
+        .alert("Could Not Save Genetic Test", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "Please try again.")
         }
     }
 
@@ -341,16 +400,31 @@ struct GeneticTestRecordView: View {
 
     private func findingsSection(_ geneticTest: GeneticTestResult) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Reported Findings")
-                .font(.headline)
+            HStack {
+                Text("Genetic Findings")
+                    .font(.headline)
+                Spacer()
+                Button("Add Result", systemImage: "plus") {
+                    editingItem = GeneticTestItem(
+                        gene: PharmacogenomicGene.allCases.first?.rawValue ?? "",
+                        category: PharmacogenomicGene.allCases.first?.category ?? .other,
+                        isKnownPharmacogene: true
+                    )
+                }
+                .font(.subheadline)
+            }
 
             if geneticTest.results.isEmpty {
-                Text("No structured findings were recognized. Review the original report before using this test for medication questions.")
+                Text("No structured findings are saved. Add a result or review the original report before using this test for medication questions.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             } else {
                 ForEach(geneticTest.results) { item in
-                    GeneticTestFindingRow(item: item)
+                    GeneticTestFindingRow(
+                        item: item,
+                        onEdit: { editingItem = item },
+                        onDelete: { deleteFinding(item) }
+                    )
                 }
             }
         }
@@ -383,25 +457,74 @@ struct GeneticTestRecordView: View {
             skippedIssueIDs: skippedIssueIDs
         )
 
-        var updatedDocument = currentDocument
-        if let encodedResult = try? AnyHealthData(resolvedResult),
-           let index = updatedDocument.extractedHealthData.firstIndex(where: { $0.type == .geneticProfile }) {
-            updatedDocument.extractedHealthData[index] = encodedResult
-        }
-        currentDocument = updatedDocument
+        persist(resolvedResult)
+        activeReview = nil
+    }
 
-        Task {
-            _ = await documentProcessor.saveGeneticTestResult(
-                resolvedResult,
-                for: review.documentId
-            )
-            activeReview = nil
+    private func beginTestEditing() {
+        editingTest = geneticTest ?? GeneticTestResult(
+            id: currentDocument.id,
+            testDate: currentDocument.documentDate ?? currentDocument.importedAt,
+            laboratoryName: currentDocument.providerName,
+            testedGenes: []
+        )
+    }
+
+    private func persist(updatedItem: GeneticTestItem) {
+        guard var result = geneticTest else {
+            errorMessage = "Create the structured genetic result before adding individual findings."
+            return
+        }
+        result.upsertResult(updatedItem)
+        persist(result)
+    }
+
+    private func persist(_ result: GeneticTestResult) {
+        var updatedDocument = currentDocument
+        if let encodedResult = try? AnyHealthData(result) {
+            if let index = updatedDocument.extractedHealthData.firstIndex(where: { $0.type == .geneticProfile }) {
+                updatedDocument.extractedHealthData[index] = encodedResult
+            } else {
+                updatedDocument.extractedHealthData.append(encodedResult)
+            }
+            updatedDocument.documentCategory = .geneticTest
+            updatedDocument.lastEditedAt = Date()
+            currentDocument = updatedDocument
+        }
+
+        let documentID = currentDocument.id
+        Task { @MainActor in
+            guard let savedDocument = await documentProcessor.saveGeneticTestResult(result, for: documentID) else {
+                errorMessage = "The source document could not be updated. Your original report was not changed."
+                return
+            }
+            currentDocument = savedDocument
+        }
+    }
+
+    private func deleteFinding(_ item: GeneticTestItem) {
+        guard var result = geneticTest else { return }
+        guard result.removeResult(id: item.id) != nil else { return }
+        persist(result)
+    }
+
+    private func deleteTest() {
+        Task { @MainActor in
+            guard await documentManager.deleteDocument(currentDocument) else {
+                errorMessage = "The genetic test could not be deleted. Please try again."
+                return
+            }
+            dismiss()
         }
     }
 }
 
 struct GeneticTestFindingRow: View {
     let item: GeneticTestItem
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -412,6 +535,16 @@ struct GeneticTestFindingRow: View {
                 Text(item.category.displayName)
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button("Edit", systemImage: "pencil", action: onEdit)
+                    .font(.caption)
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    showingDeleteConfirmation = true
+                }
+                .font(.caption)
             }
 
             if let genotype = item.genotype, !genotype.isEmpty {
@@ -442,11 +575,360 @@ struct GeneticTestFindingRow: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
+            if let catalogSummary = item.catalogSummary, !catalogSummary.isEmpty {
+                Text("Catalog summary: \(catalogSummary)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            if let pharmGKBURL = item.pharmGKBURL {
+                Link(destination: pharmGKBURL) {
+                    Label("View gene and result on PharmGKB", systemImage: "link")
+                        .font(.caption)
+                }
+            }
         }
         .padding(.vertical, 6)
         .overlay(alignment: .bottom) {
             Divider()
         }
+        .confirmationDialog("Delete \(item.gene) result?", isPresented: $showingDeleteConfirmation) {
+            Button("Delete Result", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("The source report will remain available, but this structured finding will be removed from the test.")
+        }
+    }
+}
+
+// MARK: - Genetic Test Editor
+struct GeneticTestEditorView: View {
+    let onSave: (GeneticTestResult) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: GeneticTestResult
+    @State private var testedGenesText: String
+
+    init(result: GeneticTestResult, onSave: @escaping (GeneticTestResult) -> Void) {
+        self.onSave = onSave
+        self._draft = State(initialValue: result)
+        self._testedGenesText = State(initialValue: result.testedGenes.joined(separator: ", "))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Test Information") {
+                    DatePicker("Test Date", selection: $draft.testDate, displayedComponents: .date)
+                    TextField("Test name", text: optionalStringBinding(\.testName))
+                    TextField("Panel name", text: optionalStringBinding(\.panelName))
+                    TextField("Laboratory", text: optionalStringBinding(\.laboratoryName))
+                    TextField("Ordering physician", text: optionalStringBinding(\.orderingPhysician))
+                    Picker("Specimen", selection: Binding(
+                        get: { draft.specimen ?? .unknown },
+                        set: { draft.specimen = $0 == .unknown ? nil : $0 }
+                    )) {
+                        ForEach(GeneticSpecimen.allCases, id: \.self) { specimen in
+                            Text(specimen.displayName).tag(specimen)
+                        }
+                    }
+                }
+
+                Section("Genes Tested") {
+                    TextField("CYP2D6, CYP2C19", text: $testedGenesText, axis: .vertical)
+                        .lineLimit(2...5)
+                    Text("Separate gene symbols with commas or new lines. Known symbols are normalized when saved.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Section("Reported Limitations") {
+                    TextEditor(text: optionalStringBinding(\.limitations))
+                        .frame(minHeight: 90)
+                }
+            }
+            .navigationTitle("Edit Genetic Test")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        save()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func optionalStringBinding(_ keyPath: WritableKeyPath<GeneticTestResult, String?>) -> Binding<String> {
+        Binding(
+            get: { draft[keyPath: keyPath] ?? "" },
+            set: { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft[keyPath: keyPath] = trimmed.isEmpty ? nil : value
+            }
+        )
+    }
+
+    private func save() {
+        draft.testedGenes = testedGenesText
+            .components(separatedBy: CharacterSet(charactersIn: ",;\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { PharmacogenomicGene.match(in: $0)?.rawValue ?? $0.uppercased() }
+            .reduce(into: [String]()) { values, gene in
+                guard !values.contains(where: { $0.caseInsensitiveCompare(gene) == .orderedSame }) else { return }
+                values.append(gene)
+            }
+        draft.updatedAt = Date()
+        onSave(draft)
+        dismiss()
+    }
+}
+
+// MARK: - Genetic Finding Editor
+struct GeneticTestItemEditorView: View {
+    private static let otherGeneKey = "__other_gene__"
+    private static let customOptionKey = "__custom_option__"
+
+    let onSave: (GeneticTestItem) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: GeneticTestItem
+    @State private var selectedGene: String
+    @State private var customGene: String
+    @State private var selectedCatalogOptionID: String
+    @State private var validationMessage: String?
+
+    init(item: GeneticTestItem, onSave: @escaping (GeneticTestItem) -> Void) {
+        self.onSave = onSave
+        self._draft = State(initialValue: item)
+
+        let matchedGene = PharmacogenomicGene.match(in: item.gene)
+        let geneSelection = matchedGene?.rawValue ?? Self.otherGeneKey
+        self._selectedGene = State(initialValue: geneSelection)
+        self._customGene = State(initialValue: matchedGene == nil ? item.gene : "")
+        let matchingOption = matchedGene?.catalogOptions.first(where: { $0.matches(item) })
+        self._selectedCatalogOptionID = State(initialValue: matchingOption?.id ?? Self.customOptionKey)
+    }
+
+    private var selectedCatalogGene: PharmacogenomicGene? {
+        PharmacogenomicGene(rawValue: selectedGene)
+    }
+
+    private var catalogOptions: [GeneticCatalogOption] {
+        selectedCatalogGene?.catalogOptions ?? []
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Gene") {
+                    Picker("Gene", selection: $selectedGene) {
+                        ForEach(PharmacogenomicGene.allCases, id: \.rawValue) { gene in
+                            Text(gene.rawValue).tag(gene.rawValue)
+                        }
+                        Text("Other").tag(Self.otherGeneKey)
+                    }
+
+                    if selectedGene == Self.otherGeneKey {
+                        TextField("Gene symbol", text: $customGene)
+                            .textInputAutocapitalization(.characters)
+                    }
+                }
+
+                if !catalogOptions.isEmpty {
+                    Section("Pre-configured Suggestion") {
+                        Picker("Genotype / phenotype", selection: $selectedCatalogOptionID) {
+                            Text("Custom / keep current values")
+                                .tag(Self.customOptionKey)
+                            ForEach(catalogOptions) { option in
+                                Text(option.displayName).tag(option.id)
+                            }
+                        }
+
+                        if let selectedOption = catalogOptions.first(where: { $0.id == selectedCatalogOptionID }) {
+                            Text(selectedOption.summary)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text("This is a conservative catalog suggestion, not a laboratory interpretation or dosing recommendation.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Section("Structured Result") {
+                    Picker("Category", selection: $draft.category) {
+                        ForEach(GeneticMarkerCategory.allCases, id: \.self) { category in
+                            Text(category.displayName).tag(category)
+                        }
+                    }
+                    TextField("Diplotype / star alleles", text: binding(for: \.diplotype))
+                    TextField("Genotype", text: binding(for: \.genotype))
+                    TextField("Phenotype / metabolic status", text: binding(for: \.phenotype))
+                    TextField("Variant", text: binding(for: \.variant))
+                    TextField("rsID", text: binding(for: \.rsID))
+                    TextField("Reported result", text: binding(for: \.reportedResult))
+                    TextField("Evidence level", text: binding(for: \.evidenceLevel))
+                }
+
+                Section("Reported Interpretation") {
+                    TextEditor(text: binding(for: \.reportedInterpretation))
+                        .frame(minHeight: 90)
+                    TextEditor(text: medicationImplicationsBinding)
+                        .frame(minHeight: 90)
+                        .overlay(alignment: .topLeading) {
+                            if draft.reportedMedicationImplications.isEmpty {
+                                Text("Medication implications, one per line")
+                                    .foregroundColor(.secondary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                }
+
+                if let sourceText = draft.sourceText, !sourceText.isEmpty {
+                    Section("Imported Source Text") {
+                        Text(sourceText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let validationMessage {
+                    Section {
+                        Text(validationMessage)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .navigationTitle("Edit Genetic Result")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: selectedGene) { _, value in
+                applyGeneSelection(value)
+            }
+            .onChange(of: customGene) { _, value in
+                guard selectedGene == Self.otherGeneKey else { return }
+                draft.gene = value
+                draft.isKnownPharmacogene = false
+            }
+            .onChange(of: selectedCatalogOptionID) { _, value in
+                applyCatalogSelection(value)
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") { save() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func binding(for keyPath: WritableKeyPath<GeneticTestItem, String?>) -> Binding<String> {
+        Binding(
+            get: { draft[keyPath: keyPath] ?? "" },
+            set: { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft[keyPath: keyPath] = trimmed.isEmpty ? nil : value
+            }
+        )
+    }
+
+    private var medicationImplicationsBinding: Binding<String> {
+        Binding(
+            get: { draft.reportedMedicationImplications.joined(separator: "\n") },
+            set: { value in
+                draft.reportedMedicationImplications = value
+                    .components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+        )
+    }
+
+    private func applyGeneSelection(_ value: String) {
+        guard value != Self.otherGeneKey else {
+            draft.gene = customGene
+            draft.isKnownPharmacogene = false
+            selectedCatalogOptionID = Self.customOptionKey
+            draft.curatedPhenotype = nil
+            draft.curatedSummary = nil
+            draft.curatedSourceURL = nil
+            return
+        }
+
+        guard let gene = PharmacogenomicGene(rawValue: value) else { return }
+        draft.gene = gene.rawValue
+        draft.category = gene.category
+        draft.isKnownPharmacogene = true
+        customGene = ""
+        selectedCatalogOptionID = Self.customOptionKey
+        draft.curatedPhenotype = nil
+        draft.curatedSummary = nil
+        draft.curatedSourceURL = nil
+    }
+
+    private func applyCatalogSelection(_ value: String) {
+        guard let option = catalogOptions.first(where: { $0.id == value }) else {
+            if value == Self.customOptionKey {
+                draft.curatedPhenotype = nil
+                draft.curatedSummary = nil
+                draft.curatedSourceURL = nil
+            }
+            return
+        }
+
+        draft.gene = option.gene.rawValue
+        draft.category = option.gene.category
+        draft.isKnownPharmacogene = true
+        draft.diplotype = option.diplotype
+        draft.genotype = option.genotype
+        draft.phenotype = option.phenotype
+        draft.curatedPhenotype = option.phenotype
+        draft.curatedSummary = option.summary
+        draft.curatedSourceURL = option.pharmGKBURL?.absoluteString
+    }
+
+    private func save() {
+        let geneValue = (selectedGene == Self.otherGeneKey ? customGene : selectedGene)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !geneValue.isEmpty else {
+            validationMessage = "Enter a gene symbol or choose a known pharmacogenomic gene."
+            return
+        }
+
+        draft.gene = PharmacogenomicGene.match(in: geneValue)?.rawValue ?? geneValue.uppercased()
+        if let knownGene = PharmacogenomicGene.match(in: draft.gene) {
+            draft.isKnownPharmacogene = true
+            if draft.category == .other {
+                draft.category = knownGene.category
+            }
+        } else {
+            draft.isKnownPharmacogene = false
+        }
+
+        if let option = catalogOptions.first(where: { $0.id == selectedCatalogOptionID }),
+           option.matches(draft),
+           draft.phenotype == option.phenotype {
+            draft.curatedPhenotype = option.phenotype
+            draft.curatedSummary = option.summary
+            draft.curatedSourceURL = option.pharmGKBURL?.absoluteString
+        } else {
+            draft.curatedPhenotype = nil
+            draft.curatedSummary = nil
+            draft.curatedSourceURL = nil
+        }
+
+        onSave(draft)
+        dismiss()
     }
 }
 

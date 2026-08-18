@@ -30,6 +30,7 @@ class HealthDataManager: ObservableObject {
     private let healthKitManager = HealthKitManager.shared
     private let errorHandler = ErrorHandler.shared
     private let retryManager = NetworkRetryManager.shared
+    private var documentChangeObservers: [NSObjectProtocol] = []
 
     // MARK: - Constants
     private let manualEntryConflictInterval: TimeInterval = 300 // 5 minutes
@@ -46,11 +47,44 @@ class HealthDataManager: ObservableObject {
         self.databaseManager = databaseManager
         self.fileSystemManager = fileSystemManager
 
+        observeMedicalDocumentChanges()
+
         guard automaticallyLoad else { return }
 
         Task {
             await loadHealthData()
         }
+    }
+
+    private func observeMedicalDocumentChanges() {
+        let changeObserver = NotificationCenter.default.addObserver(
+            forName: .medicalDocumentDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.refreshGeneticTestDocuments()
+            }
+        }
+
+        let deleteObserver = NotificationCenter.default.addObserver(
+            forName: .medicalDocumentDidDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let documentID = notification.object as? UUID
+            Task { @MainActor [weak self, documentID] in
+                guard let self else { return }
+                if let documentID {
+                    self.geneticTestDocuments.removeAll { $0.id == documentID }
+                    self.imagingReports.removeAll { $0.id == documentID }
+                    self.healthCheckups.removeAll { $0.id == documentID }
+                }
+                await self.refreshGeneticTestDocuments()
+            }
+        }
+
+        documentChangeObservers = [changeObserver, deleteObserver]
     }
     
     // MARK: - Data Loading

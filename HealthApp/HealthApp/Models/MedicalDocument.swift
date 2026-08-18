@@ -1,5 +1,10 @@
 import Foundation
 
+extension Notification.Name {
+    static let medicalDocumentDidChange = Notification.Name("MedicalDocumentDidChange")
+    static let medicalDocumentDidDelete = Notification.Name("MedicalDocumentDidDelete")
+}
+
 // MARK: - Medical Document Model
 /// Represents a medical document with on-device OCR'd content and structured sections
 struct MedicalDocument: Identifiable, Codable, Hashable {

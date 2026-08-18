@@ -111,6 +111,168 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertTrue(result.contextSummary.contains("Reported laboratory findings only"))
     }
 
+    func testPharmacogenomicCatalogUsesConservativeCYP1A2SuggestionAndPharmGKBLink() throws {
+        let item = GeneticTestItem(
+            gene: "CYP1A2",
+            category: .drugMetabolism,
+            isKnownPharmacogene: true,
+            diplotype: "*1F/*1F"
+        )
+
+        let suggestion = try XCTUnwrap(item.catalogSuggestion)
+        XCTAssertEqual(suggestion.phenotype, "Higher inducibility (context-dependent)")
+        XCTAssertTrue(suggestion.summary.contains("not a universal rapid-metabolizer call"))
+
+        let pharmGKBURL = try XCTUnwrap(item.pharmGKBURL)
+        let components = try XCTUnwrap(URLComponents(url: pharmGKBURL, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.host, "www.pharmgkb.org")
+        XCTAssertEqual(components.path, "/search")
+        XCTAssertEqual(components.queryItems?.first?.value, "CYP1A2 *1F/*1F")
+
+        let result = GeneticTestResult(
+            testDate: Date(),
+            testedGenes: ["CYP1A2"],
+            results: [item]
+        )
+        XCTAssertTrue(result.contextSummary.contains("app catalog suggestion: Higher inducibility (context-dependent)"))
+        XCTAssertTrue(result.contextSummary.contains("PharmGKB: https://www.pharmgkb.org/search"))
+    }
+
+    func testGeneticTestResultsCanBeEditedAndRemovedIndividually() throws {
+        let firstItem = GeneticTestItem(
+            gene: "CYP2D6",
+            category: .drugMetabolism,
+            isKnownPharmacogene: true,
+            diplotype: "*1/*4"
+        )
+        var result = GeneticTestResult(
+            testDate: Date(),
+            testedGenes: ["CYP2D6"],
+            results: [firstItem],
+            reviewIssues: [GeneticTestReviewIssue(
+                resultID: firstItem.id,
+                gene: firstItem.gene,
+                reason: "Check the original report.",
+                sourceText: "CYP2D6: *1/*4"
+            )],
+            metadata: ["pending_review": "true"]
+        )
+
+        var editedItem = firstItem
+        editedItem.phenotype = "Intermediate Metabolizer"
+        result.upsertResult(editedItem)
+
+        XCTAssertEqual(result.results.first?.phenotype, "Intermediate Metabolizer")
+        XCTAssertTrue(result.reviewIssues.isEmpty)
+        XCTAssertEqual(result.metadata?["manual_edit_completed"], "true")
+
+        let secondItem = GeneticTestItem(
+            gene: "CYP2C19",
+            category: .drugMetabolism,
+            isKnownPharmacogene: true,
+            diplotype: "*1/*17"
+        )
+        result.upsertResult(secondItem)
+        XCTAssertEqual(Set(result.testedGenes), Set(["CYP2D6", "CYP2C19"]))
+        XCTAssertEqual(result.results.count, 2)
+
+        XCTAssertEqual(result.removeResult(id: firstItem.id)?.id, firstItem.id)
+        XCTAssertEqual(result.results.map(\.gene), ["CYP2C19"])
+        XCTAssertEqual(Set(result.testedGenes), Set(["CYP2D6", "CYP2C19"]))
+        XCTAssertNil(result.removeResult(id: firstItem.id))
+    }
+
+    func testSavingEditedGeneticTestUpdatesTheMedicalDocument() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        let sourceURL = harness.rootURL.appendingPathComponent("genetic-test.pdf")
+        try Data("source report".utf8).write(to: sourceURL)
+        let document = makeDocument(
+            named: "genetic-test.pdf",
+            category: .geneticTest,
+            filePath: sourceURL
+        )
+        try await harness.databaseManager.saveMedicalDocument(document)
+
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        let result = GeneticTestResult(
+            id: document.id,
+            testDate: document.importedAt,
+            testedGenes: ["CYP1A2"],
+            results: [GeneticTestItem(
+                gene: "CYP1A2",
+                category: .drugMetabolism,
+                isKnownPharmacogene: true,
+                diplotype: "*1F/*1F",
+                phenotype: "Higher inducibility (context-dependent)"
+            )]
+        )
+
+        let savedDocument = await processor.saveGeneticTestResult(result, for: document.id)
+        let persistedDocument = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        let persistedResult = try XCTUnwrap(
+            persistedDocument?.extractedHealthData
+                .compactMap { try? $0.decode(as: GeneticTestResult.self) }
+                .first
+        )
+
+        XCTAssertEqual(savedDocument?.id, document.id)
+        XCTAssertEqual(persistedResult.results.first?.diplotype, "*1F/*1F")
+        XCTAssertNotNil(persistedDocument?.lastEditedAt)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
+    }
+
+    func testDeletingGeneticTestRemovesTheDatabaseRecordAndSourceFile() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        let sourceURL = harness.rootURL.appendingPathComponent("genetic-test.pdf")
+        try Data("source report".utf8).write(to: sourceURL)
+        let document = makeDocument(
+            named: "genetic-test.pdf",
+            category: .geneticTest,
+            filePath: sourceURL
+        )
+        try await harness.databaseManager.saveMedicalDocument(document)
+
+        let documentManager = makeDocumentManager(for: harness)
+
+        let deletionSucceeded = await documentManager.deleteDocument(document)
+        XCTAssertTrue(deletionSucceeded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
+        let persistedDocument = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        XCTAssertNil(persistedDocument)
+        XCTAssertFalse(documentManager.documents.contains { $0.id == document.id })
+    }
+
+    func testDeletingGeneticTestStillRemovesRecordWhenSourceFileIsAlreadyMissing() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        let sourceURL = harness.rootURL.appendingPathComponent("genetic-test.pdf")
+        try Data("source report".utf8).write(to: sourceURL)
+        let document = makeDocument(
+            named: "genetic-test.pdf",
+            category: .geneticTest,
+            filePath: sourceURL
+        )
+        try await harness.databaseManager.saveMedicalDocument(document)
+        try FileManager.default.removeItem(at: sourceURL)
+
+        let documentManager = makeDocumentManager(for: harness)
+        let deletionSucceeded = await documentManager.deleteDocument(document)
+
+        XCTAssertTrue(deletionSucceeded)
+        let persistedDocument = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        XCTAssertNil(persistedDocument)
+    }
+
     func testGeneticTestParserKeepsUnstructuredReportsForReview() throws {
         let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
         let report = """
@@ -274,12 +436,13 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
     private func makeDocument(
         named fileName: String,
         category: DocumentCategory = .other,
-        extractedHealthData: [AnyHealthData] = []
+        extractedHealthData: [AnyHealthData] = [],
+        filePath: URL? = nil
     ) -> MedicalDocument {
         MedicalDocument(
             fileName: fileName,
             fileType: .pdf,
-            filePath: URL(fileURLWithPath: "/tmp/\(fileName)"),
+            filePath: filePath ?? URL(fileURLWithPath: "/tmp/\(fileName)"),
             documentCategory: category,
             extractedHealthData: extractedHealthData
         )
@@ -320,6 +483,25 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             healthDataManager: healthDataManager,
             settingsManager: settingsManager
+        )
+    }
+
+    private func makeDocumentManager(for harness: RegressionHarness) -> DocumentManager {
+        let importer = DocumentImporter(
+            fileSystemManager: harness.fileSystemManager,
+            databaseManager: harness.databaseManager
+        )
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        return DocumentManager(
+            documentImporter: importer,
+            documentProcessor: processor,
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager
         )
     }
 

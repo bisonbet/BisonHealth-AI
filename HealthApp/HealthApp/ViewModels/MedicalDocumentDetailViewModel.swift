@@ -72,12 +72,7 @@ class MedicalDocumentDetailViewModel: ObservableObject {
     }
 
     func deleteDocument() async {
-        do {
-            try await databaseManager.deleteMedicalDocument(document)
-            AppLog.shared.documents("Document deleted successfully")
-        } catch {
-            AppLog.shared.documents("Failed to delete document: \(error)", level: .error)
-        }
+        _ = await DocumentManager.shared.deleteDocument(document)
     }
 
     // MARK: - Private Methods

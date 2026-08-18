@@ -128,6 +128,66 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
         return resolved
     }
 
+    /// Inserts or updates one structured finding and adds its gene to the
+    /// report's tested-gene list when needed. The report-level list is kept
+    /// separate so deleting a finding does not erase evidence that the gene
+    /// was tested.
+    mutating func upsertResult(_ item: GeneticTestItem) {
+        let normalizedGene = item.gene.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedGene.isEmpty else { return }
+
+        var updatedItem = item
+        updatedItem.gene = PharmacogenomicGene.match(in: normalizedGene)?.rawValue ?? normalizedGene.uppercased()
+
+        if let index = results.firstIndex(where: { $0.id == item.id }) {
+            results[index] = updatedItem
+        } else {
+            results.append(updatedItem)
+        }
+
+        if !testedGenes.contains(where: { $0.caseInsensitiveCompare(updatedItem.gene) == .orderedSame }) {
+            testedGenes.append(updatedItem.gene)
+        }
+
+        reviewIssues.removeAll { $0.resultID == updatedItem.id }
+        if reviewIssues.isEmpty {
+            var updatedMetadata = metadata ?? [:]
+            updatedMetadata.removeValue(forKey: "pending_review")
+            updatedMetadata["manual_edit_completed"] = "true"
+            metadata = updatedMetadata
+        }
+        updatedAt = Date()
+    }
+
+    /// Removes one structured finding but deliberately leaves the source
+    /// document, extracted report text, and report-level tested-gene list intact.
+    @discardableResult
+    mutating func removeResult(id: UUID) -> GeneticTestItem? {
+        guard let index = results.firstIndex(where: { $0.id == id }) else { return nil }
+        let removedItem = results.remove(at: index)
+        reviewIssues.removeAll { issue in
+            if issue.resultID == id {
+                return true
+            }
+            guard issue.resultID == nil,
+                  issue.gene?.caseInsensitiveCompare(removedItem.gene) == .orderedSame else {
+                return false
+            }
+            return !results.contains {
+                $0.gene.caseInsensitiveCompare(removedItem.gene) == .orderedSame
+            }
+        }
+
+        if reviewIssues.isEmpty {
+            var updatedMetadata = metadata ?? [:]
+            updatedMetadata.removeValue(forKey: "pending_review")
+            updatedMetadata["manual_edit_completed"] = "true"
+            metadata = updatedMetadata
+        }
+        updatedAt = Date()
+        return removedItem
+    }
+
     /// A compact, provenance-preserving representation used in document
     /// sections and AI context. Medication implications are included only when
     /// the source report explicitly supplied them.
@@ -135,6 +195,7 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
         var lines: [String] = [
             "Structured genetic test data (Reported laboratory findings only):"
         ]
+        lines.append("App catalog labels are suggestions for review, not laboratory interpretations.")
 
         if let testName, !testName.isEmpty {
             lines.append("Test: \(testName)")
@@ -169,6 +230,13 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
             if let reportedResult = result.reportedResult, !reportedResult.isEmpty {
                 resultLine += "; reported result: \(reportedResult)"
             }
+            if let catalogPhenotype = result.curatedPhenotype, !catalogPhenotype.isEmpty {
+                resultLine += "; app catalog suggestion: \(catalogPhenotype)"
+            } else if let catalogSuggestion = result.catalogSuggestion,
+                      let phenotype = catalogSuggestion.phenotype,
+                      !phenotype.isEmpty {
+                resultLine += "; app catalog suggestion: \(phenotype)"
+            }
             lines.append(resultLine)
 
             if let interpretation = result.reportedInterpretation, !interpretation.isEmpty {
@@ -176,6 +244,12 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
             }
             if !result.reportedMedicationImplications.isEmpty {
                 lines.append("  Reported medication implications: \(result.reportedMedicationImplications.joined(separator: "; "))")
+            }
+            if let catalogSummary = result.catalogSummary, !catalogSummary.isEmpty {
+                lines.append("  Catalog summary (not a laboratory interpretation): \(catalogSummary)")
+            }
+            if let pharmGKBURL = result.pharmGKBURL {
+                lines.append("  PharmGKB: \(pharmGKBURL.absoluteString)")
             }
         }
 
@@ -279,6 +353,7 @@ enum GeneticMarkerCategory: String, CaseIterable, Codable, Hashable {
 /// intentionally a recognition catalog, not a drug-dosing engine. The report
 /// remains the source of truth for the actual result and interpretation.
 enum PharmacogenomicGene: String, CaseIterable, Codable, Hashable {
+    case cyp1a2 = "CYP1A2"
     case cyp2d6 = "CYP2D6"
     case cyp2c19 = "CYP2C19"
     case cyp2c9 = "CYP2C9"
@@ -316,7 +391,7 @@ enum PharmacogenomicGene: String, CaseIterable, Codable, Hashable {
 
     var category: GeneticMarkerCategory {
         switch self {
-        case .cyp2d6, .cyp2c19, .cyp2c9, .cyp2b6, .cyp3a5, .cyp4f2,
+        case .cyp1a2, .cyp2d6, .cyp2c19, .cyp2c9, .cyp2b6, .cyp3a5, .cyp4f2,
              .dpyd, .tpmt, .nudt15, .ugt1a1, .nat2:
             return .drugMetabolism
         case .slco1b1, .abcg2:
@@ -346,6 +421,181 @@ enum PharmacogenomicGene: String, CaseIterable, Codable, Hashable {
 
         return nil
     }
+
+    /// Short, conservative suggestions for common pharmacogenomic diplotypes.
+    /// These are prompts for review, not dosing advice or a replacement for a
+    /// laboratory-reported phenotype.
+    var catalogOptions: [GeneticCatalogOption] {
+        switch self {
+        case .cyp1a2:
+            return [
+                GeneticCatalogOption(
+                    gene: self,
+                    diplotype: "*1A/*1A",
+                    phenotype: "Normal inducibility",
+                    summary: "No common *1F allele is present in this diplotype; CYP1A2 activity still depends on exposures and other factors."
+                ),
+                GeneticCatalogOption(
+                    gene: self,
+                    diplotype: "*1A/*1F",
+                    phenotype: "Higher inducibility (context-dependent)",
+                    summary: "One *1F allele may be associated with higher inducibility in some settings; smoking, diet, medicines, and other factors can change activity."
+                ),
+                GeneticCatalogOption(
+                    gene: self,
+                    diplotype: "*1F/*1F",
+                    phenotype: "Higher inducibility (context-dependent)",
+                    summary: "Two *1F alleles may be associated with higher inducibility in some settings; this is not a universal rapid-metabolizer call."
+                )
+            ]
+        case .cyp2d6:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal Metabolizer", summary: "Commonly assigned normal CYP2D6 activity under standard allele-function conventions."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*4", phenotype: "Normal or intermediate (guideline-dependent)", summary: "An activity score around 1.0 is classified differently by some guidelines and laboratories; preserve the reported phenotype when available."),
+                GeneticCatalogOption(gene: self, diplotype: "*4/*4", phenotype: "Poor Metabolizer", summary: "Two no-function alleles are commonly assigned very low CYP2D6 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*1xN/*1", phenotype: "Ultrarapid Metabolizer", summary: "A duplicated functional allele may increase CYP2D6 activity; copy-number testing and current guidance are essential.")
+            ]
+        case .cyp2c19:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal Metabolizer", summary: "Commonly assigned normal CYP2C19 activity under standard allele-function conventions."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*2", phenotype: "Intermediate Metabolizer", summary: "One normal-function and one no-function allele are commonly assigned reduced CYP2C19 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*2/*2", phenotype: "Poor Metabolizer", summary: "Two no-function alleles are commonly assigned very low CYP2C19 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*17", phenotype: "Rapid Metabolizer", summary: "One increased-function allele is commonly assigned higher CYP2C19 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*17/*17", phenotype: "Ultrarapid Metabolizer", summary: "Two increased-function alleles are commonly assigned high CYP2C19 activity.")
+            ]
+        case .cyp2c9:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal Metabolizer", summary: "Commonly assigned normal CYP2C9 activity under standard allele-function conventions."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*2", phenotype: "Intermediate Metabolizer", summary: "A decreased-function allele with a normal-function allele is commonly assigned reduced CYP2C9 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*3", phenotype: "Intermediate Metabolizer", summary: "A no-function allele with a normal-function allele is commonly assigned reduced CYP2C9 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*2/*3", phenotype: "Poor Metabolizer", summary: "Two reduced or no-function alleles are commonly assigned very low CYP2C9 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*3/*3", phenotype: "Poor Metabolizer", summary: "Two no-function alleles are commonly assigned very low CYP2C9 activity.")
+            ]
+        case .cyp2b6:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal Metabolizer", summary: "Commonly assigned normal CYP2B6 activity under standard allele-function conventions."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*6", phenotype: "Intermediate Metabolizer", summary: "A commonly reduced-function CYP2B6 allele is paired with a normal-function allele."),
+                GeneticCatalogOption(gene: self, diplotype: "*6/*6", phenotype: "Poor Metabolizer", summary: "Two commonly reduced-function CYP2B6 alleles may produce lower activity.")
+            ]
+        case .cyp3a5:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Expressor", summary: "At least one *1 allele is commonly associated with CYP3A5 expression."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*3", phenotype: "Expressor", summary: "At least one *1 allele is commonly associated with CYP3A5 expression."),
+                GeneticCatalogOption(gene: self, diplotype: "*3/*3", phenotype: "Non-expresser", summary: "Two *3 alleles are commonly associated with little or no CYP3A5 expression.")
+            ]
+        case .dpyd:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal DPD Activity", summary: "No listed decreased-function allele is present in this common diplotype."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*2A", phenotype: "Intermediate DPD Activity", summary: "One commonly decreased-function allele may reduce DPD activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*2A/*2A", phenotype: "Poor DPD Activity", summary: "Two commonly decreased-function alleles may produce very low DPD activity.")
+            ]
+        case .tpmt:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal Metabolizer", summary: "Commonly assigned normal TPMT activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*3A", phenotype: "Intermediate Metabolizer", summary: "One commonly nonfunctional TPMT allele may reduce TPMT activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*3A/*3A", phenotype: "Poor Metabolizer", summary: "Two commonly nonfunctional TPMT alleles may produce very low TPMT activity.")
+            ]
+        case .nudt15:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1/*1", phenotype: "Normal Metabolizer", summary: "Commonly assigned normal NUDT15 activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*1/*3", phenotype: "Intermediate Metabolizer", summary: "One commonly decreased-function NUDT15 allele may reduce activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*3/*3", phenotype: "Poor Metabolizer", summary: "Two commonly decreased-function NUDT15 alleles may produce very low activity.")
+            ]
+        case .nat2:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*4/*4", phenotype: "Rapid Acetylator", summary: "This common NAT2 diplotype is generally associated with faster acetylation."),
+                GeneticCatalogOption(gene: self, diplotype: "*4/*5", phenotype: "Intermediate Acetylator", summary: "One rapid and one slow NAT2 allele are generally associated with intermediate acetylation."),
+                GeneticCatalogOption(gene: self, diplotype: "*5/*5", phenotype: "Slow Acetylator", summary: "Two slow NAT2 alleles are generally associated with slower acetylation.")
+            ]
+        case .slco1b1:
+            return [
+                GeneticCatalogOption(gene: self, diplotype: "*1A/*1A", phenotype: "Normal Function", summary: "Commonly assigned normal SLCO1B1 transporter function."),
+                GeneticCatalogOption(gene: self, diplotype: "*1A/*5", phenotype: "Decreased Function", summary: "One commonly decreased-function SLCO1B1 allele may reduce transporter activity."),
+                GeneticCatalogOption(gene: self, diplotype: "*5/*5", phenotype: "Poor Function", summary: "Two commonly decreased-function SLCO1B1 alleles may produce substantially reduced activity.")
+            ]
+        case .cyp4f2, .ugt1a1, .abcg2, .vkorc1, .hlaA, .hlaB, .g6pd, .ifnl3, .ryr1, .cacna1s, .cftr:
+            return []
+        }
+    }
+}
+
+// MARK: - Pharmacogenomic Catalog Option
+/// A selectable, report-editing suggestion. It is intentionally not a dosing
+/// recommendation and is kept separate from laboratory-reported fields.
+struct GeneticCatalogOption: Identifiable, Hashable {
+    let gene: PharmacogenomicGene
+    let diplotype: String?
+    let genotype: String?
+    let phenotype: String?
+    let summary: String
+
+    init(
+        gene: PharmacogenomicGene,
+        diplotype: String? = nil,
+        genotype: String? = nil,
+        phenotype: String? = nil,
+        summary: String
+    ) {
+        self.gene = gene
+        self.diplotype = diplotype
+        self.genotype = genotype
+        self.phenotype = phenotype
+        self.summary = summary
+    }
+
+    var id: String {
+        [gene.rawValue, diplotype, genotype, phenotype].compactMap { $0 }.joined(separator: "|")
+    }
+
+    var displayName: String {
+        let value = diplotype ?? genotype ?? "Catalog entry"
+        if let phenotype, !phenotype.isEmpty {
+            return "\(value) — \(phenotype)"
+        }
+        return value
+    }
+
+    var pharmGKBURL: URL? {
+        PharmGKBLink.url(gene: gene.rawValue, result: diplotype ?? genotype)
+    }
+
+    func matches(_ item: GeneticTestItem) -> Bool {
+        let expectedDiplotype = diplotype?.normalizedGeneticValue
+        let expectedGenotype = genotype?.normalizedGeneticValue
+        let actualDiplotype = item.diplotype?.normalizedGeneticValue
+        let actualGenotype = item.genotype?.normalizedGeneticValue
+
+        if let expectedDiplotype {
+            return actualDiplotype == expectedDiplotype
+        }
+        if let expectedGenotype {
+            return actualGenotype == expectedGenotype
+        }
+        return false
+    }
+}
+
+private enum PharmGKBLink {
+    static func url(gene: String, result: String?) -> URL? {
+        let query = [gene, result].compactMap { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }.joined(separator: " ")
+
+        guard !query.isEmpty else { return nil }
+        var components = URLComponents(string: "https://www.pharmgkb.org/search")
+        components?.queryItems = [URLQueryItem(name: "query", value: query)]
+        return components?.url
+    }
+}
+
+private extension String {
+    var normalizedGeneticValue: String {
+        lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+    }
 }
 
 // MARK: - Genetic Test Item
@@ -364,6 +614,11 @@ struct GeneticTestItem: Codable, Identifiable, Hashable {
     var reportedMedicationImplications: [String]
     var evidenceLevel: String?
     var sourceText: String?
+    /// Optional app-curated metadata. Laboratory-reported fields remain
+    /// separate so a catalog suggestion is never mistaken for a lab result.
+    var curatedPhenotype: String?
+    var curatedSummary: String?
+    var curatedSourceURL: String?
 
     init(
         id: UUID = UUID(),
@@ -379,7 +634,10 @@ struct GeneticTestItem: Codable, Identifiable, Hashable {
         reportedInterpretation: String? = nil,
         reportedMedicationImplications: [String] = [],
         evidenceLevel: String? = nil,
-        sourceText: String? = nil
+        sourceText: String? = nil,
+        curatedPhenotype: String? = nil,
+        curatedSummary: String? = nil,
+        curatedSourceURL: String? = nil
     ) {
         self.id = id
         self.gene = gene
@@ -395,5 +653,30 @@ struct GeneticTestItem: Codable, Identifiable, Hashable {
         self.reportedMedicationImplications = reportedMedicationImplications
         self.evidenceLevel = evidenceLevel
         self.sourceText = sourceText
+        self.curatedPhenotype = curatedPhenotype
+        self.curatedSummary = curatedSummary
+        self.curatedSourceURL = curatedSourceURL
+    }
+
+    var catalogSuggestion: GeneticCatalogOption? {
+        guard let gene = PharmacogenomicGene.match(in: gene) else { return nil }
+        return gene.catalogOptions.first { $0.matches(self) }
+    }
+
+    var catalogSummary: String? {
+        if let curatedSummary, !curatedSummary.isEmpty {
+            return curatedSummary
+        }
+        return catalogSuggestion?.summary
+    }
+
+    var pharmGKBURL: URL? {
+        if let curatedSourceURL, let url = URL(string: curatedSourceURL) {
+            return url
+        }
+        return PharmGKBLink.url(
+            gene: gene,
+            result: diplotype ?? genotype ?? variant ?? rsID
+        )
     }
 }
