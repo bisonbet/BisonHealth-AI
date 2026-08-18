@@ -22,6 +22,7 @@ class DocumentProcessor: ObservableObject {
     @Published var lastProcessedDocument: MedicalDocument?
     @Published var processingErrors: [ProcessingError] = []
     @Published var pendingImportReview: PendingImportReview?
+    @Published var pendingGeneticTestReview: PendingGeneticTestReview?
     /// Set when an import completed silently (all values auto-accepted) — drives the confirmation banner
     @Published var lastAutoImportSummary: AutoImportSummary?
 
@@ -112,6 +113,65 @@ class DocumentProcessor: ObservableObject {
     func processDocumentImmediately(_ document: MedicalDocument) async throws -> ProcessedDocumentResult {
         // Process document synchronously without adding to queue
         return try await processDocument(document)
+    }
+
+    /// Starts a review for a genetic record that was already imported but has
+    /// persisted report-grounded issues. This is used by Records after an app
+    /// restart, when there is no in-memory import event to trigger the sheet.
+    func beginGeneticTestReview(for document: MedicalDocument) {
+        guard let geneticTest = document.extractedHealthData.compactMap({
+            try? $0.decode(as: GeneticTestResult.self)
+        }).first, !geneticTest.reviewIssues.isEmpty else {
+            return
+        }
+
+        pendingGeneticTestReview = PendingGeneticTestReview(
+            documentId: document.id,
+            documentName: document.fileName,
+            geneticTestResult: geneticTest
+        )
+    }
+
+    /// Saves a reviewed genetic result back into its source MedicalDocument.
+    /// The original extracted report text is never removed.
+    @discardableResult
+    func saveGeneticTestResult(_ result: GeneticTestResult, for documentId: UUID) async -> MedicalDocument? {
+        do {
+            guard var document = try await databaseManager.fetchMedicalDocument(id: documentId) else {
+                AppLog.shared.documents("Could not save genetic review: source document not found", level: .error)
+                return nil
+            }
+
+            let encodedResult = try AnyHealthData(result)
+            if let index = document.extractedHealthData.firstIndex(where: { $0.type == .geneticProfile }) {
+                document.extractedHealthData[index] = encodedResult
+            } else {
+                document.extractedHealthData.append(encodedResult)
+            }
+            document.documentCategory = .geneticTest
+            try await databaseManager.updateMedicalDocument(document)
+            await healthDataManager.refreshGeneticTestDocuments()
+
+            if pendingGeneticTestReview?.documentId == documentId {
+                pendingGeneticTestReview = nil
+            }
+            return document
+        } catch {
+            AppLog.shared.documents("Failed to save genetic test review: \(error.localizedDescription)", level: .error)
+            return nil
+        }
+    }
+
+    func completeGeneticTestReview(
+        _ review: PendingGeneticTestReview,
+        acceptedIssueIDs: Set<UUID>,
+        skippedIssueIDs: Set<UUID>
+    ) async {
+        let resolvedResult = review.geneticTestResult.applyingReview(
+            acceptedIssueIDs: acceptedIssueIDs,
+            skippedIssueIDs: skippedIssueIDs
+        )
+        _ = await saveGeneticTestResult(resolvedResult, for: review.documentId)
     }
 
     #if DEBUG
@@ -251,10 +311,18 @@ class DocumentProcessor: ObservableObject {
                     extractionConfidence: result.confidence
                 )
 
-                // Use document category from existing document if set, otherwise use extracted category
-                let finalCategory = currentItem.document.documentCategory != .other
-                    ? currentItem.document.documentCategory
-                    : extractionResult.documentCategory
+                // A structured genetic result is authoritative for the
+                // Records type, even when the user left the imported document
+                // uncategorized or an AI extractor returned a generic category.
+                let containsGeneticProfile = extractedHealthData.contains { $0.type == .geneticProfile }
+                let finalCategory: DocumentCategory
+                if containsGeneticProfile || GeneticTestParser.looksLikeGeneticTest(result.extractedText) {
+                    finalCategory = .geneticTest
+                } else {
+                    finalCategory = currentItem.document.documentCategory != .other
+                        ? currentItem.document.documentCategory
+                        : extractionResult.documentCategory
+                }
 
                 // Clean text for AI context (removes base64 images, etc.)
                 let rawExtractedText = extractionResult.extractedText.isEmpty ? result.extractedText : extractionResult.extractedText
@@ -303,7 +371,13 @@ class DocumentProcessor: ObservableObject {
 
                 // Fallback: Still create a MedicalDocument with at least the extracted text
                 do {
-                    let finalCategory = currentItem.document.documentCategory
+                    let finalCategory: DocumentCategory
+                    if extractedHealthData.contains(where: { $0.type == .geneticProfile })
+                        || GeneticTestParser.looksLikeGeneticTest(result.extractedText) {
+                        finalCategory = .geneticTest
+                    } else {
+                        finalCategory = currentItem.document.documentCategory
+                    }
                     let cleanedText = cleanMarkdownForAIContext(result.extractedText)
                     let fallbackDocument = MedicalDocument(
                         id: currentItem.document.id,
@@ -335,6 +409,16 @@ class DocumentProcessor: ObservableObject {
                 } catch {
                     AppLog.shared.error("Failed to save fallback MedicalDocument", error: error, category: .documents)
                 }
+            }
+
+            if let geneticTest = extractedHealthData.compactMap({
+                try? $0.decode(as: GeneticTestResult.self)
+            }).first, !geneticTest.reviewIssues.isEmpty {
+                pendingGeneticTestReview = PendingGeneticTestReview(
+                    documentId: currentItem.document.id,
+                    documentName: currentItem.document.fileName,
+                    geneticTestResult: geneticTest
+                )
             }
             
             // Update document with extracted data (fallback if medical extraction failed)
@@ -565,8 +649,25 @@ class DocumentProcessor: ObservableObject {
         let labOnlyItems = healthDataItems.filter { !nonLabTypes.contains($0.type) }
         AppLog.shared.documents("Filtered to \(labOnlyItems.count) lab-specific items for blood test extraction")
 
-        // Only extract blood tests for lab reports (or uncategorized documents for backward compatibility)
-        let isLabReport = document.documentCategory == .labReport || document.documentCategory == .other
+        // Genetic reports can contain laboratory-style metadata such as a
+        // specimen and test results. Detect them before the legacy `.other`
+        // blood-test fallback so a genetic report is never imported as a set
+        // of ordinary lab values.
+        let isGeneticTest = document.documentCategory == .geneticTest
+            || GeneticTestParser.looksLikeGeneticTest(result.extractedText)
+        // Only extract blood tests for lab reports (or uncategorized documents
+        // for backward compatibility), never for genetic reports.
+        let isLabReport = !isGeneticTest && (document.documentCategory == .labReport || document.documentCategory == .other)
+
+        if isGeneticTest && !result.extractedText.isEmpty {
+            AppLog.shared.documents("Attempting structured genetic test extraction")
+            if let geneticTest = GeneticTestParser().parse(plainText: result.extractedText, document: document) {
+                extractedData.append(try AnyHealthData(geneticTest))
+                AppLog.shared.documents("Successfully extracted genetic test data -- \(geneticTest.results.count) reported gene result(s)")
+            } else {
+                AppLog.shared.documents("No explicit genetic findings were structured; original report text will remain available for context", level: .warning)
+            }
+        }
 
         // Primary approach: multi-pass extraction (deterministic parser + AI) for lab reports
         if isLabReport && !result.extractedText.isEmpty {
@@ -1529,6 +1630,30 @@ struct PendingImportReview: Identifiable, Equatable {
 
     static func == (lhs: PendingImportReview, rhs: PendingImportReview) -> Bool {
         return lhs.id == rhs.id
+    }
+}
+
+// MARK: - Pending Genetic Test Review
+struct PendingGeneticTestReview: Identifiable, Equatable {
+    let id = UUID()
+    let documentId: UUID
+    let documentName: String
+    let geneticTestResult: GeneticTestResult
+    let timestamp: Date
+
+    init(
+        documentId: UUID,
+        documentName: String,
+        geneticTestResult: GeneticTestResult
+    ) {
+        self.documentId = documentId
+        self.documentName = documentName
+        self.geneticTestResult = geneticTestResult
+        self.timestamp = Date()
+    }
+
+    static func == (lhs: PendingGeneticTestReview, rhs: PendingGeneticTestReview) -> Bool {
+        lhs.id == rhs.id
     }
 }
 

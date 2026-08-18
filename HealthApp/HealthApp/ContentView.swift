@@ -325,6 +325,13 @@ struct HealthDataView: View {
                     }
                 )
 
+                // Genetic test reports remain in Records with their source
+                // document and can surface a review badge for uncertain OCR
+                // or unrecognized findings.
+                GeneticTestsSection(
+                    geneticTests: $healthDataManager.geneticTestDocuments
+                )
+
                 // Imaging Reports Section
                 ImagingReportsSection(
                     imagingReports: $healthDataManager.imagingReports,
@@ -530,6 +537,7 @@ struct DocumentsView: View {
     @State private var showingDocumentTypeSelector = false
     @State private var pendingDocumentForCategory: MedicalDocument?
     @State private var showingImportReview = false
+    @State private var showingGeneticTestReview = false
     @State private var activeAutoImportSummary: AutoImportSummary?
     @State private var autoImportBannerDismissTask: Task<Void, Never>?
 
@@ -626,6 +634,20 @@ struct DocumentsView: View {
                 )
             }
         }
+        .sheet(isPresented: $showingGeneticTestReview) {
+            if let review = documentProcessor.pendingGeneticTestReview {
+                GeneticTestImportReviewView(review: review) { acceptedIssueIDs, skippedIssueIDs in
+                    Task {
+                        await documentProcessor.completeGeneticTestReview(
+                            review,
+                            acceptedIssueIDs: acceptedIssueIDs,
+                            skippedIssueIDs: skippedIssueIDs
+                        )
+                        showingGeneticTestReview = false
+                    }
+                }
+            }
+        }
         .onChange(of: documentProcessor.pendingImportReview) { oldValue, newValue in
             // Show review sheet when pending review is set
             if newValue != nil {
@@ -633,6 +655,9 @@ struct DocumentsView: View {
             } else {
                 showingImportReview = false
             }
+        }
+        .onChange(of: documentProcessor.pendingGeneticTestReview) { _, newValue in
+            showingGeneticTestReview = newValue != nil
         }
         .onChange(of: documentProcessor.lastAutoImportSummary) { _, newValue in
             guard let summary = newValue else { return }

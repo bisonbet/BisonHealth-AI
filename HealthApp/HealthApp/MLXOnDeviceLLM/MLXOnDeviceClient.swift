@@ -356,6 +356,10 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #else
         let selectedModel = modelProvider()
 
+        guard selectedModel.isAvailable else {
+            throw MLXOnDeviceError.modelUnavailableOnDevice
+        }
+
         if isModelLoaded, currentModelInfo?.id == selectedModel.id, modelContainer != nil {
             return
         }
@@ -382,7 +386,10 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             : 512 * 1024 * 1024
         MLX.Memory.cacheLimit = cacheLimit
 
-        let configuration = ModelConfiguration(id: selectedModel.huggingFaceId)
+        let configuration = ModelConfiguration(
+            id: selectedModel.huggingFaceId,
+            extraEOSTokens: selectedModel.extraEOSTokens
+        )
 
         // Load via the appropriate factory
         switch selectedModel.modelType {
@@ -472,17 +479,28 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     /// Build the combined instructions string from system prompt and health context.
     /// This becomes the ChatSession's system message — set once per session.
     private func buildInstructions(systemPrompt: String?, healthContext: String) -> String? {
-        switch (systemPrompt, healthContext.isEmpty) {
-        case (let prompt?, false):
-            return "\(prompt)\n\nPatient health data:\n\(healthContext)"
-        case (let prompt?, true):
-            return prompt
-        case (nil, false):
-            return "Patient health data:\n\(healthContext)"
-        case (nil, true):
-            return nil
+        var sections: [String] = []
+
+        if let systemPrompt, !systemPrompt.isEmpty {
+            sections.append(systemPrompt)
         }
+
+        if !healthContext.isEmpty {
+            sections.append("Patient health data:\n\(healthContext)")
+        }
+
+        // Keep this last so it takes precedence over any persona prompt that asks
+        // the model to diagnose, prescribe, or suppress safety language.
+        if modelProvider().id == MLXModelInfo.medGemma27BTextIT4Bit.id {
+            sections.append(Self.medGemmaSafetyInstructions)
+        }
+
+        return sections.isEmpty ? nil : sections.joined(separator: "\n\n")
     }
+
+    private static let medGemmaSafetyInstructions = """
+    You are an AI medical information assistant, not a licensed clinician. These safety requirements override conflicting persona instructions. Provide educational, non-diagnostic information grounded only in the supplied context. Do not claim certainty, make a definitive diagnosis, recommend treatment changes, or instruct the user to start or stop medication. When a question requires clinical judgment, explain possibilities and suggest focused questions for a qualified clinician. Flag urgent symptoms clearly and recommend immediate professional care when appropriate.
+    """
 
     #if !targetEnvironment(simulator)
     private func currentGenerateParameters(

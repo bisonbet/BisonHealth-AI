@@ -59,6 +59,11 @@ class MLXModelDownloadManager: ObservableObject {
 
     /// Start downloading an MLX model from HuggingFace Hub
     func startDownload(for model: MLXModelInfo) {
+        guard model.isAvailable else {
+            downloadError = MLXOnDeviceError.modelUnavailableOnDevice.localizedDescription
+            AppLog.shared.mlx("[MLXDownload] Refusing unavailable model: \(model.displayName)", level: .warning)
+            return
+        }
         guard !isDownloading else {
             AppLog.shared.mlx("[MLXDownload] Already downloading a model", level: .warning)
             return
@@ -86,16 +91,26 @@ class MLXModelDownloadManager: ObservableObject {
                 #else
                 AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId)), expecting \(formatSize(model.estimatedSizeBytes))")
 
-                let configuration = ModelConfiguration(id: model.huggingFaceId)
+                let configuration = ModelConfiguration(
+                    id: model.huggingFaceId,
+                    extraEOSTokens: model.extraEOSTokens
+                )
                 let fraction = reportedFraction
 
                 // Download the weights only. Instantiating the model is the chat client's job,
                 // and doing it here would pull the whole model into memory for no benefit.
-                _ = try await downloadModel(
+                let modelDirectory = try await downloadModel(
                     hub: defaultHubApi,
                     configuration: configuration
                 ) { progress in
                     fraction.set(progress.fractionCompleted)
+                }
+
+                // MLXLMCommon treats an authorization failure as a local-only fallback.
+                // Do not mark that fallback as downloaded unless the complete model is on disk;
+                // MedGemma's index must resolve all three safetensors shards.
+                guard isModelCacheValid(at: modelDirectory) else {
+                    throw MLXOnDeviceError.modelDownloadIncomplete
                 }
 
                 AppLog.shared.mlx("[MLXDownload] Download complete for \(model.displayName)")
@@ -177,7 +192,7 @@ class MLXModelDownloadManager: ObservableObject {
     /// Removes both the snapshot directory and the Hub blob store, which each hold a full copy
     /// of the weights — deleting only the snapshot would leave gigabytes stranded.
     func deleteModel(_ model: MLXModelInfo) {
-        let directories = [huggingFaceCacheDirectory(for: model), Self.hubBlobDirectory(for: model)]
+        let directories = [huggingFaceCacheDirectory(for: model)] + Self.hubCacheRepositoryDirectories(for: model)
         var deletedAny = false
 
         for directory in directories where FileManager.default.fileExists(atPath: directory.path) {
@@ -242,7 +257,8 @@ class MLXModelDownloadManager: ObservableObject {
         var total: Int64 = 0
         for model in MLXModelInfo.allModels where downloadedModelIds.contains(model.id) {
             total += Self.directorySize(at: huggingFaceCacheDirectory(for: model))
-            total += Self.directorySize(at: Self.hubBlobDirectory(for: model))
+            total += Self.hubBlobDirectories(for: model)
+                .reduce(0) { $0 + Self.directorySize(at: $1) }
         }
         return total
     }
@@ -362,7 +378,7 @@ class MLXModelDownloadManager: ObservableObject {
 
     // MARK: - Private Helpers
 
-    /// Get the HuggingFace Hub local directory for a model.
+    /// Get the HuggingFace Hub materialized snapshot directory for a model.
     /// MLX Swift's `defaultHubApi` uses cachesDirectory as downloadBase (not documentDirectory).
     /// HubApi.localRepoLocation then appends: models/<repoId>
     /// Uses .appending(component:) to match HubApi's URL construction.
@@ -377,32 +393,65 @@ class MLXModelDownloadManager: ObservableObject {
             ?? FileManager.default.temporaryDirectory
     }
 
-    /// Blob store the Hub client streams downloads into before copying them to the snapshot
-    /// directory. Inside the app sandbox this is `Library/Caches/huggingface/hub/models--<ns>--<name>`.
-    private nonisolated static func hubBlobDirectory(for model: MLXModelInfo) -> URL {
+    /// Hub cache roots used by swift-huggingface's `HubCache.default`.
+    ///
+    /// The package uses environment overrides first, then a sandbox cache on Apple apps. A
+    /// non-sandboxed macOS build uses `~/.cache/huggingface/hub`, so include both possible
+    /// defaults when reading or deleting an interrupted download.
+    private nonisolated static func hubCacheRootDirectories() -> [URL] {
         let environment = ProcessInfo.processInfo.environment
-        let root: URL
+        var roots: [URL] = []
+
+        func appendUnique(_ url: URL) {
+            let normalized = url.standardizedFileURL
+            if !roots.contains(normalized) {
+                roots.append(normalized)
+            }
+        }
+
         if let override = environment["HF_HUB_CACHE"], !override.isEmpty {
-            root = URL(fileURLWithPath: override)
+            let expanded = NSString(string: override).expandingTildeInPath
+            appendUnique(URL(fileURLWithPath: expanded))
         } else if let home = environment["HF_HOME"], !home.isEmpty {
-            root = URL(fileURLWithPath: home).appending(component: "hub")
-        } else {
-            root = cachesDirectory
+            let expanded = NSString(string: home).expandingTildeInPath
+            appendUnique(URL(fileURLWithPath: expanded).appending(component: "hub"))
+        }
+
+        appendUnique(
+            cachesDirectory
                 .appending(component: "huggingface")
                 .appending(component: "hub")
-        }
+        )
+        appendUnique(
+            URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appending(component: ".cache")
+                .appending(component: "huggingface")
+                .appending(component: "hub")
+        )
+
+        return roots
+    }
+
+    private nonisolated static func hubCacheRepositoryDirectories(for model: MLXModelInfo) -> [URL] {
         let repoDirectory = "models--" + model.huggingFaceId.replacingOccurrences(of: "/", with: "--")
-        return root.appending(component: repoDirectory).appending(component: "blobs")
+        return hubCacheRootDirectories().map { $0.appending(component: repoDirectory) }
+    }
+
+    private nonisolated static func hubBlobDirectories(for model: MLXModelInfo) -> [URL] {
+        hubCacheRepositoryDirectories(for: model).map { $0.appending(component: "blobs") }
     }
 
     /// Bytes already on disk for a model, whether they are still landing in the blob store
     /// (including `.incomplete` partials) or have been copied into the snapshot directory.
     private nonisolated static func measureDownloadedBytes(for model: MLXModelInfo) async -> Int64 {
-        let blobs = directorySize(at: hubBlobDirectory(for: model))
+        let blobs = hubBlobDirectories(for: model)
+            .map { directorySize(at: $0, includingHiddenFiles: true) }
+            .max() ?? 0
         let snapshot = directorySize(
             at: cachesDirectory
                 .appending(component: "models")
-                .appending(component: model.huggingFaceId)
+                .appending(component: model.huggingFaceId),
+            includingHiddenFiles: true
         )
         return max(blobs, snapshot)
     }
@@ -427,7 +476,10 @@ class MLXModelDownloadManager: ObservableObject {
 
     /// Check if a model's local directory contains the required MLX artifacts (config + weights).
     private func isModelCacheValid(for model: MLXModelInfo) -> Bool {
-        let cacheDir = huggingFaceCacheDirectory(for: model)
+        isModelCacheValid(at: huggingFaceCacheDirectory(for: model))
+    }
+
+    private func isModelCacheValid(at cacheDir: URL) -> Bool {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: cacheDir.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return false }
@@ -435,7 +487,8 @@ class MLXModelDownloadManager: ObservableObject {
         return directoryContainsRequiredArtifacts(at: cacheDir)
     }
 
-    /// Recursively check for config.json and at least one .safetensors file.
+    /// Recursively check for config.json and all weight shards named by an index file.
+    /// Non-sharded models fall back to requiring at least one safetensors file.
     private func directoryContainsRequiredArtifacts(at directory: URL) -> Bool {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -446,19 +499,50 @@ class MLXModelDownloadManager: ObservableObject {
         }
 
         var hasConfig = false
-        var hasWeights = false
+        var hasSafetensors = false
+        var indexFiles: [URL] = []
+        var relativeFiles = Set<String>()
+        let directoryPath = directory.standardizedFileURL.path
 
         for case let fileURL as URL in enumerator {
             let filename = fileURL.lastPathComponent
+            let filePath = fileURL.standardizedFileURL.path
+            if filePath.hasPrefix(directoryPath + "/") {
+                relativeFiles.insert(String(filePath.dropFirst(directoryPath.count + 1)))
+            } else {
+                relativeFiles.insert(filename)
+            }
+
             if filename == "config.json" {
                 hasConfig = true
             }
 
-            if fileURL.pathExtension == "safetensors" || filename.hasSuffix(".safetensors.index.json") {
-                hasWeights = true
+            if fileURL.pathExtension == "safetensors" {
+                hasSafetensors = true
             }
 
-            if hasConfig && hasWeights {
+            if filename.hasSuffix(".safetensors.index.json") {
+                indexFiles.append(fileURL)
+            }
+        }
+
+        guard hasConfig else { return false }
+        guard !indexFiles.isEmpty else { return hasSafetensors }
+
+        let relativeBasenames = Set(relativeFiles.map { URL(fileURLWithPath: $0).lastPathComponent })
+        for indexFile in indexFiles {
+            guard let data = try? Data(contentsOf: indexFile),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let weightMap = object["weight_map"] as? [String: String],
+                  !weightMap.isEmpty else {
+                continue
+            }
+
+            let shards = Set(weightMap.values)
+            if shards.allSatisfy({
+                relativeFiles.contains($0)
+                    || relativeBasenames.contains(URL(fileURLWithPath: $0).lastPathComponent)
+            }) {
                 return true
             }
         }
@@ -480,11 +564,12 @@ class MLXModelDownloadManager: ObservableObject {
     }
 
     /// Calculate the size of a directory recursively
-    private nonisolated static func directorySize(at url: URL) -> Int64 {
+    private nonisolated static func directorySize(at url: URL, includingHiddenFiles: Bool = false) -> Int64 {
+        let options: FileManager.DirectoryEnumerationOptions = includingHiddenFiles ? [] : [.skipsHiddenFiles]
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
+            options: options
         ) else {
             return 0
         }

@@ -516,6 +516,10 @@ struct HealthContextJSON {
 
         json["priority"] = doc.contextPriority
 
+        if !doc.geneticTests.isEmpty {
+            json["genetic_profile"] = doc.geneticTests.map { encodeGeneticTest($0) }
+        }
+
         // Include document content - prefer sections, fall back to extractedText
         if !doc.sections.isEmpty {
             // Sections (truncated to 500 chars per section)
@@ -555,6 +559,52 @@ struct HealthContextJSON {
             }
         }
 
+        return json
+    }
+
+    // MARK: - Genetic Test Encoder
+
+    private static func encodeGeneticTest(_ test: GeneticTestResult) -> [String: Any] {
+        var json: [String: Any] = [:]
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        json["test_date"] = formatter.string(from: test.testDate)
+
+        if let laboratory = test.laboratoryName { json["laboratory"] = laboratory }
+        if let physician = test.orderingPhysician { json["ordering_physician"] = physician }
+        if let testName = test.testName { json["test_name"] = testName }
+        if let panelName = test.panelName { json["panel_name"] = panelName }
+        if let specimen = test.specimen { json["specimen"] = specimen.rawValue }
+        if !test.testedGenes.isEmpty { json["tested_genes"] = test.testedGenes }
+        if let limitations = test.limitations { json["limitations"] = limitations }
+
+        json["results"] = test.results.map { item -> [String: Any] in
+            var result: [String: Any] = [
+                "gene": item.gene,
+                "category": item.category.rawValue,
+                "known_pharmacogene": item.isKnownPharmacogene
+            ]
+
+            if let genotype = item.genotype { result["genotype"] = genotype }
+            if let diplotype = item.diplotype { result["diplotype"] = diplotype }
+            if let phenotype = item.phenotype { result["phenotype"] = phenotype }
+            if let variant = item.variant { result["variant"] = variant }
+            if let rsID = item.rsID { result["rs_id"] = rsID }
+            if let reportedResult = item.reportedResult { result["reported_result"] = reportedResult }
+            if let interpretation = item.reportedInterpretation {
+                result["reported_interpretation"] = interpretation
+            }
+            if !item.reportedMedicationImplications.isEmpty {
+                result["reported_medication_implications"] = item.reportedMedicationImplications
+            }
+            if let evidenceLevel = item.evidenceLevel { result["evidence_level"] = evidenceLevel }
+
+            return result
+        }
+
+        // Keep the provenance boundary explicit for every genetic profile.
+        json["interpretation_scope"] = "Reported laboratory findings only; not a diagnosis or prescribing instruction."
         return json
     }
 }

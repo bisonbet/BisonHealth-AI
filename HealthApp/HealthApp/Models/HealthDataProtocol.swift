@@ -13,6 +13,7 @@ protocol HealthDataProtocol: Identifiable, Codable {
 enum HealthDataType: String, CaseIterable, Codable {
     case personalInfo = "personal_info"
     case bloodTest = "blood_test"
+    case geneticProfile = "genetic_profile"
     case imagingReport = "imaging_report"
     case healthCheckup = "health_checkup"
 
@@ -22,6 +23,8 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "Personal Information"
         case .bloodTest:
             return "Lab Results"
+        case .geneticProfile:
+            return "Genetic Profile"
         case .imagingReport:
             return "Imaging Reports"
         case .healthCheckup:
@@ -35,6 +38,8 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "person.fill"
         case .bloodTest:
             return "testtube.2"
+        case .geneticProfile:
+            return "point.3.connected.trianglepath.dotted"
         case .imagingReport:
             return "camera.metering.matrix"
         case .healthCheckup:
@@ -48,6 +53,8 @@ enum HealthDataType: String, CaseIterable, Codable {
             return "Personal"
         case .bloodTest:
             return "Lab"
+        case .geneticProfile:
+            return "Genetics"
         case .imagingReport:
             return "Imaging"
         case .healthCheckup:
@@ -62,6 +69,8 @@ enum HealthDataType: String, CaseIterable, Codable {
             return [.imagingReport]
         case .bloodTest:
             return [.labReport]
+        case .geneticProfile:
+            return [.geneticTest]
         case .healthCheckup:
             return [.doctorsNote, .consultation]
         case .personalInfo:

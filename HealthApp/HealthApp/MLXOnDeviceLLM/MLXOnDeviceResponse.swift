@@ -46,7 +46,9 @@ enum MLXOnDeviceError: LocalizedError {
     case generationFailed(String)
     case simulatorNotSupported
     case modelNotDownloaded
+    case modelDownloadIncomplete
     case visionModelNotDownloaded
+    case modelUnavailableOnDevice
 
     var errorDescription: String? {
         switch self {
@@ -60,17 +62,23 @@ enum MLXOnDeviceError: LocalizedError {
             return "On-device AI requires a physical device. MLX is not available in the iOS Simulator."
         case .modelNotDownloaded:
             return "Model is not downloaded. Please download a model in Settings."
+        case .modelDownloadIncomplete:
+            return "The model download did not finish all required files. Please try the download again."
         case .visionModelNotDownloaded:
             return "No on-device vision model is downloaded. Download a vision-capable model before using on-device document extraction."
+        case .modelUnavailableOnDevice:
+            return "This model is only available on a Mac with at least 24 GB of installed physical memory."
         }
     }
 
     var recoverySuggestion: String? {
         switch self {
-        case .modelNotLoaded, .modelNotDownloaded:
+        case .modelNotLoaded, .modelNotDownloaded, .modelDownloadIncomplete:
             return "Go to Settings > On-Device AI to download and select a model."
         case .visionModelNotDownloaded:
             return "Go to Settings > On-Device AI and download a Vision model."
+        case .modelUnavailableOnDevice:
+            return "Select a model available for this device in Settings > On-Device AI."
         case .modelLoadFailed:
             return "Try restarting the app or re-downloading the model."
         case .generationFailed:

@@ -353,6 +353,8 @@ struct NewAIProviderSettingsView: View { }
 ### On-Device LLM
 - **Default**: User-selected downloaded model
 - **Features**: Chat and streaming without a remote AI server
+- **High-memory Mac option**: MedGemma 27B Chat is text-only, approximately 16.02 GB across three weight shards, and exposed only for the iOS-on-Mac runtime when installed physical memory is at least 24 GB (not available/free memory)
+- **Safety**: MedGemma responses are constrained to non-diagnostic health information and require independent clinical verification
 - **Integration**: `MLXOnDeviceClient.swift`
 
 ### AWS Bedrock (Cloud AI)

@@ -36,6 +36,161 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertTrue(document.documentCategory.expectedSections.contains("Test Results"))
     }
 
+    func testMedicalDocumentCategoryMetadataForGeneticTests() {
+        let document = makeDocument(named: "pharmacogenomics.pdf", category: .geneticTest)
+
+        XCTAssertEqual(document.documentCategory, .geneticTest)
+        XCTAssertEqual(document.documentCategory.displayName, "Genetic Test")
+        XCTAssertTrue(document.documentCategory.expectedSections.contains("Genotypes / Diplotypes"))
+        XCTAssertTrue(HealthDataType.geneticProfile.relatedDocumentCategories.contains(.geneticTest))
+    }
+
+    func testGeneticTestParserCapturesReportedPharmacogenomicFields() throws {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        let document = MedicalDocument(
+            fileName: "pharmacogenomics.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/pharmacogenomics.pdf"),
+            documentDate: date,
+            documentCategory: .geneticTest,
+            importedAt: date
+        )
+        let report = """
+        Pharmacogenomic Test Report
+        Laboratory: Precision Genetics
+        Test Name: Medication Response Panel
+        Specimen: Buccal swab
+        Report Date: 2025-05-19
+        Genes Tested: CYP2D6, CYP2C19, SLCO1B1
+
+        CYP2D6: *1/*4
+        Phenotype: Intermediate Metabolizer
+        Interpretation: Reduced CYP2D6 activity reported by the laboratory.
+
+        CYP2C19
+        Diplotype: *1/*17
+        Phenotype: Rapid Metabolizer
+
+        SLCO1B1 rs4149056
+        Genotype: T/C
+        """
+
+        let result = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        XCTAssertEqual(result.laboratoryName, "Precision Genetics")
+        XCTAssertEqual(result.specimen, .buccalSwab)
+        XCTAssertEqual(result.testedGenes, ["CYP2D6", "CYP2C19", "SLCO1B1"])
+
+        let cyp2d6 = try XCTUnwrap(result.results.first { $0.gene == "CYP2D6" })
+        XCTAssertEqual(cyp2d6.diplotype, "*1/*4")
+        XCTAssertEqual(cyp2d6.phenotype, "Intermediate Metabolizer")
+        XCTAssertEqual(cyp2d6.category, .drugMetabolism)
+        XCTAssertTrue(cyp2d6.isKnownPharmacogene)
+        XCTAssertTrue(cyp2d6.reportedMedicationImplications.isEmpty)
+
+        let slco1b1 = try XCTUnwrap(result.results.first { $0.gene == "SLCO1B1" })
+        XCTAssertEqual(slco1b1.rsID, "rs4149056")
+        XCTAssertEqual(slco1b1.genotype, "T/C")
+        XCTAssertEqual(slco1b1.category, .drugTransport)
+    }
+
+    func testGeneticTestParserPreservesReportedMedicationImplicationsWithoutInferringThem() throws {
+        let document = makeDocument(named: "genetic-test.pdf", category: .geneticTest)
+        let report = """
+        Genetic Test Results
+        Genes Tested: CYP2C19
+        CYP2C19
+        Diplotype: *2/*2
+        Phenotype: Poor Metabolizer
+        """
+
+        let result = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let item = try XCTUnwrap(result.results.first)
+
+        XCTAssertEqual(item.phenotype, "Poor Metabolizer")
+        XCTAssertTrue(item.reportedMedicationImplications.isEmpty)
+        XCTAssertTrue(result.contextSummary.contains("Reported laboratory findings only"))
+    }
+
+    func testGeneticTestParserKeepsUnstructuredReportsForReview() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let report = """
+        Genetic Test Report
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """
+
+        let result = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+
+        XCTAssertTrue(result.needsReview)
+        XCTAssertTrue(result.reviewIssues.contains { $0.reason.contains("uncertain") })
+        XCTAssertTrue(result.reviewIssues.contains { $0.gene == "BRCA1" })
+    }
+
+    func testGeneticReviewCanSkipAFlaggedFindingWithoutDeletingTheSourceReport() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let item = GeneticTestItem(
+            gene: "CYP2D6",
+            category: .drugMetabolism,
+            isKnownPharmacogene: true,
+            phenotype: "Indeterminate Metabolizer"
+        )
+        let issue = GeneticTestReviewIssue(
+            resultID: item.id,
+            gene: item.gene,
+            reason: "The report uses an uncertain status.",
+            sourceText: "CYP2D6: Indeterminate Metabolizer"
+        )
+        let result = GeneticTestResult(
+            testDate: document.importedAt,
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [issue],
+            metadata: ["pending_review": "true"]
+        )
+
+        let resolved = result.applyingReview(
+            acceptedIssueIDs: [],
+            skippedIssueIDs: [issue.id]
+        )
+
+        XCTAssertTrue(resolved.results.isEmpty)
+        XCTAssertTrue(resolved.reviewIssues.isEmpty)
+        XCTAssertEqual(resolved.metadata?["review_decision"], "accepted_with_skips")
+        XCTAssertNotNil(resolved.metadata?["import_review_completed"])
+        XCTAssertTrue(resolved.contextSummary.contains("CYP2D6"))
+    }
+
+    func testGeneticProfileIsEncodedIntoSelectedMedicalDocumentContext() throws {
+        let geneticResult = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            laboratoryName: "Precision Genetics",
+            testedGenes: ["CYP2D6"],
+            results: [GeneticTestItem(
+                gene: "CYP2D6",
+                category: .drugMetabolism,
+                isKnownPharmacogene: true,
+                diplotype: "*1/*4",
+                phenotype: "Intermediate Metabolizer"
+            )]
+        )
+        let document = makeDocument(
+            named: "genetic-test.pdf",
+            category: .geneticTest,
+            extractedHealthData: [try AnyHealthData(geneticResult)]
+        )
+        let context = ChatContext(
+            medicalDocuments: [MedicalDocumentSummary(from: document)],
+            selectedDataTypes: [.geneticProfile]
+        )
+
+        let contextJSON = context.buildContextJSON()
+        XCTAssertTrue(contextJSON.contains("genetic_profile"))
+        XCTAssertTrue(contextJSON.contains("CYP2D6"))
+        XCTAssertTrue(contextJSON.contains("Intermediate Metabolizer"))
+        XCTAssertTrue(contextJSON.contains("Reported laboratory findings only"))
+    }
+
     func testDocumentSectionRoundTripsThroughJSON() throws {
         let section = DocumentSection(
             sectionType: "Impression",
@@ -118,13 +273,15 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
 
     private func makeDocument(
         named fileName: String,
-        category: DocumentCategory = .other
+        category: DocumentCategory = .other,
+        extractedHealthData: [AnyHealthData] = []
     ) -> MedicalDocument {
         MedicalDocument(
             fileName: fileName,
             fileType: .pdf,
             filePath: URL(fileURLWithPath: "/tmp/\(fileName)"),
-            documentCategory: category
+            documentCategory: category,
+            extractedHealthData: extractedHealthData
         )
     }
 

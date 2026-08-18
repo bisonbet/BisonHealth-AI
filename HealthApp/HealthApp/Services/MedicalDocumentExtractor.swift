@@ -92,6 +92,13 @@ class MedicalDocumentExtractor {
 
         // Common medical document section headers (case-insensitive)
         let sectionPatterns: [(pattern: String, type: String)] = [
+            // Genetic and pharmacogenomic reports
+            ("(?i)^\\s*(genetic|genomic|pharmacogenomic|pharmacogenetic)\\s*(?:test|test results?|results?)\\s*:?\\s*$", "Genetic Test Results"),
+            ("(?i)^\\s*(genes? tested|genes? analyzed|genes? included)\\s*:?\\s*$", "Genes Tested"),
+            ("(?i)^\\s*(genotypes?|diplotypes?|alleles?)\\s*:?\\s*$", "Genotypes / Diplotypes"),
+            ("(?i)^\\s*(phenotypes?|metabolizer status)\\s*:?\\s*$", "Phenotypes"),
+            ("(?i)^\\s*(medication|drug|therapeutic)\\s*implications?\\s*:?\\s*$", "Medication Implications"),
+            ("(?i)^\\s*(test )?limitations?\\s*:?\\s*$", "Limitations"),
             // Lab report sections
             ("(?i)^\\s*(test\\s*results?|lab(?:oratory)?\\s*results?)\\s*:?\\s*$", "Test Results"),
             ("(?i)^\\s*(reference\\s*ranges?)\\s*:?\\s*$", "Reference Ranges"),
@@ -312,6 +319,12 @@ class MedicalDocumentExtractor {
     private func detectDocumentCategory(from text: String) -> DocumentCategory {
         let lowercasedText = text.lowercased()
 
+        // Genetic/pharmacogenomic reports must be detected before generic
+        // laboratory keywords such as "specimen" or "test results".
+        if GeneticTestParser.looksLikeGeneticTest(text) {
+            return .geneticTest
+        }
+
         // Imaging report keywords
         if lowercasedText.contains("radiology") ||
            lowercasedText.contains("ct scan") ||
@@ -421,6 +434,8 @@ class MedicalDocumentExtractor {
             providerType = .imagingCenter
         case .labReport:
             providerType = .laboratory
+        case .geneticTest:
+            providerType = .laboratory
         case .prescription:
             providerType = .pharmacy
         case .dischargeSummary, .operativeReport:
@@ -505,7 +520,7 @@ class MedicalDocumentExtractor {
           "document_date": "YYYY-MM-DD or null",
           "provider_name": "name or null",
           "provider_type": "primary_care, specialist, imaging_center, laboratory, hospital, urgent_care, pharmacy, or other",
-          "document_category": "doctors_note, imaging_report, lab_report, prescription, discharge_summary, operative_report, pathology_report, consultation, vaccine_record, referral, or other",
+          "document_category": "doctors_note, imaging_report, lab_report, genetic_test, prescription, discharge_summary, operative_report, pathology_report, consultation, vaccine_record, referral, or other",
         """ : ""
 
         let prompt = """

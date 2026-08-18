@@ -235,6 +235,48 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(HealthDataType.personalInfo.displayName, "Personal Information")
         XCTAssertEqual(HealthDataType.bloodTest.icon, "testtube.2")
     }
+
+    // MARK: - MLX Model Catalog Tests
+
+    func testMedGemma27BChatModelMetadata() {
+        let model = MLXModelInfo.medGemma27BTextIT4Bit
+
+        XCTAssertEqual(model.huggingFaceId, "mlx-community/medgemma-27b-text-it-4bit")
+        XCTAssertEqual(model.modelType, .llm)
+        XCTAssertEqual(model.estimatedSizeBytes, 16_022_116_230)
+        XCTAssertEqual(model.extraEOSTokens, ["<end_of_turn>"])
+        XCTAssertTrue(model.description.contains("not a diagnostic tool"))
+    }
+
+    func testMedGemma27BChatRequiresMacWithAtLeast24GiBOfInstalledMemory() {
+        let minimum = PlatformCapabilities.medGemmaMinimumMemoryBytes
+
+        XCTAssertEqual(minimum, 24 * 1024 * 1024 * 1024)
+        XCTAssertTrue(
+            PlatformCapabilities.supportsMedGemma27BChat(
+                isMac: true,
+                physicalMemoryBytes: minimum
+            )
+        )
+        XCTAssertTrue(
+            PlatformCapabilities.supportsMedGemma27BChat(
+                isMac: true,
+                physicalMemoryBytes: minimum + 1
+            )
+        )
+        XCTAssertFalse(
+            PlatformCapabilities.supportsMedGemma27BChat(
+                isMac: true,
+                physicalMemoryBytes: minimum - 1
+            )
+        )
+        XCTAssertFalse(
+            PlatformCapabilities.supportsMedGemma27BChat(
+                isMac: false,
+                physicalMemoryBytes: UInt64.max
+            )
+        )
+    }
     
     func testGenderDisplayNames() {
         XCTAssertEqual(Gender.male.displayName, "Male")

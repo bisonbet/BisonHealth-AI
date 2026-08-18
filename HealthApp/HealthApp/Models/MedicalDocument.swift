@@ -151,6 +151,7 @@ enum DocumentCategory: String, CaseIterable, Codable {
     case doctorsNote = "doctors_note"
     case imagingReport = "imaging_report"
     case labReport = "lab_report"
+    case geneticTest = "genetic_test"
     case prescription = "prescription"
     case dischargeSummary = "discharge_summary"
     case operativeReport = "operative_report"
@@ -168,6 +169,8 @@ enum DocumentCategory: String, CaseIterable, Codable {
             return "Imaging Report"
         case .labReport:
             return "Lab Report"
+        case .geneticTest:
+            return "Genetic Test"
         case .prescription:
             return "Prescription"
         case .dischargeSummary:
@@ -195,6 +198,8 @@ enum DocumentCategory: String, CaseIterable, Codable {
             return "photo.on.rectangle"
         case .labReport:
             return "chart.bar.doc.horizontal"
+        case .geneticTest:
+            return "point.3.connected.trianglepath.dotted"
         case .prescription:
             return "pills.circle"
         case .dischargeSummary:
@@ -224,6 +229,8 @@ enum DocumentCategory: String, CaseIterable, Codable {
             return ["Clinical Indication", "Technique", "Comparison", "Findings", "Impression"]
         case .labReport:
             return ["Test Results", "Reference Ranges", "Abnormal Flags", "Comments"]
+        case .geneticTest:
+            return ["Test Information", "Genes Tested", "Genotypes / Diplotypes", "Phenotypes", "Medication Implications", "Limitations"]
         case .prescription:
             return ["Medication", "Dosage", "Frequency", "Duration", "Instructions"]
         case .dischargeSummary:

@@ -98,6 +98,7 @@
 		A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000021294A0000000000001 /* HealthDataProtocol.swift */; };
 		A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000023294A0000000000001 /* PersonalHealthInfo.swift */; };
 		A1000024294A0000000000001 /* BloodTestResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000025294A0000000000001 /* BloodTestResult.swift */; };
+		B6A100010000000000000001 /* GeneticTestResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A100020000000000000001 /* GeneticTestResult.swift */; };
 		A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000027294A0000000000001 /* PlaceholderModels.swift */; };
 		A1000028294A0000000000001 /* HealthDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000029294A0000000000001 /* HealthDocument.swift */; };
 		A1000030294A0000000000001 /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000031294A0000000000001 /* ChatModels.swift */; };
@@ -144,6 +145,7 @@
 		DAKEHVX3PRFCWWBDV195L0XK /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AIAG7W668IFF83784YB3RB7X /* PrivacyPolicyView.swift */; };
 		E1LR7NDJ7EA22H8V9OIXR2C0 /* PersonalInfoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7K7961SOXCM9NZG54GJSWT /* PersonalInfoEditorView.swift */; };
 		HEALTHCHECK001 /* HealthCheckupsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = HEALTHCHECK002 /* HealthCheckupsSection.swift */; };
+		GENETICVIEW001 /* GeneticTestsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = GENETICVIEW002 /* GeneticTestsSection.swift */; };
 		HIPAA001B /* AppSettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA001 /* AppSettingsManager.swift */; };
 		HIPAA002B /* FirstLaunchDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA002 /* FirstLaunchDisclaimerView.swift */; };
 		HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA003 /* DatabaseManager+AppSettings.swift */; };
@@ -153,6 +155,7 @@
 		IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */; };
 		LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */; };
 		MEDDOCEXT001 /* MedicalDocumentExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = MEDDOCEXT002 /* MedicalDocumentExtractor.swift */; };
+		B6A100030000000000000001 /* GeneticTestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A100040000000000000001 /* GeneticTestParser.swift */; };
 		NOGIZO9RJZY59O1P2JP03MX6 /* HealthDataContextSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47R3GLE8ZL9GEWLU8EZBYS7 /* HealthDataContextSelector.swift */; };
 		NT20AFK0ZJQNCCEN36P78GO5 /* PersonalInfoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0Y1MC9GHL1TTUP942IFCRTGC /* PersonalInfoSection.swift */; };
 		NYKH99Y51U8QC2SPCELX794F /* MessageInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AQ7DKUB9GNYSQ10XLLHVY64B /* MessageInputView.swift */; };
@@ -270,6 +273,7 @@
 		A1000021294A0000000000001 /* HealthDataProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataProtocol.swift; sourceTree = "<group>"; };
 		A1000023294A0000000000001 /* PersonalHealthInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalHealthInfo.swift; sourceTree = "<group>"; };
 		A1000025294A0000000000001 /* BloodTestResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestResult.swift; sourceTree = "<group>"; };
+		B6A100020000000000000001 /* GeneticTestResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneticTestResult.swift; sourceTree = "<group>"; };
 		A1000027294A0000000000001 /* PlaceholderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderModels.swift; sourceTree = "<group>"; };
 		A1000029294A0000000000001 /* HealthDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDocument.swift; sourceTree = "<group>"; };
 		A1000031294A0000000000001 /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
@@ -322,6 +326,7 @@
 		FF73574BCD254FCF859CBF45 /* UnifiedContextSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedContextSelectorView.swift; sourceTree = "<group>"; };
 		H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusBanner.swift; sourceTree = "<group>"; };
 		HEALTHCHECK002 /* HealthCheckupsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthCheckupsSection.swift; sourceTree = "<group>"; };
+		GENETICVIEW002 /* GeneticTestsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneticTestsSection.swift; sourceTree = "<group>"; };
 		HIPAA001 /* AppSettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsManager.swift; sourceTree = "<group>"; };
 		HIPAA002 /* FirstLaunchDisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunchDisclaimerView.swift; sourceTree = "<group>"; };
 		HIPAA003 /* DatabaseManager+AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+AppSettings.swift"; sourceTree = "<group>"; };
@@ -331,6 +336,7 @@
 		IMGREPORTS002 /* ImagingReportsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagingReportsSection.swift; sourceTree = "<group>"; };
 		JKVCJWYEAZSCXB3P1NWATHB1 /* PlaceholderSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderSection.swift; sourceTree = "<group>"; };
 		MEDDOCEXT002 /* MedicalDocumentExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalDocumentExtractor.swift; sourceTree = "<group>"; };
+		B6A100040000000000000001 /* GeneticTestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneticTestParser.swift; sourceTree = "<group>"; };
 		MNA0K5J601OOV5MOXO8NM2QE /* StorageUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageUsageView.swift; sourceTree = "<group>"; };
 		NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataExportView.swift; sourceTree = "<group>"; };
 		SUP002002EA12E9900999001 /* SupplementsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementsListView.swift; sourceTree = "<group>"; };
@@ -469,6 +475,7 @@
 				A1000021294A0000000000001 /* HealthDataProtocol.swift */,
 				A1000023294A0000000000001 /* PersonalHealthInfo.swift */,
 				A1000025294A0000000000001 /* BloodTestResult.swift */,
+				B6A100020000000000000001 /* GeneticTestResult.swift */,
 				A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */,
 				A1000027294A0000000000001 /* PlaceholderModels.swift */,
 				A1000029294A0000000000001 /* HealthDocument.swift */,
@@ -518,6 +525,7 @@
 				5Q3O2CW0GZUTH37O9VYRYHNB /* BloodTestsSection.swift */,
 				IMGREPORTS002 /* ImagingReportsSection.swift */,
 				HEALTHCHECK002 /* HealthCheckupsSection.swift */,
+				GENETICVIEW002 /* GeneticTestsSection.swift */,
 				0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */,
 				H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */,
 				I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */,
@@ -564,6 +572,7 @@
 				NATIVEDOCEXT002 /* NativeDocumentExtractor.swift */,
 				LABREPORTPARSER002 /* LabReportParser.swift */,
 				MEDDOCEXT002 /* MedicalDocumentExtractor.swift */,
+				B6A100040000000000000001 /* GeneticTestParser.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -822,6 +831,7 @@
 				A1000020294A0000000000001 /* HealthDataProtocol.swift in Sources */,
 				A1000022294A0000000000001 /* PersonalHealthInfo.swift in Sources */,
 				A1000024294A0000000000001 /* BloodTestResult.swift in Sources */,
+				B6A100010000000000000001 /* GeneticTestResult.swift in Sources */,
 				A1000055YAHI7QXGF2TWBDSYSE /* DuplicateBloodTestCandidate.swift in Sources */,
 				A1000026294A0000000000001 /* PlaceholderModels.swift in Sources */,
 				14ADE5BB2EF0DC9100BB7C6C /* AIResponseCleaner.swift in Sources */,
@@ -889,6 +899,7 @@
 				NATIVEDOCEXT001 /* NativeDocumentExtractor.swift in Sources */,
 				LABREPORTPARSER001 /* LabReportParser.swift in Sources */,
 				MEDDOCEXT001 /* MedicalDocumentExtractor.swift in Sources */,
+				B6A100030000000000000001 /* GeneticTestParser.swift in Sources */,
 				A1000072294A0000000000001 /* Keychain.swift in Sources */,
 				A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */,
 				7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */,
@@ -896,6 +907,7 @@
 				IMGREPORTS001 /* ImagingReportsSection.swift in Sources */,
 				14ADE5B02EF0B90100BB7C6C /* HealthKitManager.swift in Sources */,
 				HEALTHCHECK001 /* HealthCheckupsSection.swift in Sources */,
+				GENETICVIEW001 /* GeneticTestsSection.swift in Sources */,
 				UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */,
 				9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */,
 				XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */,

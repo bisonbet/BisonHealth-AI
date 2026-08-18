@@ -609,6 +609,19 @@ struct ExtractedDataRow: View {
             Text("Extracted health data of type \(data.type.displayName)")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            if let geneticTest = try? data.decode(as: GeneticTestResult.self) {
+                Text("\(geneticTest.results.count) reported gene result\(geneticTest.results.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if !geneticTest.testedGenes.isEmpty {
+                    Text(geneticTest.testedGenes.joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
         }
         .padding(.vertical, 4)
     }

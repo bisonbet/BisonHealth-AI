@@ -141,7 +141,7 @@ extension DatabaseManager {
             case .bloodTest:
                 _ = try decryptData(encryptedData, as: BloodTestResult.self)
                 return true
-            case .imagingReport, .healthCheckup:
+            case .geneticProfile, .imagingReport, .healthCheckup:
                 // These are stored in documents table, not health_data table
                 return false
             }
@@ -200,7 +200,7 @@ extension DatabaseManager {
                     if let _ = try? decryptData(encryptedData, as: BloodTestResult.self) {
                         decrypted = true
                     }
-                case .imagingReport, .healthCheckup:
+                case .geneticProfile, .imagingReport, .healthCheckup:
                     // Not in health_data table
                     break
                 }

@@ -165,6 +165,8 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
    - Download a supported model from Settings
    - Runs directly on device after model download
    - No remote AI server required
+   - **MedGemma 27B Chat** is text-only and is shown only when the iOS app is running on a Mac with at least 24 GB of installed physical memory (not available/free memory); the download is approximately 16.02 GB across three weight shards
+   - MedGemma is an AI health-information model, not a substitute for clinical diagnosis or treatment, and its Hugging Face/Google terms should be reviewed before distribution
 
 2. **AWS Bedrock** - Cloud AI service
    - Configure AWS credentials (access key, secret key, region)

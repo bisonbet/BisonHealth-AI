@@ -219,6 +219,7 @@ struct MedicalDocumentSummary: Codable, Hashable, Equatable {
     let documentCategory: DocumentCategory
     let sections: [DocumentSection]
     let extractedText: String?
+    let geneticTests: [GeneticTestResult]
     let contextPriority: Int
 
     init(from medicalDocument: MedicalDocument) {
@@ -229,7 +230,28 @@ struct MedicalDocumentSummary: Codable, Hashable, Equatable {
         self.documentCategory = medicalDocument.documentCategory
         self.sections = medicalDocument.extractedSections
         self.extractedText = medicalDocument.extractedText
+        self.geneticTests = medicalDocument.extractedHealthData.compactMap {
+            try? $0.decode(as: GeneticTestResult.self)
+        }
         self.contextPriority = medicalDocument.contextPriority
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, fileName, documentDate, providerName, documentCategory, sections
+        case extractedText, geneticTests, contextPriority
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        fileName = try container.decode(String.self, forKey: .fileName)
+        documentDate = try container.decodeIfPresent(Date.self, forKey: .documentDate)
+        providerName = try container.decodeIfPresent(String.self, forKey: .providerName)
+        documentCategory = try container.decode(DocumentCategory.self, forKey: .documentCategory)
+        sections = try container.decodeIfPresent([DocumentSection].self, forKey: .sections) ?? []
+        extractedText = try container.decodeIfPresent(String.self, forKey: .extractedText)
+        geneticTests = try container.decodeIfPresent([GeneticTestResult].self, forKey: .geneticTests) ?? []
+        contextPriority = try container.decodeIfPresent(Int.self, forKey: .contextPriority) ?? 3
     }
 
     var formattedHeader: String {

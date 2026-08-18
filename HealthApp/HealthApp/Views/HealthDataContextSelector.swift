@@ -160,6 +160,8 @@ struct HealthDataTypeRow: View {
             return "Basic demographics, allergies, medications"
         case .bloodTest:
             return "Lab results and blood work"
+        case .geneticProfile:
+            return "Genetic and pharmacogenomic test reports"
         case .imagingReport:
             return "X-rays, MRIs, CT scans"
         case .healthCheckup:
@@ -223,6 +225,8 @@ struct HealthDataTypeCard: View {
             return "Basic demographics, allergies, medications, and medical history"
         case .bloodTest:
             return "Lab results, blood work, and biomarker data"
+        case .geneticProfile:
+            return "Reported genes, variants, phenotypes, and medication-response context"
         case .imagingReport:
             return "X-rays, MRIs, CT scans, and radiology reports"
         case .healthCheckup:

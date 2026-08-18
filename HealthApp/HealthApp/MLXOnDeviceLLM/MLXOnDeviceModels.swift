@@ -64,6 +64,17 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
     public let contextWindow: Int
     public let defaultSettings: MLXModelDefaultSettings
 
+    /// Extra end-of-turn tokens required by model-specific chat templates.
+    /// Gemma 3 text models use `<end_of_turn>` in addition to their configured EOS token.
+    public var extraEOSTokens: Set<String> {
+        id == Self.medGemma27BTextIT4Bit.id ? ["<end_of_turn>"] : []
+    }
+
+    /// Whether this model should be exposed on the current device.
+    public var isAvailable: Bool {
+        id != Self.medGemma27BTextIT4Bit.id || PlatformCapabilities.supportsMedGemma27BChat
+    }
+
     /// Human-readable download size
     public var estimatedSize: String {
         let sizeInGB = Double(estimatedSizeBytes) / 1_000_000_000.0
@@ -97,6 +108,26 @@ extension MLXModelInfo {
         )
     )
 
+    /// MedGemma 27B text-only instruct model for private doctor chat on high-memory Macs.
+    public static let medGemma27BTextIT4Bit = MLXModelInfo(
+        id: "medgemma-27b-text-it-4bit",
+        displayName: "MedGemma 27B Chat",
+        description: "Medical text model for private doctor chat. Requires a Mac with at least 24 GB of installed physical memory and is not a diagnostic tool.",
+        huggingFaceId: "mlx-community/medgemma-27b-text-it-4bit",
+        modelType: .llm,
+        // Three safetensors shards plus the JSON/Jinja files downloaded by MLXLMCommon.
+        // Verified against the Hub revision on 2026-08-18; keep this as an estimate because
+        // repository contents can change without an app release.
+        estimatedSizeBytes: 16_022_116_230,
+        contextWindow: 32768,
+        defaultSettings: MLXModelDefaultSettings(
+            temperature: 0.2,
+            topP: 0.9,
+            maxTokens: 1024,
+            repetitionPenalty: nil
+        )
+    )
+
     /// Qwen 3.5 4B VLM - Vision-Language model supporting text and images
     public static let qwen35_4B_VLM = MLXModelInfo(
         id: "qwen3.5-4b-vlm-mlx",
@@ -116,12 +147,19 @@ extension MLXModelInfo {
 
     // MARK: - All Available Models
 
-    public static let allModels: [MLXModelInfo] = [
+    private static let catalogModels: [MLXModelInfo] = [
         mediPhi4B,
+        medGemma27BTextIT4Bit,
         qwen35_4B_VLM
     ]
 
-    public static let visionModels: [MLXModelInfo] = allModels.filter { $0.modelType == .vlm }
+    public static var allModels: [MLXModelInfo] {
+        catalogModels.filter(\.isAvailable)
+    }
+
+    public static var visionModels: [MLXModelInfo] {
+        allModels.filter { $0.modelType == .vlm }
+    }
 
     /// Default model for health assistant
     public static let defaultModel = mediPhi4B

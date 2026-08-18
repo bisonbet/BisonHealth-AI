@@ -135,7 +135,7 @@ struct AIContextSelectorView: View {
                         onTap: { showOnlyIncluded.toggle() }
                     )
 
-                    ForEach([DocumentCategory.doctorsNote, .imagingReport, .labReport, .prescription, .dischargeSummary], id: \.self) { category in
+                    ForEach([DocumentCategory.doctorsNote, .imagingReport, .labReport, .geneticTest, .prescription, .dischargeSummary], id: \.self) { category in
                         FilterChip(
                             title: category.displayName,
                             isSelected: selectedCategory == category,

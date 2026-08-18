@@ -23,6 +23,9 @@ struct UnifiedContextSelectorView: View {
                 // Blood Tests Section
                 bloodTestsSection
 
+                // Genetic Profile Section
+                geneticProfileSection
+
                 // Imaging Reports Section
                 imagingReportsSection
 
@@ -330,6 +333,49 @@ struct UnifiedContextSelectorView: View {
         }
     }
 
+    // MARK: - Genetic Profile Section
+    private var geneticProfileSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { viewModel.geneticProfilesEnabled },
+                set: { newValue in
+                    viewModel.geneticProfilesEnabled = newValue
+                    viewModel.toggleAllDocuments(in: .geneticProfile, enabled: newValue)
+                }
+            )) {
+                HStack(spacing: 12) {
+                    Image(systemName: HealthDataType.geneticProfile.icon)
+                        .font(.title3)
+                        .foregroundColor(BisonTheme.gold)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(HealthDataType.geneticProfile.displayName)
+                            .font(.headline)
+
+                        Text("\(viewModel.geneticTestDocuments.count) genetic test document\(viewModel.geneticTestDocuments.count == 1 ? "" : "s") available")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            if viewModel.geneticProfilesEnabled && !viewModel.geneticTestDocuments.isEmpty {
+                ForEach(viewModel.geneticTestDocuments) { document in
+                    DocumentSelectionRow(
+                        document: document,
+                        isSelected: viewModel.isDocumentSelected(document),
+                        onToggle: {
+                            viewModel.toggleDocument(document)
+                        }
+                    )
+                    .disabled(!viewModel.geneticProfilesEnabled)
+                }
+                .animation(.default, value: viewModel.selectedDocuments)
+            }
+        }
+    }
+
     // MARK: - Imaging Reports Section
     private var imagingReportsSection: some View {
         Section {
@@ -577,10 +623,12 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     @Published var personalInfoEnabled: Bool = false
     @Published var selectedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases)
     @Published var bloodTestsEnabled: Bool = false
+    @Published var geneticProfilesEnabled: Bool = false
     @Published var imagingReportsEnabled: Bool = false
     @Published var healthCheckupsEnabled: Bool = false
 
     @Published var bloodTestDocuments: [MedicalDocument] = []
+    @Published var geneticTestDocuments: [MedicalDocument] = []
     @Published var imagingReportDocuments: [MedicalDocument] = []
     @Published var healthCheckupDocuments: [MedicalDocument] = []
     @Published var allBloodTests: [BloodTestResult] = []
@@ -608,7 +656,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
     // Computed properties
     var enabledCategoriesCount: Int {
-        [personalInfoEnabled, bloodTestsEnabled, imagingReportsEnabled, healthCheckupsEnabled]
+        [personalInfoEnabled, bloodTestsEnabled, geneticProfilesEnabled, imagingReportsEnabled, healthCheckupsEnabled]
             .filter { $0 }
             .count
     }
@@ -783,6 +831,9 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         if HealthDataType.bloodTest.relatedDocumentCategories.contains(category) {
             return bloodTestsEnabled
         }
+        if HealthDataType.geneticProfile.relatedDocumentCategories.contains(category) {
+            return geneticProfilesEnabled
+        }
         if HealthDataType.imagingReport.relatedDocumentCategories.contains(category) {
             return imagingReportsEnabled
         }
@@ -798,6 +849,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         hasher.combine(personalInfoEnabled)
         hasher.combine(selectedPersonalInfoCategories)
         hasher.combine(bloodTestsEnabled)
+        hasher.combine(geneticProfilesEnabled)
         hasher.combine(imagingReportsEnabled)
         hasher.combine(healthCheckupsEnabled)
         hasher.combine(selectedDocuments)
@@ -849,6 +901,10 @@ class UnifiedContextSelectorViewModel: ObservableObject {
                 HealthDataType.bloodTest.relatedDocumentCategories.contains($0.documentCategory)
             }
 
+            geneticTestDocuments = allDocuments.filter {
+                HealthDataType.geneticProfile.relatedDocumentCategories.contains($0.documentCategory)
+            }
+
             imagingReportDocuments = allDocuments.filter {
                 HealthDataType.imagingReport.relatedDocumentCategories.contains($0.documentCategory)
             }
@@ -864,6 +920,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             let selectedTypes = chatManager.selectedHealthDataTypes
             personalInfoEnabled = selectedTypes.contains(.personalInfo)
             bloodTestsEnabled = selectedTypes.contains(.bloodTest)
+            geneticProfilesEnabled = selectedTypes.contains(.geneticProfile)
             imagingReportsEnabled = selectedTypes.contains(.imagingReport)
             healthCheckupsEnabled = selectedTypes.contains(.healthCheckup)
 
@@ -913,6 +970,8 @@ class UnifiedContextSelectorViewModel: ObservableObject {
 
         if HealthDataType.bloodTest.relatedDocumentCategories.contains(category) {
             bloodTestsEnabled = true
+        } else if HealthDataType.geneticProfile.relatedDocumentCategories.contains(category) {
+            geneticProfilesEnabled = true
         } else if HealthDataType.imagingReport.relatedDocumentCategories.contains(category) {
             imagingReportsEnabled = true
         } else if HealthDataType.healthCheckup.relatedDocumentCategories.contains(category) {
@@ -945,6 +1004,8 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         switch category {
         case .bloodTest:
             documentsInCategory = bloodTestDocuments
+        case .geneticProfile:
+            documentsInCategory = geneticTestDocuments
         case .imagingReport:
             documentsInCategory = imagingReportDocuments
         case .healthCheckup:
@@ -985,6 +1046,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             var selectedTypes: Set<HealthDataType> = []
             if personalInfoEnabled { selectedTypes.insert(.personalInfo) }
             if bloodTestsEnabled { selectedTypes.insert(.bloodTest) }
+            if geneticProfilesEnabled { selectedTypes.insert(.geneticProfile) }
             if imagingReportsEnabled { selectedTypes.insert(.imagingReport) }
             if healthCheckupsEnabled { selectedTypes.insert(.healthCheckup) }
 
@@ -1035,6 +1097,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         if !selectedDocuments.isEmpty {
             let hasEnabledCategory = personalInfoEnabled || 
                                    bloodTestsEnabled || 
+                                   geneticProfilesEnabled ||
                                    imagingReportsEnabled || 
                                    healthCheckupsEnabled
             return hasEnabledCategory

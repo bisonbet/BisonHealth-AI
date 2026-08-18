@@ -36,7 +36,7 @@ extension DatabaseManager {
                     if data is BloodTestResult {
                         _ = try decryptData(encryptedData, as: BloodTestResult.self)
                     }
-                case .imagingReport, .healthCheckup:
+                case .geneticProfile, .imagingReport, .healthCheckup:
                     // These are stored in documents table
                     break
                 }

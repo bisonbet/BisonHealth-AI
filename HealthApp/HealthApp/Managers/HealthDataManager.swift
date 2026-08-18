@@ -16,6 +16,7 @@ class HealthDataManager: ObservableObject {
     // MARK: - Published Properties
     @Published var personalInfo: PersonalHealthInfo?
     @Published var bloodTests: [BloodTestResult] = []
+    @Published var geneticTestDocuments: [MedicalDocument] = []
     @Published var imagingReports: [MedicalDocument] = []
     @Published var healthCheckups: [MedicalDocument] = []
     @Published var isLoading = false
@@ -133,6 +134,15 @@ class HealthDataManager: ObservableObject {
             
             // Re-throw the original error
             throw error
+        }
+
+        // Genetic profiles are stored with their source MedicalDocument so
+        // the report, provenance, and any pending review issues stay together.
+        geneticTestDocuments = try await databaseManager.fetchMedicalDocuments(category: .geneticTest)
+        geneticTestDocuments.sort { doc1, doc2 in
+            let date1 = doc1.documentDate ?? doc1.importedAt
+            let date2 = doc2.documentDate ?? doc2.importedAt
+            return date1 > date2
         }
 
         // Load imaging reports
@@ -325,10 +335,30 @@ class HealthDataManager: ObservableObject {
                     try await addBloodTest(extractedBloodTest)
                 }
 
+            case .geneticProfile:
+                // The structured result is stored inside the source medical
+                // document; refresh the Records collection so pending and
+                // completed genetic tests are both visible.
+                await refreshGeneticTestDocuments()
+
             case .imagingReport, .healthCheckup:
-                // Placeholder for future implementation
                 break
             }
+        }
+    }
+
+    /// Refreshes the Records-facing genetic test collection after a document
+    /// import or review decision.
+    func refreshGeneticTestDocuments() async {
+        do {
+            geneticTestDocuments = try await databaseManager.fetchMedicalDocuments(category: .geneticTest)
+            geneticTestDocuments.sort { doc1, doc2 in
+                let date1 = doc1.documentDate ?? doc1.importedAt
+                let date2 = doc2.documentDate ?? doc2.importedAt
+                return date1 > date2
+            }
+        } catch {
+            AppLog.shared.healthData("Failed to refresh genetic test records: \(error.localizedDescription)", level: .warning)
         }
     }
     
@@ -337,6 +367,7 @@ class HealthDataManager: ObservableObject {
         let exportData = HealthDataExport(
             personalInfo: personalInfo,
             bloodTests: bloodTests,
+            geneticTestDocuments: geneticTestDocuments,
             imagingReports: imagingReports,
             healthCheckups: healthCheckups,
             exportedAt: Date(),
@@ -364,7 +395,7 @@ class HealthDataManager: ObservableObject {
             if let bloodTest = data as? BloodTestResult {
                 return validateBloodTest(bloodTest)
             }
-        case .imagingReport, .healthCheckup:
+        case .geneticProfile, .imagingReport, .healthCheckup:
             // Placeholder for future validation
             return ValidationResult(isValid: true, errors: [])
         }
@@ -710,6 +741,7 @@ struct ValidationResult {
 struct HealthDataExport: Codable {
     let personalInfo: PersonalHealthInfo?
     let bloodTests: [BloodTestResult]
+    let geneticTestDocuments: [MedicalDocument]
     let imagingReports: [MedicalDocument]
     let healthCheckups: [MedicalDocument]
     let exportedAt: Date
