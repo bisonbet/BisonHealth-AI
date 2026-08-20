@@ -68,13 +68,24 @@ struct MedicalDocumentDetailView: View {
             .confirmationDialog("Delete Document?", isPresented: $showingDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     Task {
-                        await viewModel.deleteDocument()
-                        dismiss()
+                        // Only leave the screen once the document is actually gone —
+                        // dismissing on failure hides the error and looks like success.
+                        if await viewModel.deleteDocument() {
+                            dismiss()
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This action cannot be undone.")
+            }
+            .alert("Could Not Delete Document", isPresented: Binding(
+                get: { viewModel.deleteErrorMessage != nil },
+                set: { if !$0 { viewModel.deleteErrorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { viewModel.deleteErrorMessage = nil }
+            } message: {
+                Text(viewModel.deleteErrorMessage ?? "Please try again.")
             }
         }
     }

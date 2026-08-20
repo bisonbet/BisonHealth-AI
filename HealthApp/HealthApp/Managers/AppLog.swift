@@ -60,7 +60,8 @@ enum LogCategory: String, CaseIterable {
 /// every isolation domain in the app, so isolating it would force every call site async.
 /// The two mutable properties are safe under the following invariants — preserve them:
 /// - `logFileURL` is assigned by `setupLogFile()` during initialization and when logs are
-///   cleared. Clearing is serialized through `logQueue` so it cannot race file writes.
+///   cleared. Every access after init — read or write — goes through `logQueue`; read it via
+///   `currentLogFileURL()` rather than touching the property from another queue.
 /// - `previousSessionCrashed` is written once by `markLaunch()` at startup and read only on
 ///   the main actor.
 /// Everything else is `let`, and file writes are already serialized through `logQueue`.
@@ -594,9 +595,23 @@ final class AppLog: NSObject, @unchecked Sendable {
         // is reached. This avoids exporting a truncated JSON payload or partial header.
         var retainedData = Data()
         for entry in recentEntries.reversed() {
-            let entryData = Data(("\n" + entry.text).utf8)
-            guard entryData.count <= AppLog.maxMetricKitLogBytes,
-                  retainedData.count + entryData.count <= AppLog.maxMetricKitLogBytes else {
+            var entryData = Data(("\n" + entry.text).utf8)
+
+            if entryData.count > AppLog.maxMetricKitLogBytes {
+                // A single diagnostic larger than the whole budget is usually the most
+                // detailed crash report available. Keep its header and as much payload
+                // as fits rather than discarding the report entirely. Only the newest
+                // such entry is worth keeping — once anything has been retained there
+                // is no room left for a meaningful excerpt.
+                guard retainedData.isEmpty else { continue }
+                entryData = AppLog.truncatedMetricKitEntry(
+                    entry.text,
+                    maxBytes: AppLog.maxMetricKitLogBytes
+                )
+                guard !entryData.isEmpty else { continue }
+            }
+
+            guard retainedData.count + entryData.count <= AppLog.maxMetricKitLogBytes else {
                 continue
             }
 
@@ -607,6 +622,25 @@ final class AppLog: NSObject, @unchecked Sendable {
         }
 
         try? retainedData.write(to: url, options: .atomic)
+    }
+
+    /// Shrink a single oversized diagnostic to fit `maxBytes`, preserving its leading
+    /// header line and marking where the payload was cut.
+    private static func truncatedMetricKitEntry(_ text: String, maxBytes: Int) -> Data {
+        let notice = "\n… [diagnostic truncated to fit the retained log budget]\n"
+        let budget = maxBytes - notice.utf8.count
+        guard budget > 0 else { return Data() }
+
+        var truncated = "\n" + text
+        while truncated.utf8.count > budget, truncated.count > 1 {
+            // Drop proportionally to the overshoot so a multi-hundred-kilobyte payload
+            // converges in a couple of passes instead of one character at a time.
+            let overshoot = truncated.utf8.count - budget
+            let dropCount = max(1, min(truncated.count - 1, overshoot))
+            truncated.removeLast(dropCount)
+        }
+
+        return Data((truncated + notice).utf8)
     }
 
     // MARK: - Log Rotation
@@ -678,9 +712,20 @@ final class AppLog: NSObject, @unchecked Sendable {
 
     // MARK: - Log Retrieval
 
+    /// Read `logFileURL` safely from any isolation domain.
+    ///
+    /// `clearAllLogs()` reassigns the property on `logQueue`, so callers outside that
+    /// queue must not touch it directly.
+    private func currentLogFileURL() -> URL? {
+        if DispatchQueue.getSpecific(key: logQueueKey) != nil {
+            return logFileURL
+        }
+        return logQueue.sync { logFileURL }
+    }
+
     /// Get all log files sorted by date (newest first)
     func getLogFiles() -> [URL] {
-        guard let logFileURL = logFileURL else { return [] }
+        guard let logFileURL = currentLogFileURL() else { return [] }
         let logsDirectory = logFileURL.deletingLastPathComponent()
 
         do {
@@ -712,7 +757,7 @@ final class AppLog: NSObject, @unchecked Sendable {
 
     /// Get the current log file content
     func getCurrentLogContent() -> String? {
-        guard let logFileURL = logFileURL else { return nil }
+        guard let logFileURL = currentLogFileURL() else { return nil }
         guard let content = try? String(contentsOf: logFileURL, encoding: .utf8) else { return nil }
         return AppLog.redactForSupport(content)
     }

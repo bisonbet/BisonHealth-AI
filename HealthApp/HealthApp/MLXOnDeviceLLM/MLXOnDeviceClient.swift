@@ -94,6 +94,12 @@ final class MLXModelResidency {
 @MainActor
 class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
+    /// How much new text to accumulate between runaway-repetition scans while streaming.
+    /// The scan is linear in the whole accumulated response, so checking every chunk would
+    /// cost O(n²) over a long answer. A repeating block has to appear three times before it
+    /// is detectable at all, so a few hundred characters of latency costs nothing.
+    private static let repetitionCheckCharacterInterval = 400
+
     private struct ChatSessionSignature: Equatable {
         let conversationId: UUID
         let modelId: String
@@ -312,6 +318,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         var stoppedForRepetition = false
         var completionInfo: GenerateCompletionInfo?
 
+        // The repetition scan walks the whole accumulated response to build a word index,
+        // so running it on every chunk is quadratic in the response length. A runaway loop
+        // only becomes detectable after a long pattern has repeated three times, so amortize
+        // the scan over a character budget instead.
+        var charactersSinceRepetitionCheck = 0
+
         do {
             responseStream: for try await generation in chatSession.streamDetails(
                 to: message,
@@ -321,16 +333,30 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                 switch generation {
                 case .chunk(let chunk):
                     accumulatedContent += chunk
+                    charactersSinceRepetitionCheck += chunk.count
 
-                    let repetitionCheck = AIResponseCleaner.truncateRunawayRepetition(accumulatedContent)
-                    accumulatedContent = repetitionCheck.content
-                    onUpdate(AIResponseCleaner.cleanConversational(accumulatedContent))
+                    if charactersSinceRepetitionCheck >= Self.repetitionCheckCharacterInterval {
+                        charactersSinceRepetitionCheck = 0
+                        let repetitionCheck = AIResponseCleaner.truncateRunawayRepetition(accumulatedContent)
 
-                    if repetitionCheck.wasTruncated {
-                        stoppedForRepetition = true
-                        AppLog.shared.mlx("[MLXClient] Stopped a response after detecting runaway repetition", level: .warning)
-                        break responseStream
+                        if repetitionCheck.wasTruncated {
+                            accumulatedContent = repetitionCheck.content
+                            stoppedForRepetition = true
+                            AppLog.shared.mlx("[MLXClient] Stopped a response after detecting runaway repetition", level: .warning)
+                            onUpdate(AIResponseCleaner.cleanConversational(
+                                accumulatedContent,
+                                detectRunawayRepetition: false
+                            ))
+                            break responseStream
+                        }
                     }
+
+                    // The scan above already covered this text; re-running it inside the
+                    // cleaner would double the per-chunk cost for no benefit.
+                    onUpdate(AIResponseCleaner.cleanConversational(
+                        accumulatedContent,
+                        detectRunawayRepetition: false
+                    ))
                 case .info(let info):
                     completionInfo = info
                 case .toolCall:
@@ -345,7 +371,20 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             AppLog.shared.mlx("[MLXClient] Streaming ended with error but got partial content: \(error.localizedDescription)", level: .warning)
         }
 
-        let cleanedContent = AIResponseCleaner.cleanConversational(accumulatedContent)
+        // The in-stream scan is throttled, so run it once more here to catch a pattern that
+        // formed after the last check. This is also what records the truncation for the
+        // finish reason and the notice appended below.
+        let finalRepetitionCheck = AIResponseCleaner.truncateRunawayRepetition(accumulatedContent)
+        if finalRepetitionCheck.wasTruncated {
+            accumulatedContent = finalRepetitionCheck.content
+            stoppedForRepetition = true
+            AppLog.shared.mlx("[MLXClient] Trimmed runaway repetition from a completed response", level: .warning)
+        }
+
+        let cleanedContent = AIResponseCleaner.cleanConversational(
+            accumulatedContent,
+            detectRunawayRepetition: false
+        )
         guard !cleanedContent.isEmpty else {
             throw MLXOnDeviceError.generationFailed("The model returned an empty response")
         }
@@ -372,9 +411,17 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             reachedLengthLimit = false
         }
 
-        let finalContent = reachedLengthLimit
-            ? cleanedContent + "\n\n" + MLXResponseBudget.lengthLimitNotice
-            : cleanedContent
+        // Both truncation paths cut the answer short, so both say so. Repetition detection
+        // can fire on a legitimate list whose items share a long identical scaffold, and
+        // silently dropping the tail would leave the user reading a half-finished answer.
+        let finalContent: String
+        if stoppedForRepetition {
+            finalContent = cleanedContent + "\n\n" + MLXResponseBudget.repetitionNotice
+        } else if reachedLengthLimit {
+            finalContent = cleanedContent + "\n\n" + MLXResponseBudget.lengthLimitNotice
+        } else {
+            finalContent = cleanedContent
+        }
 
         if reachedLengthLimit {
             let generatedTokens = completionInfo?.generationTokenCount ?? 0
@@ -632,8 +679,19 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         image: UserInput.Image? = nil
     ) async throws -> String {
         var output = ""
+        var charactersSinceRepetitionCheck = 0
+
         for try await chunk in session.streamResponse(to: prompt, image: image) {
             output += chunk
+            charactersSinceRepetitionCheck += chunk.count
+
+            // Amortized for the same reason as the main streaming path: the scan is linear
+            // in the accumulated text, so running it per chunk would be quadratic.
+            guard charactersSinceRepetitionCheck >= Self.repetitionCheckCharacterInterval else {
+                continue
+            }
+            charactersSinceRepetitionCheck = 0
+
             let repetitionCheck = AIResponseCleaner.truncateRunawayRepetition(output)
             if repetitionCheck.wasTruncated {
                 AppLog.shared.mlx("[MLXClient] Stopped an isolated response after detecting runaway repetition", level: .warning)
@@ -641,6 +699,8 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                 break
             }
         }
+
+        // A final pass covers whatever arrived after the last throttled check.
         return AIResponseCleaner.cleanConversational(output)
     }
 

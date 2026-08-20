@@ -69,6 +69,11 @@ enum MLXResponseBudget {
 
     static let lengthLimitNotice =
         "_This response reached the on-device length limit. Ask “continue” to continue from here._"
+
+    /// Repetition truncation can also fire on a legitimate answer whose items share a long
+    /// identical scaffold, so the cut is always surfaced rather than silently applied.
+    static let repetitionNotice =
+        "_This response was cut short because it began repeating itself. Ask “continue” or rephrase for the rest._"
 }
 
 // MARK: - Model Info

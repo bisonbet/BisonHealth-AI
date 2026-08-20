@@ -29,6 +29,10 @@ class DatabaseManager: ObservableObject {
     // MARK: - Database Version
     private static let currentDatabaseVersion = 10 // Increment when making schema changes
 
+    /// Guards the genetic URL normalization so a single migration run performs it once,
+    /// even when several versions in the range ask for it. Reset per migration run.
+    private var didNormalizeGeneticReferenceURLs = false
+
     // MARK: - Table Definitions
     internal let healthDataTable = Table("health_data")
     internal let documentsTable = Table("documents")
@@ -331,6 +335,8 @@ class DatabaseManager: ObservableObject {
             // Perform backup before migration
             try createBackupBeforeMigration()
 
+            didNormalizeGeneticReferenceURLs = false
+
             // Perform migrations step by step
             for version in (currentVersion + 1)...Self.currentDatabaseVersion {
                 try performMigration(db: db, toVersion: version)
@@ -480,9 +486,20 @@ class DatabaseManager: ObservableObject {
     }
 
     private func normalizeGeneticReferenceURLs(db: Connection) throws {
+        // Versions 9 and 10 both normalize against the current reference logic, so a
+        // v8 database would otherwise make two identical full-table passes on launch.
+        guard !didNormalizeGeneticReferenceURLs else {
+            AppLog.shared.database("Genetic reference URLs already normalized in this migration run", level: .debug)
+            return
+        }
+        didNormalizeGeneticReferenceURLs = true
+
+        // Read every candidate row before writing any of them. SQLite leaves it
+        // undefined whether a running SELECT observes rows updated underneath it,
+        // and rewriting extracted_data can move the record to another page.
+        var pendingRows: [(id: String, extractedData: Data)] = []
         let query = documentsTable.select(documentId, documentExtractedData)
         let iterator = try db.prepareRowIterator(query)
-        var updatedDocumentCount = 0
 
         while let row = try iterator.failableNext() {
             let id: String
@@ -502,6 +519,12 @@ class DatabaseManager: ObservableObject {
                 continue
             }
 
+            pendingRows.append((id: id, extractedData: extractedData))
+        }
+
+        var updatedDocumentCount = 0
+
+        for (id, extractedData) in pendingRows {
             guard var healthData = try? JSONDecoder().decode([AnyHealthData].self, from: extractedData) else {
                 continue
             }

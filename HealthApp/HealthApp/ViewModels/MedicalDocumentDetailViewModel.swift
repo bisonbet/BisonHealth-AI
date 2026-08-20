@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 class MedicalDocumentDetailViewModel: ObservableObject {
     @Published var document: MedicalDocument
+    @Published var deleteErrorMessage: String?
     private let databaseManager = DatabaseManager.shared
 
     init(document: MedicalDocument) {
@@ -71,8 +72,18 @@ class MedicalDocumentDetailViewModel: ObservableObject {
         saveDocument()
     }
 
-    func deleteDocument() async {
-        _ = await DocumentManager.shared.deleteDocument(document)
+    /// Returns whether the document was actually removed, so the caller can keep the
+    /// detail view on screen and surface the failure instead of dismissing regardless.
+    @discardableResult
+    func deleteDocument() async -> Bool {
+        guard await DocumentManager.shared.deleteDocument(document) else {
+            AppLog.shared.documents("Failed to delete document '\(document.fileName)'", level: .error)
+            deleteErrorMessage = "The document could not be deleted. Please try again."
+            return false
+        }
+
+        AppLog.shared.documents("Document deleted successfully")
+        return true
     }
 
     // MARK: - Private Methods

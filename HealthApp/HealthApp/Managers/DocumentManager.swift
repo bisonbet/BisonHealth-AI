@@ -35,7 +35,8 @@ class DocumentManager: ObservableObject {
     private let documentProcessor: DocumentProcessor
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
-    private var documentChangeObservers: [NSObjectProtocol] = []
+    /// Removes its observers on release; see `NotificationObserverBag`.
+    private let documentChangeObservers = NotificationObserverBag()
     
     // MARK: - Computed Properties
     var filteredDocuments: [MedicalDocument] {
@@ -175,9 +176,10 @@ class DocumentManager: ObservableObject {
             }
         }
 
-        documentChangeObservers = [changeObserver, deleteObserver]
+        documentChangeObservers.insert(changeObserver)
+        documentChangeObservers.insert(deleteObserver)
     }
-    
+
     // MARK: - Document Import
     func importDocuments(from urls: [URL]) async -> [MedicalDocument] {
         isImporting = true

@@ -216,8 +216,18 @@ struct AIResponseCleaner {
 
     /// Clean response specifically for conversational AI
     /// Applies encoding fixes and removes special tokens for consistent output
-    static func cleanConversational(_ response: String) -> String {
-        var cleaned = truncateRunawayRepetition(response).content
+    ///
+    /// - Parameter detectRunawayRepetition: Pass `false` when the caller has already run
+    ///   `truncateRunawayRepetition` on this text. The scan walks every character to build a
+    ///   word index, so repeating it per streamed chunk makes rendering quadratic in the
+    ///   response length.
+    static func cleanConversational(
+        _ response: String,
+        detectRunawayRepetition: Bool = true
+    ) -> String {
+        var cleaned = detectRunawayRepetition
+            ? truncateRunawayRepetition(response).content
+            : response
 
         // Fix encoding issues first (before other cleaning)
         cleaned = fixEncodingIssues(in: cleaned)

@@ -100,6 +100,11 @@ class MLXModelDownloadManager: ObservableObject {
     /// progress so a stalled CDN connection for one shard cannot block the remaining files.
     private nonisolated static let maxConcurrentFileDownloads = 3
     private nonisolated static let progressLogInterval: TimeInterval = 30
+    /// Size of each ranged request when transferring a file. Small enough that a slice
+    /// completes well inside `stallThreshold` on a slow connection (so the watchdog sees
+    /// regular byte progress) and that the mapped slice never costs much memory, large
+    /// enough that a multi-gigabyte shard does not need an excessive number of requests.
+    private nonisolated static let downloadSliceBytes: Int64 = 4 * 1024 * 1024
 
     #if !targetEnvironment(simulator)
     /// The default URLSession can wait for connectivity and retain a dead connection longer
@@ -591,77 +596,89 @@ class MLXModelDownloadManager: ObservableObject {
             .appendingPathComponent("resolve")
             .appendingPathComponent(revision)
             .appendingPathComponent(entry.path)
-        var request = URLRequest(url: fileURL)
-        request.httpMethod = "GET"
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        if let bearerToken {
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-        }
-        if resumeOffset > 0 {
-            request.setValue("bytes=\(resumeOffset)-", forHTTPHeaderField: "Range")
-        }
 
-        let (bytes, response) = try await Self.realtimeURLSession.bytes(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw MLXDownloadTransferError.invalidResponse(file: entry.path)
-        }
-        if httpResponse.statusCode == 416, resumeOffset > 0 {
-            try? FileManager.default.removeItem(at: partialDestination)
-            return try await Self.downloadModelFile(
-                entry,
-                repository: repository,
-                revision: revision,
-                modelDirectory: modelDirectory,
-                bearerToken: bearerToken,
-                progressBox: progressBox
-            )
-        }
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
-            throw MLXDownloadTransferError.httpStatus(
-                file: entry.path,
-                statusCode: httpResponse.statusCode
-            )
-        }
-
-        let responseOffset = httpResponse.statusCode == 206 ? resumeOffset : 0
-        if responseOffset == 0 {
+        if resumeOffset == 0 {
             FileManager.default.createFile(atPath: partialDestination.path, contents: nil)
         }
 
         let fileHandle = try FileHandle(forWritingTo: partialDestination)
         defer { try? fileHandle.close() }
-        if responseOffset == 0 {
-            try fileHandle.truncate(atOffset: 0)
-        } else {
-            try fileHandle.seek(toOffset: UInt64(responseOffset))
-        }
+        // Drop anything past the resume point so a short partial write from a previous
+        // attempt cannot leave a gap in the middle of the file.
+        try fileHandle.truncate(atOffset: UInt64(resumeOffset))
+        try fileHandle.seek(toOffset: UInt64(resumeOffset))
 
-        var completedBytes = responseOffset
-        var buffer = Data()
-        buffer.reserveCapacity(1024 * 1024)
-        var lastProgressWrite = Date()
+        var completedBytes = resumeOffset
 
-        for try await byte in bytes {
+        // Transfer in bounded byte ranges rather than iterating `URLSession.bytes`. A
+        // per-byte `AsyncBytes` loop costs one async resumption per byte, which is
+        // orders of magnitude slower than the network on a multi-gigabyte shard, and
+        // `download(for:)` streams to a temporary file so a response that ignores the
+        // Range header cannot buffer gigabytes in memory.
+        while expectedBytes == 0 || completedBytes < expectedBytes {
             try Task.checkCancellation()
-            buffer.append(byte)
-            let shouldFlushForSize = buffer.count >= 1024 * 1024
-            let shouldFlushForTime = !buffer.isEmpty
-                && Date().timeIntervalSince(lastProgressWrite) >= 1
-            if shouldFlushForSize || shouldFlushForTime {
-                try fileHandle.write(contentsOf: buffer)
-                completedBytes += Int64(buffer.count)
-                progressBox.update(file: entry.path, completedBytes: completedBytes)
-                buffer.removeAll(keepingCapacity: true)
-                lastProgressWrite = Date()
-            }
-        }
 
-        if !buffer.isEmpty {
-            try fileHandle.write(contentsOf: buffer)
-            completedBytes += Int64(buffer.count)
+            var request = URLRequest(url: fileURL)
+            request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+            if let bearerToken {
+                request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            }
+
+            let sliceUpperBound = expectedBytes > 0
+                ? min(completedBytes + Self.downloadSliceBytes, expectedBytes) - 1
+                : completedBytes + Self.downloadSliceBytes - 1
+            request.setValue("bytes=\(completedBytes)-\(sliceUpperBound)", forHTTPHeaderField: "Range")
+
+            let (temporaryURL, response) = try await Self.realtimeURLSession.download(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                try? FileManager.default.removeItem(at: temporaryURL)
+                throw MLXDownloadTransferError.invalidResponse(file: entry.path)
+            }
+
+            // Nothing further to read: the previous slice already reached the end, or the
+            // artifact is legitimately empty and its size was not advertised.
+            if httpResponse.statusCode == 416, completedBytes > 0 || expectedBytes == 0 {
+                try? FileManager.default.removeItem(at: temporaryURL)
+                break
+            }
+
+            guard (200 ..< 300).contains(httpResponse.statusCode) else {
+                try? FileManager.default.removeItem(at: temporaryURL)
+                throw MLXDownloadTransferError.httpStatus(
+                    file: entry.path,
+                    statusCode: httpResponse.statusCode
+                )
+            }
+
+            // Mapped rather than read into memory: if the server ignored the Range header
+            // this file is the entire multi-gigabyte artifact. The temporary file is
+            // removed only after the bytes have been written through.
+            let sliceData = try Data(contentsOf: temporaryURL, options: .mappedIfSafe)
+            defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+            if httpResponse.statusCode != 206 {
+                // The server ignored the Range header and sent the whole file, so this
+                // single response is the complete artifact.
+                try fileHandle.truncate(atOffset: 0)
+                try fileHandle.seek(toOffset: 0)
+                try fileHandle.write(contentsOf: sliceData)
+                completedBytes = Int64(sliceData.count)
+                progressBox.update(file: entry.path, completedBytes: completedBytes)
+                break
+            }
+
+            guard !sliceData.isEmpty else { break }
+
+            try fileHandle.write(contentsOf: sliceData)
+            completedBytes += Int64(sliceData.count)
             progressBox.update(file: entry.path, completedBytes: completedBytes)
         }
+
+        // Flush before the rename so the promoted file is complete on disk.
+        try fileHandle.synchronize()
 
         if expectedBytes > 0, completedBytes != expectedBytes {
             throw MLXDownloadTransferError.incompleteFile(
@@ -679,8 +696,28 @@ class MLXModelDownloadManager: ObservableObject {
         }
     }
 
+    /// Tokenizer artifacts that are not JSON. Gemma/MedGemma ship a SentencePiece
+    /// `tokenizer.model`, and BPE tokenizers ship `merges.txt`/`vocab.txt`. These are matched
+    /// by exact name so ordinary repo text (README.md, LICENSE.txt) is still skipped.
+    private nonisolated static let auxiliaryTokenizerFiles: Set<String> = [
+        "tokenizer.model",
+        "spiece.model",
+        "merges.txt",
+        "vocab.txt",
+        "vocab.bpe",
+        "added_tokens.txt",
+        "special_tokens_map.txt"
+    ]
+
     private nonisolated static func isDownloadableModelFile(_ path: String) -> Bool {
-        path.hasSuffix(".safetensors") || path.hasSuffix(".json") || path.hasSuffix(".jinja")
+        if path.hasSuffix(".safetensors") || path.hasSuffix(".json") || path.hasSuffix(".jinja") {
+            return true
+        }
+
+        // `isModelCacheValid` only checks for config.json plus the weight shards, so a model
+        // missing its tokenizer would still be marked downloaded and only fail at first chat.
+        let fileName = (path as NSString).lastPathComponent
+        return Self.auxiliaryTokenizerFiles.contains(fileName)
     }
     #endif
 
@@ -1077,30 +1114,33 @@ class MLXModelDownloadManager: ObservableObject {
         return false
     }
 
+    /// Delete a model cache that will not be completed.
+    ///
+    /// Every caller is a terminal path — the user cancelled, or the automatic retries were
+    /// exhausted. Automatic retries deliberately do *not* call this, which is what preserves
+    /// completed shards and `.incomplete` files for the next attempt. Once the download is
+    /// over, the model is no longer in `downloadedModelIds`, so `totalStorageUsed` stops
+    /// counting these bytes and no UI can reclaim them: keeping them would strand multiple
+    /// gigabytes with no way for the user to get the space back.
     private func cleanupIncompleteDownload(for model: MLXModelInfo) {
         let cacheDir = huggingFaceCacheDirectory(for: model)
         guard FileManager.default.fileExists(atPath: cacheDir.path), !isModelCacheValid(for: model) else {
             return
         }
 
-        // Keep completed shards and resumable partial files. The direct downloader writes
-        // partial shards as `<filename>.incomplete`; deleting the whole model directory here
-        // would throw away the 5+ GB shard that already finished and force a fresh download.
-        let partialCount = FileManager.default
-            .enumerator(at: cacheDir, includingPropertiesForKeys: nil)
-            .map { enumerator in
-                enumerator.reduce(into: 0) { count, item in
-                    guard let fileURL = item as? URL,
-                          fileURL.lastPathComponent.hasSuffix(".incomplete") else {
-                        return
-                    }
-                    count += 1
-                }
-            } ?? 0
-        AppLog.shared.mlx(
-            "[MLXDownload] Preserving partial cache for \(model.displayName) (\(partialCount) resumable files)",
-            level: .warning
-        )
+        let reclaimedBytes = Self.directorySize(at: cacheDir)
+
+        do {
+            try FileManager.default.removeItem(at: cacheDir)
+            AppLog.shared.mlx(
+                "[MLXDownload] Removed incomplete cache for \(model.displayName), reclaiming \(formatSize(reclaimedBytes))"
+            )
+        } catch {
+            AppLog.shared.mlx(
+                "[MLXDownload] Failed to remove incomplete cache for \(model.displayName): \(error.localizedDescription)",
+                level: .warning
+            )
+        }
     }
 
     private nonisolated static func fileSize(at url: URL) -> Int64 {

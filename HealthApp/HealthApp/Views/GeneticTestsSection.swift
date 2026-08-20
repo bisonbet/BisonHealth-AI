@@ -889,9 +889,21 @@ struct GeneticTestItemEditorView: View {
         draft.gene = option.gene.rawValue
         draft.category = option.gene.category
         draft.isKnownPharmacogene = true
-        draft.diplotype = option.diplotype
-        draft.genotype = option.genotype
-        draft.phenotype = option.phenotype
+
+        // Only prefill laboratory-reported fields that are still empty. `GeneticTestItem`
+        // keeps lab values and catalog values apart precisely so a suggestion can never be
+        // mistaken for a lab result, and overwriting an imported diplotype/genotype/phenotype
+        // here would destroy what the report actually said.
+        if draft.diplotype?.isEmpty ?? true {
+            draft.diplotype = option.diplotype
+        }
+        if draft.genotype?.isEmpty ?? true {
+            draft.genotype = option.genotype
+        }
+        if draft.phenotype?.isEmpty ?? true {
+            draft.phenotype = option.phenotype
+        }
+
         draft.curatedPhenotype = option.phenotype
         draft.curatedSummary = option.summary
         draft.curatedSourceURL = option.referenceURL?.absoluteString
@@ -915,17 +927,25 @@ struct GeneticTestItemEditorView: View {
             draft.isKnownPharmacogene = false
         }
 
-        if let option = catalogOptions.first(where: { $0.id == selectedCatalogOptionID }),
-           option.matches(draft),
-           draft.phenotype == option.phenotype {
-            draft.curatedPhenotype = option.phenotype
-            draft.curatedSummary = option.summary
-            draft.curatedSourceURL = option.referenceURL?.absoluteString
-        } else {
-            draft.curatedPhenotype = nil
-            draft.curatedSummary = nil
-            draft.curatedSourceURL = nil
+        // Refresh the curated labels only when a catalog option is actually selected.
+        // `curatedPhenotype` is stored separately from the lab-reported `phenotype` and
+        // routinely differs from it in wording, so comparing the two here would discard
+        // the curated summary and reference link on any unrelated edit.
+        if let option = catalogOptions.first(where: { $0.id == selectedCatalogOptionID }) {
+            if option.matches(draft) {
+                draft.curatedPhenotype = option.phenotype
+                draft.curatedSummary = option.summary
+                draft.curatedSourceURL = option.referenceURL?.absoluteString
+            } else {
+                // The diplotype/genotype was edited away from the suggestion, so the
+                // catalog labels no longer describe this result.
+                draft.curatedPhenotype = nil
+                draft.curatedSummary = nil
+                draft.curatedSourceURL = nil
+            }
         }
+        // "Custom / keep current values" keeps whatever the draft already carries; the
+        // gene and catalog pickers clear the curated fields when the user changes them.
 
         onSave(draft)
         dismiss()

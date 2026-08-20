@@ -30,7 +30,10 @@ class HealthDataManager: ObservableObject {
     private let healthKitManager = HealthKitManager.shared
     private let errorHandler = ErrorHandler.shared
     private let retryManager = NetworkRetryManager.shared
-    private var documentChangeObservers: [NSObjectProtocol] = []
+    /// Removes its observers on release; see `NotificationObserverBag`. This type is not a
+    /// singleton, so every instance that is created and released would otherwise leave two
+    /// live observer blocks registered for the life of the process.
+    private let documentChangeObservers = NotificationObserverBag()
 
     // MARK: - Constants
     private let manualEntryConflictInterval: TimeInterval = 300 // 5 minutes
@@ -84,9 +87,10 @@ class HealthDataManager: ObservableObject {
             }
         }
 
-        documentChangeObservers = [changeObserver, deleteObserver]
+        documentChangeObservers.insert(changeObserver)
+        documentChangeObservers.insert(deleteObserver)
     }
-    
+
     // MARK: - Data Loading
     func loadHealthData() async {
         isLoading = true
