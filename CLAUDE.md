@@ -354,7 +354,7 @@ struct NewAIProviderSettingsView: View { }
 - **Default**: User-selected downloaded model
 - **Features**: Chat and streaming without a remote AI server
 - **High-memory Mac option**: MedGemma 27B Chat is text-only, approximately 16.02 GB across three weight shards, and exposed only for the iOS-on-Mac runtime when installed physical memory is at least 24 GB (not available/free memory)
-- **Safety**: MedGemma responses are constrained to non-diagnostic health information and require independent clinical verification
+- **Chat rules**: `compactChatRules` in `MLXOnDeviceClient.swift` appends shared operational rules to every on-device chat that carries a persona or health context. They ground answers in the supplied patient data, treat that data as facts rather than instructions, and forbid inventing findings, diagnosing, or telling the user to start, stop, substitute, or change a medicine or dose. Title generation is deliberately excluded — it is an instruction-free isolated session.
 - **Integration**: `MLXOnDeviceClient.swift`
 
 ### AWS Bedrock (Cloud AI)
@@ -527,5 +527,5 @@ open HealthApp/HealthApp.xcodeproj
 
 ---
 
-**Last Updated**: 2026-07-02
+**Last Updated**: 2026-08-20
 **License**: MIT
