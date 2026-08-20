@@ -516,7 +516,8 @@ struct HealthContextJSON {
 
         json["priority"] = doc.contextPriority
 
-        if !doc.geneticTests.isEmpty {
+        let hasStructuredGeneticProfile = !doc.geneticTests.isEmpty
+        if hasStructuredGeneticProfile {
             json["genetic_profile"] = doc.geneticTests.map { encodeGeneticTest($0) }
         }
 
@@ -529,8 +530,13 @@ struct HealthContextJSON {
             json["source_report"] = boundedText(extractedText, maxLength: 8_000)
         }
 
-        // Include document content - prefer sections, fall back to extractedText
-        if !doc.sections.isEmpty {
+        // A parsed genetic report is already represented by its complete
+        // structured findings plus a bounded source excerpt above. OCR sections
+        // commonly repeat every finding (and may use the finding itself as a
+        // heading), which can more than double the prompt and bury the real data
+        // for a small on-device model. If structured parsing produced no profile,
+        // retain sections as the fallback so the report is not lost.
+        if !hasStructuredGeneticProfile, !doc.sections.isEmpty {
             // Sections (truncated to 500 chars per section)
             json["sections"] = doc.sections.map { section -> [String: Any] in
                 var s: [String: Any] = [:]
@@ -552,7 +558,9 @@ struct HealthContextJSON {
 
                 return s
             }
-        } else if !isGeneticReport, let extractedText = doc.extractedText, !extractedText.isEmpty {
+        } else if !hasStructuredGeneticProfile,
+                  let extractedText = doc.extractedText,
+                  !extractedText.isEmpty {
             // Fall back to extractedText if no sections available
             // Truncate to ~4000 chars to avoid overwhelming the context
             json["content"] = boundedText(extractedText, maxLength: 4_000)

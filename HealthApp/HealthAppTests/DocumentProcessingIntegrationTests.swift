@@ -424,14 +424,23 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         let geneticResult = GeneticTestResult(
             testDate: Date(timeIntervalSince1970: 1_750_000_000),
             laboratoryName: "Precision Genetics",
-            testedGenes: ["CYP2D6"],
-            results: [GeneticTestItem(
-                gene: "CYP2D6",
-                category: .drugMetabolism,
-                isKnownPharmacogene: true,
-                diplotype: "*1/*4",
-                phenotype: "Intermediate Metabolizer"
-            )]
+            testedGenes: ["CYP2D6", "CYP2C19"],
+            results: [
+                GeneticTestItem(
+                    gene: "CYP2D6",
+                    category: .drugMetabolism,
+                    isKnownPharmacogene: true,
+                    diplotype: "*1/*4",
+                    phenotype: "Intermediate Metabolizer"
+                ),
+                GeneticTestItem(
+                    gene: "CYP2C19",
+                    category: .drugMetabolism,
+                    isKnownPharmacogene: true,
+                    diplotype: "*2/*2",
+                    phenotype: "Poor Metabolizer"
+                )
+            ]
         )
         let document = makeDocument(
             named: "genetic-test.pdf",
@@ -446,8 +455,16 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         let contextJSON = context.buildContextJSON()
         XCTAssertTrue(contextJSON.contains("genetic_profile"))
         XCTAssertTrue(contextJSON.contains("CYP2D6"))
+        XCTAssertTrue(contextJSON.contains("CYP2C19"))
         XCTAssertTrue(contextJSON.contains("Intermediate Metabolizer"))
         XCTAssertTrue(contextJSON.contains("Reported laboratory findings only"))
+
+        let jsonData = try XCTUnwrap(contextJSON.data(using: .utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
+        let documents = try XCTUnwrap(root["medical_documents"] as? [[String: Any]])
+        let profile = try XCTUnwrap(documents.first?["genetic_profile"] as? [[String: Any]])
+        let findings = try XCTUnwrap(profile.first?["results"] as? [[String: Any]])
+        XCTAssertEqual(findings.count, geneticResult.results.count)
     }
 
     func testSelectedGeneticReportKeepsSourceTextWhenSectionsExist() throws {
@@ -489,7 +506,37 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertTrue(contextJSON.contains("CYP2C19"))
         XCTAssertTrue(contextJSON.contains("source_report"))
         XCTAssertTrue(contextJSON.contains("source-only medication caution"))
-        XCTAssertTrue(contextJSON.contains("Test Information"))
+        XCTAssertFalse(contextJSON.contains("Test Information"))
+        XCTAssertFalse(contextJSON.contains("\"sections\""))
+    }
+
+    func testGeneticReportWithoutStructuredProfileKeepsSectionFallback() throws {
+        let document = MedicalDocument(
+            fileName: "unparsed-genetic-test.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/unparsed-genetic-test.pdf"),
+            documentCategory: .geneticTest,
+            extractedText: "Genetic report source text.",
+            extractedSections: [DocumentSection(
+                sectionType: "Unparsed Findings",
+                content: "A finding that must remain available to the model."
+            )]
+        )
+        let context = ChatContext(
+            medicalDocuments: [MedicalDocumentSummary(from: document)],
+            selectedDataTypes: [.geneticProfile]
+        )
+
+        let contextJSON = context.buildContextJSON()
+        let jsonData = try XCTUnwrap(contextJSON.data(using: .utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: jsonData) as? [String: Any])
+        let documents = try XCTUnwrap(root["medical_documents"] as? [[String: Any]])
+        let encodedDocument = try XCTUnwrap(documents.first)
+
+        XCTAssertNil(encodedDocument["genetic_profile"])
+        XCTAssertNotNil(encodedDocument["source_report"])
+        XCTAssertNotNil(encodedDocument["sections"])
+        XCTAssertTrue(contextJSON.contains("A finding that must remain available to the model."))
     }
 
     func testDocumentSectionRoundTripsThroughJSON() throws {

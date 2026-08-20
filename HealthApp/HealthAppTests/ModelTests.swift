@@ -248,6 +248,67 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(model.description.contains("not a diagnostic tool"))
     }
 
+    func testMediPhiStopsAtItsChatTemplateTurnTerminator() {
+        let model = MLXModelInfo.mediPhi4B
+
+        XCTAssertEqual(model.extraEOSTokens, ["<|end|>"])
+        XCTAssertEqual(model.defaultSettings.maxTokens, 1200)
+        XCTAssertEqual(model.defaultSettings.repetitionPenalty, 1.1)
+    }
+
+    func testOnDeviceResponseBudgetLeavesRoomForACompleteEnding() {
+        let instruction = MLXResponseBudget.instruction(forMaxTokens: 1200)
+
+        XCTAssertEqual(MLXResponseBudget.targetWordLimit(forMaxTokens: 1200), 650)
+        XCTAssertTrue(instruction.contains("roughly 650 words"))
+        XCTAssertTrue(instruction.contains("never end mid-sentence"))
+        XCTAssertTrue(instruction.contains("complete answer"))
+        XCTAssertTrue(MLXResponseBudget.lengthLimitNotice.contains("Ask “continue”"))
+    }
+
+    func testRunawayRepetitionIsTruncatedToOneCopy() {
+        let repeatedBlock = """
+        The above is a placeholder for ongoing dialogue with the assistant, which would continue to offer detailed pharmacogenomic advice from the user's input.
+        """
+        let response = """
+        I found a reported medication-response result in the selected genetic record.
+
+        ---
+
+        \(repeatedBlock)
+
+        ---
+
+        \(repeatedBlock)
+
+        ---
+
+        \(repeatedBlock)
+
+        ---
+
+        \(repeatedBlock)
+        """
+
+        let result = AIResponseCleaner.truncateRunawayRepetition(response)
+
+        XCTAssertTrue(result.wasTruncated)
+        XCTAssertTrue(result.content.contains("reported medication-response result"))
+        XCTAssertEqual(
+            result.content.components(separatedBy: "placeholder for ongoing dialogue").count - 1,
+            1
+        )
+        XCTAssertFalse(result.content.hasSuffix("---"))
+    }
+
+    func testOrdinaryNonConsecutiveRepetitionIsPreserved() {
+        let response = "Check the report once. Explain the finding once. Verify the medicine list once."
+        let result = AIResponseCleaner.truncateRunawayRepetition(response)
+
+        XCTAssertFalse(result.wasTruncated)
+        XCTAssertEqual(result.content, response)
+    }
+
     func testMedGemma27BChatRequiresMacWithAtLeast24GiBOfInstalledMemory() {
         let minimum = PlatformCapabilities.medGemmaMinimumMemoryBytes
 

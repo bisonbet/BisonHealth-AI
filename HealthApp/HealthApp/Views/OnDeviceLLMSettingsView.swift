@@ -326,7 +326,10 @@ struct OnDeviceLLMSettingsView: View {
                             .onChange(of: maxTokens) { _, newValue in
                                 UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.maxTokens)
                             }
-                        Text("Maximum number of tokens in each response.")
+                        Text(
+                            "Model default: \(selectedModelDefaultMaxTokens). "
+                                + "Higher values allow longer answers but take more time and memory."
+                        )
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -427,6 +430,11 @@ struct OnDeviceLLMSettingsView: View {
         maxTokens = MLXModelInfo.configuredMaxTokens
         contextSize = MLXModelInfo.configuredContextSize
         downloadManager.refreshModelStatus()
+    }
+
+    private var selectedModelDefaultMaxTokens: Int {
+        MLXModelInfo.model(withId: selectedModelId)?.defaultSettings.maxTokens
+            ?? MLXModelInfo.defaultModel.defaultSettings.maxTokens
     }
 
     private func selectModel(_ model: MLXModelInfo) {
