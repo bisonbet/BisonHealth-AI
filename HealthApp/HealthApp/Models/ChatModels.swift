@@ -676,6 +676,29 @@ extension ChatContext {
             for medicalDoc in sortedDocs {
                 medicalDocContext += "\n\(medicalDoc.formattedHeader)\n"
                 medicalDocContext += "File: \(medicalDoc.fileName)\n"
+
+                // Keep the original genetic report visible even when section
+                // extraction produced partial or generic sections. Structured
+                // findings and source text are complementary evidence.
+                var didEmitSourceReport = false
+                if (medicalDoc.documentCategory == .geneticTest || !medicalDoc.geneticTests.isEmpty),
+                   let extractedText = medicalDoc.extractedText,
+                   !extractedText.isEmpty {
+                    medicalDocContext += "\nSource Genetic Report:\n"
+                    let sourceReport = extractedText.count > 8_000
+                        ? String(extractedText.prefix(8_000)) + "..."
+                        : extractedText
+                    medicalDocContext += sourceReport + "\n"
+                    didEmitSourceReport = true
+                }
+
+                if !medicalDoc.geneticTests.isEmpty {
+                    medicalDocContext += "\nStructured Genetic Findings:\n"
+                    medicalDocContext += medicalDoc.geneticTests
+                        .map(\.contextSummary)
+                        .joined(separator: "\n\n")
+                    medicalDocContext += "\n"
+                }
                 
                 // Debug logging
                 AppLog.shared.ai("Context Build - Processing medical doc: \(medicalDoc.fileName), sections: \(medicalDoc.sections.count), extractedText: \(medicalDoc.extractedText?.count ?? 0) chars", level: .debug)
@@ -700,8 +723,13 @@ extension ChatContext {
                         }
                         medicalDocContext += "\(sectionContent)\n"
                     }
-                } else if let extractedText = medicalDoc.extractedText, !extractedText.isEmpty {
-                    // Fall back to extractedText if no sections available
+                } else if !didEmitSourceReport,
+                          let extractedText = medicalDoc.extractedText,
+                          !extractedText.isEmpty {
+                    // Fall back to extractedText if no sections available.
+                    // Skipped when the Source Genetic Report block above already emitted
+                    // this same text at a larger budget, which would otherwise repeat the
+                    // whole report inside one prompt.
                     AppLog.shared.ai("Context Build - Using extractedText fallback for context", level: .debug)
                     medicalDocContext += "\nDocument Content:\n"
                     // Truncate to ~4000 chars to avoid overwhelming the context

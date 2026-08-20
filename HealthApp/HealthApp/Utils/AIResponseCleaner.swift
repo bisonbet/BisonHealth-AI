@@ -3,6 +3,68 @@ import Foundation
 /// Utility for cleaning and sanitizing AI responses
 struct AIResponseCleaner {
 
+    // MARK: - Runaway Repetition
+
+    private struct NormalizedWord {
+        let value: String
+        let startIndex: String.Index
+    }
+
+    /// Truncates a response once a substantial word sequence has been emitted
+    /// three times in a row. This is a final safety net for local models whose
+    /// tokenizer metadata fails to stop on an end-of-turn token.
+    ///
+    /// The threshold is deliberately high enough to leave ordinary rhetorical
+    /// repetition and short lists alone. The first copy is preserved.
+    static func truncateRunawayRepetition(
+        _ response: String,
+        minimumPatternWords: Int = 10,
+        maximumPatternWords: Int = 80
+    ) -> (content: String, wasTruncated: Bool) {
+        let words = normalizedWords(in: response)
+        let maximumLength = min(maximumPatternWords, words.count / 3)
+
+        guard minimumPatternWords > 0, maximumLength >= minimumPatternWords else {
+            return (response, false)
+        }
+
+        for patternLength in stride(from: maximumLength, through: minimumPatternWords, by: -1) {
+            let firstStart = words.count - (patternLength * 3)
+            let secondStart = firstStart + patternLength
+            let thirdStart = secondStart + patternLength
+
+            guard wordSequenceMatches(
+                words,
+                lhsStart: firstStart,
+                rhsStart: secondStart,
+                length: patternLength
+            ), wordSequenceMatches(
+                words,
+                lhsStart: secondStart,
+                rhsStart: thirdStart,
+                length: patternLength
+            ) else {
+                continue
+            }
+
+            var runStart = firstStart
+            while runStart >= patternLength, wordSequenceMatches(
+                words,
+                lhsStart: runStart - patternLength,
+                rhsStart: runStart,
+                length: patternLength
+            ) {
+                runStart -= patternLength
+            }
+
+            let cutoff = words[runStart + patternLength].startIndex
+            let prefix = String(response[..<cutoff])
+            return (trimTrailingMarkdownSeparators(from: prefix), true)
+        }
+
+        return (response, false)
+    }
+
     // MARK: - Special Tokens
 
     /// Common special tokens that should be removed from AI responses
@@ -154,8 +216,18 @@ struct AIResponseCleaner {
 
     /// Clean response specifically for conversational AI
     /// Applies encoding fixes and removes special tokens for consistent output
-    static func cleanConversational(_ response: String) -> String {
-        var cleaned = response
+    ///
+    /// - Parameter detectRunawayRepetition: Pass `false` when the caller has already run
+    ///   `truncateRunawayRepetition` on this text. The scan walks every character to build a
+    ///   word index, so repeating it per streamed chunk makes rendering quadratic in the
+    ///   response length.
+    static func cleanConversational(
+        _ response: String,
+        detectRunawayRepetition: Bool = true
+    ) -> String {
+        var cleaned = detectRunawayRepetition
+            ? truncateRunawayRepetition(response).content
+            : response
 
         // Fix encoding issues first (before other cleaning)
         cleaned = fixEncodingIssues(in: cleaned)
@@ -170,6 +242,56 @@ struct AIResponseCleaner {
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return cleaned
+    }
+
+    private static func normalizedWords(in text: String) -> [NormalizedWord] {
+        var words: [NormalizedWord] = []
+        var wordStart: String.Index?
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let character = text[index]
+            if character.isLetter || character.isNumber {
+                if wordStart == nil {
+                    wordStart = index
+                }
+            } else if let start = wordStart {
+                let value = String(text[start..<index]).lowercased()
+                words.append(NormalizedWord(value: value, startIndex: start))
+                wordStart = nil
+            }
+            index = text.index(after: index)
+        }
+
+        if let start = wordStart {
+            words.append(NormalizedWord(
+                value: String(text[start..<text.endIndex]).lowercased(),
+                startIndex: start
+            ))
+        }
+
+        return words
+    }
+
+    private static func wordSequenceMatches(
+        _ words: [NormalizedWord],
+        lhsStart: Int,
+        rhsStart: Int,
+        length: Int
+    ) -> Bool {
+        for offset in 0..<length where words[lhsStart + offset].value != words[rhsStart + offset].value {
+            return false
+        }
+        return true
+    }
+
+    private static func trimTrailingMarkdownSeparators(from text: String) -> String {
+        let withoutSeparators = text.replacingOccurrences(
+            of: #"(?:\s*\n\s*(?:-{3,}|\*{3,}|_{3,})\s*)+$"#,
+            with: "",
+            options: .regularExpression
+        )
+        return withoutSeparators.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Clean response for title generation (single line, no special formatting)

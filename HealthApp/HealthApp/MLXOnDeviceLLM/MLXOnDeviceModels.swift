@@ -51,6 +51,31 @@ public struct MLXModelDefaultSettings: Equatable, Codable, Sendable {
     }
 }
 
+// MARK: - Response Budget
+
+enum MLXResponseBudget {
+    /// Give the model a word target below the hard token ceiling so it has room
+    /// to finish its final sentence. The estimate is intentionally conservative
+    /// because medical terms and structured identifiers often use extra tokens.
+    static func targetWordLimit(forMaxTokens maxTokens: Int) -> Int {
+        let estimatedWords = max(1, maxTokens) * 55 / 100
+        return max(50, ((estimatedWords + 25) / 50) * 50)
+    }
+
+    static func instruction(forMaxTokens maxTokens: Int) -> String {
+        let wordLimit = targetWordLimit(forMaxTokens: maxTokens)
+        return "Response length: fit a complete answer within roughly \(wordLimit) words. Scale detail to the question, lead with the answer, prioritize patient-specific findings, and never end mid-sentence. If more detail would help, finish a coherent summary and offer the next section instead of starting material that will be cut off."
+    }
+
+    static let lengthLimitNotice =
+        "_This response reached the on-device length limit. Ask “continue” to continue from here._"
+
+    /// Repetition truncation can also fire on a legitimate answer whose items share a long
+    /// identical scaffold, so the cut is always surfaced rather than silently applied.
+    static let repetitionNotice =
+        "_This response was cut short because it began repeating itself. Ask “continue” or rephrase for the rest._"
+}
+
 // MARK: - Model Info
 
 /// Represents an MLX on-device model available for download
@@ -65,9 +90,21 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
     public let defaultSettings: MLXModelDefaultSettings
 
     /// Extra end-of-turn tokens required by model-specific chat templates.
-    /// Gemma 3 text models use `<end_of_turn>` in addition to their configured EOS token.
+    /// These tokens close an assistant turn but are not always declared as the
+    /// tokenizer's primary EOS token.
     public var extraEOSTokens: Set<String> {
-        id == Self.medGemma27BTextIT4Bit.id ? ["<end_of_turn>"] : []
+        switch id {
+        case Self.mediPhi4B.id:
+            // MediPhi's Phi-3 template terminates every assistant message with
+            // `<|end|>`, while generation_config.json declares only
+            // `<|endoftext|>` as EOS. Without this extra stop token, generation
+            // can continue into fabricated user/assistant turns until maxTokens.
+            return ["<|end|>"]
+        case Self.medGemma27BTextIT4Bit.id:
+            return ["<end_of_turn>"]
+        default:
+            return []
+        }
     }
 
     /// Whether this model should be exposed on the current device.
@@ -103,7 +140,7 @@ extension MLXModelInfo {
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.4,
             topP: 0.9,
-            maxTokens: 800,
+            maxTokens: 1200,
             repetitionPenalty: 1.1
         )
     )

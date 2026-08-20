@@ -114,6 +114,8 @@ struct OnDeviceLLMSettingsView: View {
                     model: model,
                     isSelected: model.id == selectedModelId && downloadManager.isModelDownloaded(model),
                     isDownloaded: downloadManager.isModelDownloaded(model),
+                    isDownloading: downloadManager.isDownloading
+                        && downloadManager.currentlyDownloadingModel?.id == model.id,
                     onSelect: {
                         if downloadManager.isModelDownloaded(model) {
                             selectModel(model)
@@ -208,11 +210,23 @@ struct OnDeviceLLMSettingsView: View {
                             .foregroundColor(.secondary)
                             .accessibilityIdentifier("modelDownloadStatusText")
 
+                        HStack(spacing: 6) {
+                            Image(systemName: downloadManager.downloadPhase.systemImage)
+                            Text(downloadManager.downloadPhase.title)
+                        }
+                        .font(.caption)
+                        .foregroundColor(downloadPhaseColor)
+                        .accessibilityIdentifier("modelDownloadPhase")
+
+                        Text("Progress follows actual bytes reported by the active shard. Cache size may jump when a large shard finishes.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+
                         if downloadManager.isDownloadStalled {
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundColor(.orange)
-                                Text("No data received for a while. Check your network connection — the download resumes on its own if the connection comes back.")
+                                Text("No data received for a while. Retrying the transfer automatically; check your network connection if this continues.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -312,7 +326,10 @@ struct OnDeviceLLMSettingsView: View {
                             .onChange(of: maxTokens) { _, newValue in
                                 UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.maxTokens)
                             }
-                        Text("Maximum number of tokens in each response.")
+                        Text(
+                            "Model default: \(selectedModelDefaultMaxTokens). "
+                                + "Higher values allow longer answers but take more time and memory."
+                        )
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -359,27 +376,50 @@ struct OnDeviceLLMSettingsView: View {
 
     // MARK: - Helper Methods
 
-    /// Byte counts rather than a bare percentage: the percentage alone cannot distinguish
-    /// a slow multi-gigabyte transfer from one that is not moving at all.
+    /// Progress is based on byte-weighted Hub progress; cache size can still jump when a whole
+    /// shard is materialized.
     private var downloadStatusText: String {
         let percent = Int(downloadManager.downloadProgress * 100)
         guard let model = downloadManager.currentlyDownloadingModel else {
             return "\(percent)%"
         }
 
-        let downloaded = downloadManager.formatSize(downloadManager.downloadedBytes)
+        let transferred = downloadManager.formatSize(downloadManager.downloadedBytes)
         let total = downloadManager.formatSize(model.estimatedSizeBytes)
-        if let speed = downloadManager.downloadSpeedBytesPerSecond {
-            return "\(percent)% · \(downloaded) of \(total) · \(formatSpeed(speed))"
+        let progressText = "\(percent)% · \(transferred) of ~\(total)"
+
+        switch downloadManager.downloadPhase {
+        case .connecting:
+            return "\(progressText) · Connecting"
+        case .downloading:
+            if let speed = downloadManager.downloadSpeedBytesPerSecond {
+                return "\(progressText) · \(formatSpeed(speed))"
+            }
+            return "\(progressText) · Receiving data"
+        case .waitingForData:
+            return "\(progressText) · Waiting for data"
+        case .retrying:
+            return "\(progressText) · Retrying connection"
         }
-        return "\(percent)% · \(downloaded) of \(total)"
+    }
+
+    private var downloadPhaseColor: Color {
+        switch downloadManager.downloadPhase {
+        case .waitingForData, .retrying:
+            return .orange
+        case .connecting, .downloading:
+            return .secondary
+        }
     }
 
     private func formatSpeed(_ bytesPerSecond: Double) -> String {
         if bytesPerSecond >= 1_000_000 {
             return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
         }
-        return String(format: "%.0f KB/s", max(bytesPerSecond, 0) / 1_000)
+        if bytesPerSecond >= 1_000 {
+            return String(format: "%.1f KB/s", bytesPerSecond / 1_000)
+        }
+        return String(format: "%.0f B/s", max(bytesPerSecond, 0))
     }
 
     private func refreshState() {
@@ -390,6 +430,11 @@ struct OnDeviceLLMSettingsView: View {
         maxTokens = MLXModelInfo.configuredMaxTokens
         contextSize = MLXModelInfo.configuredContextSize
         downloadManager.refreshModelStatus()
+    }
+
+    private var selectedModelDefaultMaxTokens: Int {
+        MLXModelInfo.model(withId: selectedModelId)?.defaultSettings.maxTokens
+            ?? MLXModelInfo.defaultModel.defaultSettings.maxTokens
     }
 
     private func selectModel(_ model: MLXModelInfo) {
@@ -405,6 +450,7 @@ private struct MLXModelRowView: View {
     let model: MLXModelInfo
     let isSelected: Bool
     let isDownloaded: Bool
+    let isDownloading: Bool
     let onSelect: () -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
@@ -456,6 +502,15 @@ private struct MLXModelRowView: View {
                             .font(.title2)
                             .foregroundColor(.secondary)
                     }
+                } else if isDownloading {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Downloading…")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("modelDownloadInProgress")
                 } else {
                     Button {
                         onDownload()
@@ -491,8 +546,8 @@ private struct MLXModelRowView: View {
                 onSelect()
             }
         }
-        .accessibilityLabel("\(model.displayName), \(model.modelType.displayName) model, \(isDownloaded ? "downloaded" : "not downloaded")")
-        .accessibilityHint(isDownloaded ? "Tap to select this model" : "Tap download button to get this model")
+        .accessibilityLabel("\(model.displayName), \(model.modelType.displayName) model, \(isDownloaded ? "downloaded" : isDownloading ? "downloading" : "not downloaded")")
+        .accessibilityHint(isDownloaded ? "Tap to select this model" : isDownloading ? "Download in progress" : "Tap download button to get this model")
     }
 }
 

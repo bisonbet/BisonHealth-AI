@@ -1,5 +1,34 @@
 import Foundation
 
+extension Notification.Name {
+    static let medicalDocumentDidChange = Notification.Name("MedicalDocumentDidChange")
+    static let medicalDocumentDidDelete = Notification.Name("MedicalDocumentDidDelete")
+}
+
+/// Owns `NotificationCenter` observer tokens and removes them when it is released.
+///
+/// The notification center retains an `addObserver(forName:object:queue:using:)` token until it
+/// is removed, so an observer registered by a released object keeps firing for the life of the
+/// process. A `@MainActor` observer cannot clean up in its own `deinit` — `deinit` is
+/// nonisolated and `[any NSObjectProtocol]` is not `Sendable` — so the tokens live here and
+/// this type's unrestricted `deinit` does the removal.
+///
+/// `@unchecked Sendable` is sound because `insert(_:)` is only reached from the owner's
+/// isolation domain and `deinit` runs exactly once, after the last reference is gone.
+final class NotificationObserverBag: @unchecked Sendable {
+    private var observers: [any NSObjectProtocol] = []
+
+    func insert(_ observer: any NSObjectProtocol) {
+        observers.append(observer)
+    }
+
+    deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+}
+
 // MARK: - Medical Document Model
 /// Represents a medical document with on-device OCR'd content and structured sections
 struct MedicalDocument: Identifiable, Codable, Hashable {

@@ -59,9 +59,9 @@ enum LogCategory: String, CaseIterable {
 /// `@unchecked Sendable` rather than actor-isolated: `log()` is called synchronously from
 /// every isolation domain in the app, so isolating it would force every call site async.
 /// The two mutable properties are safe under the following invariants — preserve them:
-/// - `logFileURL` is assigned only by `setupLogFile()`, which runs during `init` before the
-///   instance escapes. Its only other caller, `clearAllLogs()`, currently has no callers;
-///   invoking it from off the main actor would break this invariant.
+/// - `logFileURL` is assigned by `setupLogFile()` during initialization and when logs are
+///   cleared. Every access after init — read or write — goes through `logQueue`; read it via
+///   `currentLogFileURL()` rather than touching the property from another queue.
 /// - `previousSessionCrashed` is written once by `markLaunch()` at startup and read only on
 ///   the main actor.
 /// Everything else is `let`, and file writes are already serialized through `logQueue`.
@@ -74,6 +74,9 @@ final class AppLog: NSObject, @unchecked Sendable {
     private static let maxErrorBufferLines = 500
     private static let maxMetricKitLogBytes = 512 * 1024
     private static let maxLoggedErrorDescriptionLength = 512
+    private static let maxErrorBufferAge: TimeInterval = 30 * 24 * 60 * 60
+    private static let maxMetricKitLogAge: TimeInterval = 30 * 24 * 60 * 60
+    private static let maxFileLogAge: TimeInterval = 7 * 24 * 60 * 60
 
     private let loggers: [LogCategory: os.Logger]
     private let fileManager: FileManager
@@ -145,8 +148,11 @@ final class AppLog: NSObject, @unchecked Sendable {
 
         logQueue.setSpecific(key: logQueueKey, value: "AppLogQueue")
         setupLogFile()
-        setupCrashSupportFile(at: errorBufferURL)
-        setupCrashSupportFile(at: metricKitDiagnosticsURL)
+        setupCrashSupportFile(at: self.errorBufferURL)
+        setupCrashSupportFile(at: self.metricKitDiagnosticsURL)
+        logQueue.sync {
+            cleanupRetainedDiagnostics(now: Date())
+        }
         if receivesMetricKitDiagnostics {
             registerMetricKitSubscriber()
         }
@@ -246,6 +252,7 @@ final class AppLog: NSObject, @unchecked Sendable {
 
     /// Call this at app launch (in app init or didFinishLaunching) to detect crashes.
     func markLaunch() {
+        scheduleRetentionCleanup()
         let hasKey = UserDefaults.standard.object(forKey: AppLog.cleanShutdownKey) != nil
         previousSessionCrashed = hasKey && !UserDefaults.standard.bool(forKey: AppLog.cleanShutdownKey)
         markSessionDirty()
@@ -258,7 +265,21 @@ final class AppLog: NSObject, @unchecked Sendable {
 
     /// Call when the app becomes active so foreground crashes after a prior background are detected.
     func markSessionActive() {
+        scheduleRetentionCleanup()
         markSessionDirty()
+    }
+
+    /// Schedule low-priority cleanup when the app starts or returns to the foreground.
+    /// Cleanup is also performed synchronously during initialization so a freshly created
+    /// logger never exports stale diagnostics.
+    private func scheduleRetentionCleanup() {
+        if DispatchQueue.getSpecific(key: logQueueKey) != nil {
+            cleanupRetainedDiagnostics(now: Date())
+        } else {
+            logQueue.async { [weak self] in
+                self?.cleanupRetainedDiagnostics(now: Date())
+            }
+        }
     }
 
     /// Call when the app reaches background cleanly.
@@ -467,6 +488,12 @@ final class AppLog: NSObject, @unchecked Sendable {
 
     // MARK: - Persistent Error Buffer
 
+    private func cleanupRetainedDiagnostics(now: Date) {
+        cleanupOldLogs(now: now)
+        pruneErrorBuffer(now: now)
+        pruneMetricKitDiagnostics(now: now)
+    }
+
     private func persistToErrorBuffer(_ line: String) {
         guard let url = errorBufferURL else { return }
 
@@ -476,15 +503,48 @@ final class AppLog: NSObject, @unchecked Sendable {
             lines = existing.components(separatedBy: "\n").filter { !$0.isEmpty }
         }
 
-        // Append new line and trim to max
+        // Append new line, remove expired entries, and trim to max.
         lines.append(line)
-        if lines.count > AppLog.maxErrorBufferLines {
-            lines = Array(lines.suffix(AppLog.maxErrorBufferLines))
-        }
+        lines = retainedErrorBufferLines(lines, now: Date())
 
         // Write back
-        let content = lines.joined(separator: "\n") + "\n"
+        let content = lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
         try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func pruneErrorBuffer(now: Date) {
+        guard let url = errorBufferURL,
+              let existing = try? String(contentsOf: url, encoding: .utf8) else {
+            return
+        }
+
+        let lines = existing.components(separatedBy: "\n").filter { !$0.isEmpty }
+        let retainedLines = retainedErrorBufferLines(lines, now: now)
+        let content = retainedLines.isEmpty ? "" : retainedLines.joined(separator: "\n") + "\n"
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func retainedErrorBufferLines(_ lines: [String], now: Date) -> [String] {
+        let cutoff = now.addingTimeInterval(-AppLog.maxErrorBufferAge)
+        let formatter = ISO8601DateFormatter()
+        let recentLines = lines.filter { line in
+            guard line.first == "[",
+                  let closingBracket = line.firstIndex(of: "]"),
+                  closingBracket > line.startIndex else {
+                // Preserve an unparseable line so a future format change does not
+                // silently discard a potentially useful diagnostic. The count cap
+                // still bounds its lifetime and storage cost.
+                return true
+            }
+
+            let timestampStart = line.index(after: line.startIndex)
+            let timestamp = String(line[timestampStart..<closingBracket])
+            guard let date = formatter.date(from: timestamp) else { return true }
+            return date >= cutoff
+        }
+
+        guard recentLines.count > AppLog.maxErrorBufferLines else { return recentLines }
+        return Array(recentLines.suffix(AppLog.maxErrorBufferLines))
     }
 
     /// Read the persistent error buffer contents
@@ -496,6 +556,91 @@ final class AppLog: NSObject, @unchecked Sendable {
     func getMetricKitDiagnosticsContent() -> String? {
         guard let url = metricKitDiagnosticsURL else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func pruneMetricKitDiagnostics(now: Date) {
+        guard let url = metricKitDiagnosticsURL,
+              let content = try? String(contentsOf: url, encoding: .utf8),
+              !content.isEmpty else {
+            return
+        }
+
+        let marker = "--- MetricKit Diagnostic "
+        let formatter = ISO8601DateFormatter()
+        let components = content.components(separatedBy: marker)
+        var entries: [(date: Date?, text: String)] = []
+
+        for component in components.dropFirst() {
+            guard let newline = component.firstIndex(of: "\n") else { continue }
+
+            let header = String(component[..<newline]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let timestampText = header.hasSuffix("---")
+                ? String(header.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+                : header
+            let payloadStart = component.index(after: newline)
+            let payload = String(component[payloadStart...]).trimmingCharacters(in: .newlines)
+            let entryText = "\(marker)\(header)\n\(payload)\n"
+            entries.append((formatter.date(from: timestampText), entryText))
+        }
+
+        guard !entries.isEmpty else { return }
+
+        let cutoff = now.addingTimeInterval(-AppLog.maxMetricKitLogAge)
+        let recentEntries = entries.filter { entry in
+            guard let date = entry.date else { return true }
+            return date >= cutoff
+        }
+
+        // Retain complete entries, preferring the newest diagnostics when the byte cap
+        // is reached. This avoids exporting a truncated JSON payload or partial header.
+        var retainedData = Data()
+        for entry in recentEntries.reversed() {
+            var entryData = Data(("\n" + entry.text).utf8)
+
+            if entryData.count > AppLog.maxMetricKitLogBytes {
+                // A single diagnostic larger than the whole budget is usually the most
+                // detailed crash report available. Keep its header and as much payload
+                // as fits rather than discarding the report entirely. Only the newest
+                // such entry is worth keeping — once anything has been retained there
+                // is no room left for a meaningful excerpt.
+                guard retainedData.isEmpty else { continue }
+                entryData = AppLog.truncatedMetricKitEntry(
+                    entry.text,
+                    maxBytes: AppLog.maxMetricKitLogBytes
+                )
+                guard !entryData.isEmpty else { continue }
+            }
+
+            guard retainedData.count + entryData.count <= AppLog.maxMetricKitLogBytes else {
+                continue
+            }
+
+            var combined = Data()
+            combined.append(entryData)
+            combined.append(retainedData)
+            retainedData = combined
+        }
+
+        try? retainedData.write(to: url, options: .atomic)
+    }
+
+    /// Shrink a single oversized diagnostic to fit `maxBytes`, preserving its leading
+    /// header line and marking where the payload was cut.
+    private static func truncatedMetricKitEntry(_ text: String, maxBytes: Int) -> Data {
+        let notice = "\n… [diagnostic truncated to fit the retained log budget]\n"
+        let budget = maxBytes - notice.utf8.count
+        guard budget > 0 else { return Data() }
+
+        var truncated = "\n" + text
+        while truncated.utf8.count > budget, truncated.count > 1 {
+            // Drop proportionally to the overshoot so a multi-hundred-kilobyte payload
+            // converges in a couple of passes instead of one character at a time.
+            let overshoot = truncated.utf8.count - budget
+            let dropCount = max(1, min(truncated.count - 1, overshoot))
+            truncated.removeLast(dropCount)
+        }
+
+        return Data((truncated + notice).utf8)
     }
 
     // MARK: - Log Rotation
@@ -524,23 +669,31 @@ final class AppLog: NSObject, @unchecked Sendable {
         }
     }
 
-    private func cleanupOldLogs() {
+    private func cleanupOldLogs(now: Date = Date()) {
         guard let logFileURL = logFileURL else { return }
         let logsDirectory = logFileURL.deletingLastPathComponent()
 
         do {
-            let logFiles = try fileManager.contentsOfDirectory(at: logsDirectory, includingPropertiesForKeys: [.creationDateKey])
+            let logFiles = try fileManager.contentsOfDirectory(
+                at: logsDirectory,
+                includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey]
+            )
                 .filter { $0.pathExtension == "log" }
-                .sorted { (url1, url2) -> Bool in
-                    guard let date1 = (try? url1.resourceValues(forKeys: [.creationDateKey]))?.creationDate,
-                          let date2 = (try? url2.resourceValues(forKeys: [.creationDateKey]))?.creationDate else {
-                        return false
-                    }
-                    return date1 > date2
+
+            let cutoff = now.addingTimeInterval(-AppLog.maxFileLogAge)
+            let currentLogURL = logFileURL.standardizedFileURL
+            for file in logFiles where file.standardizedFileURL != currentLogURL {
+                guard let fileDate = logFileDate(for: file), fileDate < cutoff else { continue }
+                try? fileManager.removeItem(at: file)
+            }
+
+            let retainedLogFiles = logFiles.filter { fileManager.fileExists(atPath: $0.path) }
+                .sorted {
+                    (logFileDate(for: $0) ?? .distantPast) > (logFileDate(for: $1) ?? .distantPast)
                 }
 
-            if logFiles.count > maxLogFiles {
-                let filesToDelete = logFiles.suffix(from: maxLogFiles)
+            if retainedLogFiles.count > maxLogFiles {
+                let filesToDelete = retainedLogFiles.suffix(from: maxLogFiles)
                 for file in filesToDelete {
                     try? fileManager.removeItem(at: file)
                 }
@@ -550,11 +703,29 @@ final class AppLog: NSObject, @unchecked Sendable {
         }
     }
 
+    private func logFileDate(for url: URL) -> Date? {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey]) else {
+            return nil
+        }
+        return values.contentModificationDate ?? values.creationDate
+    }
+
     // MARK: - Log Retrieval
+
+    /// Read `logFileURL` safely from any isolation domain.
+    ///
+    /// `clearAllLogs()` reassigns the property on `logQueue`, so callers outside that
+    /// queue must not touch it directly.
+    private func currentLogFileURL() -> URL? {
+        if DispatchQueue.getSpecific(key: logQueueKey) != nil {
+            return logFileURL
+        }
+        return logQueue.sync { logFileURL }
+    }
 
     /// Get all log files sorted by date (newest first)
     func getLogFiles() -> [URL] {
-        guard let logFileURL = logFileURL else { return [] }
+        guard let logFileURL = currentLogFileURL() else { return [] }
         let logsDirectory = logFileURL.deletingLastPathComponent()
 
         do {
@@ -586,13 +757,25 @@ final class AppLog: NSObject, @unchecked Sendable {
 
     /// Get the current log file content
     func getCurrentLogContent() -> String? {
-        guard let logFileURL = logFileURL else { return nil }
+        guard let logFileURL = currentLogFileURL() else { return nil }
         guard let content = try? String(contentsOf: logFileURL, encoding: .utf8) else { return nil }
         return AppLog.redactForSupport(content)
     }
 
     /// Clear all logs
     func clearAllLogs() {
+        let clear: () -> Void = { [weak self] in
+            self?.clearAllLogsOnLogQueue()
+        }
+
+        if DispatchQueue.getSpecific(key: logQueueKey) != nil {
+            clear()
+        } else {
+            logQueue.sync(execute: clear)
+        }
+    }
+
+    private func clearAllLogsOnLogQueue() {
         guard let logFileURL = logFileURL else { return }
         let logsDirectory = logFileURL.deletingLastPathComponent()
 
@@ -614,8 +797,8 @@ final class AppLog: NSObject, @unchecked Sendable {
 
             // Reinitialize log file
             setupLogFile()
-            setupCrashSupportFile(at: errorBufferURL)
-            setupCrashSupportFile(at: metricKitDiagnosticsURL)
+            setupCrashSupportFile(at: self.errorBufferURL)
+            setupCrashSupportFile(at: self.metricKitDiagnosticsURL)
         } catch {
             // Silent failure — nothing to log to
         }
@@ -668,6 +851,16 @@ final class AppLog: NSObject, @unchecked Sendable {
     }
 
     fileprivate func persistMetricKitDiagnostic(_ diagnostic: String) {
+        if DispatchQueue.getSpecific(key: logQueueKey) != nil {
+            persistMetricKitDiagnosticOnLogQueue(diagnostic)
+        } else {
+            logQueue.async { [weak self] in
+                self?.persistMetricKitDiagnosticOnLogQueue(diagnostic)
+            }
+        }
+    }
+
+    private func persistMetricKitDiagnosticOnLogQueue(_ diagnostic: String) {
         guard let url = metricKitDiagnosticsURL else { return }
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let entry = "\n--- MetricKit Diagnostic \(timestamp) ---\n\(AppLog.redactForSupport(diagnostic))\n"
@@ -683,13 +876,7 @@ final class AppLog: NSObject, @unchecked Sendable {
         } else {
             try? entry.write(to: url, atomically: true, encoding: .utf8)
         }
-        trimTextFile(at: url, maxBytes: AppLog.maxMetricKitLogBytes)
-    }
-
-    private func trimTextFile(at url: URL, maxBytes: Int) {
-        guard let data = try? Data(contentsOf: url), data.count > maxBytes else { return }
-        let suffix = data.suffix(maxBytes)
-        try? Data(suffix).write(to: url, options: .atomic)
+        pruneMetricKitDiagnostics(now: Date())
     }
 }
 

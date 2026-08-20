@@ -516,12 +516,30 @@ struct HealthContextJSON {
 
         json["priority"] = doc.contextPriority
 
-        if !doc.geneticTests.isEmpty {
+        let hasStructuredGeneticProfile = !doc.geneticTests.isEmpty
+        if hasStructuredGeneticProfile {
             json["genetic_profile"] = doc.geneticTests.map { encodeGeneticTest($0) }
         }
 
-        // Include document content - prefer sections, fall back to extractedText
-        if !doc.sections.isEmpty {
+        // Genetic reports need both the structured findings and the source text.
+        // A report can contain relevant genes or medication guidance that the
+        // deterministic parser did not recognize, and section extraction can
+        // otherwise hide that text from the doctor.
+        let isGeneticReport = doc.documentCategory == .geneticTest || !doc.geneticTests.isEmpty
+        var didEmitSourceReport = false
+        if isGeneticReport, let extractedText = doc.extractedText, !extractedText.isEmpty {
+            json["source_report"] = boundedText(extractedText, maxLength: 8_000)
+            didEmitSourceReport = true
+        }
+
+        // A parsed genetic report is already represented by its complete
+        // structured findings plus a bounded source excerpt above. OCR sections
+        // commonly repeat every finding (and may use the finding itself as a
+        // heading), which can more than double the prompt and bury the real data
+        // for a small on-device model. If structured parsing produced no profile,
+        // retain sections as the fallback so the report is not lost — sections are
+        // labelled and segmented, so they add structure the raw excerpt does not.
+        if !hasStructuredGeneticProfile, !doc.sections.isEmpty {
             // Sections (truncated to 500 chars per section)
             json["sections"] = doc.sections.map { section -> [String: Any] in
                 var s: [String: Any] = [:]
@@ -543,23 +561,28 @@ struct HealthContextJSON {
 
                 return s
             }
-        } else if let extractedText = doc.extractedText, !extractedText.isEmpty {
-            // Fall back to extractedText if no sections available
+        } else if !didEmitSourceReport,
+                  !hasStructuredGeneticProfile,
+                  let extractedText = doc.extractedText,
+                  !extractedText.isEmpty {
+            // Fall back to extractedText if no sections available.
+            // Skipped when `source_report` was emitted: that is the same string at a
+            // larger budget, so adding it here would repeat the text inside one prompt.
             // Truncate to ~4000 chars to avoid overwhelming the context
-            let maxLength = 4000
-            if extractedText.count > maxLength {
-                let truncated = String(extractedText.prefix(maxLength))
-                if let lastSpace = truncated.lastIndex(of: " ") {
-                    json["content"] = String(extractedText[..<lastSpace]) + "..."
-                } else {
-                    json["content"] = truncated + "..."
-                }
-            } else {
-                json["content"] = extractedText
-            }
+            json["content"] = boundedText(extractedText, maxLength: 4_000)
         }
 
         return json
+    }
+
+    private static func boundedText(_ text: String, maxLength: Int) -> String {
+        guard text.count > maxLength else { return text }
+
+        let truncated = text.prefix(maxLength)
+        if let lastSpace = truncated.lastIndex(of: " ") {
+            return String(text[..<lastSpace]) + "..."
+        }
+        return String(truncated) + "..."
     }
 
     // MARK: - Genetic Test Encoder

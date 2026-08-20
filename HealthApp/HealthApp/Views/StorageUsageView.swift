@@ -4,6 +4,7 @@ struct StorageUsageView: View {
     @State private var storageInfo = StorageInfo()
     @State private var isLoading = true
     @State private var lastErrorMessage: String?
+    @State private var showingClearDiagnosticsConfirmation = false
     
     var body: some View {
         List {
@@ -107,6 +108,11 @@ struct StorageUsageView: View {
                         optimizeStorage()
                     }
                     .foregroundColor(BisonTheme.gold)
+
+                    Button("Clear Diagnostic Logs") {
+                        showingClearDiagnosticsConfirmation = true
+                    }
+                    .foregroundColor(.red)
                 }
             }
         }
@@ -117,6 +123,18 @@ struct StorageUsageView: View {
         }
         .task {
             await loadStorageInfo()
+        }
+        .confirmationDialog(
+            "Clear diagnostic logs?",
+            isPresented: $showingClearDiagnosticsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear Diagnostic Logs", role: .destructive) {
+                clearDiagnosticLogs()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes the app's stored diagnostic logs and crash reports only. Health data, documents, and conversations are not affected.")
         }
     }
     
@@ -179,6 +197,13 @@ struct StorageUsageView: View {
                 lastErrorMessage = "Failed to optimize storage."
                 AppLog.shared.ui("Failed to optimize storage: \(error)", level: .error)
             }
+        }
+    }
+
+    private func clearDiagnosticLogs() {
+        AppLog.shared.clearAllLogs()
+        Task {
+            await loadStorageInfo()
         }
     }
 }

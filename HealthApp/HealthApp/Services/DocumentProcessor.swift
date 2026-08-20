@@ -149,7 +149,9 @@ class DocumentProcessor: ObservableObject {
                 document.extractedHealthData.append(encodedResult)
             }
             document.documentCategory = .geneticTest
+            document.lastEditedAt = Date()
             try await databaseManager.updateMedicalDocument(document)
+            NotificationCenter.default.post(name: .medicalDocumentDidChange, object: document)
             await healthDataManager.refreshGeneticTestDocuments()
 
             if pendingGeneticTestReview?.documentId == documentId {

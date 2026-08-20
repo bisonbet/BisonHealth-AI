@@ -35,6 +35,8 @@ class DocumentManager: ObservableObject {
     private let documentProcessor: DocumentProcessor
     private let databaseManager: DatabaseManager
     private let fileSystemManager: FileSystemManager
+    /// Removes its observers on release; see `NotificationObserverBag`.
+    private let documentChangeObservers = NotificationObserverBag()
     
     // MARK: - Computed Properties
     var filteredDocuments: [MedicalDocument] {
@@ -111,6 +113,8 @@ class DocumentManager: ObservableObject {
         self.documentProcessor = documentProcessor
         self.databaseManager = databaseManager
         self.fileSystemManager = fileSystemManager
+
+        observeMedicalDocumentChanges()
         
         Task {
             await loadDocuments()
@@ -131,7 +135,51 @@ class DocumentManager: ObservableObject {
     func refreshDocuments() async {
         await loadDocuments()
     }
-    
+
+    private func observeMedicalDocumentChanges() {
+        let changeObserver = NotificationCenter.default.addObserver(
+            forName: .medicalDocumentDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let documentID = (notification.object as? MedicalDocument)?.id
+            Task { @MainActor [weak self, documentID] in
+                guard let self else { return }
+                if let documentID,
+                   let document = try? await self.databaseManager.fetchMedicalDocument(id: documentID) {
+                    if let index = self.documents.firstIndex(where: { $0.id == documentID }) {
+                        self.documents[index] = document
+                    } else {
+                        self.documents.append(document)
+                    }
+                    self.documents.sort { $0.importedAt > $1.importedAt }
+                } else {
+                    await self.refreshDocuments()
+                }
+            }
+        }
+
+        let deleteObserver = NotificationCenter.default.addObserver(
+            forName: .medicalDocumentDidDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let documentID = notification.object as? UUID
+            Task { @MainActor [weak self, documentID] in
+                guard let self else { return }
+                if let documentID {
+                    self.documents.removeAll { $0.id == documentID }
+                    self.selectedDocuments.remove(documentID)
+                } else {
+                    await self.refreshDocuments()
+                }
+            }
+        }
+
+        documentChangeObservers.insert(changeObserver)
+        documentChangeObservers.insert(deleteObserver)
+    }
+
     // MARK: - Document Import
     func importDocuments(from urls: [URL]) async -> [MedicalDocument] {
         isImporting = true
@@ -331,25 +379,44 @@ class DocumentManager: ObservableObject {
         await updateDocument(document)
     }
     
-    func deleteDocument(_ document: MedicalDocument) async {
+    @discardableResult
+    func deleteDocument(_ document: MedicalDocument) async -> Bool {
         do {
             // Remove from processing queue if queued
             await documentProcessor.removeFromQueue(document.id)
             
-            // Delete from database and file system
-            try await databaseManager.deleteDocument(id: document.id)
-            try fileSystemManager.deleteDocument(at: document.filePath)
+            // Delete from the database first. Treat an already-removed row as
+            // clean-up success so a stale UI snapshot cannot strand the file.
+            do {
+                try await databaseManager.deleteDocument(id: document.id)
+            } catch DatabaseError.notFound {
+                AppLog.shared.documents("Document row was already absent; continuing file cleanup", level: .debug)
+            }
+
+            // The imported file may already have been removed outside the app.
+            // File cleanup is therefore best-effort after the database delete.
+            if FileManager.default.fileExists(atPath: document.filePath.path) {
+                do {
+                    try fileSystemManager.deleteDocument(at: document.filePath)
+                } catch {
+                    AppLog.shared.documents("Failed to remove source file for '\(document.fileName)': \(error.localizedDescription)", level: .warning)
+                }
+            }
             
-            if let thumbnailPath = document.thumbnailPath {
+            if let thumbnailPath = document.thumbnailPath,
+               FileManager.default.fileExists(atPath: thumbnailPath.path) {
                 try? fileSystemManager.deleteFile(at: thumbnailPath)
             }
             
             // Remove from local array
             documents.removeAll { $0.id == document.id }
             selectedDocuments.remove(document.id)
-            
+
+            NotificationCenter.default.post(name: .medicalDocumentDidDelete, object: document.id)
+            return true
         } catch {
             lastError = error
+            return false
         }
     }
     

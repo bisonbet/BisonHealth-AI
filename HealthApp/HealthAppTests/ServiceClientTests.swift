@@ -521,6 +521,64 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertTrue(retainedContent.contains("Underlying error type"))
     }
 
+    func testAppLogPrunesExpiredErrorAndMetricKitEntriesOnInitialization() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppLogRetentionTests-\(UUID().uuidString)", isDirectory: true)
+        let logsURL = rootURL.appendingPathComponent("Logs", isDirectory: true)
+        let errorBufferURL = rootURL.appendingPathComponent("error-buffer.log")
+        let metricKitURL = rootURL.appendingPathComponent("metric-kit.log")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let formatter = ISO8601DateFormatter()
+        let oldTimestamp = formatter.string(from: Date(timeIntervalSinceNow: -(31 * 24 * 60 * 60)))
+        let recentTimestamp = formatter.string(from: Date(timeIntervalSinceNow: -(24 * 60 * 60)))
+        let oldError = "[\(oldTimestamp)] [ERROR] [General] expired-error"
+        let recentError = "[\(recentTimestamp)] [ERROR] [General] recent-error"
+        try "\(oldError)\n\(recentError)\n".write(to: errorBufferURL, atomically: true, encoding: .utf8)
+
+        let oldMetric = "\n--- MetricKit Diagnostic \(oldTimestamp) ---\nexpired-metric\n"
+        let recentMetric = "\n--- MetricKit Diagnostic \(recentTimestamp) ---\nrecent-metric\n"
+        try "\(oldMetric)\(recentMetric)".write(to: metricKitURL, atomically: true, encoding: .utf8)
+
+        let logger = AppLog(
+            logDirectory: logsURL,
+            errorBufferURL: errorBufferURL,
+            metricKitDiagnosticsURL: metricKitURL
+        )
+
+        let retainedErrors = logger.getErrorBufferContent() ?? ""
+        XCTAssertFalse(retainedErrors.contains("expired-error"))
+        XCTAssertTrue(retainedErrors.contains("recent-error"))
+
+        let retainedMetrics = logger.getMetricKitDiagnosticsContent() ?? ""
+        XCTAssertFalse(retainedMetrics.contains("expired-metric"))
+        XCTAssertTrue(retainedMetrics.contains("recent-metric"))
+    }
+
+    func testAppLogPrunesExpiredFileLogsOnInitialization() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppLogFileRetentionTests-\(UUID().uuidString)", isDirectory: true)
+        let logsURL = rootURL.appendingPathComponent("Logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let expiredLogURL = logsURL.appendingPathComponent("app-expired.log")
+        try "expired-file-log\n".write(to: expiredLogURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -(8 * 24 * 60 * 60))],
+            ofItemAtPath: expiredLogURL.path
+        )
+
+        _ = AppLog(
+            logDirectory: logsURL,
+            errorBufferURL: rootURL.appendingPathComponent("error-buffer.log"),
+            metricKitDiagnosticsURL: rootURL.appendingPathComponent("metric-kit.log")
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expiredLogURL.path))
+    }
+
     func testProviderRequestIdentifierIsWithheldFromDurableLogs() {
         // A request ID is untrusted response data: a character allowlist cannot show it
         // is free of PHI, so it may inform the user but must not be persisted.
