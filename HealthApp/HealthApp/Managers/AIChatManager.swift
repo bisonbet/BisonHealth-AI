@@ -45,6 +45,7 @@ class AIChatManager: ObservableObject {
     
     // MARK: - Context Management
     private var currentContext: ChatContext = ChatContext()
+    private var contextUpdateTask: Task<Void, Never>?
 
     // MARK: - Streaming Debounce
     private var streamingUpdateTask: Task<Void, Never>?
@@ -208,9 +209,7 @@ class AIChatManager: ObservableObject {
         selectedHealthDataTypes = conversation.includedHealthDataTypes
         selectedPersonalInfoCategories = conversation.includedPersonalInfoCategories
         if automaticallyUpdateContextOnSelection {
-            Task {
-                await updateHealthDataContext()
-            }
+            scheduleHealthDataContextUpdate()
         }
     }
     
@@ -921,8 +920,8 @@ class AIChatManager: ObservableObject {
 
         selectedHealthDataTypes = types
         selectedPersonalInfoCategories = personalInfoCategories
-        Task {
-            await updateHealthDataContext()
+        if automaticallyUpdateContextOnSelection {
+            scheduleHealthDataContextUpdate()
         }
 
         // Update current conversation's included data types and categories
@@ -943,11 +942,21 @@ class AIChatManager: ObservableObject {
     func selectDoctor(_ doctor: Doctor) {
         selectedDoctor = doctor
     }
-    
+
+    private func scheduleHealthDataContextUpdate() {
+        contextUpdateTask?.cancel()
+        contextUpdateTask = Task { [weak self] in
+            await self?.updateHealthDataContext()
+        }
+    }
+
     private func updateHealthDataContext() async {
+        let requestedDataTypes = selectedHealthDataTypes
+        let requestedPersonalInfoCategories = selectedPersonalInfoCategories
+
         // Map selected HealthDataType values to DocumentCategory filters
         var documentCategories: [DocumentCategory] = []
-        for dataType in selectedHealthDataTypes {
+        for dataType in requestedDataTypes {
             documentCategories.append(contentsOf: dataType.relatedDocumentCategories)
         }
         
@@ -960,7 +969,7 @@ class AIChatManager: ObservableObject {
             let categoriesToFilter: [DocumentCategory]?
             if !documentCategories.isEmpty {
                 categoriesToFilter = documentCategories
-            } else if !selectedHealthDataTypes.isEmpty {
+            } else if !requestedDataTypes.isEmpty {
                 // User selected types but none map to document categories - return empty
                 categoriesToFilter = []
             } else {
@@ -971,24 +980,39 @@ class AIChatManager: ObservableObject {
             let fetchedDocs = try await databaseManager.fetchDocumentsForAIContext(categories: categoriesToFilter)
             medicalDocuments = fetchedDocs.map { MedicalDocumentSummary(from: $0) }
             
-            AppLog.shared.ai("[Context] Fetched \(fetchedDocs.count) medical documents for \(selectedHealthDataTypes.count) data types, \(documentCategories.count) categories")
+            AppLog.shared.ai("[Context] Fetched \(fetchedDocs.count) medical documents for \(requestedDataTypes.count) data types, \(documentCategories.count) categories")
         } catch {
             AppLog.shared.ai("[Context] Failed to fetch medical documents: \(error.localizedDescription)", level: .warning)
             medicalDocuments = []
         }
 
-        // Build context with selected health data and medical documents
-        currentContext = ChatContext(
-            personalInfo: selectedHealthDataTypes.contains(.personalInfo) ? healthDataManager.personalInfo : nil,
-            bloodTests: selectedHealthDataTypes.contains(.bloodTest) ? healthDataManager.bloodTests : [],
+        // Build context with the selection captured before the database await.
+        // A newer selection must not be overwritten by an older refresh.
+        let updatedContext = ChatContext(
+            personalInfo: requestedDataTypes.contains(.personalInfo) ? healthDataManager.personalInfo : nil,
+            bloodTests: requestedDataTypes.contains(.bloodTest) ? healthDataManager.bloodTests : [],
             medicalDocuments: medicalDocuments,
-            selectedDataTypes: selectedHealthDataTypes,
-            selectedPersonalInfoCategories: selectedPersonalInfoCategories,
+            selectedDataTypes: requestedDataTypes,
+            selectedPersonalInfoCategories: requestedPersonalInfoCategories,
             maxTokens: contextSizeLimit
         )
+
+        guard !Task.isCancelled,
+              requestedDataTypes == selectedHealthDataTypes,
+              requestedPersonalInfoCategories == selectedPersonalInfoCategories else {
+            AppLog.shared.ai("[Context] Discarded stale health-data refresh", level: .debug)
+            return
+        }
+
+        currentContext = updatedContext
     }
-    
+
     private func buildHealthDataContext() async -> String {
+        // A context-selection save updates document flags asynchronously. Cancel
+        // any refresh started before that save and rebuild from the database now,
+        // so the request cannot use a stale snapshot of a selected genetic report.
+        contextUpdateTask?.cancel()
+        contextUpdateTask = nil
         await updateHealthDataContext()
 
         // Use JSON format for structured health data
@@ -1136,6 +1160,7 @@ class AIChatManager: ObservableObject {
     deinit {
         // Cancel any pending streaming update task to prevent memory leaks
         streamingUpdateTask?.cancel()
+        contextUpdateTask?.cancel()
         // Stop network monitoring
         networkMonitor.stopMonitoring()
     }

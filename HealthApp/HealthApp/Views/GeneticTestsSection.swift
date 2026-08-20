@@ -580,9 +580,9 @@ struct GeneticTestFindingRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            if let pharmGKBURL = item.pharmGKBURL {
-                Link(destination: pharmGKBURL) {
-                    Label("View gene and result on PharmGKB", systemImage: "link")
+            if let referenceURL = item.referenceURL {
+                Link(destination: referenceURL) {
+                    Label(item.referenceLinkTitle, systemImage: "link")
                         .font(.caption)
                 }
             }
@@ -894,7 +894,7 @@ struct GeneticTestItemEditorView: View {
         draft.phenotype = option.phenotype
         draft.curatedPhenotype = option.phenotype
         draft.curatedSummary = option.summary
-        draft.curatedSourceURL = option.pharmGKBURL?.absoluteString
+        draft.curatedSourceURL = option.referenceURL?.absoluteString
     }
 
     private func save() {
@@ -920,7 +920,7 @@ struct GeneticTestItemEditorView: View {
            draft.phenotype == option.phenotype {
             draft.curatedPhenotype = option.phenotype
             draft.curatedSummary = option.summary
-            draft.curatedSourceURL = option.pharmGKBURL?.absoluteString
+            draft.curatedSourceURL = option.referenceURL?.absoluteString
         } else {
             draft.curatedPhenotype = nil
             draft.curatedSummary = nil

@@ -90,6 +90,70 @@ final class AIChatManagerTests: XCTestCase {
         XCTAssertFalse(labContext.contains("Atorvastatin"))
     }
 
+    func testScriptedGeneticDoctorReceivesSelectedReportAndSourceText() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        let report = "CYP2C19 *2/*2; laboratory note: source-only medication caution."
+        let geneticResult = GeneticTestResult(
+            testDate: ISO8601DateFormatter().date(from: "2026-01-15T12:00:00Z") ?? Date(),
+            laboratoryName: "Precision Genetics",
+            testedGenes: ["CYP2C19"],
+            results: [GeneticTestItem(
+                gene: "CYP2C19",
+                category: .drugMetabolism,
+                isKnownPharmacogene: true,
+                diplotype: "*2/*2",
+                phenotype: "Poor Metabolizer"
+            )]
+        )
+        let geneticDocument = MedicalDocument(
+            fileName: "selected-genetic-report.pdf",
+            fileType: .pdf,
+            filePath: harness.rootURL.appendingPathComponent("selected-genetic-report.pdf"),
+            processingStatus: .completed,
+            documentDate: geneticResult.testDate,
+            providerName: "Precision Genetics",
+            providerType: .laboratory,
+            documentCategory: .geneticTest,
+            extractedText: report,
+            extractedSections: [DocumentSection(
+                sectionType: "Test Information",
+                content: "Medication Response Panel"
+            )],
+            includeInAIContext: true,
+            contextPriority: 5,
+            extractedHealthData: [try AnyHealthData(geneticResult)],
+            fileSize: 2048
+        )
+        try await harness.databaseManager.saveMedicalDocument(geneticDocument)
+
+        let chatManager = AIChatManager(
+            healthDataManager: harness.healthDataManager,
+            databaseManager: harness.databaseManager,
+            settingsManager: harness.settingsManager,
+            automaticallyLoadConversations: false,
+            automaticallyUpdateContextOnSelection: false
+        )
+        chatManager.isOffline = false
+        chatManager.isConnected = true
+        chatManager.selectDoctor(try XCTUnwrap(Doctor.defaultDoctors.first { $0.name == "Genetic Specialist" }))
+        chatManager.selectHealthDataForContext([.geneticProfile], personalInfoCategories: [])
+
+        _ = try await chatManager.startNewConversation(title: "Genetic Report")
+        try await chatManager.sendMessage("Based on my report, what should I know about medicines?", useStreaming: false)
+
+        let chatRequest = try XCTUnwrap(harness.scriptedProvider.requests.first {
+            $0.message.contains("what should I know about medicines")
+        })
+        XCTAssertTrue(chatRequest.context.contains("genetic_profile"))
+        XCTAssertTrue(chatRequest.context.contains("CYP2C19"))
+        XCTAssertTrue(chatRequest.context.contains("Poor Metabolizer"))
+        XCTAssertTrue(chatRequest.context.contains("source-only medication caution"))
+        XCTAssertTrue(chatRequest.context.contains("source_report"))
+        XCTAssertTrue(chatRequest.context.contains("Do not call the exchange hypothetical"))
+    }
+
     private struct RegressionHarness {
         let rootURL: URL
         let databaseManager: DatabaseManager

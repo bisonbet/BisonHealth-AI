@@ -248,8 +248,8 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
             if let catalogSummary = result.catalogSummary, !catalogSummary.isEmpty {
                 lines.append("  Catalog summary (not a laboratory interpretation): \(catalogSummary)")
             }
-            if let pharmGKBURL = result.pharmGKBURL {
-                lines.append("  PharmGKB: \(pharmGKBURL.absoluteString)")
+            if let referenceURL = result.referenceURL {
+                lines.append("  \(result.referenceSourceName): \(referenceURL.absoluteString)")
             }
         }
 
@@ -555,8 +555,12 @@ struct GeneticCatalogOption: Identifiable, Hashable {
         return value
     }
 
-    var pharmGKBURL: URL? {
-        PharmGKBLink.url(gene: gene.rawValue, result: diplotype ?? genotype)
+    var referenceURL: URL? {
+        GeneticReferenceLink.url(
+            gene: gene.rawValue,
+            result: diplotype ?? genotype,
+            rsID: nil
+        )
     }
 
     func matches(_ item: GeneticTestItem) -> Bool {
@@ -575,17 +579,209 @@ struct GeneticCatalogOption: Identifiable, Hashable {
     }
 }
 
-private enum PharmGKBLink {
-    static func url(gene: String, result: String?) -> URL? {
-        let query = [gene, result].compactMap { value in
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmed.isEmpty ? nil : trimmed
-        }.joined(separator: " ")
+private enum GeneticReferenceLink {
+    static let pharmDOGHost = "pharmdog.clinpgx.org"
+    static let clinPGxHost = "www.clinpgx.org"
+    static let dbSNPHost = "www.ncbi.nlm.nih.gov"
 
-        guard !query.isEmpty else { return nil }
-        var components = URLComponents(string: "https://www.pharmgkb.org/search")
-        components?.queryItems = [URLQueryItem(name: "query", value: query)]
-        return components?.url
+    private static let clinPGxAccessions: [String: String] = [
+        "ABCG2": "PA390",
+        "CACNA1S": "PA85",
+        "CFTR": "PA109",
+        "CYP2B6": "PA123",
+        "CYP2C19": "PA124",
+        "CYP2C9": "PA126",
+        "CYP2D6": "PA128",
+        "CYP3A5": "PA131",
+        "CYP4F2": "PA27121",
+        "DPYD": "PA145",
+        "G6PD": "PA28469",
+        "HLA-A": "PA35055",
+        "HLA-B": "PA35056",
+        "IFNL3": "PA134952671",
+        "IFNL4": "PA166049147",
+        "NAT2": "PA18",
+        "NUDT15": "PA134963132",
+        "RYR1": "PA34896",
+        "SLCO1B1": "PA134865839",
+        "TPMT": "PA356",
+        "UGT1A1": "PA420",
+        "VKORC1": "PA133787052"
+    ]
+
+    // CYP1A2 is retained in the app's conservative catalog, but it is not
+    // currently exposed by the live PharmDOG or ClinPGx gene catalogs.
+    private static let ncbiGeneIDs: [String: String] = [
+        "CYP1A2": "1544"
+    ]
+
+    private static let pharmDOGGeneSymbols: Set<String> = [
+        "ABCG2", "CACNA1S", "CFTR", "CYP2B6", "CYP2C19", "CYP2C9",
+        "CYP2D6", "CYP3A5", "CYP4F2", "DPYD", "G6PD", "HLA-A", "HLA-B",
+        "NAT2", "NUDT15", "RYR1", "SLCO1B1", "TPMT", "UGT1A1", "VKORC1"
+    ]
+
+    static func url(gene: String, result: String?, rsID: String?) -> URL? {
+        let canonicalGene = canonicalGeneSymbol(for: gene)
+
+        if let canonicalGene,
+           let pharmDOGURL = pharmDOGURL(gene: canonicalGene, result: result) {
+            return pharmDOGURL
+        }
+
+        if let normalizedRSID = normalizedRSID(from: rsID) {
+            return dbSNPURL(for: normalizedRSID)
+        }
+
+        if let canonicalGene,
+           let accession = clinPGxAccessions[canonicalGene] {
+            return clinPGxURL(for: accession)
+        }
+
+        if let canonicalGene,
+           let geneID = ncbiGeneIDs[canonicalGene] {
+            return ncbiGeneURL(for: geneID)
+        }
+
+        return nil
+    }
+
+    static func validatedCuratedURL(
+        _ value: String,
+        gene: String,
+        result: String?,
+        rsID: String?
+    ) -> URL? {
+        guard let url = URL(string: value),
+              url.scheme?.lowercased() == "https",
+              url.port == nil,
+              url.user == nil,
+              url.password == nil,
+              url.fragment == nil else {
+            return nil
+        }
+
+        let canonicalGene = canonicalGeneSymbol(for: gene)
+
+        if url.host?.lowercased() == pharmDOGHost,
+           let canonicalGene,
+           let expectedURL = pharmDOGURL(gene: canonicalGene, result: result),
+           url == expectedURL {
+            return url
+        }
+
+        if url.host?.lowercased() == clinPGxHost,
+           let canonicalGene,
+           let accession = clinPGxAccessions[canonicalGene],
+           url.query == nil,
+           url.path == "/gene/\(accession)" {
+            return url
+        }
+
+        if url.host?.lowercased() == dbSNPHost,
+           let normalizedRSID = normalizedRSID(from: rsID),
+           url.query == nil,
+           url.path == "/snp/\(normalizedRSID)" {
+            return url
+        }
+
+        if url.host?.lowercased() == dbSNPHost,
+           let canonicalGene,
+           let geneID = ncbiGeneIDs[canonicalGene],
+           url.query == nil,
+           url.path == "/gene/\(geneID)" {
+            return url
+        }
+
+        return nil
+    }
+
+    private static func canonicalGeneSymbol(for value: String) -> String? {
+        let uppercasedValue = value.uppercased()
+        if uppercasedValue.range(of: "(^|[^A-Z0-9])IFNL4([^A-Z0-9]|$)", options: .regularExpression) != nil,
+           uppercasedValue.range(of: "(^|[^A-Z0-9])IFNL3([^A-Z0-9]|$)", options: .regularExpression) == nil {
+            return "IFNL4"
+        }
+
+        guard let catalogGene = PharmacogenomicGene.match(in: value) else { return nil }
+        return catalogGene == .ifnl3 ? "IFNL3" : catalogGene.rawValue
+    }
+
+    private static func pharmDOGURL(gene: String, result: String?) -> URL? {
+        guard pharmDOGGeneSymbols.contains(gene),
+              let alleles = pharmDOGAlleles(from: result) else {
+            return nil
+        }
+
+        let payload = [gene: [alleles[0], alleles[1], ""]]
+        guard let payloadData = try? JSONEncoder().encode(payload),
+              let payloadString = String(data: payloadData, encoding: .utf8) else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = pharmDOGHost
+        components.path = "/results"
+        components.queryItems = [URLQueryItem(name: "q", value: payloadString)]
+        return components.url
+    }
+
+    private static func pharmDOGAlleles(from result: String?) -> [String]? {
+        guard let result else { return nil }
+        let values = result
+            .split { character in
+                character == "/" || character == "|"
+            }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        guard values.count == 2,
+              values.allSatisfy({ !$0.isEmpty && isPharmDOGAllele($0) }) else {
+            return nil
+        }
+
+        return values
+    }
+
+    private static func isPharmDOGAllele(_ value: String) -> Bool {
+        value.range(
+            of: #"^\*[0-9]+(?:[A-Za-z]+)?(?::[0-9]+)?(?:x(?:2|≥3))?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func clinPGxURL(for accession: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = clinPGxHost
+        components.path = "/gene/\(accession)"
+        return components.url
+    }
+
+    private static func ncbiGeneURL(for geneID: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = dbSNPHost
+        components.path = "/gene/\(geneID)"
+        return components.url
+    }
+
+    private static func dbSNPURL(for rsID: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = dbSNPHost
+        components.path = "/snp/\(rsID)"
+        return components.url
+    }
+
+    private static func normalizedRSID(from value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.range(of: "^rs[0-9]+$", options: [.regularExpression, .caseInsensitive]) != nil else {
+            return nil
+        }
+
+        return "rs" + String(trimmed.dropFirst(2))
     }
 }
 
@@ -670,13 +866,50 @@ struct GeneticTestItem: Codable, Identifiable, Hashable {
         return catalogSuggestion?.summary
     }
 
-    var pharmGKBURL: URL? {
-        if let curatedSourceURL, let url = URL(string: curatedSourceURL) {
+    var referenceURL: URL? {
+        if let curatedSourceURL,
+           let url = GeneticReferenceLink.validatedCuratedURL(
+               curatedSourceURL,
+               gene: gene,
+               result: diplotype ?? genotype,
+               rsID: rsID ?? variant
+           ) {
             return url
         }
-        return PharmGKBLink.url(
+
+        return GeneticReferenceLink.url(
             gene: gene,
-            result: diplotype ?? genotype ?? variant ?? rsID
+            result: diplotype ?? genotype,
+            rsID: rsID ?? variant
         )
+    }
+
+    var referenceLinkTitle: String {
+        switch referenceSourceName {
+        case "PharmDOG":
+            return "View genotype guidance on PharmDOG"
+        case "ClinPGx":
+            return "View gene details on ClinPGx"
+        case "NCBI Gene":
+            return "View gene details on NCBI"
+        case "NCBI dbSNP":
+            return "View variant details on NCBI dbSNP"
+        default:
+            return "View reference details"
+        }
+    }
+
+    var referenceSourceName: String {
+        guard let referenceURL else { return "Reference" }
+        switch referenceURL.host?.lowercased() {
+        case GeneticReferenceLink.pharmDOGHost:
+            return "PharmDOG"
+        case GeneticReferenceLink.clinPGxHost:
+            return "ClinPGx"
+        case GeneticReferenceLink.dbSNPHost:
+            return referenceURL.path.hasPrefix("/gene/") ? "NCBI Gene" : "NCBI dbSNP"
+        default:
+            return "Reference"
+        }
     }
 }

@@ -520,6 +520,15 @@ struct HealthContextJSON {
             json["genetic_profile"] = doc.geneticTests.map { encodeGeneticTest($0) }
         }
 
+        // Genetic reports need both the structured findings and the source text.
+        // A report can contain relevant genes or medication guidance that the
+        // deterministic parser did not recognize, and section extraction can
+        // otherwise hide that text from the doctor.
+        let isGeneticReport = doc.documentCategory == .geneticTest || !doc.geneticTests.isEmpty
+        if isGeneticReport, let extractedText = doc.extractedText, !extractedText.isEmpty {
+            json["source_report"] = boundedText(extractedText, maxLength: 8_000)
+        }
+
         // Include document content - prefer sections, fall back to extractedText
         if !doc.sections.isEmpty {
             // Sections (truncated to 500 chars per section)
@@ -543,23 +552,23 @@ struct HealthContextJSON {
 
                 return s
             }
-        } else if let extractedText = doc.extractedText, !extractedText.isEmpty {
+        } else if !isGeneticReport, let extractedText = doc.extractedText, !extractedText.isEmpty {
             // Fall back to extractedText if no sections available
             // Truncate to ~4000 chars to avoid overwhelming the context
-            let maxLength = 4000
-            if extractedText.count > maxLength {
-                let truncated = String(extractedText.prefix(maxLength))
-                if let lastSpace = truncated.lastIndex(of: " ") {
-                    json["content"] = String(extractedText[..<lastSpace]) + "..."
-                } else {
-                    json["content"] = truncated + "..."
-                }
-            } else {
-                json["content"] = extractedText
-            }
+            json["content"] = boundedText(extractedText, maxLength: 4_000)
         }
 
         return json
+    }
+
+    private static func boundedText(_ text: String, maxLength: Int) -> String {
+        guard text.count > maxLength else { return text }
+
+        let truncated = text.prefix(maxLength)
+        if let lastSpace = truncated.lastIndex(of: " ") {
+            return String(text[..<lastSpace]) + "..."
+        }
+        return String(truncated) + "..."
     }
 
     // MARK: - Genetic Test Encoder
