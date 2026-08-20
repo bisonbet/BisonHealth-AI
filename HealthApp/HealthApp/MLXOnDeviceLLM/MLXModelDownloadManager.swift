@@ -9,8 +9,59 @@ import Foundation
 import SwiftUI
 
 #if !targetEnvironment(simulator)
+import HuggingFace
 import MLXLMCommon
 #endif
+
+enum MLXDownloadPhase: Equatable {
+    case connecting
+    case downloading
+    case waitingForData
+    case retrying(attempt: Int)
+
+    var title: String {
+        switch self {
+        case .connecting:
+            return "Connecting to Hugging Face…"
+        case .downloading:
+            return "Receiving model bytes"
+        case .waitingForData:
+            return "Waiting for data"
+        case .retrying(let attempt):
+            return "Retrying connection (attempt \(attempt))…"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .connecting:
+            return "arrow.triangle.2.circlepath"
+        case .downloading:
+            return "arrow.down.circle.fill"
+        case .waitingForData:
+            return "clock"
+        case .retrying:
+            return "arrow.clockwise"
+        }
+    }
+}
+
+private enum MLXDownloadTransferError: LocalizedError {
+    case invalidResponse(file: String)
+    case httpStatus(file: String, statusCode: Int)
+    case incompleteFile(file: String, expectedBytes: Int64, actualBytes: Int64)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse(let file):
+            return "Hugging Face returned an invalid response for \(file)."
+        case .httpStatus(let file, let statusCode):
+            return "Hugging Face returned HTTP \(statusCode) for \(file)."
+        case .incompleteFile(let file, let expectedBytes, let actualBytes):
+            return "The download for \(file) ended at \(actualBytes) of \(expectedBytes) bytes."
+        }
+    }
+}
 
 // MARK: - Download Manager
 
@@ -25,6 +76,7 @@ class MLXModelDownloadManager: ObservableObject {
     @Published var downloadProgress: Double = 0.0
     @Published var downloadedBytes: Int64 = 0
     @Published var downloadSpeedBytesPerSecond: Double?
+    @Published var downloadPhase: MLXDownloadPhase = .connecting
     @Published var isDownloadStalled: Bool = false
     @Published var currentlyDownloadingModel: MLXModelInfo?
     @Published var downloadError: String?
@@ -36,14 +88,38 @@ class MLXModelDownloadManager: ObservableObject {
 
     private var downloadTask: Task<Void, Never>?
     private var progressMonitorTask: Task<Void, Never>?
+    private var stallRetryTask: Task<Void, Never>?
     private var cancelledByUser = false
+    private var activeDownloadID: UUID?
+    private var automaticStallRetryCount = 0
 
-    /// Fraction reported by the Hub snapshot. Written from arbitrary download threads,
-    /// read by the progress monitor, so it lives behind a lock instead of a per-callback hop.
-    private let reportedFraction = FractionBox()
+    /// No byte progress for this long while downloading is surfaced as a stall.
+    private nonisolated static let stallThreshold: TimeInterval = 60
+    private nonisolated static let maxAutomaticStallRetries = 2
+    /// MedGemma is published as three multi-GB weight shards. Keep all shards eligible to
+    /// progress so a stalled CDN connection for one shard cannot block the remaining files.
+    private nonisolated static let maxConcurrentFileDownloads = 3
+    private nonisolated static let progressLogInterval: TimeInterval = 30
 
-    /// No byte movement for this long while downloading is surfaced as a stall.
-    private static let stallThreshold: TimeInterval = 90
+    #if !targetEnvironment(simulator)
+    /// The default URLSession can wait for connectivity and retain a dead connection longer
+    /// than the UI's stall watchdog. Use a bounded, non-waiting session for Hub transfers.
+    private nonisolated static let realtimeURLSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = stallThreshold
+        configuration.timeoutIntervalForResource = 24 * 60 * 60
+        configuration.httpMaximumConnectionsPerHost = maxConcurrentFileDownloads + 1
+        configuration.allowsExpensiveNetworkAccess = true
+        configuration.allowsConstrainedNetworkAccess = true
+        return URLSession(configuration: configuration)
+    }()
+
+    private nonisolated static let realtimeHubClient = HuggingFace.HubClient(
+        session: realtimeURLSession,
+        cache: nil
+    )
+    #endif
 
     // MARK: - Initialization
 
@@ -73,38 +149,51 @@ class MLXModelDownloadManager: ObservableObject {
             return
         }
 
+        automaticStallRetryCount = 0
+        stallRetryTask?.cancel()
+        stallRetryTask = nil
+        startDownloadAttempt(for: model)
+    }
+
+    private func startDownloadAttempt(for model: MLXModelInfo) {
         isDownloading = true
         downloadProgress = 0.0
         downloadedBytes = 0
         downloadSpeedBytesPerSecond = nil
+        downloadPhase = .connecting
         isDownloadStalled = false
         currentlyDownloadingModel = model
         downloadError = nil
         cancelledByUser = false
-        reportedFraction.set(0)
-        startProgressMonitor(for: model)
+        let downloadID = UUID()
+        activeDownloadID = downloadID
+        let progressBox = DownloadProgressBox()
+        startProgressMonitor(for: model, progressBox: progressBox)
 
         downloadTask = Task {
             do {
                 #if targetEnvironment(simulator)
                 throw MLXOnDeviceError.simulatorNotSupported
                 #else
-                AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId)), expecting \(formatSize(model.estimatedSizeBytes))")
+                AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId)), expecting \(formatSize(model.estimatedSizeBytes)) across up to \(Self.maxConcurrentFileDownloads) files")
 
                 let configuration = ModelConfiguration(
                     id: model.huggingFaceId,
                     extraEOSTokens: model.extraEOSTokens
                 )
-                let fraction = reportedFraction
-
                 // Download the weights only. Instantiating the model is the chat client's job,
                 // and doing it here would pull the whole model into memory for no benefit.
-                let modelDirectory = try await downloadModel(
-                    hub: defaultHubApi,
-                    configuration: configuration
-                ) { progress in
-                    fraction.set(progress.fractionCompleted)
-                }
+                // HubClient reports byte-weighted parent progress, unlike the older MLX helper's
+                // file-weighted progress (which can sit at 33% for an entire multi-GB shard).
+                let modelDirectory = try await downloadModelWithRealtimeProgress(
+                    model: model,
+                    configuration: configuration,
+                    progressBox: progressBox
+                )
+
+                // A cancellation can race the final filesystem validation. Do not let an old
+                // task complete a new download or repopulate state after the user cancelled it.
+                guard activeDownloadID == downloadID, !Task.isCancelled else { return }
 
                 // MLXLMCommon treats an authorization failure as a local-only fallback.
                 // Do not mark that fallback as downloaded unless the complete model is on disk;
@@ -112,6 +201,8 @@ class MLXModelDownloadManager: ObservableObject {
                 guard isModelCacheValid(at: modelDirectory) else {
                     throw MLXOnDeviceError.modelDownloadIncomplete
                 }
+
+                guard activeDownloadID == downloadID, !Task.isCancelled else { return }
 
                 AppLog.shared.mlx("[MLXDownload] Download complete for \(model.displayName)")
 
@@ -122,11 +213,13 @@ class MLXModelDownloadManager: ObservableObject {
                 isDownloadStalled = false
                 currentlyDownloadingModel = nil
                 downloadTask = nil
+                activeDownloadID = nil
+                automaticStallRetryCount = 0
                 markModelDownloaded(model)
                 ensureValidExtractionModelSelection()
                 #endif
             } catch {
-                finishFailedDownload(for: model, error: error)
+                finishFailedDownload(for: model, downloadID: downloadID, error: error)
             }
         }
     }
@@ -134,21 +227,30 @@ class MLXModelDownloadManager: ObservableObject {
     /// Cancel the current download
     func cancelDownload() {
         let model = currentlyDownloadingModel
+        let bytesAtCancellation = downloadedBytes
         AppLog.shared.mlx("[MLXDownload] Cancel requested by user for \(model?.displayName ?? "unknown model")")
         cancelledByUser = true
+        stallRetryTask?.cancel()
+        stallRetryTask = nil
+        automaticStallRetryCount = 0
+        activeDownloadID = nil
         stopProgressMonitor()
         downloadTask?.cancel()
         downloadTask = nil
         isDownloading = false
         downloadProgress = 0.0
         downloadSpeedBytesPerSecond = nil
+        downloadPhase = .connecting
         isDownloadStalled = false
         currentlyDownloadingModel = nil
-        // `downloadedBytes` is left for `finishFailedDownload` to report and reset.
+        // Reset the visible byte count after cancellation.
+        downloadedBytes = 0
         if let model {
             cleanupIncompleteDownload(for: model)
             removeDownloadedModel(model)
         }
+        AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model?.displayName ?? "unknown model") after \(formatSize(bytesAtCancellation))")
+        cancelledByUser = false
         refreshModelStatus()
     }
 
@@ -156,8 +258,14 @@ class MLXModelDownloadManager: ObservableObject {
     ///
     /// `URLSession`'s async APIs surface task cancellation as `URLError.cancelled` rather than
     /// `CancellationError`, so cancellation is identified by the flag `cancelDownload()` sets.
-    private func finishFailedDownload(for model: MLXModelInfo, error: Error) {
+    private func finishFailedDownload(for model: MLXModelInfo, downloadID: UUID, error: Error) {
+        guard activeDownloadID == downloadID else { return }
+
         let wasCancelled = cancelledByUser || error is CancellationError || (error as? URLError)?.code == .cancelled
+
+        if !wasCancelled, retryDownloadAfterTransferFailure(for: model, error: error) {
+            return
+        }
 
         if wasCancelled {
             AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model.displayName) after \(formatSize(downloadedBytes))")
@@ -170,9 +278,14 @@ class MLXModelDownloadManager: ObservableObject {
         downloadProgress = 0.0
         downloadedBytes = 0
         downloadSpeedBytesPerSecond = nil
+        downloadPhase = .connecting
         isDownloadStalled = false
         currentlyDownloadingModel = nil
         downloadTask = nil
+        activeDownloadID = nil
+        stallRetryTask?.cancel()
+        stallRetryTask = nil
+        automaticStallRetryCount = 0
         cleanupIncompleteDownload(for: model)
         removeDownloadedModel(model)
         if !wasCancelled {
@@ -312,63 +425,477 @@ class MLXModelDownloadManager: ObservableObject {
         }
     }
 
+    private func formatTransferRate(_ bytesPerSecond: Double?) -> String {
+        guard let bytesPerSecond, bytesPerSecond > 0 else {
+            return "waiting for byte progress"
+        }
+
+        if bytesPerSecond >= 1_000_000 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1_000_000)
+        }
+        if bytesPerSecond >= 1_000 {
+            return String(format: "%.1f KB/s", bytesPerSecond / 1_000)
+        }
+        return String(format: "%.0f B/s", bytesPerSecond)
+    }
+
+    #if !targetEnvironment(simulator)
+    /// Download the model files directly to the MLX model directory. The Hub snapshot helper
+    /// protects each ETag with an indefinitely blocking FileLock; when a cancelled URLSession
+    /// task is still unwinding, a retry can wait on that lock forever before it receives a byte.
+    /// Direct per-file transfers avoid that lock and keep resumable partial files beside the
+    /// final artifacts.
+    private func downloadModelWithRealtimeProgress(
+        model: MLXModelInfo,
+        configuration: ModelConfiguration,
+        progressBox: DownloadProgressBox
+    ) async throws -> URL {
+        let repositoryParts = model.huggingFaceId.split(separator: "/", maxSplits: 1).map(String.init)
+        guard repositoryParts.count == 2 else {
+            throw MLXOnDeviceError.modelDownloadIncomplete
+        }
+
+        let repository = HuggingFace.Repo.ID(
+            namespace: repositoryParts[0],
+            name: repositoryParts[1]
+        )
+
+        AppLog.shared.mlx("[MLXDownload] Resolving file list for \(model.displayName)")
+        let entries = try await Self.realtimeHubClient.listFiles(
+            in: repository,
+            kind: .model,
+            revision: "main",
+            recursive: true
+        )
+        .filter { entry in
+            entry.type == .file && Self.isDownloadableModelFile(entry.path)
+        }
+        .sorted { left, right in
+            (left.size ?? 0) > (right.size ?? 0)
+        }
+
+        guard !entries.isEmpty else {
+            throw MLXOnDeviceError.modelDownloadIncomplete
+        }
+
+        let shardCount = entries.count(where: { $0.path.hasSuffix(".safetensors") })
+        AppLog.shared.mlx(
+            "[MLXDownload] Found \(entries.count) model files (\(shardCount) weight shards); direct streaming enabled"
+        )
+
+        let modelDirectory = configuration.modelDirectory(hub: defaultHubApi)
+        try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+
+        let fileSizes = Dictionary(uniqueKeysWithValues: entries.map { entry in
+            (entry.path, max(Int64(entry.size ?? 0), 1))
+        })
+        progressBox.configure(fileSizes: fileSizes)
+
+        for entry in entries {
+            let destination = modelDirectory.appendingPathComponent(entry.path)
+            let expectedBytes = Int64(entry.size ?? 0)
+            if expectedBytes > 0, Self.fileSize(at: destination) == expectedBytes {
+                progressBox.update(file: entry.path, completedBytes: expectedBytes)
+            }
+        }
+
+        let bearerToken = await Self.realtimeHubClient.bearerToken
+        try await downloadModelFilesConcurrently(
+            entries,
+            repository: repository,
+            revision: "main",
+            modelDirectory: modelDirectory,
+            bearerToken: bearerToken,
+            progressBox: progressBox
+        )
+
+        return modelDirectory
+    }
+
+    private func downloadModelFilesConcurrently(
+        _ entries: [HuggingFace.Git.TreeEntry],
+        repository: HuggingFace.Repo.ID,
+        revision: String,
+        modelDirectory: URL,
+        bearerToken: String?,
+        progressBox: DownloadProgressBox
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var activeCount = 0
+
+            for entry in entries {
+                while activeCount >= Self.maxConcurrentFileDownloads {
+                    _ = try await group.next()
+                    activeCount -= 1
+                }
+
+                group.addTask {
+                    try await Self.downloadModelFile(
+                        entry,
+                        repository: repository,
+                        revision: revision,
+                        modelDirectory: modelDirectory,
+                        bearerToken: bearerToken,
+                        progressBox: progressBox
+                    )
+                }
+                activeCount += 1
+            }
+
+            while activeCount > 0 {
+                _ = try await group.next()
+                activeCount -= 1
+            }
+        }
+    }
+
+    private nonisolated static func downloadModelFile(
+        _ entry: HuggingFace.Git.TreeEntry,
+        repository: HuggingFace.Repo.ID,
+        revision: String,
+        modelDirectory: URL,
+        bearerToken: String?,
+        progressBox: DownloadProgressBox
+    ) async throws {
+        let destination = modelDirectory.appendingPathComponent(entry.path)
+        let partialDestination = destination.appendingPathExtension("incomplete")
+        let expectedBytes = Int64(entry.size ?? 0)
+
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        if expectedBytes > 0, Self.fileSize(at: destination) == expectedBytes {
+            progressBox.update(file: entry.path, completedBytes: expectedBytes)
+            return
+        }
+
+        var resumeOffset = Self.fileSize(at: partialDestination)
+        if expectedBytes > 0, resumeOffset >= expectedBytes {
+            try? FileManager.default.removeItem(at: partialDestination)
+            resumeOffset = 0
+        }
+        progressBox.update(file: entry.path, completedBytes: resumeOffset)
+
+        if entry.path.hasSuffix(".safetensors") {
+            let action = resumeOffset > 0 ? "Resuming" : "Opening"
+            AppLog.shared.mlx(
+                "[MLXDownload] \(action) shard \(entry.path) at \(resumeOffset) of \(expectedBytes) bytes"
+            )
+        }
+
+        let fileURL = Self.realtimeHubClient.host
+            .appendingPathComponent(repository.namespace)
+            .appendingPathComponent(repository.name)
+            .appendingPathComponent("resolve")
+            .appendingPathComponent(revision)
+            .appendingPathComponent(entry.path)
+        var request = URLRequest(url: fileURL)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        if let bearerToken {
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
+        if resumeOffset > 0 {
+            request.setValue("bytes=\(resumeOffset)-", forHTTPHeaderField: "Range")
+        }
+
+        let (bytes, response) = try await Self.realtimeURLSession.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MLXDownloadTransferError.invalidResponse(file: entry.path)
+        }
+        if httpResponse.statusCode == 416, resumeOffset > 0 {
+            try? FileManager.default.removeItem(at: partialDestination)
+            return try await Self.downloadModelFile(
+                entry,
+                repository: repository,
+                revision: revision,
+                modelDirectory: modelDirectory,
+                bearerToken: bearerToken,
+                progressBox: progressBox
+            )
+        }
+        guard (200 ..< 300).contains(httpResponse.statusCode) else {
+            throw MLXDownloadTransferError.httpStatus(
+                file: entry.path,
+                statusCode: httpResponse.statusCode
+            )
+        }
+
+        let responseOffset = httpResponse.statusCode == 206 ? resumeOffset : 0
+        if responseOffset == 0 {
+            FileManager.default.createFile(atPath: partialDestination.path, contents: nil)
+        }
+
+        let fileHandle = try FileHandle(forWritingTo: partialDestination)
+        defer { try? fileHandle.close() }
+        if responseOffset == 0 {
+            try fileHandle.truncate(atOffset: 0)
+        } else {
+            try fileHandle.seek(toOffset: UInt64(responseOffset))
+        }
+
+        var completedBytes = responseOffset
+        var buffer = Data()
+        buffer.reserveCapacity(1024 * 1024)
+        var lastProgressWrite = Date()
+
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            buffer.append(byte)
+            let shouldFlushForSize = buffer.count >= 1024 * 1024
+            let shouldFlushForTime = !buffer.isEmpty
+                && Date().timeIntervalSince(lastProgressWrite) >= 1
+            if shouldFlushForSize || shouldFlushForTime {
+                try fileHandle.write(contentsOf: buffer)
+                completedBytes += Int64(buffer.count)
+                progressBox.update(file: entry.path, completedBytes: completedBytes)
+                buffer.removeAll(keepingCapacity: true)
+                lastProgressWrite = Date()
+            }
+        }
+
+        if !buffer.isEmpty {
+            try fileHandle.write(contentsOf: buffer)
+            completedBytes += Int64(buffer.count)
+            progressBox.update(file: entry.path, completedBytes: completedBytes)
+        }
+
+        if expectedBytes > 0, completedBytes != expectedBytes {
+            throw MLXDownloadTransferError.incompleteFile(
+                file: entry.path,
+                expectedBytes: expectedBytes,
+                actualBytes: completedBytes
+            )
+        }
+
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: partialDestination, to: destination)
+        progressBox.update(file: entry.path, completedBytes: max(completedBytes, expectedBytes))
+        if entry.path.hasSuffix(".safetensors") {
+            AppLog.shared.mlx("[MLXDownload] Finished shard \(entry.path) (\(completedBytes) bytes)")
+        }
+    }
+
+    private nonisolated static func isDownloadableModelFile(_ path: String) -> Bool {
+        path.hasSuffix(".safetensors") || path.hasSuffix(".json") || path.hasSuffix(".jinja")
+    }
+    #endif
+
     // MARK: - Progress Monitoring
 
-    /// Publish byte-level progress for the running download.
+    /// Publish active-transfer progress for the running download.
     ///
-    /// The Hub reports snapshot progress in *files*, not bytes: a repo with seven files jumps
-    /// straight to 3/7 once the small JSON files land, then creeps across a single unit for the
-    /// entire multi-gigabyte weights file. That reads as "stuck at 43%". Measuring the bytes on
-    /// disk instead gives a bar that actually tracks the download, and makes a real stall visible.
-    private func startProgressMonitor(for model: MLXModelInfo) {
+    /// The per-file reporter is the source of truth for an active transfer. It includes bytes
+    /// written to resumable `.incomplete` files; completed cache size is only a fallback while
+    /// the repository file list is being fetched.
+    private func startProgressMonitor(for model: MLXModelInfo, progressBox: DownloadProgressBox) {
         progressMonitorTask?.cancel()
         let expectedBytes = model.estimatedSizeBytes
 
         progressMonitorTask = Task { @MainActor [weak self] in
             var lastBytes: Int64 = 0
-            var lastSample = Date()
             var lastMovement = Date()
-            var lastLog = Date.distantPast
+            var lastHubMovement = Date.distantPast
+            var lastProgressLog = Date()
+            var lastLoggedBytes: Int64 = 0
+            var hasBaseline = false
+            var isTrackingTransfer = false
+            var lastSpeedSampleTime = Date()
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled, let self else { return }
 
-                let bytes = await Self.measureDownloadedBytes(for: model)
+                let cachedBytes = await Self.measureDownloadedBytes(for: model)
                 let now = Date()
-                let elapsed = now.timeIntervalSince(lastSample)
+                let progress = progressBox.get()
+                let hasReportedProgress = progress.totalUnitCount > 0
+                let bytes = hasReportedProgress
+                    ? max(0, progress.completedUnitCount)
+                    : cachedBytes
 
-                if bytes > lastBytes {
-                    if elapsed > 0 {
+                if hasReportedProgress, !isTrackingTransfer {
+                    // Do not treat time spent resolving the repository file list as a stalled
+                    // transfer. The watchdog starts when the direct file list is ready.
+                    isTrackingTransfer = true
+                    lastMovement = now
+                    lastSpeedSampleTime = now
+                }
+
+                if !hasBaseline {
+                    hasBaseline = true
+                    lastBytes = bytes
+                    lastLoggedBytes = bytes
+                    lastSpeedSampleTime = now
+                } else if bytes > lastBytes {
+                    let elapsed = now.timeIntervalSince(lastSpeedSampleTime)
+                    if lastBytes > 0, elapsed > 0 {
                         self.downloadSpeedBytesPerSecond = Double(bytes - lastBytes) / elapsed
                     }
+                    self.downloadPhase = .downloading
+                    lastBytes = bytes
+                    lastSpeedSampleTime = now
                     lastMovement = now
                     self.isDownloadStalled = false
-                } else if now.timeIntervalSince(lastMovement) > Self.stallThreshold {
+                } else if now.timeIntervalSince(lastMovement) > 5 {
+                    // Never leave a stale 2 KB/s (or similar) callback visible while the
+                    // underlying Progress has stopped moving.
+                    self.downloadSpeedBytesPerSecond = nil
+                    self.downloadPhase = .waitingForData
+                }
+
+                if progress.lastMeaningfulUpdate > lastHubMovement {
+                    lastHubMovement = progress.lastMeaningfulUpdate
+                    lastMovement = now
+                    self.downloadPhase = .downloading
+                    self.isDownloadStalled = false
+                }
+
+                if isTrackingTransfer, now.timeIntervalSince(lastMovement) > Self.stallThreshold {
                     self.downloadSpeedBytesPerSecond = nil
                     if !self.isDownloadStalled {
-                        AppLog.shared.mlx("[MLXDownload] No bytes written for \(Int(Self.stallThreshold))s downloading \(model.displayName) — stalled at \(self.formatSize(bytes))", level: .warning)
+                        let progress = Int(self.downloadProgress * 100)
+                        AppLog.shared.mlx("[MLXDownload] No byte progress for \(Int(Self.stallThreshold))s downloading \(model.displayName) — stalled at \(progress)% and \(self.formatSize(bytes)) downloaded", level: .warning)
                         self.isDownloadStalled = true
+                        self.retryDownloadAfterStall(for: model)
                     }
                 }
 
-                lastBytes = bytes
-                lastSample = now
-
                 self.downloadedBytes = bytes
-                if bytes > 0, expectedBytes > 0 {
+                if hasReportedProgress {
+                    self.downloadProgress = min(max(progress.fractionCompleted, 0), 0.999)
+                } else if expectedBytes > 0, bytes > 0 {
                     self.downloadProgress = min(Double(bytes) / Double(expectedBytes), 0.999)
                 } else {
-                    self.downloadProgress = self.reportedFraction.get()
+                    self.downloadProgress = 0
                 }
 
-                if now.timeIntervalSince(lastLog) >= 15 {
-                    lastLog = now
-                    let speed = self.downloadSpeedBytesPerSecond.map { "\(self.formatSize(Int64($0)))/s" } ?? "stalled"
-                    AppLog.shared.mlx("[MLXDownload] \(model.displayName): \(self.formatSize(bytes)) of \(self.formatSize(expectedBytes)) (\(speed))")
+                if now.timeIntervalSince(lastProgressLog) >= Self.progressLogInterval,
+                   hasBaseline,
+                   bytes > lastLoggedBytes {
+                    lastProgressLog = now
+                    lastLoggedBytes = bytes
+                    let progress = Int(self.downloadProgress * 100)
+                    let speed = self.formatTransferRate(self.downloadSpeedBytesPerSecond)
+                    AppLog.shared.mlx("[MLXDownload] \(model.displayName): \(progress)% realtime transfer · \(self.formatSize(bytes)) of \(self.formatSize(expectedBytes)) (\(speed))")
                 }
             }
         }
+    }
+
+    /// Restart a transfer after a bounded period without Hub or filesystem movement.
+    /// Completed shards and `.incomplete` files are intentionally preserved so the next attempt
+    /// can skip finished files and resume partial shards.
+    private func retryDownloadAfterStall(for model: MLXModelInfo) {
+        guard isDownloading,
+              currentlyDownloadingModel?.id == model.id,
+              stallRetryTask == nil else {
+            return
+        }
+
+        guard automaticStallRetryCount < Self.maxAutomaticStallRetries else {
+            AppLog.shared.mlx("[MLXDownload] Giving up after \(Self.maxAutomaticStallRetries) stalled retries for \(model.displayName)", level: .warning)
+            activeDownloadID = nil
+            downloadTask?.cancel()
+            downloadTask = nil
+            stopProgressMonitor()
+            isDownloading = false
+            downloadProgress = 0.0
+            downloadedBytes = 0
+            downloadSpeedBytesPerSecond = nil
+            downloadPhase = .connecting
+            isDownloadStalled = false
+            currentlyDownloadingModel = nil
+            cleanupIncompleteDownload(for: model)
+            removeDownloadedModel(model)
+            downloadError = "Download stalled. Check your network connection and tap Download to retry."
+            automaticStallRetryCount = 0
+            refreshModelStatus()
+            return
+        }
+
+        automaticStallRetryCount += 1
+        let retryNumber = automaticStallRetryCount
+        downloadPhase = .retrying(attempt: retryNumber)
+        AppLog.shared.mlx("[MLXDownload] Retrying stalled transfer for \(model.displayName) (attempt \(retryNumber)/\(Self.maxAutomaticStallRetries))", level: .warning)
+
+        // Invalidate this attempt before cancelling it. Its eventual cancellation callback must
+        // not clear or overwrite state belonging to the retry attempt.
+        let previousTask = downloadTask
+        activeDownloadID = nil
+        previousTask?.cancel()
+        downloadTask = nil
+        stopProgressMonitor()
+
+        stallRetryTask = Task { @MainActor [weak self] in
+            // HubClient's cache uses an indefinitely blocking file lock. Do not start the retry
+            // until the cancelled task has unwound and released any lock it acquired.
+            if let previousTask {
+                await previousTask.value
+            }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled,
+                  let self,
+                  self.isDownloading,
+                  self.currentlyDownloadingModel?.id == model.id else {
+                return
+            }
+
+            self.stallRetryTask = nil
+            self.startDownloadAttempt(for: model)
+        }
+    }
+
+    /// Retry a transfer that failed before the stall watchdog had to intervene. This is
+    /// especially important when one of several concurrent shards hits URLSession's request
+    /// inactivity timeout: sibling transfers are cancelled, but their completed files and partial
+    /// byte ranges remain reusable by the next attempt.
+    private func retryDownloadAfterTransferFailure(for model: MLXModelInfo, error: Error) -> Bool {
+        guard isDownloading,
+              currentlyDownloadingModel?.id == model.id,
+              stallRetryTask == nil,
+              automaticStallRetryCount < Self.maxAutomaticStallRetries else {
+            return false
+        }
+
+        automaticStallRetryCount += 1
+        let retryNumber = automaticStallRetryCount
+        let reason = error.localizedDescription
+            .replacingOccurrences(of: "\n", with: " ")
+        downloadPhase = .retrying(attempt: retryNumber)
+        isDownloadStalled = false
+        AppLog.shared.mlx(
+            "[MLXDownload] Transfer error for \(model.displayName); retrying (attempt \(retryNumber)/\(Self.maxAutomaticStallRetries)): \(reason)",
+            level: .warning
+        )
+
+        // Invalidate this attempt before cancelling it. Its cancellation callback must not clear
+        // state belonging to the retry attempt.
+        let previousTask = downloadTask
+        activeDownloadID = nil
+        previousTask?.cancel()
+        downloadTask = nil
+        stopProgressMonitor()
+
+        stallRetryTask = Task { @MainActor [weak self] in
+            if let previousTask {
+                await previousTask.value
+            }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled,
+                  let self,
+                  self.isDownloading,
+                  self.currentlyDownloadingModel?.id == model.id else {
+                return
+            }
+
+            self.stallRetryTask = nil
+            self.startDownloadAttempt(for: model)
+        }
+        return true
     }
 
     private func stopProgressMonitor() {
@@ -552,15 +1079,35 @@ class MLXModelDownloadManager: ObservableObject {
 
     private func cleanupIncompleteDownload(for model: MLXModelInfo) {
         let cacheDir = huggingFaceCacheDirectory(for: model)
-        guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
-        guard !isModelCacheValid(for: model) else { return }
-
-        do {
-            try FileManager.default.removeItem(at: cacheDir)
-            AppLog.shared.mlx("[MLXDownload] Removed incomplete cache for \(model.displayName)")
-        } catch {
-            AppLog.shared.mlx("[MLXDownload] Failed to remove incomplete cache for \(model.displayName): \(error.localizedDescription)", level: .warning)
+        guard FileManager.default.fileExists(atPath: cacheDir.path), !isModelCacheValid(for: model) else {
+            return
         }
+
+        // Keep completed shards and resumable partial files. The direct downloader writes
+        // partial shards as `<filename>.incomplete`; deleting the whole model directory here
+        // would throw away the 5+ GB shard that already finished and force a fresh download.
+        let partialCount = FileManager.default
+            .enumerator(at: cacheDir, includingPropertiesForKeys: nil)
+            .map { enumerator in
+                enumerator.reduce(into: 0) { count, item in
+                    guard let fileURL = item as? URL,
+                          fileURL.lastPathComponent.hasSuffix(".incomplete") else {
+                        return
+                    }
+                    count += 1
+                }
+            } ?? 0
+        AppLog.shared.mlx(
+            "[MLXDownload] Preserving partial cache for \(model.displayName) (\(partialCount) resumable files)",
+            level: .warning
+        )
+    }
+
+    private nonisolated static func fileSize(at url: URL) -> Int64 {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+            return 0
+        }
+        return Int64(size)
     }
 
     /// Calculate the size of a directory recursively
@@ -584,23 +1131,65 @@ class MLXModelDownloadManager: ObservableObject {
     }
 }
 
-// MARK: - Fraction Box
+// MARK: - Download Progress Box
 
-/// Thread-safe holder for the Hub's snapshot fraction, written from download threads and read
-/// by the main-actor progress monitor.
-private final class FractionBox: @unchecked Sendable {
+private struct DownloadProgressSnapshot: Sendable {
+    let fractionCompleted: Double
+    let completedUnitCount: Int64
+    let totalUnitCount: Int64
+    let lastMeaningfulUpdate: Date
+}
+
+/// Thread-safe holder for direct per-file progress, written from transfer tasks and read by the
+/// main-actor progress monitor. Progress is weighted by the repository's actual file sizes.
+private final class DownloadProgressBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var value: Double = 0
+    private var fileSizes: [String: Int64] = [:]
+    private var completedByFile: [String: Int64] = [:]
+    private var snapshot = DownloadProgressSnapshot(
+        fractionCompleted: 0,
+        completedUnitCount: 0,
+        totalUnitCount: 0,
+        lastMeaningfulUpdate: .distantPast
+    )
 
-    func set(_ newValue: Double) {
+    func configure(fileSizes: [String: Int64]) {
         lock.lock()
-        value = newValue
+        self.fileSizes = fileSizes
+        completedByFile = Dictionary(uniqueKeysWithValues: fileSizes.keys.map { ($0, 0) })
+        let totalUnitCount = max(fileSizes.values.reduce(0, +), 1)
+        snapshot = DownloadProgressSnapshot(
+            fractionCompleted: 0,
+            completedUnitCount: 0,
+            totalUnitCount: totalUnitCount,
+            lastMeaningfulUpdate: .distantPast
+        )
         lock.unlock()
     }
 
-    func get() -> Double {
+    func update(file: String, completedBytes: Int64) {
         lock.lock()
         defer { lock.unlock() }
-        return value
+
+        guard let fileSize = fileSizes[file] else { return }
+        let cappedBytes = min(max(completedBytes, 0), fileSize)
+        let previousBytes = completedByFile[file, default: 0]
+        guard cappedBytes > previousBytes else { return }
+
+        completedByFile[file] = cappedBytes
+        let completedUnitCount = completedByFile.values.reduce(0, +)
+        let totalUnitCount = max(fileSizes.values.reduce(0, +), 1)
+        snapshot = DownloadProgressSnapshot(
+            fractionCompleted: min(Double(completedUnitCount) / Double(totalUnitCount), 1),
+            completedUnitCount: completedUnitCount,
+            totalUnitCount: totalUnitCount,
+            lastMeaningfulUpdate: Date()
+        )
+    }
+
+    func get() -> DownloadProgressSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return snapshot
     }
 }

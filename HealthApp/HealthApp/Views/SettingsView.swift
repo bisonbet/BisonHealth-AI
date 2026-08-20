@@ -154,22 +154,18 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func navigationDestinationView(for destination: SettingsRoute) -> some View {
-        let _ = AppLog.shared.ui("navigationDestination called with: \(destination)", level: .debug)
         switch destination {
         case .awsBedrockSettings:
-            let _ = AppLog.shared.ui("Creating AWSBedrockSettingsView", level: .debug)
             AWSBedrockSettingsView()
                 .onAppear {
                     AppLog.shared.ui("Navigated to AWS Bedrock Settings")
                 }
         case .openAICompatibleSettings:
-            let _ = AppLog.shared.ui("Creating OpenAICompatibleSettingsView", level: .debug)
             OpenAICompatibleSettingsView(settingsManager: settingsManager)
                 .onAppear {
                     AppLog.shared.ui("Navigated to OpenAI Compatible Settings")
                 }
         case .onDeviceLLMSettings:
-            let _ = AppLog.shared.ui("Creating OnDeviceLLMSettingsView", level: .debug)
             OnDeviceLLMSettingsView()
                 .onAppear {
                     AppLog.shared.ui("Navigated to On-Device AI Settings")
