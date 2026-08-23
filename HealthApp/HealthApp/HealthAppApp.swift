@@ -9,6 +9,7 @@ import UIKit
 struct HealthAppApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var appSettingsManager = AppSettingsManager.shared
+    @StateObject private var startupHealth = AppStartupHealth.shared
     @Environment(\.scenePhase) private var scenePhase
 
     static let legacyPendingOperationsKey = "com.bisonhealth.pendingoperations"
@@ -28,8 +29,8 @@ struct HealthAppApp: App {
             // Checked before anything else: with no database or secure file storage there is
             // no usable app shell, so the explanation stands alone instead of layering on top
             // of state that cannot work.
-            if let startupError {
-                DatabaseUnavailableView(error: startupError)
+            if let blockingError = startupHealth.blockingError {
+                DatabaseUnavailableView(error: blockingError)
             } else {
                 appShell
             }
@@ -37,13 +38,6 @@ struct HealthAppApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             appState.handleScenePhaseChange(newPhase)
         }
-    }
-
-    private var startupError: Error? {
-        if let databaseError = DatabaseManager.shared.initializationError {
-            return databaseError
-        }
-        return FileSystemManager.shared.initializationError
     }
 
     @ViewBuilder
@@ -209,6 +203,33 @@ private extension UIColor {
 }
 #endif
 
+// MARK: - App Startup Health
+/// One place that answers "can the app do anything useful yet". The database and secure file
+/// storage both latch an initialization error instead of trapping, and three separate callers
+/// need that answer at launch; deriving it independently in each one guarantees they drift.
+@MainActor
+final class AppStartupHealth: ObservableObject {
+    static let shared = AppStartupHealth()
+
+    /// Non-nil while a startup dependency is unusable. `DatabaseUnavailableView` stands in
+    /// for the app shell for as long as this is set.
+    @Published private(set) var blockingError: Error?
+
+    private init() {
+        blockingError = Self.currentBlockingError()
+    }
+
+    /// Re-reads both dependencies. Called after `resetDatabase()`, which can clear the very
+    /// failure that put the recovery screen on screen.
+    func refresh() {
+        blockingError = Self.currentBlockingError()
+    }
+
+    private static func currentBlockingError() -> Error? {
+        DatabaseManager.shared.initializationError ?? FileSystemManager.shared.initializationError
+    }
+}
+
 // MARK: - App State Management
 @MainActor
 class AppState: ObservableObject {
@@ -240,8 +261,7 @@ class AppState: ObservableObject {
         // A sync only writes into the database. With none open it would raise the Health
         // permission sheet on top of DatabaseUnavailableView and then fail anyway. The same
         // applies when secure file storage could not be initialized.
-        guard DatabaseManager.shared.initializationError == nil,
-              FileSystemManager.shared.initializationError == nil else { return }
+        guard AppStartupHealth.shared.blockingError == nil else { return }
 
         // Sync from Apple Health on app launch with throttling
         Task {

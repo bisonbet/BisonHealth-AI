@@ -682,12 +682,16 @@ enum FileSystemError: LocalizedError {
         }
     }
 
-    var recoverySuggestion: String? {
+    /// Advice for `DatabaseUnavailableView`, where this error stopped the app from starting.
+    /// Kept off `LocalizedError.recoverySuggestion` for the same reason as
+    /// `DatabaseError.launchRecoverySuggestion`: the global error alert reuses that property
+    /// for ordinary runtime failures, which need different advice.
+    var launchRecoverySuggestion: String {
         switch self {
         case .initializationFailed:
-            return "Restart the app. If the problem continues, install the latest version and share the diagnostic logs."
+            return "Close and reopen BisonHealth AI. If the problem continues, install the latest version and share the diagnostic logs."
         default:
-            return nil
+            return "Close and reopen BisonHealth AI. If the problem continues, share the diagnostic logs."
         }
     }
 }

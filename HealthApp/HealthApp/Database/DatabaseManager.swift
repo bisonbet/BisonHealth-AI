@@ -27,6 +27,10 @@ class DatabaseManager: ObservableObject {
     /// Non-nil when the database could not be opened. `db` stays nil in that case, so every
     /// query fails with `DatabaseError.connectionFailed` instead of reading placeholder state.
     private(set) var initializationError: Error?
+
+    /// Whether `resetDatabase()` has a real path and key to rebuild with. False only when a
+    /// degraded instance could recover neither, in which case erasing would target nothing.
+    let canResetDatabase: Bool
     
     // Key fingerprint for detecting key changes
     private var encryptionKeyFingerprint: String {
@@ -117,6 +121,8 @@ class DatabaseManager: ObservableObject {
 
     // MARK: - Initialization
     init(databaseURL: URL? = nil) throws {
+        self.canResetDatabase = true
+
         // Generate or retrieve encryption key
         self.encryptionKey = try Self.getOrCreateEncryptionKey()
         
@@ -132,9 +138,10 @@ class DatabaseManager: ObservableObject {
         } else {
             // Use Application Support directory instead of Documents for better persistence
             // This directory persists across app updates and Xcode reinstalls (unless app is deleted)
-            let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
-            resolvedDatabaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
+            guard let applicationSupportURL = Self.applicationSupportDatabaseURL() else {
+                throw DatabaseError.connectionFailed
+            }
+            resolvedDatabaseURL = applicationSupportURL
             shouldRunLegacyMigration = true
         }
 
@@ -267,13 +274,37 @@ class DatabaseManager: ObservableObject {
     }
 
     /// Builds a manager that owns no connection, recording why the database could not be
-    /// opened. The stored properties are inert placeholders: with `db` nil, every query
-    /// throws before anything reads them.
+    /// opened. With `db` nil every query throws before anything reads the other properties,
+    /// but the real path and key are recovered where possible: `resetDatabase()` is the only
+    /// way out of a database that will not open, and it needs both to rebuild one.
     private init(unavailable error: Error) {
-        self.encryptionKey = SymmetricKey(size: .bits256)
-        self.databaseURL = URL(fileURLWithPath: "/dev/null")
+        let recoveredEncryptionKey = try? Self.getOrCreateEncryptionKey()
+        let recoveredDatabaseURL = Self.resolveDefaultDatabaseURL()
+
+        self.encryptionKey = recoveredEncryptionKey ?? SymmetricKey(size: .bits256)
+        self.databaseURL = recoveredDatabaseURL ?? URL(fileURLWithPath: "/dev/null")
+        self.canResetDatabase = recoveredEncryptionKey != nil && recoveredDatabaseURL != nil
         self.db = nil
         self.initializationError = error
+    }
+
+    // MARK: - Database Location
+    /// The container path the app stores its database at, or nil when the container itself
+    /// cannot be located.
+    private static func applicationSupportDatabaseURL() -> URL? {
+        guard let applicationSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return applicationSupport
+            .appendingPathComponent("HealthApp/Database")
+            .appendingPathComponent("health_data.sqlite")
+    }
+
+    /// Mirrors the location `init(databaseURL:)` would have resolved, for the degraded
+    /// instance that never got far enough to resolve one itself.
+    private static func resolveDefaultDatabaseURL() -> URL? {
+        AppTestRuntime.databaseURLForUITesting() ?? applicationSupportDatabaseURL()
     }
 
     // MARK: - Database Location Migration
@@ -286,7 +317,11 @@ class DatabaseManager: ObservableObject {
         }
         
         // Check for old location in Documents directory
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let documentsPath = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first else {
+            AppLog.shared.database("Documents directory unavailable; skipping legacy database migration", level: .warning)
+            return
+        }
         let oldDatabasePath = documentsPath.appendingPathComponent("HealthApp/Database/health_data.sqlite")
         
         if FileManager.default.fileExists(atPath: oldDatabasePath.path) {
@@ -591,23 +626,41 @@ class DatabaseManager: ObservableObject {
     }
 
     // MARK: - Database Reset
+    /// Erases the local database and rebuilds an empty one. Deliberately does *not* require
+    /// an open connection: a database that failed to open is exactly the case where this is
+    /// the user's only way forward, and `DatabaseUnavailableView` offers it there.
     func resetDatabase() throws {
-        guard db != nil else { throw DatabaseError.connectionFailed }
+        guard canResetDatabase else { throw DatabaseError.connectionFailed }
 
         // Close current connection
         self.db = nil
 
-        // Delete database file
-        if FileManager.default.fileExists(atPath: databaseURL.path) {
-            try FileManager.default.removeItem(at: databaseURL)
+        // Delete the database and its write-ahead log. Leaving a stale -wal or -shm behind
+        // would let SQLite replay it into the fresh file and reintroduce the corruption the
+        // reset was meant to clear.
+        // SQLite names its sidecars "<db>-wal" / "<db>-shm" — a hyphen, not a path extension.
+        let sidecarURLs = ["-wal", "-shm"].map { URL(fileURLWithPath: databaseURL.path + $0) }
+        for url in [databaseURL] + sidecarURLs {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
         }
 
+        try FileManager.default.createDirectory(
+            at: databaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
         // Reinitialize database
-        self.db = try Connection(databaseURL.path)
-        try self.db!.execute("PRAGMA foreign_keys = ON")
+        let connection = try Connection(databaseURL.path)
+        self.db = connection
+        try connection.execute("PRAGMA foreign_keys = ON")
 
         // Recreate all tables (this will call performDatabaseMigration)
         try self.createTables()
+
+        // The instance is usable again, so nothing should keep showing the recovery screen.
+        self.initializationError = nil
 
         AppLog.shared.database("Database reset completed")
     }
@@ -731,11 +784,8 @@ class DatabaseManager: ObservableObject {
             return existingKey
         } else {
             // Check if database already exists - if so, warn about potential data loss
-            let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let healthAppDirectory = applicationSupport.appendingPathComponent("HealthApp/Database")
-            let databaseURL = healthAppDirectory.appendingPathComponent("health_data.sqlite")
-
-            if FileManager.default.fileExists(atPath: databaseURL.path) {
+            if let databaseURL = applicationSupportDatabaseURL(),
+               FileManager.default.fileExists(atPath: databaseURL.path) {
                 log.database("CRITICAL: Database exists but encryption key is missing! Creating new key will make existing data unreadable!", level: .critical)
                 log.database("Attempting to scan database for recoverable data...", level: .error)
                 // Don't throw - let the recovery scanner handle it
@@ -865,18 +915,37 @@ enum DatabaseError: LocalizedError {
         }
     }
 
-    var recoverySuggestion: String? {
+    /// Advice for `DatabaseUnavailableView`, where this error stopped the app from starting.
+    ///
+    /// Deliberately *not* `LocalizedError.recoverySuggestion`: these strings assume a dead
+    /// app at launch, while `ErrorHandler`'s global alert surfaces `recoverySuggestion` for
+    /// ordinary runtime failures. A missing chat record must not tell the user to restart.
+    var launchRecoverySuggestion: String {
         switch self {
         case .connectionFailed:
             return "Close and reopen BisonHealth AI. If it keeps happening, make sure the device has free storage space."
         case .encryptionFailed, .decryptionFailed:
-            return "The encryption key for this device could not be used. Close and reopen the app; if the problem persists, restore from a backup."
+            return "This device's encryption key no longer matches the stored records, so they cannot be read. Close and reopen the app first. Nothing else can decrypt this data, so share the diagnostic logs before erasing anything."
         case .invalidData, .notFound, .constraintViolation:
-            return "Close and reopen BisonHealth AI, then try the action again."
+            return "Close and reopen BisonHealth AI. If it keeps happening, share the diagnostic logs."
         case .incompatibleVersion:
             return "This copy of BisonHealth AI is older than the data already stored on this device. Install the latest version to open it — nothing has been changed or deleted."
         case .migrationFailed:
-            return "The database could not be upgraded to the format this version expects. A backup was taken before the upgrade started; reinstalling the latest version is the safest next step."
+            return "The upgrade to this version's data format did not finish. Your records are still on this device, along with a copy taken before the upgrade started. Do not delete the app — that erases your records and that copy with them. Share the diagnostic logs instead."
+        }
+    }
+
+    /// Whether erasing the local database is a sensible way out of this failure.
+    ///
+    /// `.incompatibleVersion` is excluded on purpose: the records are intact and a newer
+    /// build opens them fine, so offering to erase would destroy recoverable data.
+    var isRecoverableByErasingData: Bool {
+        switch self {
+        case .incompatibleVersion:
+            return false
+        case .connectionFailed, .encryptionFailed, .decryptionFailed,
+             .invalidData, .notFound, .constraintViolation, .migrationFailed:
+            return true
         }
     }
 }

@@ -10,6 +10,9 @@ struct DatabaseUnavailableView: View {
     let error: Error
 
     @State private var didCopyDetails = false
+    @State private var copyConfirmationTask: Task<Void, Never>?
+    @State private var isConfirmingErase = false
+    @State private var eraseFailureMessage: String?
 
     private var isFileSystemUnavailable: Bool {
         error is FileSystemError
@@ -31,8 +34,27 @@ struct DatabaseUnavailableView: View {
     }
 
     private var recoverySuggestion: String {
-        (error as? LocalizedError)?.recoverySuggestion
-            ?? "Install the latest version of BisonHealth AI. Your health data stays on this device."
+        if let databaseError = error as? DatabaseError {
+            return databaseError.launchRecoverySuggestion
+        }
+        if let fileSystemError = error as? FileSystemError {
+            return fileSystemError.launchRecoverySuggestion
+        }
+        return "Close and reopen BisonHealth AI. If it keeps happening, share the diagnostic logs."
+    }
+
+    /// Erasing is offered wherever the records are genuinely unreachable and a rebuild is
+    /// possible. Note the default: most launch failures surface as a raw SQLite error rather
+    /// than a `DatabaseError` — a corrupt file is the common case — and those are exactly the
+    /// ones only a rebuild clears. Two cases are excluded: a version mismatch, where the data
+    /// is intact and a newer build opens it, and a file-storage failure, which erasing the
+    /// database would not fix.
+    private var canOfferErase: Bool {
+        guard !isFileSystemUnavailable else { return false }
+        if let databaseError = error as? DatabaseError, !databaseError.isRecoverableByErasingData {
+            return false
+        }
+        return DatabaseManager.shared.canResetDatabase
     }
 
     var body: some View {
@@ -61,6 +83,23 @@ struct DatabaseUnavailableView: View {
         }
         .background(BisonTheme.appBackground)
         .accessibilityIdentifier("databaseUnavailableView")
+        .alert("Erase Health Data?", isPresented: $isConfirmingErase) {
+            Button("Erase Everything", role: .destructive) { eraseAndRebuild() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently deletes every record stored on this device and starts with an empty database. It cannot be undone, and there is no backup to restore from. Share the diagnostic logs first if you want the failure investigated.")
+        }
+        .alert(
+            "Erase Failed",
+            isPresented: Binding(
+                get: { eraseFailureMessage != nil },
+                set: { if !$0 { eraseFailureMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { eraseFailureMessage = nil }
+        } message: {
+            Text(eraseFailureMessage ?? "")
+        }
     }
 
     // MARK: - Sections
@@ -121,8 +160,7 @@ struct DatabaseUnavailableView: View {
             .accessibilityIdentifier("databaseUnavailableShareLogsButton")
 
             Button {
-                UIPasteboard.general.string = summary
-                didCopyDetails = true
+                copyDetails()
             } label: {
                 Text(didCopyDetails ? "Copied" : "Copy Details")
                     .fontWeight(.medium)
@@ -131,6 +169,18 @@ struct DatabaseUnavailableView: View {
             .accessibilityLabel(didCopyDetails ? "Details copied" : "Copy details")
             .accessibilityHint("Copies the technical error text to the clipboard")
             .accessibilityIdentifier("databaseUnavailableCopyDetailsButton")
+
+            if canOfferErase {
+                Button(role: .destructive) {
+                    isConfirmingErase = true
+                } label: {
+                    Text("Erase and Start Over")
+                        .fontWeight(.medium)
+                }
+                .accessibilityLabel("Erase health data and start over")
+                .accessibilityHint("Permanently deletes every record on this device and rebuilds an empty database")
+                .accessibilityIdentifier("databaseUnavailableEraseButton")
+            }
         }
     }
 
@@ -161,6 +211,32 @@ struct DatabaseUnavailableView: View {
         .cornerRadius(12)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(content)")
+    }
+
+    private func copyDetails() {
+        UIPasteboard.general.string = summary
+        didCopyDetails = true
+
+        // Without this the button reads "Copied" for the rest of the screen's life, so a
+        // later tap gives no sign that it did anything.
+        copyConfirmationTask?.cancel()
+        copyConfirmationTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopyDetails = false
+        }
+    }
+
+    /// The one action that can get a user past an unopenable database. Everything else on
+    /// this screen explains; without this the advice to close and reopen loops forever.
+    private func eraseAndRebuild() {
+        do {
+            try DatabaseManager.shared.resetDatabase()
+            AppStartupHealth.shared.refresh()
+        } catch {
+            AppLog.shared.database("Database erase-and-rebuild failed: \(error)", level: .critical)
+            eraseFailureMessage = "The data could not be erased: \(error.localizedDescription)"
+        }
     }
 
     private func exportLogs() {
