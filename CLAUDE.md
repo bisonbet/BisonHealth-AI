@@ -108,7 +108,7 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 8 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 10 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -124,10 +124,10 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 **Migration workflow**:
 ```swift
 // 1. Increment version
-private static let currentDatabaseVersion = 7  // Was 6
+private static let currentDatabaseVersion = 11  // Was 10
 
 // 2. Add migration case
-case 7:
+case 11:
     try db.run(table.addColumn(newColumn, defaultValue: ""))
     print("   ✓ Added newColumn to table")
 ```
@@ -136,6 +136,12 @@ case 7:
 - Fresh install (new database)
 - Upgrade (existing database migrates)
 - Data integrity post-migration
+
+**Downgrades are refused, not crashed**: opening a database newer than
+`currentDatabaseVersion` throws `DatabaseError.incompatibleVersion`. `DatabaseManager.shared`
+records that in `initializationError` instead of trapping, and the app shows
+`DatabaseUnavailableView`. Running an older build against a migrated database is the usual
+cause.
 
 ### 3. iPad Compatibility
 
@@ -304,8 +310,8 @@ struct NewDataType: HealthDataProtocol {
 }
 
 // 3. Increment database version & add migration
-private static let currentDatabaseVersion = 7
-case 7:
+private static let currentDatabaseVersion = 11
+case 11:
     try db.run(newDataTypeTable.create { t in
         t.column(id, primaryKey: true)
         t.column(customField)
@@ -522,10 +528,10 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Current project facts**:
-- Database version: 8
+- Database version: 10
 - iOS 26.0+ deployment target
 
 ---
 
-**Last Updated**: 2026-08-20
+**Last Updated**: 2026-08-22
 **License**: MIT
