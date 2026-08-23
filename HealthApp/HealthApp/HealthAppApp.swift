@@ -25,32 +25,44 @@ struct HealthAppApp: App {
     
     var body: some Scene {
         WindowGroup {
-            Group {
-                if appSettingsManager.shouldShowDisclaimer && !AppTestRuntime.shouldSkipDisclaimer {
-                    FirstLaunchDisclaimerView {
-                        appSettingsManager.acceptDisclaimer()
-                    }
-                } else {
-                    ContentView()
-                        .environmentObject(appState)
-                        .preferredColorScheme(appState.colorScheme)
-                }
-            }
-            .alert("Unexpected Shutdown Detected", isPresented: $appState.showCrashReportAlert) {
-                Button("Share Logs") {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                              let rootVC = windowScene.windows.first?.rootViewController else { return }
-                        LogExporter.exportLogs(from: rootVC, context: .crashReport)
-                    }
-                }
-                Button("Dismiss", role: .cancel) { }
-            } message: {
-                Text("The app didn't close properly last time. You can share diagnostic logs to help investigate — no data leaves your device without your action.")
+            // Checked before anything else: with no database there is no disclaimer state,
+            // no settings, and no health data to show, so the explanation stands alone
+            // rather than layering on top of a shell that cannot work.
+            if let databaseError = DatabaseManager.shared.initializationError {
+                DatabaseUnavailableView(error: databaseError)
+            } else {
+                appShell
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
             appState.handleScenePhaseChange(newPhase)
+        }
+    }
+
+    @ViewBuilder
+    private var appShell: some View {
+        Group {
+            if appSettingsManager.shouldShowDisclaimer && !AppTestRuntime.shouldSkipDisclaimer {
+                FirstLaunchDisclaimerView {
+                    appSettingsManager.acceptDisclaimer()
+                }
+            } else {
+                ContentView()
+                    .environmentObject(appState)
+                    .preferredColorScheme(appState.colorScheme)
+            }
+        }
+        .alert("Unexpected Shutdown Detected", isPresented: $appState.showCrashReportAlert) {
+            Button("Share Logs") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                          let rootVC = windowScene.windows.first?.rootViewController else { return }
+                    LogExporter.exportLogs(from: rootVC, context: .crashReport)
+                }
+            }
+            Button("Dismiss", role: .cancel) { }
+        } message: {
+            Text("The app didn't close properly last time. You can share diagnostic logs to help investigate — no data leaves your device without your action.")
         }
     }
 }
@@ -218,6 +230,9 @@ class AppState: ObservableObject {
 
     private func syncHealthKitOnLaunch() {
         guard !AppTestRuntime.shouldDisableHealthKitSync else { return }
+        // A sync only writes into the database. With none open it would raise the Health
+        // permission sheet on top of DatabaseUnavailableView and then fail anyway.
+        guard DatabaseManager.shared.initializationError == nil else { return }
 
         // Sync from Apple Health on app launch with throttling
         Task {

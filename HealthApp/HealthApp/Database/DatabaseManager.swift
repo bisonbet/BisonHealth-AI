@@ -7,17 +7,26 @@ import CryptoKit
 class DatabaseManager: ObservableObject {
     
     // MARK: - Shared Instance
+    /// Never traps. A database that cannot be opened leaves the app running in a degraded
+    /// state so `DatabaseUnavailableView` can explain what happened; trapping here turned
+    /// every recoverable database fault into a launch crash whose only evidence was a
+    /// crash log.
     static let shared: DatabaseManager = {
         do {
             return try DatabaseManager()
         } catch {
-            fatalError("Failed to initialize DatabaseManager: \(error)")
+            AppLog.shared.database("Failed to initialize DatabaseManager: \(error)", level: .critical)
+            return DatabaseManager(unavailable: error)
         }
     }()
     internal var db: Connection?
     private let encryptionKey: SymmetricKey
     private let databaseURL: URL
     internal let appLog = AppLog.shared
+
+    /// Non-nil when the database could not be opened. `db` stays nil in that case, so every
+    /// query fails with `DatabaseError.connectionFailed` instead of reading placeholder state.
+    private(set) var initializationError: Error?
     
     // Key fingerprint for detecting key changes
     private var encryptionKeyFingerprint: String {
@@ -255,6 +264,16 @@ class DatabaseManager: ObservableObject {
             try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
 
         }
+    }
+
+    /// Builds a manager that owns no connection, recording why the database could not be
+    /// opened. The stored properties are inert placeholders: with `db` nil, every query
+    /// throws before anything reads them.
+    private init(unavailable error: Error) {
+        self.encryptionKey = SymmetricKey(size: .bits256)
+        self.databaseURL = URL(fileURLWithPath: "/dev/null")
+        self.db = nil
+        self.initializationError = error
     }
 
     // MARK: - Database Location Migration
@@ -843,6 +862,21 @@ enum DatabaseError: LocalizedError {
             return "Database version incompatibility: \(message)"
         case .migrationFailed(let message):
             return "Database migration failed: \(message)"
+        }
+    }
+
+    var recoverySuggestion: String? {
+        switch self {
+        case .connectionFailed:
+            return "Close and reopen BisonHealth AI. If it keeps happening, make sure the device has free storage space."
+        case .encryptionFailed, .decryptionFailed:
+            return "The encryption key for this device could not be used. Close and reopen the app; if the problem persists, restore from a backup."
+        case .invalidData, .notFound, .constraintViolation:
+            return "Close and reopen BisonHealth AI, then try the action again."
+        case .incompatibleVersion:
+            return "This copy of BisonHealth AI is older than the data already stored on this device. Install the latest version to open it — nothing has been changed or deleted."
+        case .migrationFailed:
+            return "The database could not be upgraded to the format this version expects. A backup was taken before the upgrade started; reinstalling the latest version is the safest next step."
         }
     }
 }
