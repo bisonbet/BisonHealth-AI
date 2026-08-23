@@ -26,19 +26,29 @@ condition became an unrecoverable launch crash with no on-screen explanation.
     placeholder state.
   - `DatabaseError` gained `recoverySuggestion` for all cases.
 - `Views/DatabaseUnavailableView.swift` (new, registered in `project.pbxproj`)
-  - Full-screen explanation: cause, what to do, a reassurance that data is untouched,
-    the raw error text, plus "Share Diagnostic Logs" and "Copy Details".
+  - Full-screen explanation for database or secure file storage failures: cause, what to do,
+    a reassurance that data is untouched, the raw error text, plus "Share Diagnostic Logs"
+    and "Copy Details".
 - `HealthAppApp.swift`
-  - `body` checks `DatabaseManager.shared.initializationError` first and shows
-    `DatabaseUnavailableView`; the previous content moved to a private `appShell`.
-  - `syncHealthKitOnLaunch()` now returns early when the database is unavailable —
-    without this, the Health permission sheet appeared on top of the error screen.
+  - `body` checks database and secure file storage initialization errors before showing
+    the app shell and presents `DatabaseUnavailableView` for either failure.
+  - `syncHealthKitOnLaunch()` now returns early when either dependency is unavailable —
+    without this, the Health permission sheet could appear on top of the error screen.
+- `Managers/HealthDataManager.swift`
+  - Automatic health-data loading is skipped when either startup dependency is unavailable,
+    so the recovery screen does not start background reads against a degraded manager.
+- `Utils/FileSystemManager.swift`
+  - `shared` no longer traps. On failure it logs at `.critical` and returns a degraded
+    instance with `initializationError`; storage operations fail with the structured
+    initialization error instead of touching placeholder paths.
 - `CLAUDE.md`: database version corrected 8 → 10, migration examples renumbered to 11,
   added a note that downgrades are refused rather than crashed.
 
 ## Verified
 
-- Build succeeds: iPhone 17 Pro simulator, iOS 26.5.
+- Generic iOS build succeeds with signing disabled.
+- Full `DatabaseTests` passes on a signed iPhone 17 Pro simulator running iOS 26.5
+  (4 tests), and the test runner boots without the filesystem `EXC_BREAKPOINT`/`SIGTRAP`.
 - Failure path reproduced end to end. Inserted a fake `database_version` row of 11 into
   the simulator's database, launched, and confirmed: no crash, process stays alive, the
   critical log line is written, and `DatabaseUnavailableView` renders with the real
@@ -69,12 +79,13 @@ Suggested first steps tomorrow:
    matters.
 2. If it is still blank on a clean simulator, the `appShell` extraction is the suspect —
    revert just that hunk and compare.
-3. Run the test suites; none were run in this session.
+3. Manually verify the normal launch path on a clean simulator and run the UI test suite.
 4. Build and run on "My Mac (Designed for iPad)" — that is where the original crash
    happened, and it replaces the older TestFlight copy in the same container.
 
-## Also noticed, not addressed
+## Follow-up fixed in this PR
 
-`Utils/FileSystemManager.swift:15` has the identical `fatalError` in its `shared`
-initializer. Same launch-crash hazard, same shape of fix, deliberately left out of
-scope here.
+`Utils/FileSystemManager.swift:15` had the identical `fatalError` in its `shared`
+initializer. It now follows the same degraded-startup pattern as the database, so a
+filesystem initialization problem reaches the recovery screen instead of terminating
+the process with `EXC_BREAKPOINT`/`SIGTRAP`.

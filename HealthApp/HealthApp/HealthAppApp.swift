@@ -25,11 +25,11 @@ struct HealthAppApp: App {
     
     var body: some Scene {
         WindowGroup {
-            // Checked before anything else: with no database there is no disclaimer state,
-            // no settings, and no health data to show, so the explanation stands alone
-            // rather than layering on top of a shell that cannot work.
-            if let databaseError = DatabaseManager.shared.initializationError {
-                DatabaseUnavailableView(error: databaseError)
+            // Checked before anything else: with no database or secure file storage there is
+            // no usable app shell, so the explanation stands alone instead of layering on top
+            // of state that cannot work.
+            if let startupError {
+                DatabaseUnavailableView(error: startupError)
             } else {
                 appShell
             }
@@ -37,6 +37,13 @@ struct HealthAppApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             appState.handleScenePhaseChange(newPhase)
         }
+    }
+
+    private var startupError: Error? {
+        if let databaseError = DatabaseManager.shared.initializationError {
+            return databaseError
+        }
+        return FileSystemManager.shared.initializationError
     }
 
     @ViewBuilder
@@ -231,8 +238,10 @@ class AppState: ObservableObject {
     private func syncHealthKitOnLaunch() {
         guard !AppTestRuntime.shouldDisableHealthKitSync else { return }
         // A sync only writes into the database. With none open it would raise the Health
-        // permission sheet on top of DatabaseUnavailableView and then fail anyway.
-        guard DatabaseManager.shared.initializationError == nil else { return }
+        // permission sheet on top of DatabaseUnavailableView and then fail anyway. The same
+        // applies when secure file storage could not be initialized.
+        guard DatabaseManager.shared.initializationError == nil,
+              FileSystemManager.shared.initializationError == nil else { return }
 
         // Sync from Apple Health on app launch with throttling
         Task {

@@ -11,6 +11,21 @@ struct DatabaseUnavailableView: View {
 
     @State private var didCopyDetails = false
 
+    private var isFileSystemUnavailable: Bool {
+        error is FileSystemError
+    }
+
+    private var title: String {
+        isFileSystemUnavailable ? "Secure File Storage Didn't Open" : "Your Health Data Didn't Open"
+    }
+
+    private var dataSafetyMessage: String {
+        if isFileSystemUnavailable {
+            return "Nothing was changed, deleted, or sent anywhere. The app stopped before using secure file storage."
+        }
+        return "Nothing was changed, deleted, or sent anywhere. The app stopped before touching your records."
+    }
+
     private var summary: String {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
@@ -34,7 +49,7 @@ struct DatabaseUnavailableView: View {
                     title: "Your data is intact",
                     icon: "lock.fill",
                     color: BisonTheme.sage,
-                    content: "Nothing was changed, deleted, or sent anywhere. The app stopped before touching your records."
+                    content: dataSafetyMessage
                 )
                 technicalDetails
                 actions
@@ -57,14 +72,14 @@ struct DatabaseUnavailableView: View {
                 .foregroundColor(.orange)
                 .accessibilityHidden(true)
 
-            Text("Your Health Data Didn't Open")
+            Text(title)
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Your health data didn't open")
+        .accessibilityLabel(title)
     }
 
     private var technicalDetails: some View {

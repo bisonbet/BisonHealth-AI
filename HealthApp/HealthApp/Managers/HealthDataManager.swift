@@ -11,6 +11,8 @@ class HealthDataManager: ObservableObject {
         databaseManager: DatabaseManager.shared,
         fileSystemManager: FileSystemManager.shared,
         automaticallyLoad: !AppTestRuntime.isRunningXCTest
+            && DatabaseManager.shared.initializationError == nil
+            && FileSystemManager.shared.initializationError == nil
     )
     
     // MARK: - Published Properties

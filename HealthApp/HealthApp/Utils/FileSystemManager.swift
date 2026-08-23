@@ -12,7 +12,12 @@ class FileSystemManager: ObservableObject {
         do {
             return try FileSystemManager()
         } catch {
-            fatalError("Failed to initialize FileSystemManager: \(error)")
+            let initializationError = FileSystemError.initializationFailed(error)
+            AppLog.shared.fileManagement(
+                "Failed to initialize FileSystemManager: \(error)",
+                level: .critical
+            )
+            return FileSystemManager(unavailable: initializationError)
         }
     }()
     
@@ -24,6 +29,14 @@ class FileSystemManager: ObservableObject {
     private let logsDirectory: URL
     
     private let encryptionKey: SymmetricKey
+    private(set) var initializationError: Error? = nil
+
+    // MARK: - Availability
+    private func ensureAvailable() throws {
+        if let initializationError {
+            throw initializationError
+        }
+    }
     
     // MARK: - Initialization
     init(baseDirectory: URL? = nil) throws {
@@ -56,6 +69,20 @@ class FileSystemManager: ObservableObject {
         // Create directory structure
         try createDirectoryStructure()
     }
+
+    /// Builds a manager that owns no usable storage after initialization failed.
+    /// Callers receive the original failure through `initializationError` or a throwing
+    /// `FileSystemError.initializationFailed` rather than terminating the app at launch.
+    private init(unavailable error: Error) {
+        let unavailableBaseDirectory = URL(fileURLWithPath: "/dev/null")
+        self.baseDirectory = unavailableBaseDirectory
+        self.documentsDirectory = unavailableBaseDirectory.appendingPathComponent("Documents/Imported")
+        self.thumbnailsDirectory = unavailableBaseDirectory.appendingPathComponent("Documents/Thumbnails")
+        self.exportsDirectory = unavailableBaseDirectory.appendingPathComponent("Exports")
+        self.logsDirectory = unavailableBaseDirectory.appendingPathComponent("Logs")
+        self.encryptionKey = SymmetricKey(size: .bits256)
+        self.initializationError = error
+    }
     
     // MARK: - Directory Management
     private func createDirectoryStructure() throws {
@@ -87,11 +114,13 @@ class FileSystemManager: ObservableObject {
 
     // Public method to ensure directories exist (for debugging/recovery)
     func ensureDirectoriesExist() throws {
+        try ensureAvailable()
         try createDirectoryStructure()
     }
     
     // MARK: - Document Storage
     func storeDocument(data: Data, fileName: String, fileType: DocumentType) throws -> URL {
+        try ensureAvailable()
         let sanitizedFileName = sanitizeFileName(fileName)
         let fileExtension = fileType.rawValue
         
@@ -120,6 +149,7 @@ class FileSystemManager: ObservableObject {
     }
     
     func retrieveDocument(from url: URL) throws -> Data {
+        try ensureAvailable()
         // Read encrypted data
         let encryptedData = try Data(contentsOf: url)
         
@@ -169,6 +199,7 @@ class FileSystemManager: ObservableObject {
     }
     
     func deleteDocument(at url: URL) throws {
+        try ensureAvailable()
         try FileManager.default.removeItem(at: url)
         
         // Also delete associated thumbnail if it exists
@@ -180,6 +211,7 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Thumbnail Management
     func generateThumbnail(for documentURL: URL, documentType: DocumentType) async throws -> URL? {
+        try ensureAvailable()
         let thumbnailURL = getThumbnailURL(for: documentURL)
         
         switch documentType {
@@ -271,6 +303,7 @@ class FileSystemManager: ObservableObject {
     ///   - documentId: The UUID of the document this thumbnail belongs to
     /// - Returns: The URL where the thumbnail was stored
     func storeThumbnail(data: Data, forDocumentId documentId: UUID) throws -> URL {
+        try ensureAvailable()
         try FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
         let thumbnailURL = thumbnailsDirectory.appendingPathComponent("\(documentId.uuidString)_thumb.jpg")
         try data.write(to: thumbnailURL)
@@ -279,11 +312,13 @@ class FileSystemManager: ObservableObject {
 
     // MARK: - File Operations
     func copyFile(from sourceURL: URL, fileName: String, fileType: DocumentType) throws -> URL {
+        try ensureAvailable()
         let fileData = try Data(contentsOf: sourceURL)
         return try storeDocument(data: fileData, fileName: fileName, fileType: fileType)
     }
     
     func moveFile(from sourceURL: URL, fileName: String, fileType: DocumentType) throws -> URL {
+        try ensureAvailable()
         let destinationURL = try copyFile(from: sourceURL, fileName: fileName, fileType: fileType)
         
         // Remove original file if it's not in our managed directory
@@ -295,15 +330,18 @@ class FileSystemManager: ObservableObject {
     }
     
     func getFileSize(at url: URL) throws -> Int64 {
+        try ensureAvailable()
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return attributes[.size] as? Int64 ?? 0
     }
-    
+
     func fileExists(at url: URL) -> Bool {
+        guard initializationError == nil else { return false }
         return FileManager.default.fileExists(atPath: url.path)
     }
 
     func findDocumentByFileName(_ displayName: String) -> URL? {
+        guard initializationError == nil else { return nil }
         let fileManager = FileManager.default
 
         do {
@@ -328,6 +366,7 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Storage Management
     func getTotalStorageUsed() throws -> Int64 {
+        try ensureAvailable()
         let documentsSize = try getDirectorySize(documentsDirectory)
         let thumbnailsSize = try getDirectorySize(thumbnailsDirectory)
         let exportsSize = try getDirectorySize(exportsDirectory)
@@ -335,14 +374,17 @@ class FileSystemManager: ObservableObject {
     }
     
     func getDocumentStorageUsed() throws -> Int64 {
+        try ensureAvailable()
         return try getDirectorySize(documentsDirectory)
     }
     
     func getThumbnailStorageUsed() throws -> Int64 {
+        try ensureAvailable()
         return try getDirectorySize(thumbnailsDirectory)
     }
     
     func getDirectorySize(_ directoryType: DirectoryType) async throws -> Int64 {
+        try ensureAvailable()
         let directory: URL
         switch directoryType {
         case .documents:
@@ -359,6 +401,7 @@ class FileSystemManager: ObservableObject {
     }
     
     func deleteFile(at url: URL) throws {
+        try ensureAvailable()
         try FileManager.default.removeItem(at: url)
     }
     
@@ -387,6 +430,7 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Cleanup Operations
     func cleanupOrphanedFiles(keepingDocuments: Set<String>, keepingThumbnails: Set<String>) async throws {
+        try ensureAvailable()
         // Clean up orphaned document files
         let documentContents = try FileManager.default.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
         for fileURL in documentContents {
@@ -407,6 +451,7 @@ class FileSystemManager: ObservableObject {
     }
     
     func cleanupOldThumbnails(olderThan days: Int = 30) throws {
+        try ensureAvailable()
         let cutoffDate = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
         
         let resourceKeys: [URLResourceKey] = [.contentModificationDateKey]
@@ -430,6 +475,7 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Export Management
     func createExportFile(data: Data, fileName: String, fileType: ExportFileType) throws -> URL {
+        try ensureAvailable()
         let sanitizedFileName = sanitizeFileName(fileName)
         let fileExtension = fileType.fileExtension
         let finalFileName = "\(sanitizedFileName).\(fileExtension)"
@@ -467,6 +513,7 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Cache Management
     func clearCache() async throws {
+        try ensureAvailable()
         let fileManager = FileManager.default
         
         // Clear thumbnail cache
@@ -503,6 +550,7 @@ class FileSystemManager: ObservableObject {
     
     // MARK: - Storage Usage
     func getStorageUsage() async throws -> FileSystemStorageUsage {
+        try ensureAvailable()
         let docsDir = documentsDirectory
         let thumbsDir = thumbnailsDirectory
         let exportsDir = exportsDirectory
@@ -598,6 +646,7 @@ enum ExportFileType {
 
 // MARK: - File System Errors
 enum FileSystemError: LocalizedError {
+    case initializationFailed(Error)
     case directoryCreationFailed
     case documentsDirectoryUnavailable
     case fileNotFound
@@ -610,6 +659,8 @@ enum FileSystemError: LocalizedError {
     
     var errorDescription: String? {
         switch self {
+        case .initializationFailed(let error):
+            return "Secure file storage could not be opened: \(error.localizedDescription)"
         case .directoryCreationFailed:
             return "Failed to create directory structure"
         case .documentsDirectoryUnavailable:
@@ -628,6 +679,15 @@ enum FileSystemError: LocalizedError {
             return "Invalid file name"
         case .fileOperationFailed:
             return "File operation failed"
+        }
+    }
+
+    var recoverySuggestion: String? {
+        switch self {
+        case .initializationFailed:
+            return "Restart the app. If the problem continues, install the latest version and share the diagnostic logs."
+        default:
+            return nil
         }
     }
 }
