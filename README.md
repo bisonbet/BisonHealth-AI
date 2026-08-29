@@ -26,9 +26,9 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 26+, optimized for both iPhone and iPad
 - 🔒 **Privacy-First Design** - All health data stored locally on-device, no cloud backup
 - 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
-- 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Primary Care, Orthopedic Specialist, Clinical Nutritionist, Exercise Specialist, Internal Medicine, Dentist, Orthodontist, Physical Therapist)
+- 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Primary Care, Orthopedic Specialist, Clinical Nutritionist, Exercise Specialist, Internal Medicine, Dentist, Orthodontist, Physical Therapist, Genetic Specialist)
 - 📄 **Smart Document Processing** - Automatic OCR and health-data extraction through the native PDFKit/Vision pipeline (`NativeDocumentExtractor` and `DocumentProcessor`)
-- 🏥 **Medical Document Management** - Support for 11 document types including imaging reports, lab reports, prescriptions, discharge summaries, and more
+- 🏥 **Medical Document Management** - Support for 12 document categories including imaging reports, lab reports, genetic tests, prescriptions, discharge summaries, and more
 - 🩺 **Comprehensive Health Data** - Personal info, blood tests, medical documents with structured extraction
 - ⌚️ **Apple Health Sync** - Import vitals, sleep, and characteristics from HealthKit (`HealthKitManager`)
 - 🗓️ **Appointment Prep** - AI-generated prep notes for upcoming doctor visits, pulling relevant health data and medications (`AppointmentPrepManager`)
@@ -130,10 +130,11 @@ BisonHealth AI follows a modular, privacy-focused architecture:
 - **Blood Test Results** - Comprehensive lab results with reference ranges, abnormal value detection
 - **Apple Health Sync** - Import vitals (blood pressure, heart rate, temperature, oxygen saturation, respiratory rate, weight, height), sleep analysis, and characteristics (date of birth, biological sex, blood type) via `HealthKitManager`
 - **Appointment Prep** - AI-generated prep documents for upcoming doctor visits, drawing on relevant health data and medications
-- **Medical Documents** - Full support for 11 document categories:
+- **Medical Documents** - Full support for 12 document categories:
   - Doctor's Notes
   - Imaging Reports (X-rays, MRIs, CT scans, ultrasounds)
   - Lab Reports
+  - Genetic Tests
   - Prescriptions
   - Discharge Summaries
   - Operative Reports
@@ -205,6 +206,7 @@ BisonHealth AI includes multiple specialized AI doctor personas, each with uniqu
 - **Dentist** - General dental health and oral care guidance
 - **Orthodontist** - Orthodontic treatment and alignment questions
 - **Physical Therapist** - Rehabilitation, mobility, and injury recovery
+- **Genetic Specialist** - Genetic test interpretation, risk profiles, and pharmacogenomics guidance
 
 Each doctor persona has a customized system prompt that guides their responses and ensures they only use the health data explicitly provided in context. The AI is aware of the current date and time, allowing it to calculate patient age, assess document recency, and provide time-aware medical guidance.
 
@@ -218,6 +220,7 @@ HealthApp/
 │   ├── Models/              # Data models and protocols
 │   │   ├── PersonalHealthInfo.swift
 │   │   ├── BloodTestResult.swift
+│   │   ├── GeneticTestResult.swift
 │   │   ├── MedicalDocument.swift
 │   │   ├── AppointmentPrep.swift
 │   │   ├── ChatModels.swift
@@ -234,21 +237,31 @@ HealthApp/
 │   │   ├── AIChatManager.swift
 │   │   ├── AppointmentPrepManager.swift
 │   │   ├── HealthKitManager.swift
-│   │   └── SettingsManager.swift
-│   ├── Services/            # External service clients
+│   │   ├── SettingsManager.swift
+│   │   ├── AppSettingsManager.swift
+│   │   ├── AppLog.swift
+│   │   ├── NetworkRetryManager.swift
+│   │   └── ErrorHandler.swift
+│   ├── Services/            # External service clients & specialized parsers
 │   │   ├── BedrockClient.swift
 │   │   ├── OpenAICompatibleClient.swift
 │   │   ├── NativeDocumentExtractor.swift
-│   │   └── MedicalDocumentExtractor.swift
+│   │   ├── MedicalDocumentExtractor.swift
+│   │   ├── LabReportParser.swift
+│   │   ├── GeneticTestParser.swift
+│   │   └── AppointmentPrepProcessor.swift
 │   ├── MLXOnDeviceLLM/      # On-device MLX inference
 │   │   ├── MLXOnDeviceClient.swift
 │   │   └── MLXModelDownloadManager.swift
-│   ├── Database/            # SQLite database management
+│   ├── Database/            # SQLite database management & recovery
 │   │   ├── DatabaseManager.swift
 │   │   ├── DatabaseManager+HealthData.swift
 │   │   ├── DatabaseManager+MedicalDocuments.swift
 │   │   ├── DatabaseManager+AppointmentPrep.swift
-│   │   └── DatabaseManager+Chat.swift
+│   │   ├── DatabaseManager+Chat.swift
+│   │   ├── DatabaseManager+AppSettings.swift
+│   │   ├── DatabaseManager+Documents.swift
+│   │   └── DatabaseManager+Recovery.swift
 │   ├── Networking/          # Network management
 │   │   ├── NetworkManager.swift
 │   │   └── NetworkError.swift
@@ -336,6 +349,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Phase 2.11** - Current date/time injection for temporal awareness
 - [x] **Phase 2.12** - Apple Health (HealthKit) sync
 - [x] **Phase 2.13** - AI-generated appointment prep
+- [x] **Phase 2.14** - Genetic test parsing and Genetic Specialist doctor persona
 
 ### 🚧 In Progress / Planned
 - [ ] **Phase 3** - Direct wearable/fitness tracker integration beyond Apple Health

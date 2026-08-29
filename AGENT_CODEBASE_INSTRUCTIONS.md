@@ -41,9 +41,14 @@ BisonHealth-AI/
 
 #### 3. Core Managers
 - **SettingsManager.swift**: Application settings and preferences
+- **AppSettingsManager.swift**: App settings and configuration state
+- **AppointmentPrepManager.swift**: Appointment preparation workflows
+- **DocumentManager.swift**: Document persistence and processing coordinator
 - **ErrorHandler.swift**: Centralized error handling
-- **Logger.swift**: Logging system
+- **AppLog.swift**: Unified logging system (replacing legacy Logger)
 - **NetworkManager.swift**: Network connectivity monitoring
+- **NetworkRetryManager.swift**: Network retry handling and exponential backoff
+- **HealthKitManager.swift**: HealthKit integration and authorization
 
 #### 4. Models
 - **ChatModels.swift**: Chat conversation models

@@ -7,7 +7,7 @@
 - **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 6 language mode (strict concurrency) with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
-- **Database**: SQLite with CryptoKit encryption (current version: 8)
+- **Database**: SQLite with CryptoKit encryption (current version: 10)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: On-device (PDFKit + Vision OCR via `NativeDocumentExtractor`)
 - **Privacy**: Local-first, all data on-device (no iCloud/CloudKit backup)

@@ -10,6 +10,7 @@ struct HealthAppApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var appSettingsManager = AppSettingsManager.shared
     @StateObject private var startupHealth = AppStartupHealth.shared
+    @State private var showSplashScreen = !AppTestRuntime.shouldSkipDisclaimer
     @Environment(\.scenePhase) private var scenePhase
 
     static let legacyPendingOperationsKey = "com.bisonhealth.pendingoperations"
@@ -32,7 +33,24 @@ struct HealthAppApp: App {
             if let blockingError = startupHealth.blockingError {
                 DatabaseUnavailableView(error: blockingError)
             } else {
-                appShell
+                ZStack {
+                    appShell
+
+                    if showSplashScreen {
+                        SplashScreenView()
+                            .transition(.opacity)
+                            .zIndex(1)
+                    }
+                }
+                .onAppear {
+                    if showSplashScreen {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                            withAnimation(.easeInOut(duration: 0.8)) {
+                                showSplashScreen = false
+                            }
+                        }
+                    }
+                }
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
