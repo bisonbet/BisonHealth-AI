@@ -148,6 +148,7 @@
 		HIPAA003B /* DatabaseManager+AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA003 /* DatabaseManager+AppSettings.swift */; };
 		HIPAA004B /* UserDefaults+FirstLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = HIPAA004 /* UserDefaults+FirstLaunch.swift */; };
 		HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */; };
+		PB1BETA0000000000000000A1 /* PreBetaRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PB1BETA0000000000000000B2 /* PreBetaRegressionTests.swift */; };
 		IMGREPORTS001 /* ImagingReportsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGREPORTS002 /* ImagingReportsSection.swift */; };
 		IRSX6IS1ZMAC81MWY2AQTAZP /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54XV28LKQRVEL6J8Y9RG0LV /* MessageListView.swift */; };
 		LABREPORTPARSER001 /* LabReportParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = LABREPORTPARSER002 /* LabReportParser.swift */; };
@@ -339,6 +340,7 @@
 		SUP006002EA12E9900999003 /* SupplementSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementSelectorView.swift; sourceTree = "<group>"; };
 		TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentCameraView.swift; sourceTree = "<group>"; };
 		TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIChatManagerTests.swift; sourceTree = "<group>"; };
+		PB1BETA0000000000000000B2 /* PreBetaRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreBetaRegressionTests.swift; sourceTree = "<group>"; };
 		UITESTFILE001 /* AccessibilityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityUITests.swift; sourceTree = "<group>"; };
 		UITESTFILE002 /* BloodTestEntryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestEntryUITests.swift; sourceTree = "<group>"; };
 		UITESTFILE003 /* ChatInterfaceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInterfaceUITests.swift; sourceTree = "<group>"; };
@@ -619,6 +621,7 @@
 				A1000075294A0000000000001 /* HealthDataManagerTests.swift */,
 				1423481F2EA07B6300059087 /* NetworkingTests.swift */,
 				TM2Z1HXTNI47WFGUI4E4DTUX /* AIChatManagerTests.swift */,
+				PB1BETA0000000000000000B2 /* PreBetaRegressionTests.swift */,
 				D0C0A1012F20000100TEST04 /* AIChatManagerReliabilityTests.swift */,
 				D0C0A1012F20000100TEST01 /* DoctorPromptTests.swift */,
 				HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */,
@@ -964,6 +967,7 @@
 				VALIDATIONHELPERTEST001 /* ValidationHelperTests.swift in Sources */,
 				A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */,
 				HVEVO4VP2C5DO0OWDCKXNSUK /* AIChatManagerTests.swift in Sources */,
+				PB1BETA0000000000000000A1 /* PreBetaRegressionTests.swift in Sources */,
 				D0C0A1002F20000100TEST04 /* AIChatManagerReliabilityTests.swift in Sources */,
 				D0C0A1002F20000100TEST01 /* DoctorPromptTests.swift in Sources */,
 				71ZC83NJYOBDVUVE3GBL4Y03 /* ChatIntegrationTests.swift in Sources */,

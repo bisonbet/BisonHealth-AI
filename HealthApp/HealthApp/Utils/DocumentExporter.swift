@@ -1,6 +1,5 @@
 import Foundation
 import UIKit
-import PDFKit
 
 // MARK: - Document Exporter
 @MainActor
@@ -117,68 +116,52 @@ class DocumentExporter: ObservableObject {
         }
         
         do {
-            // Create PDF document
-            let pdfDocument = PDFDocument()
-            var pageIndex = 0
-            
-            exportProgress = 0.1
-            
-            // Title Page
-            let titlePage = createTitlePage()
-            pdfDocument.insert(titlePage, at: pageIndex)
-            pageIndex += 1
-            
-            exportProgress = 0.2
+            // Gather report sections (each rendered as paginated text)
+            var sections: [ReportSection] = []
             
             // Personal Health Info
             if includeTypes.contains(.personalInfo) {
                 if let personalInfo = try await databaseManager.fetchPersonalHealthInfo() {
-                    let personalInfoPage = createPersonalInfoPage(personalInfo)
-                    pdfDocument.insert(personalInfoPage, at: pageIndex)
-                    pageIndex += 1
+                    exportProgress = 0.2
+                    sections.append(contentsOf: personalInfoSection(personalInfo))
                 }
             }
-            
-            exportProgress = 0.4
             
             // Blood Test Results
             if includeTypes.contains(.bloodTest) {
                 let bloodTests = try await databaseManager.fetchBloodTestResults()
-                if !bloodTests.isEmpty {
-                    let bloodTestPages = createBloodTestPages(bloodTests)
-                    for page in bloodTestPages {
-                        pdfDocument.insert(page, at: pageIndex)
-                        pageIndex += 1
-                    }
+                exportProgress = 0.4
+                for test in bloodTests {
+                    sections.append(bloodTestSection(test))
                 }
             }
-            
-            exportProgress = 0.6
             
             // Documents Summary
             let documents = try await databaseManager.fetchDocuments()
             if !documents.isEmpty {
-                let documentsPage = createDocumentsSummaryPage(documents)
-                pdfDocument.insert(documentsPage, at: pageIndex)
-                pageIndex += 1
+                exportProgress = 0.6
+                sections.append(ReportSection(
+                    title: "Documents (\(documents.count))",
+                    lines: documents.map { "\($0.fileName) — imported \(Self.reportDateFormatter.string(from: $0.importedAt))" }
+                ))
             }
-            
-            exportProgress = 0.8
             
             // Chat Summary
             let conversations = try await databaseManager.fetchConversations()
             if !conversations.isEmpty {
-                let chatPage = createChatSummaryPage(conversations)
-                pdfDocument.insert(chatPage, at: pageIndex)
-                pageIndex += 1
+                exportProgress = 0.75
+                sections.append(ReportSection(
+                    title: "Chat Conversations (\(conversations.count))",
+                    lines: conversations.map { "\($0.title) — \($0.messages.count) messages — \(Self.reportDateFormatter.string(from: $0.createdAt))" }
+                ))
             }
             
-            exportProgress = 0.9
-            
-            // Save PDF
-            guard let pdfData = pdfDocument.dataRepresentation() else {
-                throw DocumentExportError.pdfGenerationFailed
+            guard !sections.isEmpty else {
+                throw DocumentExportError.noDataToExport
             }
+            
+            exportProgress = 0.85
+            let pdfData = renderReportPDF(sections: sections)
             
             // Generate filename
             let formatter = DateFormatter()
@@ -235,101 +218,127 @@ class DocumentExporter: ObservableObject {
                 
                 exportProgress = Double(index + 1) / Double(totalDocuments)
             } catch {
-                AppLog.shared.documents("Failed to export document \(document.fileName): \(error)", level: .error)
+                AppLog.shared.documents("Failed to export document '\(document.fileName)': \(error)", level: .error)
             }
         }
         
         return tempURL
     }
     
-    // MARK: - PDF Page Creation
-    private func createTitlePage() -> PDFPage {
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter size
-        let page = PDFPage()
+    // MARK: - PDF Rendering
+    private struct ReportSection {
+        let title: String
+        let lines: [String]
+    }
+    
+    private static let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter
+    private static let margin: CGFloat = 50
+    private static let reportDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+    
+    /// Renders the report as real, paginated text via UIGraphicsPDFRenderer.
+    /// A block that no longer fits on the page starts a new page.
+    private func renderReportPDF(sections: [ReportSection]) -> Data {
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [kCGPDFContextTitle as String: "Health Data Report"]
+        let renderer = UIGraphicsPDFRenderer(bounds: Self.pageRect, format: format)
         
-        let renderer = UIGraphicsImageRenderer(size: pageRect.size)
-        let image = renderer.image { context in
-            let cgContext = context.cgContext
+        let titleFont = UIFont.boldSystemFont(ofSize: 24)
+        let sectionFont = UIFont.boldSystemFont(ofSize: 14)
+        let bodyFont = UIFont.systemFont(ofSize: 11)
+        // Hoist MainActor-isolated statics into locals: the renderer's
+        // drawing closure is nonisolated.
+        let pageRect = Self.pageRect
+        let margin = Self.margin
+        let generatedOn = "Generated on \(Self.reportDateFormatter.string(from: Date()))"
+        
+        return renderer.pdfData { ctx in
+            // UIGraphicsPDFRenderer requires an explicit beginPage() before ANY
+            // drawing — including the first page. Without it everything renders
+            // onto a page that was never started and is silently lost.
+            ctx.beginPage()
+            var y: CGFloat = margin
             
-            // Background
-            cgContext.setFillColor(UIColor.systemBackground.cgColor)
-            cgContext.fill(pageRect)
-            
-            // Title
-            let titleAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.boldSystemFont(ofSize: 36),
-                .foregroundColor: UIColor.label
-            ]
-            let title = "Health Data Report"
-            let titleSize = title.size(withAttributes: titleAttributes)
-            let titleRect = CGRect(
-                x: (pageRect.width - titleSize.width) / 2,
-                y: pageRect.height - 200,
-                width: titleSize.width,
-                height: titleSize.height
+            // Report header on the first page
+            ("Health Data Report" as NSString).draw(
+                at: CGPoint(x: margin, y: y),
+                withAttributes: [.font: titleFont]
             )
-            title.draw(in: titleRect, withAttributes: titleAttributes)
-            
-            // Date
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateStyle = .full
-            let dateString = "Generated on \(dateFormatter.string(from: Date()))"
-            
-            let dateAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 16),
-                .foregroundColor: UIColor.secondaryLabel
-            ]
-            let dateSize = dateString.size(withAttributes: dateAttributes)
-            let dateRect = CGRect(
-                x: (pageRect.width - dateSize.width) / 2,
-                y: titleRect.minY - 50,
-                width: dateSize.width,
-                height: dateSize.height
+            y += titleFont.lineHeight + 4
+            (generatedOn as NSString).draw(
+                at: CGPoint(x: margin, y: y),
+                withAttributes: [.font: bodyFont, .foregroundColor: UIColor.gray]
             )
-            dateString.draw(in: dateRect, withAttributes: dateAttributes)
+            y += bodyFont.lineHeight + 24
+            
+            func drawBlock(_ text: String, font: UIFont, color: UIColor, indent: CGFloat, spacing: CGFloat) {
+                let width = pageRect.width - margin * 2 - indent
+                let attributed = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+                let bounds = attributed.boundingRect(
+                    with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+                let height = ceil(bounds.height)
+                if y + height > pageRect.height - margin {
+                    ctx.beginPage()
+                    y = margin
+                }
+                attributed.draw(
+                    with: CGRect(x: margin + indent, y: y, width: width, height: height),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+                y += height + spacing
+            }
+            
+            for section in sections {
+                drawBlock(section.title, font: sectionFont, color: UIColor.black, indent: 0, spacing: 6)
+                for line in section.lines {
+                    drawBlock(line, font: bodyFont, color: UIColor.darkText, indent: 14, spacing: 2)
+                }
+                y += 14
+            }
         }
-        
-        page.setBounds(pageRect, for: .mediaBox)
-        // Note: In a real implementation, you'd need to properly set the page content
-        // This is a simplified version for demonstration
-        _ = image // Acknowledge the image was created for rendering
-        
-        return page
     }
     
-    private func createPersonalInfoPage(_ personalInfo: PersonalHealthInfo) -> PDFPage {
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let page = PDFPage()
-        
-        // Create page content (simplified)
-        page.setBounds(pageRect, for: .mediaBox)
-        
-        return page
+    private func personalInfoSection(_ info: PersonalHealthInfo) -> [ReportSection] {
+        var lines: [String] = []
+        if let name = info.name { lines.append("Name: \(name)") }
+        if let dob = info.dateOfBirth { lines.append("Date of birth: \(Self.reportDateFormatter.string(from: dob))") }
+        if let gender = info.gender { lines.append("Gender: \(gender)") }
+        if let height = info.height { lines.append("Height: \(height)") }
+        if let weight = info.weight { lines.append("Weight: \(weight)") }
+        if let bloodType = info.bloodType { lines.append("Blood type: \(bloodType)") }
+        if !info.allergies.isEmpty { lines.append("Allergies: \(info.allergies.joined(separator: ", "))") }
+        lines.append("Medications: \(info.medications.count) recorded")
+        lines.append("Supplements: \(info.supplements.count) recorded")
+        lines.append("Personal medical history: \(info.personalMedicalHistory.count) entries")
+        return [ReportSection(title: "Personal Health Info", lines: lines)]
     }
     
-    private func createBloodTestPages(_ bloodTests: [BloodTestResult]) -> [PDFPage] {
-        // Create pages for blood test results (simplified)
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let page = PDFPage()
-        page.setBounds(pageRect, for: .mediaBox)
-        
-        return [page]
-    }
-    
-    private func createDocumentsSummaryPage(_ documents: [MedicalDocument]) -> PDFPage {
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let page = PDFPage()
-        page.setBounds(pageRect, for: .mediaBox)
-        
-        return page
-    }
-    
-    private func createChatSummaryPage(_ conversations: [ChatConversation]) -> PDFPage {
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let page = PDFPage()
-        page.setBounds(pageRect, for: .mediaBox)
-        
-        return page
+    private func bloodTestSection(_ test: BloodTestResult) -> ReportSection {
+        var lines: [String] = []
+        if let lab = test.laboratoryName, !lab.isEmpty { lines.append("Laboratory: \(lab)") }
+        if !test.results.isEmpty {
+            lines.append(contentsOf: test.results.map { item in
+                var line = "\(item.name): \(item.value)"
+                if let unit = item.unit, !unit.isEmpty { line += " \(unit)" }
+                if let range = item.referenceRange, !range.isEmpty { line += " (ref: \(range))" }
+                if item.isAbnormal { line += "  [abnormal]" }
+                return line
+            })
+        } else {
+            lines.append("No individual results recorded")
+        }
+        return ReportSection(
+            title: "Blood Test — \(Self.reportDateFormatter.string(from: test.testDate))",
+            lines: lines
+        )
     }
     
     // MARK: - Utility Methods

@@ -6,6 +6,7 @@ import SwiftUI
 class MedicalDocumentDetailViewModel: ObservableObject {
     @Published var document: MedicalDocument
     @Published var deleteErrorMessage: String?
+    @Published var saveErrorMessage: String?
     private let databaseManager = DatabaseManager.shared
 
     init(document: MedicalDocument) {
@@ -93,6 +94,9 @@ class MedicalDocumentDetailViewModel: ObservableObject {
                 try await databaseManager.updateMedicalDocument(document)
                 AppLog.shared.documents("Document updated successfully")
             } catch {
+                // Edits are user-entered data: surface the failure instead of
+                // silently dropping the change.
+                saveErrorMessage = "Your changes could not be saved. Please try again."
                 AppLog.shared.documents("Failed to update document: \(error)", level: .error)
             }
         }

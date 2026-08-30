@@ -20,7 +20,7 @@ extension DatabaseManager {
 
             let insert = documentsTable.insert(or: .replace,
                 documentId <- document.id.uuidString,
-                documentFileName <- document.fileName,
+                documentFileName <- try encryptString(document.fileName).base64EncodedString(),
                 documentFileType <- document.fileType.rawValue,
                 documentFilePath <- document.filePath.absoluteString,
                 documentThumbnailPath <- document.thumbnailPath?.absoluteString,
@@ -29,16 +29,16 @@ extension DatabaseManager {
                 documentProcessedAt <- document.processedAt.map { Int64($0.timeIntervalSince1970) },
                 documentFileSize <- document.fileSize,
                 documentTags <- tagsString,
-                documentNotes <- document.notes,
-                documentExtractedData <- extractedHealthDataJson,
-                // Medical document fields
+                documentNotes <- try encryptTextField(document.notes),
+                documentExtractedData <- try encryptDataField(extractedHealthDataJson),
+                // Medical document fields (PHI text columns encrypted at rest)
                 documentDate <- document.documentDate.map { Int64($0.timeIntervalSince1970) },
-                documentProviderName <- document.providerName,
+                documentProviderName <- try encryptTextField(document.providerName),
                 documentProviderType <- document.providerType?.rawValue,
                 documentCategory <- document.documentCategory.rawValue,
-                documentExtractedText <- document.extractedText,
-                documentRawDoclingOutput <- document.rawDoclingOutput,
-                documentExtractedSections <- extractedSectionsJson,
+                documentExtractedText <- try encryptTextField(document.extractedText),
+                documentRawDoclingOutput <- try encryptDataField(document.rawDoclingOutput),
+                documentExtractedSections <- try encryptDataField(extractedSectionsJson),
                 documentIncludeInAIContext <- document.includeInAIContext,
                 documentContextPriority <- document.contextPriority,
                 documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
@@ -54,7 +54,7 @@ extension DatabaseManager {
             // Verify the save by reading it back immediately
             let verifyQuery = documentsTable.filter(self.documentId == document.id.uuidString)
             if let verifyRow = try? db.pluck(verifyQuery) {
-                let savedExtractedText = try? verifyRow.get(self.documentExtractedText)
+                let savedExtractedText = decryptTextField((try? verifyRow.get(self.documentExtractedText)) ?? nil)
                 AppLog.shared.database("Verification - extractedText in DB: \(savedExtractedText?.count ?? 0) chars, is nil: \(savedExtractedText == nil)", level: .debug)
             } else {
                 AppLog.shared.database("Could not verify saved document - query returned no rows", level: .warning)
@@ -80,6 +80,8 @@ extension DatabaseManager {
                 results.append(document)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
 
@@ -99,6 +101,8 @@ extension DatabaseManager {
 
             return nil
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
     }
@@ -137,6 +141,8 @@ extension DatabaseManager {
                 results.append(document)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
 
@@ -160,6 +166,8 @@ extension DatabaseManager {
                 results.append(document)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
 
@@ -168,25 +176,12 @@ extension DatabaseManager {
 
     // MARK: - Fetch Documents by Provider
     func fetchMedicalDocuments(providerName: String) async throws -> [MedicalDocument] {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-
-        var results: [MedicalDocument] = []
-
-        do {
-            let query = documentsTable
-                .filter(documentProviderName == providerName)
-                .order(documentDate.desc)
-
-            let iterator = try db.prepareRowIterator(query)
-            while let row = try iterator.failableNext() {
-                let document = try buildMedicalDocument(from: row)
-                results.append(document)
-            }
-        } catch {
-            throw DatabaseError.decryptionFailed
-        }
-
-        return results
+        // provider_name is encrypted at rest; filter the decrypted in-memory
+        // list and keep the original date-descending presentation.
+        let documents = try await fetchMedicalDocuments()
+        return documents
+            .filter { $0.providerName == providerName }
+            .sorted { ($0.documentDate ?? $0.importedAt) > ($1.documentDate ?? $1.importedAt) }
     }
 
     // MARK: - Fetch Documents by Date Range
@@ -208,6 +203,8 @@ extension DatabaseManager {
                 results.append(document)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
 
@@ -230,7 +227,7 @@ extension DatabaseManager {
             let query = documentsTable.filter(self.documentId == document.id.uuidString)
 
             let update = query.update(
-                documentFileName <- document.fileName,
+                documentFileName <- try encryptString(document.fileName).base64EncodedString(),
                 documentFileType <- document.fileType.rawValue,
                 documentFilePath <- document.filePath.absoluteString,
                 documentThumbnailPath <- document.thumbnailPath?.absoluteString,
@@ -238,16 +235,16 @@ extension DatabaseManager {
                 documentProcessedAt <- document.processedAt.map { Int64($0.timeIntervalSince1970) },
                 documentFileSize <- document.fileSize,
                 documentTags <- tagsString,
-                documentNotes <- document.notes,
-                documentExtractedData <- extractedHealthDataJson,
+                documentNotes <- try encryptTextField(document.notes),
+                documentExtractedData <- try encryptDataField(extractedHealthDataJson),
                 // Medical document fields
                 documentDate <- document.documentDate.map { Int64($0.timeIntervalSince1970) },
-                documentProviderName <- document.providerName,
+                documentProviderName <- try encryptTextField(document.providerName),
                 documentProviderType <- document.providerType?.rawValue,
                 documentCategory <- document.documentCategory.rawValue,
-                documentExtractedText <- document.extractedText,
-                documentRawDoclingOutput <- document.rawDoclingOutput,
-                documentExtractedSections <- extractedSectionsJson,
+                documentExtractedText <- try encryptTextField(document.extractedText),
+                documentRawDoclingOutput <- try encryptDataField(document.rawDoclingOutput),
+                documentExtractedSections <- try encryptDataField(extractedSectionsJson),
                 documentIncludeInAIContext <- document.includeInAIContext,
                 documentContextPriority <- document.contextPriority,
                 documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
@@ -258,6 +255,8 @@ extension DatabaseManager {
                 throw DatabaseError.notFound
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.encryptionFailed
         }
     }
@@ -305,30 +304,16 @@ extension DatabaseManager {
 
     // MARK: - Search Medical Documents
     func searchMedicalDocuments(query: String) async throws -> [MedicalDocument] {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-
-        var results: [MedicalDocument] = []
-        let searchTerm = "%\(query.lowercased())%"
-
-        do {
-            let sqlQuery = documentsTable
-                .filter(
-                    documentFileName.like(searchTerm) ||
-                    documentProviderName.like(searchTerm) ||
-                    documentExtractedText.like(searchTerm)
-                )
-                .order(documentImportedAt.desc)
-
-            let iterator = try db.prepareRowIterator(sqlQuery)
-            while let row = try iterator.failableNext() {
-                let document = try buildMedicalDocument(from: row)
-                results.append(document)
-            }
-        } catch {
-            throw DatabaseError.decryptionFailed
+        // PHI text columns are encrypted at rest; search the decrypted list.
+        // ponytail: O(all-documents × text) scan — fine at beta scale; revisit
+        // with an index or FTS if search becomes slow.
+        let documents = try await fetchMedicalDocuments()
+        let searchTerm = query.lowercased()
+        return documents.filter {
+            $0.fileName.lowercased().contains(searchTerm)
+            || $0.providerName?.lowercased().contains(searchTerm) == true
+            || $0.extractedText?.lowercased().contains(searchTerm) == true
         }
-
-        return results
     }
 
     // MARK: - Statistics
@@ -353,7 +338,9 @@ extension DatabaseManager {
     // MARK: - Helper Methods
     private func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
         let id = UUID(uuidString: row[documentId]) ?? UUID()
-        let fileName = row[documentFileName]
+        // PHI text columns are encrypted at rest; fall back to the raw value
+        // only for fileName (non-optional) so corruption is visible, not hidden.
+        let fileName = decryptTextField(row[documentFileName]) ?? row[documentFileName]
         let fileType = DocumentType(rawValue: row[documentFileType]) ?? .other
         let filePath = URL(string: row[documentFilePath]) ?? URL(fileURLWithPath: "")
         let thumbnailPath = row[documentThumbnailPath].map { URL(string: $0) } ?? nil
@@ -361,16 +348,16 @@ extension DatabaseManager {
         let importedAt = Date(timeIntervalSince1970: TimeInterval(row[documentImportedAt]))
         let processedAt = row[documentProcessedAt].map { Date(timeIntervalSince1970: TimeInterval($0)) }
         let fileSize = row[documentFileSize]
-        let notes = row[documentNotes]
+        let notes = decryptTextField(row[documentNotes])
 
         // Decode tags
         let tagsString = row[documentTags]
         let tagsData = tagsString.data(using: .utf8) ?? Data()
         let tags = (try? JSONDecoder().decode([String].self, from: tagsData)) ?? []
 
-        // Decode extracted health data
+        // Decode extracted health data (BLOB is encrypted at rest)
         let extractedHealthData: [AnyHealthData]
-        if let extractedDataBlob = row[documentExtractedData] {
+        if let extractedDataBlob = decryptDataField(row[documentExtractedData]) {
             extractedHealthData = (try? JSONDecoder().decode([AnyHealthData].self, from: extractedDataBlob)) ?? []
         } else {
             extractedHealthData = []
@@ -378,19 +365,19 @@ extension DatabaseManager {
 
         // Medical document fields
         let documentDate = try? row.get(self.documentDate).map { Date(timeIntervalSince1970: TimeInterval($0)) }
-        let providerName = try? row.get(self.documentProviderName)
+        let providerName = decryptTextField((try? row.get(self.documentProviderName)) ?? nil)
         let providerTypeRaw = try? row.get(self.documentProviderType)
         let providerType = providerTypeRaw.flatMap { ProviderType(rawValue: $0) }
         let categoryRaw = (try? row.get(self.documentCategory)) ?? "other"
         let category = DocumentCategory(rawValue: categoryRaw) ?? .other
-        let extractedText = try? row.get(self.documentExtractedText)
+        let extractedText = decryptTextField((try? row.get(self.documentExtractedText)) ?? nil)
         AppLog.shared.database("Loading MedicalDocument '\(fileName)' - extractedText: \(extractedText?.count ?? 0) chars, is nil: \(extractedText == nil)", level: .debug)
 
-        let rawDoclingOutput = try? row.get(self.documentRawDoclingOutput)
+        let rawDoclingOutput = decryptDataField((try? row.get(self.documentRawDoclingOutput)) ?? nil)
 
-        // Decode extracted sections
+        // Decode extracted sections (BLOB is encrypted at rest)
         let extractedSections: [DocumentSection]
-        if let sectionsBlob = try? row.get(self.documentExtractedSections) {
+        if let sectionsBlob = decryptDataField((try? row.get(self.documentExtractedSections)) ?? nil) {
             extractedSections = (try? JSONDecoder().decode([DocumentSection].self, from: sectionsBlob)) ?? []
         } else {
             extractedSections = []
@@ -414,7 +401,7 @@ extension DatabaseManager {
                     Task {
                         do {
                             let updateQuery = documentsTable.filter(self.documentId == id.uuidString)
-                            try db.run(updateQuery.update(documentExtractedText <- cleanedContent))
+                            try db.run(updateQuery.update(documentExtractedText <- try self.encryptTextField(cleanedContent)))
                             AppLog.shared.database("Saved cleaned recovered text back to database")
                         } catch {
                             AppLog.shared.database("Failed to save recovered text: \(error)", level: .warning)

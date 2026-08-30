@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 
 // MARK: - File System Manager
 @MainActor
+// ponytail: whole-file encrypt/decrypt runs on the main actor. Bounded by
+// the 50MB import cap and import-time UX; move crypto to a background actor
+// if profiling shows main-thread jank on large files.
 class FileSystemManager: ObservableObject {
     
     // MARK: - Shared Instance
@@ -350,9 +353,11 @@ class FileSystemManager: ObservableObject {
             for fileURL in documentContents {
                 let fileName = fileURL.lastPathComponent
 
-                if fileName.contains(displayName.replacingOccurrences(of: " ", with: "%20")) ||
-                   fileName.contains(displayName.replacingOccurrences(of: " ", with: "_")) ||
-                   fileName.contains(displayName) {
+                // Exact matches only: a substring/fuzzy match can silently rebind
+                // this document to another document's file (same display name).
+                if fileName == displayName.replacingOccurrences(of: " ", with: "%20") ||
+                   fileName == displayName.replacingOccurrences(of: " ", with: "_") ||
+                   fileName == displayName {
                     return fileURL
                 }
             }

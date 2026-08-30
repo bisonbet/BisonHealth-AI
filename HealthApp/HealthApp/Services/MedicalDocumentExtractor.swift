@@ -30,7 +30,7 @@ class MedicalDocumentExtractor {
         aiClient: (any AIProviderInterface)?,
         extractionConfidence: Double = 0.9
     ) async throws -> ExtractionResult {
-        AppLog.shared.documents("On-device medical extraction started — plain text input: \(text.count) chars, file: \(fileName)")
+        AppLog.shared.documents("On-device medical extraction started — plain text input: \(text.count) chars, file: '\(fileName)'")
 
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             // Return minimal result for empty text

@@ -136,10 +136,15 @@ struct AIResponseCleaner {
             result = result.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         }
 
-        // Replace multiple spaces with single space (but preserve newlines)
+        // Replace multiple spaces with a single space, but preserve leading
+        // indentation — markdown structure (nested lists, code blocks) depends
+        // on it, and this runs before persistence.
         let lines = result.components(separatedBy: .newlines)
-        let normalizedLines = lines.map { line in
-            line.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+        let normalizedLines = lines.map { line -> String in
+            guard let firstNonSpace = line.firstIndex(where: { !$0.isWhitespace }) else { return line }
+            let indent = String(line[line.startIndex..<firstNonSpace])
+            let content = String(line[firstNonSpace...])
+            return indent + content.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
         }
 
         return normalizedLines.joined(separator: "\n")

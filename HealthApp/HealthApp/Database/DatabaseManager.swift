@@ -40,7 +40,7 @@ class DatabaseManager: ObservableObject {
     }
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 10 // Increment when making schema changes
+    private static let currentDatabaseVersion = 11 // Increment when making schema changes
 
     /// Guards the genetic URL normalization so a single migration run performs it once,
     /// even when several versions in the range ask for it. Reset per migration run.
@@ -94,6 +94,7 @@ class DatabaseManager: ObservableObject {
     internal let conversationCreatedAt = Expression<Int64>("created_at")
     internal let conversationUpdatedAt = Expression<Int64>("updated_at")
     internal let conversationIncludedDataTypes = Expression<String>("included_health_data_types")
+    internal let conversationIncludedPersonalInfo = Expression<String?>("included_personal_info_categories")
     internal let conversationIsArchived = Expression<Bool>("is_archived")
     internal let conversationTags = Expression<String>("tags")
     
@@ -217,6 +218,7 @@ class DatabaseManager: ObservableObject {
                 t.column(conversationCreatedAt)
                 t.column(conversationUpdatedAt)
                 t.column(conversationIncludedDataTypes)
+                t.column(conversationIncludedPersonalInfo)
                 t.column(conversationIsArchived, defaultValue: false)
                 t.column(conversationTags)
             })
@@ -391,13 +393,16 @@ class DatabaseManager: ObservableObject {
 
             didNormalizeGeneticReferenceURLs = false
 
-            // Perform migrations step by step
+            // Perform migrations step by step. Each step is atomic and bumps
+            // the stored version on success: a crash mid-ALTER rolls back
+            // instead of leaving a half-migrated schema that bricks every
+            // later launch with duplicate-column errors.
             for version in (currentVersion + 1)...Self.currentDatabaseVersion {
-                try performMigration(db: db, toVersion: version)
+                try db.transaction {
+                    try performMigration(db: db, toVersion: version)
+                    try setDatabaseVersion(db: db, version: version)
+                }
             }
-
-            // Update version
-            try setDatabaseVersion(db: db, version: Self.currentDatabaseVersion)
 
             AppLog.shared.database("Database migrated from version \(currentVersion) to \(Self.currentDatabaseVersion)")
         } else if currentVersion > Self.currentDatabaseVersion {
@@ -534,9 +539,90 @@ class DatabaseManager: ObservableObject {
             try normalizeGeneticReferenceURLs(db: db)
             AppLog.shared.database("Re-normalized persisted genetic reference URLs")
 
+        case 11:
+            // Migration for version 11: (a) persist the per-conversation
+            // personal-info category opt-outs (previously memory-only, so
+            // privacy exclusions silently reverted to "include all"),
+            // (b) encrypt PHI text columns at rest: documents file_name,
+            // notes, provider_name, extracted_text, and chat conversation
+            // titles now hold AES-GCM ciphertext instead of plaintext.
+            try db.run("ALTER TABLE chat_conversations ADD COLUMN included_personal_info_categories TEXT DEFAULT NULL")
+            try encryptDocumentPHIColumns(db: db)
+            try encryptChatTitles(db: db)
+            AppLog.shared.database("Added chat personal-info categories column; encrypted document PHI columns and chat titles")
+
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
         }
+    }
+
+    /// v11 helper: encrypt the documents table's PHI text columns in place.
+    /// Rows are read fully before any write (SELECT-while-UPDATE is undefined;
+    /// same pattern as the genetic URL migration).
+    private func encryptDocumentPHIColumns(db: Connection) throws {
+        struct PendingDocRow {
+            let id: String
+            let fileName: String?
+            let notes: String?
+            let providerName: String?
+            let extractedText: String?
+            let extractedData: Data?
+            let rawDoclingOutput: Data?
+            let extractedSections: Data?
+        }
+
+        var pending: [PendingDocRow] = []
+        let iterator = try db.prepareRowIterator(
+            documentsTable.select(
+                documentId, documentFileName, documentNotes, documentProviderName, documentExtractedText,
+                documentExtractedData, documentRawDoclingOutput, documentExtractedSections
+            )
+        )
+        while let row = try iterator.failableNext() {
+            pending.append(PendingDocRow(
+                id: row[documentId],
+                fileName: row[documentFileName],
+                notes: row[documentNotes],
+                providerName: row[documentProviderName],
+                extractedText: row[documentExtractedText],
+                extractedData: row[documentExtractedData],
+                rawDoclingOutput: row[documentRawDoclingOutput],
+                extractedSections: row[documentExtractedSections]
+            ))
+        }
+
+        for doc in pending {
+            try db.run(documentsTable.filter(documentId == doc.id).update(
+                documentFileName <- try encryptString(doc.fileName ?? "").base64EncodedString(),
+                documentNotes <- try encryptTextField(doc.notes),
+                documentProviderName <- try encryptTextField(doc.providerName),
+                documentExtractedText <- try encryptTextField(doc.extractedText),
+                documentExtractedData <- try encryptDataField(doc.extractedData),
+                documentRawDoclingOutput <- try encryptDataField(doc.rawDoclingOutput),
+                documentExtractedSections <- try encryptDataField(doc.extractedSections)
+            ))
+        }
+        AppLog.shared.database("Encrypted PHI columns for \(pending.count) documents")
+    }
+
+    /// v11 helper: encrypt chat conversation titles in place.
+    private func encryptChatTitles(db: Connection) throws {
+        var pending: [(id: String, title: String)] = []
+        let iterator = try db.prepareRowIterator(
+            chatConversationsTable.select(conversationId, conversationTitle)
+        )
+        while let row = try iterator.failableNext() {
+            pending.append((row[conversationId], row[conversationTitle]))
+        }
+
+        for conv in pending {
+            try db.run(
+                chatConversationsTable
+                    .filter(conversationId == conv.id)
+                    .update(conversationTitle <- try encryptString(conv.title).base64EncodedString())
+            )
+        }
+        AppLog.shared.database("Encrypted titles for \(pending.count) conversations")
     }
 
     private func normalizeGeneticReferenceURLs(db: Connection) throws {
@@ -712,6 +798,7 @@ class DatabaseManager: ObservableObject {
             t.column(conversationCreatedAt)
             t.column(conversationUpdatedAt)
             t.column(conversationIncludedDataTypes)
+            t.column(conversationIncludedPersonalInfo)
             t.column(conversationIsArchived, defaultValue: false)
             t.column(conversationTags)
         })
@@ -867,6 +954,37 @@ class DatabaseManager: ObservableObject {
         let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
         let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
         return String(data: decryptedData, encoding: .utf8) ?? ""
+    }
+
+    /// Encrypts an optional string for storage in a TEXT column (Base64 of
+    /// the AES-GCM combined representation). Empty strings map to nil.
+    internal func encryptTextField(_ value: String?) throws -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return try encryptString(value).base64EncodedString()
+    }
+
+    /// Decrypts an optional Base64 AES-GCM TEXT field. Returns nil when the
+    /// stored value cannot be decrypted (corrupt data or a key change) rather
+    /// than surfacing ciphertext to the model layer.
+    internal func decryptTextField(_ stored: String?) -> String? {
+        guard let stored, !stored.isEmpty else { return nil }
+        guard let data = Data(base64Encoded: stored) else { return nil }
+        return try? decryptString(data)
+    }
+
+    /// Encrypts an optional JSON/Data payload (e.g. extracted lab results,
+    /// sections) for storage in a BLOB column.
+    internal func encryptDataField(_ value: Data?) throws -> Data? {
+        guard let value, !value.isEmpty else { return nil }
+        let sealedBox = try AES.GCM.seal(value, using: encryptionKey)
+        return sealedBox.combined
+    }
+
+    /// Decrypts an optional AES-GCM BLOB field. Returns nil on failure rather
+    /// than surfacing ciphertext to the model layer.
+    internal func decryptDataField(_ stored: Data?) -> Data? {
+        guard let stored, !stored.isEmpty else { return nil }
+        return try? AES.GCM.open(try AES.GCM.SealedBox(combined: stored), using: encryptionKey)
     }
 
     // MARK: - Storage Estimates

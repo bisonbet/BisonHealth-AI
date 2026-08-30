@@ -227,7 +227,7 @@ class BedrockClient: ObservableObject, AIProviderInterface {
         }
     }
 
-    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+    func sendMessage(_ message: String, context: String, conversationHistory: [ChatMessage]) async throws -> AIResponse {
         let startTime = Date()
 
         do {
@@ -257,6 +257,20 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 Context (JSON Format): \(actualContext)
 
                 User: \(message)
+                """
+            }
+
+            // Prepend multi-turn history so non-streaming sends keep context
+            if !conversationHistory.isEmpty {
+                let transcript = conversationHistory
+                    .filter { !$0.content.isEmpty }
+                    .map { msg in "\(msg.role == .assistant ? "Assistant" : "User"): \(msg.content)" }
+                    .joined(separator: "\n\n")
+                conversationInput = """
+                Previous conversation:
+                \(transcript)
+
+                \(conversationInput)
                 """
             }
 
@@ -435,6 +449,12 @@ class BedrockClient: ObservableObject, AIProviderInterface {
 
             // Clean the final response
             let cleanedContent = AIResponseCleaner.cleanConversational(accumulatedContent)
+
+            // An empty stream means the model never produced a completion:
+            // surface it as an error instead of returning a blank message.
+            guard !cleanedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw BedrockError.invalidResponse
+            }
 
             AppLog.shared.ai("Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", responseTime))s")
 

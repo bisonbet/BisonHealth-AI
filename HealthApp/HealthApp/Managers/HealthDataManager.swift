@@ -367,11 +367,21 @@ class HealthDataManager: ObservableObject {
                     // Check if this blood test has pending duplicate review
                     // If so, don't save it yet - wait for user to review duplicates
                     if extractedBloodTest.metadata?["pending_review"] == "true" {
-                        AppLog.shared.healthData("Blood test has pending duplicate review - skipping save until user reviews")
-                        // The blood test will be saved after user reviews duplicates in the UI
-                        return
+                        AppLog.shared.healthData("Blood test has pending review - skipping save until user reviews")
+                        // The blood test will be saved after user reviews in the UI.
+                        // `continue` (not `return`): later items extracted from
+                        // this document must still be linked.
+                        continue
                     }
-                    try await addBloodTest(extractedBloodTest)
+                    do {
+                        try await addBloodTest(extractedBloodTest)
+                    } catch HealthDataError.validationFailed(let reason) {
+                        // Reprocessing an already-imported document must be
+                        // idempotent, and a duplicate lab report must not fail
+                        // the whole document — the import guard's rejection is
+                        // a skip, not a document failure.
+                        AppLog.shared.healthData("Blood test import skipped: \(reason)", level: .warning)
+                    }
                 }
 
             case .geneticProfile:

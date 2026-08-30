@@ -21,7 +21,14 @@ class DocumentProcessor: ObservableObject {
     @Published var processingProgress: Double = 0.0
     @Published var lastProcessedDocument: MedicalDocument?
     @Published var processingErrors: [ProcessingError] = []
+    // ponytail: pending reviews are memory-only; a force-quit while the sheet
+    // is open loses the un-reviewed groups. Persist the review payload in a
+    // documents-table column and resurface it on launch if beta users hit it.
     @Published var pendingImportReview: PendingImportReview?
+    /// Reviews queued behind the currently-presented one. Up to 3 documents
+    /// process concurrently, so a second document can finish while a review
+    /// sheet is open — without this queue the overwrite silently loses data.
+    private var pendingReviewQueue: [PendingImportReview] = []
     @Published var pendingGeneticTestReview: PendingGeneticTestReview?
     /// Set when an import completed silently (all values auto-accepted) — drives the confirmation banner
     @Published var lastAutoImportSummary: AutoImportSummary?
@@ -29,6 +36,36 @@ class DocumentProcessor: ObservableObject {
     /// Documents the user explicitly asked to re-extract with cloud vision,
     /// overriding the global toggle for one run
     var forceCloudVisionDocumentIds: Set<UUID> = []
+    
+    // MARK: - Import Review Queue
+    /// Queue-aware setter: presents immediately, or queues behind the
+    /// currently-presented review instead of overwriting it.
+    /// (internal for regression tests; @testable access)
+    func enqueueImportReview(_ review: PendingImportReview) {
+        if pendingImportReview == nil {
+            pendingImportReview = review
+        } else {
+            pendingReviewQueue.append(review)
+        }
+    }
+
+    /// Promote the next queued review (or clear). Call when the current
+    /// review is completed.
+    func finishPendingImportReview() {
+        if !pendingReviewQueue.isEmpty {
+            pendingImportReview = pendingReviewQueue.removeFirst()
+        } else {
+            pendingImportReview = nil
+        }
+    }
+
+    /// Discard the current review only if it still belongs to `documentId`
+    /// (the cancel path; completion promotes the next review first).
+    func discardPendingImportReview(for documentId: UUID) {
+        if pendingImportReview?.documentId == documentId {
+            finishPendingImportReview()
+        }
+    }
     
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -64,6 +101,14 @@ class DocumentProcessor: ObservableObject {
     // MARK: - Queue Management
     func addToQueue(_ document: MedicalDocument, priority: ProcessingPriority = .normal) async {
         AppLog.shared.documents("Adding document '\(document.fileName)' to queue with priority \(priority.displayName)")
+        
+        // Dedupe: never queue the same document twice — a second insert would
+        // overwrite processingTasks[document.id] and strand the first task.
+        guard !processingQueue.contains(where: { $0.document.id == document.id }),
+              processingTasks[document.id] == nil else {
+            AppLog.shared.documents("Document already queued or processing — ignoring duplicate queue add", level: .warning)
+            return
+        }
         
         let queueItem = ProcessingQueueItem(
             document: document,
@@ -284,6 +329,11 @@ class DocumentProcessor: ObservableObject {
             // Process the document
             AppLog.shared.documents("Starting document processing pipeline for '\(currentItem.document.fileName)'")
             let result = try await processDocument(currentItem.document)
+            // Cancellation checkpoint: OCR/Vision don't observe task
+            // cancellation, so this is the first reliable place to stop a
+            // cancelled run (e.g. the document was deleted mid-extraction)
+            // before it writes anything back to the database.
+            try Task.checkCancellation()
             AppLog.shared.documents("Document text extraction completed -- \(result.extractedText.count) chars, confidence: \(String(format: "%.0f", result.confidence * 100))%")
 
             try validateConfiguredExtractionProvider()
@@ -296,6 +346,11 @@ class DocumentProcessor: ObservableObject {
             // Extract medical document information (sections, metadata, etc.)
             AppLog.shared.documents("Starting medical document extraction (sections, metadata)")
             var medicalDocument: MedicalDocument?
+
+            // Preserve user-entered fields across reprocessing (thumbnail path,
+            // AI-context toggle, edits): saveMedicalDocument is a full-column
+            // INSERT OR REPLACE and would otherwise wipe them.
+            let existingDocument = try await databaseManager.fetchMedicalDocument(id: currentItem.document.id)
 
             do {
                 let extractor = MedicalDocumentExtractor()
@@ -336,24 +391,24 @@ class DocumentProcessor: ObservableObject {
                     fileName: currentItem.document.fileName,
                     fileType: currentItem.document.fileType,
                     filePath: currentItem.document.filePath,
-                    thumbnailPath: currentItem.document.thumbnailPath,
+                    thumbnailPath: existingDocument?.thumbnailPath ?? currentItem.document.thumbnailPath,
                     processingStatus: .completed,
-                    documentDate: extractionResult.documentDate,
-                    providerName: extractionResult.providerName,
-                    providerType: extractionResult.providerType,
+                    documentDate: extractionResult.documentDate ?? existingDocument?.documentDate,
+                    providerName: extractionResult.providerName ?? existingDocument?.providerName,
+                    providerType: extractionResult.providerType ?? existingDocument?.providerType,
                     documentCategory: finalCategory,
                     extractedText: extractedText.isEmpty ? nil : extractedText,
                     rawDoclingOutput: nil,
                     extractedSections: extractionResult.extractedSections,
-                    includeInAIContext: false, // User must explicitly enable
-                    contextPriority: 3,
+                    includeInAIContext: existingDocument?.includeInAIContext ?? false, // User must explicitly enable
+                    contextPriority: existingDocument?.contextPriority ?? 3,
                     extractedHealthData: extractedHealthData,
                     importedAt: currentItem.document.importedAt,
                     processedAt: Date(),
-                    lastEditedAt: nil,
+                    lastEditedAt: existingDocument?.lastEditedAt,
                     fileSize: currentItem.document.fileSize,
-                    tags: currentItem.document.tags,
-                    notes: currentItem.document.notes
+                    tags: existingDocument?.tags ?? currentItem.document.tags,
+                    notes: existingDocument?.notes ?? currentItem.document.notes
                 )
 
                 // Save as MedicalDocument
@@ -369,6 +424,11 @@ class DocumentProcessor: ObservableObject {
                     }
                 }
             } catch {
+                // Cancellation must not fall through to the fallback save path
+                // (it would write after a pause/clear/delete).
+                if Task.isCancelled || error is CancellationError {
+                    throw error
+                }
                 AppLog.shared.documents("Medical document extraction failed: \(error.localizedDescription)", level: .warning)
 
                 // Fallback: Still create a MedicalDocument with at least the extracted text
@@ -386,24 +446,24 @@ class DocumentProcessor: ObservableObject {
                         fileName: currentItem.document.fileName,
                         fileType: currentItem.document.fileType,
                         filePath: currentItem.document.filePath,
-                        thumbnailPath: currentItem.document.thumbnailPath,
+                        thumbnailPath: existingDocument?.thumbnailPath ?? currentItem.document.thumbnailPath,
                         processingStatus: .completed,
-                        documentDate: nil,
-                        providerName: nil,
-                        providerType: nil,
+                        documentDate: existingDocument?.documentDate,
+                        providerName: existingDocument?.providerName,
+                        providerType: existingDocument?.providerType,
                         documentCategory: finalCategory,
                         extractedText: cleanedText.isEmpty ? nil : cleanedText,
                         rawDoclingOutput: nil,
                         extractedSections: [],
-                        includeInAIContext: false,
-                        contextPriority: 3,
+                        includeInAIContext: existingDocument?.includeInAIContext ?? false,
+                        contextPriority: existingDocument?.contextPriority ?? 3,
                         extractedHealthData: extractedHealthData,
                         importedAt: currentItem.document.importedAt,
                         processedAt: Date(),
-                        lastEditedAt: nil,
+                        lastEditedAt: existingDocument?.lastEditedAt,
                         fileSize: currentItem.document.fileSize,
-                        tags: currentItem.document.tags,
-                        notes: currentItem.document.notes
+                        tags: existingDocument?.tags ?? currentItem.document.tags,
+                        notes: existingDocument?.notes ?? currentItem.document.notes
                     )
                     try await databaseManager.saveMedicalDocument(fallbackDocument)
                     medicalDocument = fallbackDocument
@@ -457,6 +517,16 @@ class DocumentProcessor: ObservableObject {
 
         } catch {
             await settingsManager.releaseOnDeviceExtractionModel()
+            
+            // User-driven cancellation (pause/clear queue, document delete):
+            // never retry or re-queue. Restore .pending so the document can be
+            // resumed; a deleted row's notFound update fails silently.
+            if Task.isCancelled || error is CancellationError {
+                AppLog.shared.documents("Processing cancelled for document — restoring pending status", level: .warning)
+                try? await databaseManager.updateDocumentStatus(currentItem.document.id, status: .pending)
+                return
+            }
+            
             AppLog.shared.error("Processing failed for '\(currentItem.document.fileName)': \(error.localizedDescription)", error: error, category: .documents)
             
             // Log specific error types and check for known iOS permission issues
@@ -555,7 +625,11 @@ class DocumentProcessor: ObservableObject {
 
         if !fileExists {
             AppLog.shared.documents("File not found at expected path, searching for file by name...", level: .debug)
-            if let correctedPath = fileSystemManager.findDocumentByFileName(document.fileName) {
+            // Match on the stored (UUID-prefixed) filename — it survives container
+            // path changes, and an exact match cannot rebind to another document
+            // that happens to share a display name.
+            let storedFileName = document.filePath.lastPathComponent
+            if let correctedPath = fileSystemManager.findDocumentByFileName(storedFileName) {
                 AppLog.shared.documents("Found file at corrected path: \(correctedPath)")
                 finalFilePath = correctedPath
                 try await databaseManager.updateDocumentFilePath(document.id, filePath: correctedPath)
@@ -894,13 +968,13 @@ class DocumentProcessor: ObservableObject {
             metadata["import_groups_count"] = String(reconciled.needsReview.count)
             bloodTest.metadata = metadata
 
-            pendingImportReview = PendingImportReview(
+            enqueueImportReview(PendingImportReview(
                 documentId: document.id,
                 documentName: document.fileName,
                 importGroups: reconciled.needsReview,
                 autoAcceptedGroups: reconciled.autoAccepted,
                 bloodTestResult: bloodTest
-            )
+            ))
         }
 
         return bloodTest
@@ -1084,7 +1158,7 @@ class DocumentProcessor: ObservableObject {
                 )
 
                 await MainActor.run {
-                    self.pendingImportReview = pendingReview
+                    self.enqueueImportReview(pendingReview)
                 }
 
                 AppLog.shared.documents("Set pending import review from item-based mapping - UI should show review sheet")
@@ -1498,7 +1572,7 @@ class DocumentProcessor: ObservableObject {
     private func sendProcessingSuccessNotification(for document: MedicalDocument) async {
         let content = UNMutableNotificationContent()
         content.title = "Document Processed"
-        content.body = "Successfully processed \(document.fileName)"
+        content.body = "Your document has been processed successfully"
         content.sound = .default
         
         let request = UNNotificationRequest(
@@ -1513,7 +1587,7 @@ class DocumentProcessor: ObservableObject {
     private func sendProcessingFailureNotification(for document: MedicalDocument, error: Error) async {
         let content = UNMutableNotificationContent()
         content.title = "Document Processing Failed"
-        content.body = "Failed to process \(document.fileName): \(error.localizedDescription)"
+        content.body = "A document failed to process: \(error.localizedDescription)"
         content.sound = .default
         
         let request = UNNotificationRequest(
@@ -1526,7 +1600,8 @@ class DocumentProcessor: ObservableObject {
     }
     
     private func sendProcessingCompletionNotification() async {
-        guard !processingQueue.isEmpty else { return }
+        // Only announce completion once the queue has actually drained.
+        guard processingQueue.isEmpty else { return }
         
         let content = UNMutableNotificationContent()
         content.title = "Processing Complete"
@@ -1546,6 +1621,15 @@ class DocumentProcessor: ObservableObject {
     private func loadPendingDocuments() {
         Task {
             do {
+                // A crash/force-quit mid-processing leaves rows stuck at
+                // `.processing` with no task owning them. Reset them so the
+                // user gets the Failed + Retry path instead of a dead spinner.
+                let stuckDocuments = try await databaseManager.fetchDocuments(with: .processing)
+                for document in stuckDocuments {
+                    AppLog.shared.documents("Recovering stuck document from interrupted processing run", level: .warning)
+                    try await databaseManager.updateDocumentStatus(document.id, status: .failed)
+                }
+                
                 let pendingDocuments = try await databaseManager.fetchDocuments(with: .queued)
                 for document in pendingDocuments {
                     await addToQueue(document)

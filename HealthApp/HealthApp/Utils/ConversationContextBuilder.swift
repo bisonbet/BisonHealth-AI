@@ -163,7 +163,11 @@ struct ConversationContextBuilder {
                 includedMessages.insert(message, at: 0) // Maintain chronological order
                 totalTokens += messageTokens
             } else {
-                trimmedCount += 1
+                // Stop at the first (newest) message that doesn't fit: including
+                // older, smaller messages after skipping a newer one would hand
+                // the model a non-contiguous history with a hole in the middle.
+                trimmedCount = messages.count - includedMessages.count
+                break
             }
         }
 

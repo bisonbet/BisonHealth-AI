@@ -229,7 +229,7 @@ class NativeDocumentExtractor {
     ///   - fileType: The document's type
     /// - Returns: Extracted text with metadata about extraction method and quality
     func extractText(from url: URL, fileType: DocumentType) async throws -> ExtractionResult {
-        AppLog.shared.documents("Starting on-device extraction from \(url.lastPathComponent) (type: \(fileType.rawValue))")
+        AppLog.shared.documents("Starting on-device extraction from '\(url.lastPathComponent)' (type: \(fileType.rawValue))")
 
         guard FileManager.default.fileExists(atPath: url.path) else {
             AppLog.shared.documents("File not found at path: \(url.path)", level: .error)
@@ -257,10 +257,10 @@ class NativeDocumentExtractor {
     ///   - fileName: Original filename (for logging)
     /// - Returns: Extracted text with metadata
     func extractText(from data: Data, fileType: DocumentType, fileName: String) async throws -> ExtractionResult {
-        AppLog.shared.documents("Starting on-device extraction from data (\(data.count) bytes, type: \(fileType.rawValue), file: \(fileName))")
+        AppLog.shared.documents("Starting on-device extraction from data (\(data.count) bytes, type: \(fileType.rawValue), file: '\(fileName)')")
 
         guard !data.isEmpty else {
-            AppLog.shared.documents("Document data is empty for file: \(fileName)", level: .error)
+            AppLog.shared.documents("Document data is empty for file: '\(fileName)'", level: .error)
             throw NativeExtractionError.emptyDocument
         }
 
@@ -306,7 +306,12 @@ class NativeDocumentExtractor {
         var pagesNeedingOCR: [Int] = []
 
         for i in 0..<pageCount {
-            guard let page = pdfDocument.page(at: i) else { continue }
+            guard let page = pdfDocument.page(at: i) else {
+                // Keep finalPages indices aligned with pageCount even when a
+                // page fails to load — the OCR loop below indexes by page number.
+                pdfKitPages.append(PageText(pageNumber: i + 1, text: "", observations: nil))
+                continue
+            }
             let pageText = page.string ?? ""
             let trimmed = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -409,11 +414,11 @@ class NativeDocumentExtractor {
     private func extractFromImageData(_ data: Data, fileName: String) async throws -> ExtractionResult {
         guard let uiImage = UIImage(data: data),
               let rawCGImage = uiImage.cgImage else {
-            AppLog.shared.documents("Could not create UIImage/CGImage from data (\(data.count) bytes) for \(fileName)", level: .error)
+            AppLog.shared.documents("Could not create UIImage/CGImage from data (\(data.count) bytes) for '\(fileName)'", level: .error)
             throw NativeExtractionError.ocrFailed("Could not create image from data")
         }
 
-        AppLog.shared.documents("Processing image \(fileName) (\(rawCGImage.width)x\(rawCGImage.height) px)")
+        AppLog.shared.documents("Processing image '\(fileName)' (\(rawCGImage.width)x\(rawCGImage.height) px)")
 
         // Photos are often taken at an angle in poor light — clean up before OCR
         let cgImage = await preprocessImageForOCR(rawCGImage)
@@ -423,7 +428,7 @@ class NativeDocumentExtractor {
         let reconstructedText = reconstructTextWithLayout(from: ocrResult.observations, pageSize: imageSize)
 
         guard !reconstructedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            AppLog.shared.documents("No text extracted from image \(fileName)", level: .error)
+            AppLog.shared.documents("No text extracted from image '\(fileName)'", level: .error)
             throw NativeExtractionError.allPagesEmpty
         }
 

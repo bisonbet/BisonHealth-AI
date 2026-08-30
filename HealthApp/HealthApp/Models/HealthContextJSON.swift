@@ -20,7 +20,9 @@ struct HealthContextJSON {
         var json: [String: Any] = [:]
 
         // Timestamp
-        json["timestamp"] = ISO8601DateFormatter().string(from: Date())
+        // Day precision: a per-second timestamp would change the context every
+        // send and defeat the MLX ChatSession signature (KV-cache reuse).
+        json["timestamp"] = ISO8601DateFormatter().string(from: Calendar.current.startOfDay(for: Date()))
 
         // Selected data types
         let selectedTypes = context.selectedDataTypes.map { $0.jsonKey }

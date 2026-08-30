@@ -60,7 +60,7 @@ class DocumentImporter: NSObject, ObservableObject {
             
             AppLog.shared.documents("Getting lastPathComponent...")
             let fileName = url.lastPathComponent
-            AppLog.shared.documents("Successfully got fileName: \(fileName)")
+            AppLog.shared.documents("Successfully got fileName: '\(fileName)'")
             
             AppLog.shared.documents("Getting pathExtension...")
             let fileExtension = url.pathExtension.lowercased()
@@ -144,9 +144,10 @@ class DocumentImporter: NSObject, ObservableObject {
                         for: storedURL,
                         documentType: fileType
                     ) {
-                        var updatedDocument = document
-                        updatedDocument.thumbnailPath = thumbnailURL
-                        try await databaseManager.saveDocument(updatedDocument)
+                        // Update ONLY the thumbnail column: a full-row save here
+                        // races the processing pipeline and can resurrect a
+                        // pre-processing status snapshot.
+                        try await databaseManager.updateDocumentThumbnailPath(document.id, thumbnailPath: thumbnailURL)
                     }
                 } catch {
                     // Thumbnail generation failure is not critical

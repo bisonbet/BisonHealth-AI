@@ -279,10 +279,10 @@ class AIChatManager: ObservableObject {
         AppLog.shared.ai("Generating title for conversation with \(conversation.messages.count) messages")
         do {
             let generatedTitle = try await generateConversationTitle(for: conversation)
-            AppLog.shared.ai("Generated title: '\(generatedTitle)'")
+            // Do not log titles: they are derived from the user's health messages (PHI)
             if !generatedTitle.isEmpty && generatedTitle != "New Conversation" {
                 try await updateConversationTitle(conversation, newTitle: generatedTitle)
-                AppLog.shared.ai("Successfully updated conversation title to: '\(generatedTitle)'")
+                AppLog.shared.ai("Updated conversation title")
             } else {
                 AppLog.shared.ai("Generated title was empty or unchanged", level: .warning)
             }
@@ -464,8 +464,19 @@ class AIChatManager: ObservableObject {
             if let index = conversations.firstIndex(where: { $0.id == conversation.id }),
                let messageIndex = conversations[index].messages.firstIndex(where: { $0.id == userMessage.id }) {
                 conversations[index].messages[messageIndex].markFailed(error: error.localizedDescription)
-                currentConversation = conversations[index]
+                if currentConversation?.id == conversation.id {
+                    currentConversation = conversations[index]
+                }
             }
+
+            // A failed stream leaves an empty assistant placeholder behind —
+            // drop it so the conversation doesn't accumulate blank bubbles.
+            if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
+                conversations[index].messages.removeAll { $0.role == .assistant && $0.content.isEmpty }
+            }
+
+            // Persist the failed flag so the message stays retryable after restart
+            try? await databaseManager.markMessageFailed(conversationId: conversation.id, messageId: userMessage.id)
 
             // Handle error with global error handler
             errorHandler.handle(
@@ -487,8 +498,19 @@ class AIChatManager: ObservableObject {
 
     /// Retry a failed message
     func retryFailedMessage(_ message: ChatMessage, conversationId: UUID) async {
-        guard message.canRetry else {
+        // Re-resolve current state: callers may pass a pre-failure snapshot
+        // (the error alert captures the original struct before markFailed).
+        var resolvedMessage = message
+        if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
+           let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
+            resolvedMessage = conversations[convIndex].messages[msgIndex]
+        }
+        guard resolvedMessage.canRetry else {
             AppLog.shared.ai("Cannot retry message: not a failed user message", level: .warning)
+            return
+        }
+        guard !isSendingMessage else {
+            AppLog.shared.ai("Retry skipped: a send is already in flight", level: .warning)
             return
         }
 
@@ -558,9 +580,12 @@ class AIChatManager: ObservableObject {
         pendingStreamingContent = content
         pendingStreamingIds = (conversationId, messageId)
         
-        // If a task is already running, we don't need to do anything.
-        // It will pick up the latest 'pendingStreamingContent' when it wakes up.
-        if streamingUpdateTask != nil {
+        // If a live task is already running, it will pick up the latest
+        // 'pendingStreamingContent' when it wakes up. A cancelled-but-not-yet-
+        // collected task must not block a new one, or live streaming dies for
+        // the rest of the session (the catch below clears it, but the slot can
+        // briefly outlive the cancellation).
+        if let existing = streamingUpdateTask, !existing.isCancelled {
             return
         }
 
@@ -573,7 +598,10 @@ class AIChatManager: ObservableObject {
                 try await Task.sleep(nanoseconds: UInt64(Constants.streamingDebounceInterval * 1_000_000_000))
                 
                 // Check if task was cancelled
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    self.streamingUpdateTask = nil
+                    return
+                }
 
                 // Apply the LATEST pending content
                 if let content = self.pendingStreamingContent,
@@ -582,7 +610,11 @@ class AIChatManager: ObservableObject {
                     if let conversationIndex = self.conversations.firstIndex(where: { $0.id == ids.conversationId }),
                        let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == ids.messageId }) {
                         self.conversations[conversationIndex].messages[messageIndex].content = content
-                        self.currentConversation = self.conversations[conversationIndex]
+                        // Never yank the user back: only refresh the published
+                        // conversation if they are still viewing this one.
+                        if self.currentConversation?.id == ids.conversationId {
+                            self.currentConversation = self.conversations[conversationIndex]
+                        }
                     }
                 }
                 
@@ -590,7 +622,9 @@ class AIChatManager: ObservableObject {
                 self.streamingUpdateTask = nil
                 
             } catch is CancellationError {
-                // Expected
+                // Expected: finalize cancels the sleeping task. The slot MUST be
+                // cleared here or every subsequent turn's live updates are dropped.
+                self.streamingUpdateTask = nil
             } catch {
                 AppLog.shared.ai("Streaming throttle error: \(error)", level: .debug)
                 self.streamingUpdateTask = nil
@@ -612,7 +646,11 @@ class AIChatManager: ObservableObject {
         if let conversationIndex = self.conversations.firstIndex(where: { $0.id == conversationId }),
            let messageIndex = self.conversations[conversationIndex].messages.firstIndex(where: { $0.id == messageId }) {
             self.conversations[conversationIndex].messages[messageIndex] = finalMessage
-            self.currentConversation = self.conversations[conversationIndex]
+            // Never yank the user back: only refresh the published
+            // conversation if they are still viewing this one.
+            if self.currentConversation?.id == conversationId {
+                self.currentConversation = self.conversations[conversationIndex]
+            }
         }
     }
 
@@ -713,6 +751,14 @@ class AIChatManager: ObservableObject {
                             processingTime: finalResponse.responseTime
                         )
 
+                        // If the placeholder is gone the conversation was cleared
+                        // (or reset) mid-stream: do not resurrect the reply.
+                        guard let conversation = self.conversations.first(where: { $0.id == conversationId }),
+                              conversation.messages.contains(where: { $0.id == streamingMessageId }) else {
+                            AppLog.shared.ai("Discarding streamed reply: conversation cleared mid-stream", level: .warning)
+                            return
+                        }
+
                         // Save final message to database
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
@@ -778,6 +824,14 @@ class AIChatManager: ObservableObject {
                             tokens: finalResponse.tokenCount,
                             processingTime: finalResponse.responseTime
                         )
+
+                        // If the placeholder is gone the conversation was cleared
+                        // (or reset) mid-stream: do not resurrect the reply.
+                        guard let conversation = self.conversations.first(where: { $0.id == conversationId }),
+                              conversation.messages.contains(where: { $0.id == streamingMessageId }) else {
+                            AppLog.shared.ai("Discarding streamed reply: conversation cleared mid-stream", level: .warning)
+                            return
+                        }
 
                         // Save final message to database
                         do {
@@ -847,6 +901,14 @@ class AIChatManager: ObservableObject {
                             processingTime: finalResponse.responseTime
                         )
 
+                        // If the placeholder is gone the conversation was cleared
+                        // (or reset) mid-stream: do not resurrect the reply.
+                        guard let conversation = self.conversations.first(where: { $0.id == conversationId }),
+                              conversation.messages.contains(where: { $0.id == streamingMessageId }) else {
+                            AppLog.shared.ai("Discarding streamed reply: conversation cleared mid-stream", level: .warning)
+                            return
+                        }
+
                         do {
                             try await self.databaseManager.addMessage(to: conversationId, message: finalMessage)
                             await self.finalizeStreamingMessage(conversationId, messageId: streamingMessageId, finalMessage: finalMessage)
@@ -880,7 +942,23 @@ class AIChatManager: ObservableObject {
             // If context is empty, it means we're using an exception model with embedded instructions
             // In this case, don't modify anything - content already has everything formatted
 
-            let response = try await aiClient.sendMessage(content, context: fullContext)
+            // Build conversation history for multi-turn support (mirrors the
+            // streaming path): exclude the current user message and empties.
+            let conversationHistory: [ChatMessage]
+            if let conversation = conversations.first(where: { $0.id == conversationId }) {
+                let allMessages = conversation.messages
+                if let lastUserMessageIndex = allMessages.lastIndex(where: { $0.role == .user }) {
+                    var messagesWithoutCurrent = allMessages
+                    messagesWithoutCurrent.remove(at: lastUserMessageIndex)
+                    conversationHistory = messagesWithoutCurrent.filter { !$0.content.isEmpty }
+                } else {
+                    conversationHistory = allMessages.filter { !$0.content.isEmpty }
+                }
+            } else {
+                conversationHistory = []
+            }
+
+            let response = try await aiClient.sendMessage(content, context: fullContext, conversationHistory: conversationHistory)
             let processingTime = Date().timeIntervalSince(startTime)
 
             // Create assistant message
@@ -897,7 +975,9 @@ class AIChatManager: ObservableObject {
             // Update local conversation
             if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
                 conversations[index].addMessage(assistantMessage)
-                currentConversation = conversations[index]
+                if currentConversation?.id == conversationId {
+                    currentConversation = conversations[index]
+                }
                 
                 // Generate title after first exchange if still using default title
                 await generateTitleIfNeeded(for: conversations[index])

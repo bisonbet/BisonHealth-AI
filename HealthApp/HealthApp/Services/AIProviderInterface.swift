@@ -12,9 +12,16 @@ protocol AIProviderInterface: ObservableObject, Sendable {
     var lastError: Error? { get }
     
     func testConnection() async throws -> Bool
-    func sendMessage(_ message: String, context: String) async throws -> AIResponse
+    func sendMessage(_ message: String, context: String, conversationHistory: [ChatMessage]) async throws -> AIResponse
     func getCapabilities() async throws -> AICapabilities
     func updateConfiguration(_ config: AIProviderConfig) async throws
+}
+
+extension AIProviderInterface {
+    /// Convenience for callers without conversation history (extraction pipeline, connection tests).
+    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+        try await sendMessage(message, context: context, conversationHistory: [])
+    }
 }
 
 // MARK: - AI Response Protocol
@@ -77,7 +84,7 @@ final class ScriptedAIProvider: ObservableObject, AIProviderInterface {
         return true
     }
 
-    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+    func sendMessage(_ message: String, context: String, conversationHistory: [ChatMessage]) async throws -> AIResponse {
         requests.append(ScriptedAIRequest(message: message, context: context))
 
         if !queuedResponses.isEmpty {

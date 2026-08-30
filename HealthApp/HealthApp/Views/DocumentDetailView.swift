@@ -18,6 +18,10 @@ struct DocumentDetailView: View {
     @State private var showingCloudReextractConfirmation = false
     @State private var newTag = ""
     @State private var editedNotes = ""
+    /// Decrypted temp copy for sharing (storage keeps files encrypted at rest).
+    @State private var shareURL: URL?
+    /// User-visible failure message for share/delete actions.
+    @State private var actionError: String?
 
     init(
         document: MedicalDocument,
@@ -74,7 +78,20 @@ struct DocumentDetailView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button("Share", systemImage: "square.and.arrow.up") {
-                            showingShareSheet = true
+                            // Files are encrypted at rest — decrypt to a temp
+                            // copy before handing anything to the share sheet.
+                            Task {
+                                do {
+                                    let data = try FileSystemManager.shared.retrieveDocument(from: document.filePath)
+                                    let tempURL = FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("share_\(UUID().uuidString)_\(document.fileName)")
+                                    try data.write(to: tempURL)
+                                    shareURL = tempURL
+                                    showingShareSheet = true
+                                } catch {
+                                    actionError = "Could not prepare the document for sharing: \(error.localizedDescription)"
+                                }
+                            }
                         }
                         
                         Button("Quick Look", systemImage: "eye") {
@@ -95,8 +112,16 @@ struct DocumentDetailView: View {
         .sheet(isPresented: $showingQuickLook) {
             QuickLookView(url: document.filePath)
         }
-        .sheet(isPresented: $showingShareSheet) {
-            DocumentShareSheet(items: [document.filePath])
+        .sheet(isPresented: $showingShareSheet, onDismiss: {
+            // Clean up the decrypted temp copy after sharing.
+            if let url = shareURL {
+                try? FileManager.default.removeItem(at: url)
+                shareURL = nil
+            }
+        }) {
+            if let url = shareURL {
+                DocumentShareSheet(items: [url])
+            }
         }
         .sheet(isPresented: $showingTagEditor) {
             TagEditorSheet(
@@ -126,6 +151,11 @@ struct DocumentDetailView: View {
                             await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
                             showingImportReview = false
                         }
+                    },
+                    onCancel: {
+                        // Cancel = discard this review; promote the next queued one.
+                        documentProcessor.discardPendingImportReview(for: review.documentId)
+                        showingImportReview = false
                     }
                 )
             }
@@ -142,12 +172,26 @@ struct DocumentDetailView: View {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
                 Task {
-                    await documentManager.deleteDocument(document)
-                    dismiss()
+                    // deleteDocument returns false on failure — keep the view
+                    // on screen and surface the error instead of silently
+                    // dismissing as if it had worked.
+                    if await documentManager.deleteDocument(document) {
+                        dismiss()
+                    } else {
+                        actionError = "The document could not be deleted. Please try again."
+                    }
                 }
             }
         } message: {
             Text("Are you sure you want to delete \"\(document.fileName)\"? This action cannot be undone.")
+        }
+        .alert("Action Failed", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(actionError ?? "An unexpected error occurred.")
         }
     }
     
@@ -517,9 +561,9 @@ struct DocumentDetailView: View {
             try await healthDataManager.addBloodTest(updatedBloodTest)
             AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
             
-            // Clear pending review
+            // Clear pending review and promote the next queued one
             await MainActor.run {
-                documentProcessor.pendingImportReview = nil
+                documentProcessor.finishPendingImportReview()
             }
         } catch {
             AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)

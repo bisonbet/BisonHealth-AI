@@ -15,12 +15,16 @@ extension DatabaseManager {
             let tagsJson = try JSONEncoder().encode(conversation.tags)
             let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
             
+            let personalInfoJson = try JSONEncoder().encode(Array(conversation.includedPersonalInfoCategories))
+            let personalInfoString = String(data: personalInfoJson, encoding: .utf8) ?? "[]"
+            
             let insert = chatConversationsTable.insert(or: .replace,
                 conversationId <- conversation.id.uuidString,
-                conversationTitle <- conversation.title,
+                conversationTitle <- try encryptString(conversation.title).base64EncodedString(),
                 conversationCreatedAt <- Int64(conversation.createdAt.timeIntervalSince1970),
                 conversationUpdatedAt <- Int64(conversation.updatedAt.timeIntervalSince1970),
                 conversationIncludedDataTypes <- dataTypesString,
+                conversationIncludedPersonalInfo <- personalInfoString,
                 conversationIsArchived <- conversation.isArchived,
                 conversationTags <- tagsString
             )
@@ -32,11 +36,16 @@ extension DatabaseManager {
                 try await saveMessage(message, conversationId: conversation.id)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.encryptionFailed
         }
     }
     
     // MARK: - Fetch Conversations
+    // ponytail: this eagerly decrypts every message of every conversation at
+    // startup and keeps them in memory. Fine at beta scale; page/lazy-load if
+    // long histories make launch slow.
     func fetchConversations() async throws -> [ChatConversation] {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
@@ -53,6 +62,8 @@ extension DatabaseManager {
                 results.append(conversation)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
         
@@ -76,6 +87,8 @@ extension DatabaseManager {
                 results.append(conversation)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
         
@@ -95,6 +108,8 @@ extension DatabaseManager {
             
             return nil
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
     }
@@ -110,11 +125,15 @@ extension DatabaseManager {
             let tagsJson = try JSONEncoder().encode(conversation.tags)
             let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
             
+            let personalInfoJson = try JSONEncoder().encode(Array(conversation.includedPersonalInfoCategories))
+            let personalInfoString = String(data: personalInfoJson, encoding: .utf8) ?? "[]"
+            
             let query = chatConversationsTable.filter(conversationId == conversation.id.uuidString)
             let update = query.update(
-                conversationTitle <- conversation.title,
+                conversationTitle <- try encryptString(conversation.title).base64EncodedString(),
                 conversationUpdatedAt <- Int64(conversation.updatedAt.timeIntervalSince1970),
                 conversationIncludedDataTypes <- dataTypesString,
+                conversationIncludedPersonalInfo <- personalInfoString,
                 conversationIsArchived <- conversation.isArchived,
                 conversationTags <- tagsString
             )
@@ -198,6 +217,8 @@ extension DatabaseManager {
             
             try db.run(insert)
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.encryptionFailed
         }
     }
@@ -219,6 +240,8 @@ extension DatabaseManager {
                 results.append(message)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
         
@@ -243,6 +266,8 @@ extension DatabaseManager {
                 results.append(conversation)
             }
         } catch {
+            // Preserve the underlying cause in the log before mapping to the generic error
+            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
             throw DatabaseError.decryptionFailed
         }
         
@@ -287,7 +312,7 @@ extension DatabaseManager {
     // MARK: - Helper Methods
     private func buildChatConversation(from row: Row) async throws -> ChatConversation {
         let id = UUID(uuidString: row[conversationId]) ?? UUID()
-        let title = row[conversationTitle]
+        let title = decryptTextField(row[conversationTitle]) ?? row[conversationTitle]
         let createdAt = Date(timeIntervalSince1970: TimeInterval(row[conversationCreatedAt]))
         let updatedAt = Date(timeIntervalSince1970: TimeInterval(row[conversationUpdatedAt]))
         let isArchived = row[conversationIsArchived]
@@ -297,6 +322,17 @@ extension DatabaseManager {
         let dataTypesData = dataTypesString.data(using: .utf8) ?? Data()
         let dataTypesArray = (try? JSONDecoder().decode([HealthDataType].self, from: dataTypesData)) ?? []
         let includedDataTypes = Set(dataTypesArray)
+        
+        // Decode included personal info categories. Absent (pre-v11 rows) or
+        // undecodable values intentionally fall back to "all categories" to
+        // match the model decoder's backward-compatibility default.
+        var includedPersonalInfoCategories = Set(PersonalInfoCategory.allCases)
+        if let personalInfoString = row[conversationIncludedPersonalInfo] {
+            let personalInfoData = personalInfoString.data(using: .utf8) ?? Data()
+            if let decoded = try? JSONDecoder().decode([PersonalInfoCategory].self, from: personalInfoData) {
+                includedPersonalInfoCategories = Set(decoded)
+            }
+        }
         
         // Decode tags
         let tagsString = row[conversationTags]
@@ -313,11 +349,31 @@ extension DatabaseManager {
             createdAt: createdAt,
             updatedAt: updatedAt,
             includedHealthDataTypes: includedDataTypes,
+            includedPersonalInfoCategories: includedPersonalInfoCategories,
             isArchived: isArchived,
             tags: tags
         )
     }
     
+    // MARK: - Message Failure Persistence
+    /// Marks a persisted message row as errored so a failed send stays
+    /// retryable after an app restart (is_error drives canRetry on reload).
+    func markMessageFailed(conversationId: UUID, messageId: UUID) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        do {
+            let query = chatMessagesTable.filter(self.messageId == messageId.uuidString)
+            let rows = try db.run(query.update(messageIsError <- true))
+            if rows == 0 {
+                throw DatabaseError.notFound
+            }
+        } catch {
+            if error is DatabaseError { throw error }
+            AppLog.shared.database("Failed to mark message errored: \(error.localizedDescription)", level: .error)
+            throw DatabaseError.encryptionFailed
+        }
+    }
+
     private func buildChatMessage(from row: Row) throws -> ChatMessage {
         let id = UUID(uuidString: row[messageId]) ?? UUID()
         let encryptedContent = row[messageContent]

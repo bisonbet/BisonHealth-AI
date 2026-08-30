@@ -333,7 +333,7 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
     }
 
     // MARK: - Chat Completion
-    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+    func sendMessage(_ message: String, context: String, conversationHistory: [ChatMessage]) async throws -> AIResponse {
         let baseURL = try validatedBaseURLForRequest()
         let messagesURL = baseURL.appendingPathComponent("/v1/chat/completions")
 
@@ -356,6 +356,24 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             messages.append([
                 "role": "system",
                 "content": "Health data (JSON format):\n" + context
+            ])
+        }
+
+        // Use ConversationContextBuilder to trim history within token limits
+        // (same contract as the streaming path)
+        let contextResult = ConversationContextBuilder.buildContext(
+            currentMessage: message,
+            healthContext: context,
+            conversationHistory: conversationHistory,
+            systemPrompt: "",
+            provider: .openAICompatible
+        )
+
+        // Add conversation history (already trimmed to fit)
+        for historyMessage in contextResult.conversationHistory {
+            messages.append([
+                "role": historyMessage.role.rawValue,
+                "content": historyMessage.content
             ])
         }
 
@@ -677,59 +695,49 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             throw providerRequestFailure(operation: "streaming", response: httpResponse)
         }
 
-        // Parse SSE stream
-        var lineBuffer = ""
+        // Parse SSE stream. `bytes.lines` decodes UTF-8 correctly — a byte-wise
+        // Character(UnicodeScalar(byte)) loop would transcode multi-byte
+        // characters (e.g. "—", "°") into Latin-1 mojibake before persistence.
+        for try await rawLine in bytes.lines {
+            guard let dataContent = Self.sseDataPayload(forLine: rawLine) else {
+                continue
+            }
 
-        for try await byte in bytes {
-            let char = Character(UnicodeScalar(byte))
+            // Check for stream end
+            if dataContent == "[DONE]" {
+                AppLog.shared.ai("Stream completed")
+                break
+            }
 
-            if char == "\n" {
-                // Process completed line
-                let line = lineBuffer.trimmingCharacters(in: .whitespaces)
-                lineBuffer = ""
+            // Parse JSON chunk
+            if let chunkData = dataContent.data(using: .utf8) {
+                do {
+                    if let chunk = try JSONSerialization.jsonObject(with: chunkData) as? [String: Any] {
+                        // Extract model if present
+                        if let model = chunk["model"] as? String {
+                            responseModel = model
+                        }
 
-                // Skip empty lines and comments
-                if line.isEmpty || line.hasPrefix(":") {
-                    continue
-                }
-
-                // Parse SSE data field
-                if line.hasPrefix("data: ") {
-                    let dataContent = String(line.dropFirst(6))
-
-                    // Check for stream end
-                    if dataContent == "[DONE]" {
-                        AppLog.shared.ai("Stream completed")
-                        break
-                    }
-
-                    // Parse JSON chunk
-                    if let chunkData = dataContent.data(using: .utf8) {
-                        do {
-                            if let chunk = try JSONSerialization.jsonObject(with: chunkData) as? [String: Any] {
-                                // Extract model if present
-                                if let model = chunk["model"] as? String {
-                                    responseModel = model
-                                }
-
-                                // Extract content delta
-                                if let choices = chunk["choices"] as? [[String: Any]],
-                                   let firstChoice = choices.first,
-                                   let delta = firstChoice["delta"] as? [String: Any],
-                                   let content = delta["content"] as? String {
-                                    accumulatedContent += content
-                                    onUpdate(accumulatedContent)
-                                }
-                            }
-                        } catch {
-                            // Log but continue - some chunks might not parse
-                            AppLog.shared.ai("Failed to parse streaming chunk (\(dataContent.count) bytes)", level: .warning)
+                        // Extract content delta
+                        if let choices = chunk["choices"] as? [[String: Any]],
+                           let firstChoice = choices.first,
+                           let delta = firstChoice["delta"] as? [String: Any],
+                           let content = delta["content"] as? String {
+                            accumulatedContent += content
+                            onUpdate(accumulatedContent)
                         }
                     }
+                } catch {
+                    // Log but continue - some chunks might not parse
+                    AppLog.shared.ai("Failed to parse streaming chunk (\(dataContent.count) bytes)", level: .warning)
                 }
-            } else {
-                lineBuffer.append(char)
             }
+        }
+
+        // An empty stream means the provider never sent a completion: surface it
+        // as an error instead of returning a blank assistant message.
+        guard !accumulatedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw invalidProviderResponse(operation: "streaming", error: .invalidResponse)
         }
 
         let processingTime = Date().timeIntervalSince(startTime)
@@ -747,6 +755,17 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         AppLog.shared.ai("Streaming complete - \(cleanedContent.count) chars in \(String(format: "%.2f", processingTime))s")
 
         onComplete(finalResponse)
+    }
+
+    /// Returns the data payload of an SSE `data:` line, or nil for non-data
+    /// lines (empty lines, comments, other fields). Tolerates `data:` without
+    /// the trailing space per the SSE spec. The stream terminator is returned
+    /// as "[DONE]" for the caller to check.
+    static func sseDataPayload(forLine line: String) -> String? {
+        let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, !line.hasPrefix(":") else { return nil }
+        guard line.hasPrefix("data:") else { return nil }
+        return String(line.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func parseFlexibleChatContent(from data: Data) throws -> (content: String, model: String?, totalTokens: Int?) {

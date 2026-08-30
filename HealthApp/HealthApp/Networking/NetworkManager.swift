@@ -59,68 +59,6 @@ class NetworkManager: ObservableObject {
         AppLog.shared.networking("🌐 NetworkManager: Stopped monitoring network connectivity")
     }
 
-    /// Check if a specific host is reachable
-    func checkReachability(for host: String, port: UInt16) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            let endpoint = NWEndpoint.hostPort(
-                host: NWEndpoint.Host(host),
-                port: NWEndpoint.Port(integerLiteral: port)
-            )
-
-            let connection = NWConnection(to: endpoint, using: .tcp)
-
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    connection.cancel()
-                    continuation.resume(returning: true)
-                case .failed, .waiting:
-                    connection.cancel()
-                    continuation.resume(returning: false)
-                default:
-                    break
-                }
-            }
-
-            // Set timeout
-            DispatchQueue.global().asyncAfter(deadline: .now() + 5.0) {
-                connection.cancel()
-                continuation.resume(returning: false)
-            }
-
-            connection.start(queue: queue)
-        }
-    }
-
-    /// Wait for network to become available
-    func waitForConnection(timeout: TimeInterval = 30.0) async throws {
-        if isConnected {
-            return
-        }
-
-        let startTime = Date()
-
-        return try await withCheckedThrowingContinuation { continuation in
-            var cancellable: AnyCancellable?
-            var hasResumed = false
-
-            cancellable = statusPublisher
-                .sink { status in
-                    guard !hasResumed else { return }
-
-                    if status.isConnected {
-                        hasResumed = true
-                        cancellable?.cancel()
-                        continuation.resume()
-                    } else if Date().timeIntervalSince(startTime) >= timeout {
-                        hasResumed = true
-                        cancellable?.cancel()
-                        continuation.resume(throwing: NetworkError.connectionTimeout)
-                    }
-                }
-        }
-    }
-
     // MARK: - Private Methods
 
     private func setupNetworkMonitoring() {

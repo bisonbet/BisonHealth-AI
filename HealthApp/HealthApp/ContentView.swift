@@ -536,6 +536,9 @@ struct DocumentsView: View {
     @State private var viewMode: DocumentViewMode = .list
     @State private var showingDocumentTypeSelector = false
     @State private var pendingDocumentForCategory: MedicalDocument?
+    /// All documents awaiting category selection. Without a queue, a
+    /// multi-file import only ever processed the first document.
+    @State private var pendingCategoryDocuments: [MedicalDocument] = []
     @State private var showingImportReview = false
     @State private var showingGeneticTestReview = false
     @State private var activeAutoImportSummary: AutoImportSummary?
@@ -584,7 +587,9 @@ struct DocumentsView: View {
         }
         .fileImporter(
             isPresented: $showingDocumentPicker,
-            allowedContentTypes: [.pdf, .plainText, .image],
+            // Keep in sync with DocumentImporter.isValidDocumentType: the
+            // importer rejects anything else (e.g. plain text) after picking.
+            allowedContentTypes: [.pdf, .image],
             allowsMultipleSelection: true
         ) { result in
             handleFileImportResult(result)
@@ -630,6 +635,11 @@ struct DocumentsView: View {
                             await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
                             showingImportReview = false
                         }
+                    },
+                    onCancel: {
+                        // Cancel = discard this review; promote the next queued one.
+                        documentProcessor.discardPendingImportReview(for: review.documentId)
+                        showingImportReview = false
                     }
                 )
             }
@@ -705,6 +715,18 @@ struct DocumentsView: View {
                         Task {
                             await documentManager.setDocumentCategoryAndProcess(document.id, category: category)
                             pendingDocumentForCategory = nil
+                            showingDocumentTypeSelector = false
+                            // Present the selector for the next queued document.
+                            // Re-presenting (rather than swapping sheet content)
+                            // gives DocumentTypeSelectorView fresh @State selection.
+                            pendingCategoryDocuments.removeAll { $0.id == document.id }
+                            if let next = pendingCategoryDocuments.first {
+                                pendingDocumentForCategory = next
+                                selectedDocument = next
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                    showingDocumentTypeSelector = true
+                                }
+                            }
                         }
                     }
                 )
@@ -927,10 +949,12 @@ struct DocumentsView: View {
                 let importedDocs = await documentManager.importDocuments(from: urls)
                 AppLog.shared.ui("Document import process completed")
 
-                // Show category selector for first document
-                if let firstDoc = importedDocs.first {
-                    pendingDocumentForCategory = firstDoc
-                    selectedDocument = firstDoc
+                // Queue EVERY imported document for category selection —
+                // a single slot would leave all but the first unprocessed.
+                if !importedDocs.isEmpty {
+                    pendingCategoryDocuments = importedDocs
+                    pendingDocumentForCategory = importedDocs.first
+                    selectedDocument = importedDocs.first
                     showingDocumentTypeSelector = true
                 }
             }
@@ -976,9 +1000,12 @@ struct DocumentsView: View {
             documentManager.documents.sort { $0.importedAt > $1.importedAt }
 
             // Show category selector for first document
-            if let firstDoc = importedDocs.first {
-                pendingDocumentForCategory = firstDoc
-                selectedDocument = firstDoc
+            // Queue EVERY imported photo for category selection — a single
+            // slot would leave all but the first unprocessed.
+            if !importedDocs.isEmpty {
+                pendingCategoryDocuments = importedDocs
+                pendingDocumentForCategory = importedDocs.first
+                selectedDocument = importedDocs.first
                 showingDocumentTypeSelector = true
             }
 
@@ -1065,9 +1092,9 @@ struct DocumentsView: View {
             try await healthDataManager.addBloodTest(updatedBloodTest)
             AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
 
-            // Clear pending review
+            // Clear pending review and promote the next queued one
             await MainActor.run {
-                documentProcessor.pendingImportReview = nil
+                documentProcessor.finishPendingImportReview()
             }
         } catch {
             AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)

@@ -6,6 +6,7 @@ struct BloodTestImportReviewView: View {
 
     @Binding var importGroups: [BloodTestImportGroup]
     let onComplete: ([BloodTestImportGroup]) -> Void
+    var onCancel: (() -> Void)? = nil
 
     @State private var showingAcceptAllConfirmation = false
     @State private var selectedIds: [UUID: UUID] = [:] // groupId -> candidateId
@@ -19,18 +20,21 @@ struct BloodTestImportReviewView: View {
     init(
         importGroups: Binding<[BloodTestImportGroup]>,
         autoAcceptedGroups: [BloodTestImportGroup] = [],
-        onComplete: @escaping ([BloodTestImportGroup]) -> Void
+        onComplete: @escaping ([BloodTestImportGroup]) -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         self._importGroups = importGroups
         self._autoAcceptedGroups = State(initialValue: autoAcceptedGroups)
         self.onComplete = onComplete
+        self.onCancel = onCancel
     }
 
     // Convenience initializer for non-binding usage
     init(
         importGroups: [BloodTestImportGroup],
         autoAcceptedGroups: [BloodTestImportGroup] = [],
-        onComplete: @escaping ([BloodTestImportGroup]) -> Void
+        onComplete: @escaping ([BloodTestImportGroup]) -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         self._importGroups = Binding(
             get: { importGroups },
@@ -38,6 +42,7 @@ struct BloodTestImportReviewView: View {
         )
         self._autoAcceptedGroups = State(initialValue: autoAcceptedGroups)
         self.onComplete = onComplete
+        self.onCancel = onCancel
     }
 
     var body: some View {
@@ -72,6 +77,9 @@ struct BloodTestImportReviewView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
+                        // Discard the pending review so the queue can advance;
+                        // the sheet is not swipe-dismissable (see below).
+                        onCancel?()
                         dismiss()
                     }
                     .accessibilityIdentifier("importReviewCancelButton")
@@ -97,6 +105,9 @@ struct BloodTestImportReviewView: View {
             } message: {
                 Text("This will accept all recommended values (highlighted in green).")
             }
+            // The review is a data-entry form: prevent accidental swipe-dismiss
+            // (which would strand the pending review at the queue head).
+            .interactiveDismissDisabled(true)
         }
     }
 

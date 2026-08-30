@@ -195,7 +195,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #endif
     }
 
-    func sendMessage(_ message: String, context: String) async throws -> AIResponse {
+    func sendMessage(_ message: String, context: String, conversationHistory: [ChatMessage]) async throws -> AIResponse {
         #if targetEnvironment(simulator)
         throw MLXOnDeviceError.simulatorNotSupported
         #else
@@ -209,7 +209,22 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
         let startTime = Date()
 
-        let response = try await collectResponse(from: session, to: message)
+        // Single-shot path: replay prior turns as a transcript prefix so
+        // non-streaming sends keep multi-turn context.
+        var prompt = message
+        if !conversationHistory.isEmpty {
+            let transcript = conversationHistory
+                .filter { !$0.content.isEmpty }
+                .map { msg in "\(msg.role == .assistant ? "Assistant" : "User"): \(msg.content)" }
+                .joined(separator: "\n\n")
+            prompt = """
+            Previous conversation:
+            \(transcript)
+
+            User: \(message)
+            """
+        }
+        let response = try await collectResponse(from: session, to: prompt)
         let responseTime = Date().timeIntervalSince(startTime)
 
         return MLXOnDeviceResponse(
@@ -317,6 +332,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         var accumulatedContent = ""
         var stoppedForRepetition = false
         var completionInfo: GenerateCompletionInfo?
+        var lastProgressEmit = Date.distantPast
 
         // The repetition scan walks the whole accumulated response to build a word index,
         // so running it on every chunk is quadratic in the response length. A runaway loop
@@ -353,10 +369,16 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
                     // The scan above already covered this text; re-running it inside the
                     // cleaner would double the per-chunk cost for no benefit.
-                    onUpdate(AIResponseCleaner.cleanConversational(
-                        accumulatedContent,
-                        detectRunawayRepetition: false
-                    ))
+                    // Time-gate the clean+emit: this loop runs on the main actor and
+                    // the manager throttles UI application anyway, so cleaning every
+                    // chunk is wasted main-thread work.
+                    if Date().timeIntervalSince(lastProgressEmit) >= 0.05 {
+                        lastProgressEmit = Date()
+                        onUpdate(AIResponseCleaner.cleanConversational(
+                            accumulatedContent,
+                            detectRunawayRepetition: false
+                        ))
+                    }
                 case .info(let info):
                     completionInfo = info
                 case .toolCall:
@@ -364,6 +386,11 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                 }
             }
         } catch {
+            // A session interrupted mid-turn may carry a partial KV cache —
+            // drop it so the next request rebuilds from persisted history.
+            self.chatSession = nil
+            chatSessionSignature = nil
+
             // If streaming fails partway, still return what we have
             if accumulatedContent.isEmpty {
                 throw MLXOnDeviceError.generationFailed(error.localizedDescription)
@@ -830,8 +857,9 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
         guard let json = Self.parseJSONObject(from: response) else {
             // The tail is where truncation and stray prose show up, and this
             // path is otherwise invisible in the logs.
-            let tail = String(response.suffix(240)).replacingOccurrences(of: "\n", with: " ")
-            AppLog.shared.mlx("[MLXClient] Unparseable VLM page \(pageNumber) output ends: …\(tail)", level: .warning)
+            // Log shape only: the model output is a transcription of the
+            // user's document (PHI) and must never reach the durable log files.
+            AppLog.shared.mlx("[MLXClient] Unparseable VLM page \(pageNumber) output: \(response.count) chars", level: .warning)
 
             let fallbackValues = Self.recoverLabValueJSON(fromPlainText: response, pageNumber: pageNumber)
             if !fallbackValues.isEmpty {
