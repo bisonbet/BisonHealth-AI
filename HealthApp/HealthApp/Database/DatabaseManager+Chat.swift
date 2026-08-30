@@ -250,28 +250,12 @@ extension DatabaseManager {
     
     // MARK: - Search Conversations
     func searchConversations(query: String) async throws -> [ChatConversation] {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        var results: [ChatConversation] = []
-        let searchTerm = "%\(query.lowercased())%"
-        
-        do {
-            let sqlQuery = chatConversationsTable
-                .filter(conversationTitle.like(searchTerm))
-                .order(conversationUpdatedAt.desc)
-            
-            let iterator = try db.prepareRowIterator(sqlQuery)
-            while let row = try iterator.failableNext() {
-                let conversation = try await buildChatConversation(from: row)
-                results.append(conversation)
-            }
-        } catch {
-            // Preserve the underlying cause in the log before mapping to the generic error
-            AppLog.shared.database("Database operation failed: \(error.localizedDescription)", level: .error)
-            throw DatabaseError.decryptionFailed
-        }
-        
-        return results
+        // Titles are encrypted at rest (DB v11) — SQL LIKE can never match a
+        // plaintext term against ciphertext. Search the decrypted in-memory
+        // list; fetchConversations already orders by updated_at descending.
+        let conversations = try await fetchConversations()
+        let searchTerm = query.lowercased()
+        return conversations.filter { $0.title.lowercased().contains(searchTerm) }
     }
     
     // MARK: - Chat Statistics
@@ -370,6 +354,24 @@ extension DatabaseManager {
         } catch {
             if error is DatabaseError { throw error }
             AppLog.shared.database("Failed to mark message errored: \(error.localizedDescription)", level: .error)
+            throw DatabaseError.encryptionFailed
+        }
+    }
+
+    /// Clears the persisted error flag once a retry succeeds, so a restart
+    /// doesn't render the message as failed and re-retryable.
+    func clearMessageError(conversationId: UUID, messageId: UUID) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        do {
+            let query = chatMessagesTable.filter(self.messageId == messageId.uuidString)
+            let rows = try db.run(query.update(messageIsError <- false))
+            if rows == 0 {
+                throw DatabaseError.notFound
+            }
+        } catch {
+            if error is DatabaseError { throw error }
+            AppLog.shared.database("Failed to clear message error flag: \(error.localizedDescription)", level: .error)
             throw DatabaseError.encryptionFailed
         }
     }

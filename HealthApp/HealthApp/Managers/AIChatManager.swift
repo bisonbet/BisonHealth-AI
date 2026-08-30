@@ -516,11 +516,20 @@ class AIChatManager: ObservableObject {
 
         AppLog.shared.ai("Retrying failed message: \(message.id)")
 
+        // Hold the send-in-flight flag for the retry's duration so a new send
+        // cannot interleave with the retried one.
+        isSendingMessage = true
+        defer { isSendingMessage = false }
+
         // Mark message as retrying
         if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
            let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
             conversations[convIndex].messages[msgIndex].markRetrying()
-            currentConversation = conversations[convIndex]
+            // Never yank the user back: only refresh the published
+            // conversation if they are still viewing this one.
+            if currentConversation?.id == conversationId {
+                currentConversation = conversations[convIndex]
+            }
         }
 
         // Use RetryManager to retry sending the message
@@ -544,8 +553,13 @@ class AIChatManager: ObservableObject {
             if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
                let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
                 conversations[convIndex].messages[msgIndex].markSent()
-                currentConversation = conversations[convIndex]
+                if currentConversation?.id == conversationId {
+                    currentConversation = conversations[convIndex]
+                }
             }
+            // Clear the persisted error flag so a restart doesn't render the
+            // message as failed and re-retryable.
+            try? await databaseManager.clearMessageError(conversationId: conversationId, messageId: message.id)
             AppLog.shared.ai("Successfully retried message \(message.id)")
 
         case .failure(let error, let attempts):
@@ -553,7 +567,9 @@ class AIChatManager: ObservableObject {
             if let convIndex = conversations.firstIndex(where: { $0.id == conversationId }),
                let msgIndex = conversations[convIndex].messages.firstIndex(where: { $0.id == message.id }) {
                 conversations[convIndex].messages[msgIndex].markFailed(error: "Failed after \(attempts) attempts: \(error.localizedDescription)")
-                currentConversation = conversations[convIndex]
+                if currentConversation?.id == conversationId {
+                    currentConversation = conversations[convIndex]
+                }
             }
             AppLog.shared.error("Failed to retry message after \(attempts) attempts", error: error, category: .ai)
 

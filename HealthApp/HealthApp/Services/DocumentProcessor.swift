@@ -29,6 +29,14 @@ class DocumentProcessor: ObservableObject {
     /// process concurrently, so a second document can finish while a review
     /// sheet is open — without this queue the overwrite silently loses data.
     private var pendingReviewQueue: [PendingImportReview] = []
+    /// Genetic reviews queued the same way (same single-slot overwrite hazard).
+    private var pendingGeneticReviewQueue: [PendingGeneticTestReview] = []
+    /// Delayed auto-retry re-queues, keyed by document id, so pause/clear/delete
+    /// can cancel them — otherwise a 2–8s timer restarts processing after a pause.
+    private var retryTasks: [UUID: Task<Void, Never>] = [:]
+    /// Drain-loop ownership token: a loop started before a pause must not wipe
+    /// the registry/flag of a loop started after it.
+    private var processingLoopGeneration = 0
     @Published var pendingGeneticTestReview: PendingGeneticTestReview?
     /// Set when an import completed silently (all values auto-accepted) — drives the confirmation banner
     @Published var lastAutoImportSummary: AutoImportSummary?
@@ -64,6 +72,24 @@ class DocumentProcessor: ObservableObject {
     func discardPendingImportReview(for documentId: UUID) {
         if pendingImportReview?.documentId == documentId {
             finishPendingImportReview()
+        }
+    }
+
+    /// Queue-aware setter for genetic reviews (same contract as the import queue).
+    private func enqueueGeneticTestReview(_ review: PendingGeneticTestReview) {
+        if pendingGeneticTestReview == nil {
+            pendingGeneticTestReview = review
+        } else {
+            pendingGeneticReviewQueue.append(review)
+        }
+    }
+
+    /// Promote the next queued genetic review (or clear).
+    func finishPendingGeneticTestReview() {
+        if !pendingGeneticReviewQueue.isEmpty {
+            pendingGeneticTestReview = pendingGeneticReviewQueue.removeFirst()
+        } else {
+            pendingGeneticTestReview = nil
         }
     }
     
@@ -147,6 +173,9 @@ class DocumentProcessor: ObservableObject {
             task.cancel()
             processingTasks.removeValue(forKey: documentId)
         }
+        // Cancel any pending auto-retry for this document
+        retryTasks[documentId]?.cancel()
+        retryTasks.removeValue(forKey: documentId)
         
         // Remove from queue
         processingQueue.removeAll { $0.document.id == documentId }
@@ -170,11 +199,11 @@ class DocumentProcessor: ObservableObject {
             return
         }
 
-        pendingGeneticTestReview = PendingGeneticTestReview(
+        enqueueGeneticTestReview(PendingGeneticTestReview(
             documentId: document.id,
             documentName: document.fileName,
             geneticTestResult: geneticTest
-        )
+        ))
     }
 
     /// Saves a reviewed genetic result back into its source MedicalDocument.
@@ -200,7 +229,7 @@ class DocumentProcessor: ObservableObject {
             await healthDataManager.refreshGeneticTestDocuments()
 
             if pendingGeneticTestReview?.documentId == documentId {
-                pendingGeneticTestReview = nil
+                finishPendingGeneticTestReview()
             }
             return document
         } catch {
@@ -241,12 +270,18 @@ class DocumentProcessor: ObservableObject {
 
         isProcessing = true
         processingProgress = 0.0
+        processingLoopGeneration += 1
+        let loopGeneration = processingLoopGeneration
 
         // Drain until the queue is actually empty. Documents added while a
         // batch is in flight land in `processingQueue` with nothing to pick
         // them up, so a single pass leaves them stuck at `.queued` forever.
         // `isProcessing` is re-checked because `pauseProcessing()` clears it.
         while isProcessing && !processingQueue.isEmpty {
+            // A newer drain loop owns the queue (started after a pause +
+            // re-queue): this one must not keep draining or touch the shared
+            // registry.
+            if processingLoopGeneration != loopGeneration { return }
             while !processingQueue.isEmpty && processingTasks.count < currentConcurrencyLimit {
                 guard let queueItem = processingQueue.first else { break }
 
@@ -273,9 +308,14 @@ class DocumentProcessor: ObservableObject {
                 }
             }
 
-            processingTasks.removeAll()
+            if processingLoopGeneration == loopGeneration {
+                processingTasks.removeAll()
+            }
         }
 
+        // Teardown only if this loop still owns the queue — a newer loop may
+        // already be running after a pause/clear + re-queue.
+        guard processingLoopGeneration == loopGeneration else { return }
         isProcessing = false
         processingProgress = 1.0
 
@@ -298,6 +338,12 @@ class DocumentProcessor: ObservableObject {
             task.cancel()
         }
         processingTasks.removeAll()
+        // Cancel pending auto-retry re-queues so processing does not restart
+        // seconds after the user paused/cleared.
+        for (_, task) in retryTasks {
+            task.cancel()
+        }
+        retryTasks.removeAll()
         isProcessing = false
     }
     
@@ -342,6 +388,11 @@ class DocumentProcessor: ObservableObject {
             AppLog.shared.documents("Extracting health data from processed result")
             let extractedHealthData = try await extractHealthData(from: result, document: currentItem.document)
             AppLog.shared.documents("Health data extraction completed -- found \(extractedHealthData.count) items")
+            // Cancellation checkpoint: the LLM/vision extraction passes are
+            // best-effort and swallow errors (including cancellation)
+            // internally — re-check here so a delete/pause during those passes
+            // cannot proceed to any database write.
+            try Task.checkCancellation()
 
             // Extract medical document information (sections, metadata, etc.)
             AppLog.shared.documents("Starting medical document extraction (sections, metadata)")
@@ -390,12 +441,17 @@ class DocumentProcessor: ObservableObject {
                     id: currentItem.document.id,
                     fileName: currentItem.document.fileName,
                     fileType: currentItem.document.fileType,
-                    filePath: currentItem.document.filePath,
+                    // existingDocument is fetched AFTER processDocument ran
+                    // resolveDocumentFilePath — its path carries any container
+                    // correction, so prefer it over the stale queue-item path.
+                    filePath: existingDocument?.filePath ?? currentItem.document.filePath,
                     thumbnailPath: existingDocument?.thumbnailPath ?? currentItem.document.thumbnailPath,
                     processingStatus: .completed,
-                    documentDate: extractionResult.documentDate ?? existingDocument?.documentDate,
-                    providerName: extractionResult.providerName ?? existingDocument?.providerName,
-                    providerType: extractionResult.providerType ?? existingDocument?.providerType,
+                    // User edits win over re-extraction (lastEditedAt records them);
+                    // extraction output only fills gaps.
+                    documentDate: existingDocument?.documentDate ?? extractionResult.documentDate,
+                    providerName: existingDocument?.providerName ?? extractionResult.providerName,
+                    providerType: existingDocument?.providerType ?? extractionResult.providerType,
                     documentCategory: finalCategory,
                     extractedText: extractedText.isEmpty ? nil : extractedText,
                     rawDoclingOutput: nil,
@@ -445,7 +501,7 @@ class DocumentProcessor: ObservableObject {
                         id: currentItem.document.id,
                         fileName: currentItem.document.fileName,
                         fileType: currentItem.document.fileType,
-                        filePath: currentItem.document.filePath,
+                        filePath: existingDocument?.filePath ?? currentItem.document.filePath,
                         thumbnailPath: existingDocument?.thumbnailPath ?? currentItem.document.thumbnailPath,
                         processingStatus: .completed,
                         documentDate: existingDocument?.documentDate,
@@ -476,11 +532,11 @@ class DocumentProcessor: ObservableObject {
             if let geneticTest = extractedHealthData.compactMap({
                 try? $0.decode(as: GeneticTestResult.self)
             }).first, !geneticTest.reviewIssues.isEmpty {
-                pendingGeneticTestReview = PendingGeneticTestReview(
+                enqueueGeneticTestReview(PendingGeneticTestReview(
                     documentId: currentItem.document.id,
                     documentName: currentItem.document.fileName,
                     geneticTestResult: geneticTest
-                )
+                ))
             }
             
             // Update document with extracted data (fallback if medical extraction failed)
@@ -495,6 +551,9 @@ class DocumentProcessor: ObservableObject {
             
             // Link extracted data to health data manager
             AppLog.shared.documents("Linking extracted data to health data manager")
+            // Cancellation checkpoint: the document may have been deleted
+            // during the medical-extraction step above.
+            try Task.checkCancellation()
             try await healthDataManager.linkExtractedDataToDocument(
                 currentItem.document.id,
                 extractedData: extractedHealthData
@@ -564,10 +623,12 @@ class DocumentProcessor: ObservableObject {
                 let delaySeconds = pow(2.0, Double(currentItem.retryCount))
                 AppLog.shared.documents("Retrying in \(delaySeconds) seconds (attempt \(currentItem.retryCount + 1)/\(maxRetryAttempts))", level: .warning)
                 
-                // Add back to queue with delay
-                Task {
+                // Track the delayed re-queue so pause/clear/delete can cancel it
+                retryTasks[currentItem.document.id] = Task {
                     try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
-                    await addToQueue(currentItem.document, priority: currentItem.priority)
+                    guard !Task.isCancelled else { return }
+                    await self.addToQueue(currentItem.document, priority: currentItem.priority)
+                    self.retryTasks[currentItem.document.id] = nil
                 }
             } else {
                 // Mark as failed
@@ -607,7 +668,7 @@ class DocumentProcessor: ObservableObject {
 
         // Read document data using proper decryption
         let documentData = try fileSystemManager.retrieveDocument(from: finalFilePath)
-        AppLog.shared.documents("Document data read: \(documentData.count) bytes from \(finalFilePath.lastPathComponent)")
+        AppLog.shared.documents("Document data read: \(documentData.count) bytes from '\(finalFilePath.lastPathComponent)'")
 
         guard !documentData.isEmpty else {
             AppLog.shared.documents("Document data is empty for '\(document.fileName)'", level: .error)

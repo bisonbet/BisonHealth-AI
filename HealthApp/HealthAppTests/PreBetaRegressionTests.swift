@@ -71,6 +71,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testConversationPersonalInfoCategoriesPersistRoundTrip() async throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
         guard let excludedCategory = PersonalInfoCategory.allCases.first else {
             return XCTFail("PersonalInfoCategory has no cases")
         }
@@ -91,6 +92,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testChatTitleEncryptedAtRest() async throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
         let conversation = ChatConversation(title: "My Hemoglobin Results Discussion")
         try await harness.databaseManager.saveConversation(conversation)
 
@@ -114,6 +116,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testMedicalDocumentPHIEncryptedAtRestAndRoundTrips() async throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
         let document = MedicalDocument(
             fileName: "Private Lab Report.pdf",
             fileType: .pdf,
@@ -157,6 +160,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testLinkExtractedDataIsIdempotentForSameDocument() async throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
         let documentId = UUID()
 
         let bloodTest = BloodTestResult(
@@ -225,6 +229,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testPDFExportContainsRealContent() async throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
 
         var conversation = ChatConversation(title: "Lab Results Discussion")
         conversation.addMessage(ChatMessage(content: "What is my hemoglobin?", role: .user))
@@ -252,6 +257,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testPendingImportReviewQueueSemantics() throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
         let processor = DocumentProcessor(
             databaseManager: harness.databaseManager,
             fileSystemManager: harness.fileSystemManager,
@@ -301,6 +307,7 @@ final class PreBetaRegressionTests: XCTestCase {
 
     func testRetryFailedMessageResolvesCurrentStateFromConversation() async throws {
         let harness = try makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
         harness.scriptedProvider.reset(responses: [.success("13.5 g/dL — normal range")])
 
         // A user message that FAILED: the alert's retry closure captures the
@@ -333,5 +340,53 @@ final class PreBetaRegressionTests: XCTestCase {
             updated?.messages.contains(where: { $0.role == .assistant && !$0.content.isEmpty }) == true,
             "Retry must actually send using the conversation's current message state, not the stale snapshot"
         )
+    }
+
+    // MARK: - Review selection propagation (P0 fix)
+
+    func testReviewSelectionPropagation() {
+        let picked = BloodTestImportCandidate(testName: "Hemoglobin", value: "13.5", isAbnormal: true, originalTestName: "HGB")
+        let other = BloodTestImportCandidate(testName: "Hemoglobin", value: "10.1", isAbnormal: true, originalTestName: "Hgb")
+        let defaultPick = BloodTestImportCandidate(testName: "Glucose", value: "95", originalTestName: "GLU")
+        let glucoseAlt = BloodTestImportCandidate(testName: "Glucose", value: "99", originalTestName: "GLUCOSE")
+
+        // Abnormal group: no recommended default — the user MUST pick.
+        let abnormalGroup = BloodTestImportGroup(
+            standardTestName: "Hemoglobin",
+            standardKey: "hemoglobin",
+            candidates: [picked, other]
+        )
+        XCTAssertNil(abnormalGroup.selectedCandidateId)
+
+        // Recommended group: the reconciler pre-selected a default the user can override.
+        let recommendedGroup = BloodTestImportGroup(
+            standardTestName: "Glucose",
+            standardKey: "glucose",
+            candidates: [defaultPick, glucoseAlt],
+            selectedCandidateId: defaultPick.id
+        )
+
+        let ignoredGroup = BloodTestImportGroup(
+            standardTestName: "WBC",
+            standardKey: "wbc",
+            candidates: [BloodTestImportCandidate(testName: "WBC", value: "6.0", originalTestName: "WBC")]
+        )
+
+        let resolved = BloodTestImportReviewView.resolvedGroups(
+            importGroups: [abnormalGroup, recommendedGroup, ignoredGroup],
+            demotedGroups: [],
+            autoAcceptedGroups: [],
+            selectedIds: [abnormalGroup.id: picked.id, recommendedGroup.id: glucoseAlt.id],
+            ignoredGroupIds: [ignoredGroup.id]
+        )
+
+        // The user's explicit pick must land (historically discarded via a no-op Binding).
+        XCTAssertEqual(resolved.first(where: { $0.id == abnormalGroup.id })?.selectedCandidateId, picked.id)
+        // The user's override of a recommended default must win.
+        XCTAssertEqual(resolved.first(where: { $0.id == recommendedGroup.id })?.selectedCandidateId, glucoseAlt.id)
+        // "Don't import" must clear the selection.
+        XCTAssertNil(resolved.first(where: { $0.id == ignoredGroup.id })?.selectedCandidateId)
+        // Ordering preserved: reviewed groups stay in presentation order.
+        XCTAssertEqual(resolved.map(\.id), [abnormalGroup.id, recommendedGroup.id, ignoredGroup.id])
     }
 }

@@ -38,6 +38,10 @@ extension DatabaseManager {
                 documentId <- mergedDoc.id.uuidString,
                 documentFileName <- try encryptString(mergedDoc.fileName).base64EncodedString(),
                 documentFileType <- mergedDoc.fileType.rawValue,
+                // ponytail: file_path/thumbnail_path still carry the original
+                // (patient-identifying) filename, and the on-disk ciphertext
+                // blobs keep UUID_<name> names. Encrypting these needs a file-rename
+                // migration to UUID-only storage; deferred for beta.
                 documentFilePath <- mergedDoc.filePath.absoluteString,
                 documentThumbnailPath <- mergedDoc.thumbnailPath?.absoluteString,
                 documentProcessingStatus <- mergedDoc.processingStatus.rawValue,

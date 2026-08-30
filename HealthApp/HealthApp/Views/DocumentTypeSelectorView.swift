@@ -79,6 +79,10 @@ struct DocumentTypeSelectorView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        // Not swipe-dismissable: Skip/Done are the only exits, so a swipe can
+        // never strand the remaining documents of a multi-file import without
+        // a category.
+        .interactiveDismissDisabled(true)
     }
 }
 

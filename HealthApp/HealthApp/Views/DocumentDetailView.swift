@@ -560,13 +560,18 @@ struct DocumentDetailView: View {
         do {
             try await healthDataManager.addBloodTest(updatedBloodTest)
             AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
-            
-            // Clear pending review and promote the next queued one
-            await MainActor.run {
-                documentProcessor.finishPendingImportReview()
-            }
+        } catch HealthDataError.validationFailed(let reason) {
+            // Same-document/similar-date duplicates are idempotent re-imports
+            // (the automatic path skips them too) — not a review failure.
+            AppLog.shared.ui("Blood test after review skipped: \(reason)", level: .warning)
         } catch {
             AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)
+        }
+        
+        // ALWAYS advance the review queue — a stuck slot jams every later
+        // document's review for the rest of the session.
+        await MainActor.run {
+            documentProcessor.finishPendingImportReview()
         }
     }
     

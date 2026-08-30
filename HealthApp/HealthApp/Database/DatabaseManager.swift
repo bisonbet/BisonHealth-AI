@@ -405,6 +405,11 @@ class DatabaseManager: ObservableObject {
             }
 
             AppLog.shared.database("Database migrated from version \(currentVersion) to \(Self.currentDatabaseVersion)")
+
+            // The pre-migration backup is a plaintext-PHI snapshot — delete it
+            // once the migration has committed. (On failure it stays around for
+            // recovery; resetDatabase sweeps any leftovers.)
+            deleteMigrationBackups()
         } else if currentVersion > Self.currentDatabaseVersion {
             // This shouldn't happen unless user downgraded the app
             throw DatabaseError.incompatibleVersion("Database version \(currentVersion) is newer than app version \(Self.currentDatabaseVersion). Please update the app.")
@@ -430,9 +435,26 @@ class DatabaseManager: ObservableObject {
     }
 
     private func createBackupBeforeMigration() throws {
-        let backupURL = databaseURL.appendingPathExtension("backup.\(Date().timeIntervalSince1970)")
+        var backupURL = databaseURL.appendingPathExtension("backup.\(Date().timeIntervalSince1970)")
         try FileManager.default.copyItem(at: databaseURL, to: backupURL)
+        // The backup is a plaintext-PHI snapshot until the v11 encryption pass
+        // commits: at minimum, keep it out of iTunes/iCloud device backups.
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try? backupURL.setResourceValues(resourceValues)
         AppLog.shared.database("Database backup created at: \(backupURL.path)")
+    }
+
+    /// Removes every `*.backup.*` snapshot next to the database. Called after a
+    /// successful migration and from resetDatabase — these backups hold
+    /// pre-v11 plaintext PHI and must not outlive the migration.
+    private func deleteMigrationBackups() {
+        let directory = databaseURL.deletingLastPathComponent()
+        guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        let backupPrefix = databaseURL.lastPathComponent + ".backup."
+        for url in contents where url.lastPathComponent.hasPrefix(backupPrefix) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func performMigration(db: Connection, toVersion: Int) throws {
@@ -720,6 +742,10 @@ class DatabaseManager: ObservableObject {
 
         // Close current connection
         self.db = nil
+
+        // Migration backups hold pre-encryption plaintext PHI — a database
+        // reset must erase them too, or "permanently deleted" is a lie.
+        deleteMigrationBackups()
 
         // Delete the database and its write-ahead log. Leaving a stale -wal or -shm behind
         // would let SQLite replay it into the fresh file and reintroduce the corruption the

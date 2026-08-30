@@ -177,11 +177,16 @@ extension DatabaseManager {
     // MARK: - Fetch Documents by Provider
     func fetchMedicalDocuments(providerName: String) async throws -> [MedicalDocument] {
         // provider_name is encrypted at rest; filter the decrypted in-memory
-        // list and keep the original date-descending presentation.
+        // list. Match the previous SQL semantics: document_date DESC with
+        // undated documents last (importedAt as a stable tiebreak).
         let documents = try await fetchMedicalDocuments()
         return documents
             .filter { $0.providerName == providerName }
-            .sorted { ($0.documentDate ?? $0.importedAt) > ($1.documentDate ?? $1.importedAt) }
+            .sorted { lhs, rhs in
+                let l = lhs.documentDate ?? .distantPast
+                let r = rhs.documentDate ?? .distantPast
+                return l == r ? lhs.importedAt > rhs.importedAt : l > r
+            }
     }
 
     // MARK: - Fetch Documents by Date Range

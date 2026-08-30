@@ -489,15 +489,10 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Sharing and Export
-    func shareDocument(_ document: MedicalDocument) -> URL? {
-        return document.filePath
-    }
-    
-    func shareSelectedDocuments() -> [URL] {
-        let documentsToShare = documents.filter { selectedDocuments.contains($0.id) }
-        return documentsToShare.map { $0.filePath }
-    }
-    
+    // (shareDocument/shareSelectedDocuments removed: they returned the
+    // encrypted at-rest file paths — a latent ciphertext-share trap with no
+    // callers. DocumentDetailView decrypts to a temp copy for sharing.)
+
     func exportDocumentMetadata() async throws -> URL {
         let metadata = documents.map { DocumentMetadataExport(from: $0) }
         let jsonData = try JSONEncoder().encode(metadata)

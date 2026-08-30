@@ -438,35 +438,46 @@ struct BloodTestImportReviewView: View {
     }
     
     // MARK: - Actions
+    /// Applies the view's tap-state (selectedIds/ignoredGroupIds) to COPIES of
+    /// the groups. Pure + static so the selection-propagation contract is
+    /// unit-testable: the call sites pass a read-only Binding, so historically
+    /// mutating `importGroups` in acceptSelected wrote nowhere and the user's
+    /// choices were silently discarded.
+    static func resolvedGroups(
+        importGroups: [BloodTestImportGroup],
+        demotedGroups: [BloodTestImportGroup],
+        autoAcceptedGroups: [BloodTestImportGroup],
+        selectedIds: [UUID: UUID],
+        ignoredGroupIds: Set<UUID>
+    ) -> [BloodTestImportGroup] {
+        func apply(_ groups: [BloodTestImportGroup]) -> [BloodTestImportGroup] {
+            groups.map { group in
+                var group = group
+                if ignoredGroupIds.contains(group.id) {
+                    group.selectedCandidateId = nil
+                } else if let selectedId = selectedIds[group.id] {
+                    group.selectedCandidateId = selectedId
+                }
+                return group
+            }
+        }
+        return apply(importGroups) + apply(demotedGroups) + apply(autoAcceptedGroups)
+    }
+
     private func acceptSelected() {
-        // Update all groups with the selected IDs from state
-        for index in importGroups.indices {
-            let groupId = importGroups[index].id
-
-            if ignoredGroupIds.contains(groupId) {
-                importGroups[index].selectedCandidateId = nil
-                continue
-            }
-
-            if let selectedId = selectedIds[groupId] {
-                importGroups[index].selectedCandidateId = selectedId
-            }
-            // If not in selectedIds, keep existing selectedCandidateId
-        }
-
-        var resolvedDemoted = demotedGroups
-        for index in resolvedDemoted.indices {
-            let groupId = resolvedDemoted[index].id
-            if ignoredGroupIds.contains(groupId) {
-                resolvedDemoted[index].selectedCandidateId = nil
-            } else if let selectedId = selectedIds[groupId] {
-                resolvedDemoted[index].selectedCandidateId = selectedId
-            }
-        }
+        // Apply the user's tap-state to copies — the binding at the call sites
+        // is read-only, so mutating `importGroups` here writes nowhere.
+        let resolved = Self.resolvedGroups(
+            importGroups: importGroups,
+            demotedGroups: demotedGroups,
+            autoAcceptedGroups: autoAcceptedGroups,
+            selectedIds: selectedIds,
+            ignoredGroupIds: ignoredGroupIds
+        )
 
         // The completion receives every decided group: reviewed + demoted-then-decided
         // + still-auto-accepted (their selection was set by the reconciler)
-        onComplete(importGroups + resolvedDemoted + autoAcceptedGroups)
+        onComplete(resolved)
         dismiss()
     }
 

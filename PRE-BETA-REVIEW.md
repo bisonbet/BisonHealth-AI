@@ -233,3 +233,20 @@ The full-column INSERT OR REPLACE writes `thumbnailPath` from the queue item (ni
 ## Note on migration risk
 
 DB v11 encrypts existing rows in a transaction. Beta devices on v10 upgrade on first launch. **Test one real v10 → v11 upgrade on a seeded device before shipping** (the migration is transactional, but see it run once).
+
+
+---
+
+# Fresh-Eyes Review Round — 2026-08-30 (post-fix-pass verification)
+
+Four adversarial reviewers re-reviewed commit 64a42cba (correctness / crypto-privacy / concurrency / test-quality). Found: **1 P0, 3 P1, 16 P2** — all fixed in this round except the two deferred items noted below.
+
+**P0 — review-sheet selections were silently discarded** (pre-existing wiring the fix-pass made load-bearing): both call sites passed a read-only Binding, so \`acceptSelected\`'s writes went nowhere and the reconciler's defaults were saved instead of the user's picks — abnormal values dropped, overrides ignored. Fixed by resolving selections into copies via a pure, now-unit-tested \`BloodTestImportReviewView.resolvedGroups\`.
+
+**P1s fixed:** review-save failure no longer jams the whole review queue for the session (queue always advances; duplicate re-imports treated as idempotent skips); delete-during-AI-extraction no longer resurrects the row (cancellation re-checked after the LLM/vision passes and before relinking); overlapping drain loops after Pause can no longer wipe the live task registry (generation-token ownership).
+
+**P2s fixed:** retry-path conversation snap-back id-guarded; successful retry now clears the persisted is_error flag; reprocess keeps user-edited date/provider (extraction only fills gaps); container-corrected file path survives the same run's save; one more unquoted filename quoted; category selector no longer swipe-dismissable (Skip stays the escape hatch); searchConversations moved off the encrypted title column; provider list ordering restored to SQL semantics (undated last); **migration plaintext-backup lifecycle closed** (deleted after successful migration, excluded from device backups, swept by Reset Database); genetic reviews queue like import reviews (no more mid-review sheet swap); scan/photo imports use the single-column thumbnail update; auto-retry timers are tracked and cancelled by Pause/Clear/Delete; a second import appends to the category queue instead of stranding leftovers; test harness temp dirs cleaned up; dead ciphertext-share methods (DocumentManager.shareDocument/shareSelectedDocuments) deleted.
+
+**Deferred (ponytail comments at the sites):** file_path/thumbnail_path still carry original filenames (needs a UUID-only file-rename migration); narrow clear-mid-stream TOCTOU between the onComplete guard and the addMessage await (documented, not user-reachable in practice).
+
+**Validation: full suite green — 285 passed / 0 failed, 11 PreBeta regression tests (new: review-selection propagation). Zero warnings.**
