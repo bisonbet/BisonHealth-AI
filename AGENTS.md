@@ -4,7 +4,7 @@
 - iOS app: `HealthApp/HealthApp` (SwiftUI Views, ViewModels, Services, Models, Assets)
 - Unit tests: `HealthApp/HealthAppTests`; UI tests: `HealthApp/HealthAppUITests`
 - Xcode project: `HealthApp/HealthApp.xcodeproj` (scheme: `HealthApp`)
-- Active document extraction: `NativeDocumentExtractor.swift` (PDFKit + Vision), orchestrated by `DocumentProcessor.swift`; Docling references are historical/legacy only.
+- Active document extraction: `NativeDocumentExtractor.swift` (PDFKit + Vision), orchestrated by `DocumentProcessor.swift`.
 - Legacy reference: `legacy/` is a different app copied here for reference only (do not modify).
 
 ## Legacy Reference

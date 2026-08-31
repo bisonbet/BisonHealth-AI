@@ -55,7 +55,6 @@ extension DatabaseManager {
                 // MedicalDocument-specific fields (PHI text columns are
                 // encrypted at the row boundary; search is in-memory)
                 documentExtractedText <- try encryptTextField(mergedDoc.extractedText),
-                documentRawDoclingOutput <- try encryptDataField(mergedDoc.rawDoclingOutput),
                 documentExtractedSections <- try encryptDataField(sectionsJson),
                 documentDate <- mergedDoc.documentDate.map { Int64($0.timeIntervalSince1970) },
                 documentProviderName <- try encryptTextField(mergedDoc.providerName),
@@ -362,7 +361,6 @@ extension DatabaseManager {
             providerType: new.providerType ?? existing.providerType,
             documentCategory: new.documentCategory,  // Category updates are intentional
             extractedText: new.extractedText ?? existing.extractedText,  // Preserve OCR text
-            rawDoclingOutput: new.rawDoclingOutput ?? existing.rawDoclingOutput,  // Preserve raw OCR
             // Arrays: empty = preserve existing (safer default, prevents accidental clearing)
             extractedSections: new.extractedSections.isEmpty ? existing.extractedSections : new.extractedSections,
             includeInAIContext: new.includeInAIContext,  // Boolean, always has value
@@ -416,7 +414,6 @@ extension DatabaseManager {
         let providerTypeRaw = try? row.get(self.documentProviderType)
         let providerType = providerTypeRaw.flatMap { ProviderType(rawValue: $0) }
         let extractedText = decryptTextField((try? row.get(self.documentExtractedText)) ?? nil)
-        let rawDoclingOutput = decryptDataField((try? row.get(self.documentRawDoclingOutput)) ?? nil)
         let includeInAIContext = (try? row.get(self.documentIncludeInAIContext)) ?? false
         let contextPriority = (try? row.get(self.documentContextPriority)) ?? 3
         let lastEditedAt = (try? row.get(self.documentLastEditedAt)).map { Date(timeIntervalSince1970: TimeInterval($0)) }
@@ -441,7 +438,6 @@ extension DatabaseManager {
             providerType: providerType,
             documentCategory: documentCategory,
             extractedText: extractedText,
-            rawDoclingOutput: rawDoclingOutput,
             extractedSections: extractedSections,
             includeInAIContext: includeInAIContext,
             contextPriority: contextPriority,

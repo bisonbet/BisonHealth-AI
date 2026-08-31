@@ -45,9 +45,8 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
     var providerType: ProviderType?      // Type of provider
     var documentCategory: DocumentCategory // Type of medical document
 
-    // Document content
+      // Document content
     var extractedText: String?           // Full text from OCR
-    var rawDoclingOutput: Data?          // Legacy: Docling JSON from pre-removal builds (read-only, never written)
     var extractedSections: [DocumentSection] // Structured sections
 
     // AI Context management
@@ -77,7 +76,6 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
         providerType: ProviderType? = nil,
         documentCategory: DocumentCategory = .other,
         extractedText: String? = nil,
-        rawDoclingOutput: Data? = nil,
         extractedSections: [DocumentSection] = [],
         includeInAIContext: Bool = false,
         contextPriority: Int = 3,
@@ -100,7 +98,6 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
         self.providerType = providerType
         self.documentCategory = documentCategory
         self.extractedText = extractedText
-        self.rawDoclingOutput = rawDoclingOutput
         self.extractedSections = extractedSections
         self.includeInAIContext = includeInAIContext
         self.contextPriority = contextPriority

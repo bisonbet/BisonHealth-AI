@@ -37,7 +37,6 @@ extension DatabaseManager {
                 documentProviderType <- document.providerType?.rawValue,
                 documentCategory <- document.documentCategory.rawValue,
                 documentExtractedText <- try encryptTextField(document.extractedText),
-                documentRawDoclingOutput <- try encryptDataField(document.rawDoclingOutput),
                 documentExtractedSections <- try encryptDataField(extractedSectionsJson),
                 documentIncludeInAIContext <- document.includeInAIContext,
                 documentContextPriority <- document.contextPriority,
@@ -248,7 +247,6 @@ extension DatabaseManager {
                 documentProviderType <- document.providerType?.rawValue,
                 documentCategory <- document.documentCategory.rawValue,
                 documentExtractedText <- try encryptTextField(document.extractedText),
-                documentRawDoclingOutput <- try encryptDataField(document.rawDoclingOutput),
                 documentExtractedSections <- try encryptDataField(extractedSectionsJson),
                 documentIncludeInAIContext <- document.includeInAIContext,
                 documentContextPriority <- document.contextPriority,
@@ -378,42 +376,12 @@ extension DatabaseManager {
         let extractedText = decryptTextField((try? row.get(self.documentExtractedText)) ?? nil)
         AppLog.shared.database("Loading MedicalDocument '\(fileName)' - extractedText: \(extractedText?.count ?? 0) chars, is nil: \(extractedText == nil)", level: .debug)
 
-        let rawDoclingOutput = decryptDataField((try? row.get(self.documentRawDoclingOutput)) ?? nil)
-
         // Decode extracted sections (BLOB is encrypted at rest)
         let extractedSections: [DocumentSection]
         if let sectionsBlob = decryptDataField((try? row.get(self.documentExtractedSections)) ?? nil) {
             extractedSections = (try? JSONDecoder().decode([DocumentSection].self, from: sectionsBlob)) ?? []
         } else {
             extractedSections = []
-        }
-
-        // IMPORTANT FIX: If extractedText is NULL but we have rawDoclingOutput, extract markdown from it
-        var finalExtractedText = extractedText
-        if (extractedText == nil || extractedText?.isEmpty == true) && rawDoclingOutput != nil {
-            AppLog.shared.database("extractedText is missing but rawDoclingOutput exists, extracting markdown...")
-            if let rawData = rawDoclingOutput,
-               let jsonObject = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any],
-               let documentDict = jsonObject["document"] as? [String: Any],
-               let mdContent = documentDict["md_content"] as? String {
-                // CRITICAL: Clean the markdown to remove base64 images before storing
-                let cleanedContent = cleanMarkdownForAIContext(mdContent)
-                finalExtractedText = cleanedContent
-                AppLog.shared.database("Recovered and cleaned \(cleanedContent.count) chars from rawDoclingOutput (was \(mdContent.count) chars before cleaning)")
-
-                // Save the CLEANED version back to avoid re-extraction next time
-                if let db = db {
-                    Task {
-                        do {
-                            let updateQuery = documentsTable.filter(self.documentId == id.uuidString)
-                            try db.run(updateQuery.update(documentExtractedText <- try self.encryptTextField(cleanedContent)))
-                            AppLog.shared.database("Saved cleaned recovered text back to database")
-                        } catch {
-                            AppLog.shared.database("Failed to save recovered text: \(error)", level: .warning)
-                        }
-                    }
-                }
-            }
         }
 
         let includeInAIContext = (try? row.get(self.documentIncludeInAIContext)) ?? false
@@ -431,8 +399,7 @@ extension DatabaseManager {
             providerName: providerName,
             providerType: providerType,
             documentCategory: category,
-            extractedText: finalExtractedText,  // Use recovered text if needed
-            rawDoclingOutput: rawDoclingOutput,
+            extractedText: extractedText,
             extractedSections: extractedSections,
             includeInAIContext: includeInAIContext,
             contextPriority: contextPriority,
@@ -444,41 +411,5 @@ extension DatabaseManager {
             tags: tags,
             notes: notes
         )
-    }
-
-    // MARK: - Helper Functions
-
-    /// Cleans markdown text by removing base64 image data for AI context
-    private func cleanMarkdownForAIContext(_ markdown: String) -> String {
-        var cleaned = markdown
-
-        // Remove base64 image references: ![Image](data:image/...)
-        // This regex matches: ![optional text](data:image/type;base64,verylongstring)
-        let imagePattern = #"!\[[^\]]*\]\(data:image/[^)]+\)"#
-        cleaned = cleaned.replacingOccurrences(
-            of: imagePattern,
-            with: "",
-            options: [.regularExpression]
-        )
-
-        // Remove standalone base64 data URLs
-        let dataUrlPattern = #"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"#
-        cleaned = cleaned.replacingOccurrences(
-            of: dataUrlPattern,
-            with: "[Image removed]",
-            options: [.regularExpression]
-        )
-
-        // Clean up multiple consecutive newlines
-        cleaned = cleaned.replacingOccurrences(
-            of: #"\n{3,}"#,
-            with: "\n\n",
-            options: [.regularExpression]
-        )
-
-        // Trim whitespace
-        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return cleaned
     }
 }

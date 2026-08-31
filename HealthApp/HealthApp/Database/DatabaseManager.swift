@@ -40,7 +40,7 @@ class DatabaseManager: ObservableObject {
     }
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 11 // Increment when making schema changes
+    private static let currentDatabaseVersion = 12 // Increment when making schema changes
 
     /// Guards the genetic URL normalization so a single migration run performs it once,
     /// even when several versions in the range ask for it. Reset per migration run.
@@ -82,7 +82,6 @@ class DatabaseManager: ObservableObject {
     internal let documentProviderType = Expression<String?>("provider_type")
     internal let documentCategory = Expression<String>("document_category")
     internal let documentExtractedText = Expression<String?>("extracted_text")
-    internal let documentRawDoclingOutput = Expression<Data?>("raw_docling_output")
     internal let documentExtractedSections = Expression<Data?>("extracted_sections")
     internal let documentIncludeInAIContext = Expression<Bool>("include_in_ai_context")
     internal let documentContextPriority = Expression<Int>("context_priority")
@@ -204,7 +203,6 @@ class DatabaseManager: ObservableObject {
                 t.column(documentProviderType)
                 t.column(documentCategory, defaultValue: "other")
                 t.column(documentExtractedText)
-                t.column(documentRawDoclingOutput)
                 t.column(documentExtractedSections)
                 t.column(documentIncludeInAIContext, defaultValue: false)
                 t.column(documentContextPriority, defaultValue: 3)
@@ -573,6 +571,11 @@ class DatabaseManager: ObservableObject {
             try encryptChatTitles(db: db)
             AppLog.shared.database("Added chat personal-info categories column; encrypted document PHI columns and chat titles")
 
+        case 12:
+            // Migration for version 12: drop legacy Docling raw_docling_output column.
+            try db.run("ALTER TABLE documents DROP COLUMN raw_docling_output")
+            AppLog.shared.database("Dropped legacy raw_docling_output column")
+
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
         }
@@ -582,6 +585,8 @@ class DatabaseManager: ObservableObject {
     /// Rows are read fully before any write (SELECT-while-UPDATE is undefined;
     /// same pattern as the genetic URL migration).
     private func encryptDocumentPHIColumns(db: Connection) throws {
+        let legacyRawDoclingOutput = Expression<Data?>("raw_docling_output")
+
         struct PendingDocRow {
             let id: String
             let fileName: String?
@@ -597,7 +602,7 @@ class DatabaseManager: ObservableObject {
         let iterator = try db.prepareRowIterator(
             documentsTable.select(
                 documentId, documentFileName, documentNotes, documentProviderName, documentExtractedText,
-                documentExtractedData, documentRawDoclingOutput, documentExtractedSections
+                documentExtractedData, legacyRawDoclingOutput, documentExtractedSections
             )
         )
         while let row = try iterator.failableNext() {
@@ -608,7 +613,7 @@ class DatabaseManager: ObservableObject {
                 providerName: row[documentProviderName],
                 extractedText: row[documentExtractedText],
                 extractedData: row[documentExtractedData],
-                rawDoclingOutput: row[documentRawDoclingOutput],
+                rawDoclingOutput: row[legacyRawDoclingOutput],
                 extractedSections: row[documentExtractedSections]
             ))
         }
@@ -620,7 +625,7 @@ class DatabaseManager: ObservableObject {
                 documentProviderName <- try encryptTextField(doc.providerName),
                 documentExtractedText <- try encryptTextField(doc.extractedText),
                 documentExtractedData <- try encryptDataField(doc.extractedData),
-                documentRawDoclingOutput <- try encryptDataField(doc.rawDoclingOutput),
+                legacyRawDoclingOutput <- try encryptDataField(doc.rawDoclingOutput),
                 documentExtractedSections <- try encryptDataField(doc.extractedSections)
             ))
         }
@@ -810,7 +815,6 @@ class DatabaseManager: ObservableObject {
             t.column(documentProviderType)
             t.column(documentCategory, defaultValue: "other")
             t.column(documentExtractedText)
-            t.column(documentRawDoclingOutput)
             t.column(documentExtractedSections)
             t.column(documentIncludeInAIContext, defaultValue: false)
             t.column(documentContextPriority, defaultValue: 3)

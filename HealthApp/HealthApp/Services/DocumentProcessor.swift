@@ -454,7 +454,6 @@ class DocumentProcessor: ObservableObject {
                     providerType: existingDocument?.providerType ?? extractionResult.providerType,
                     documentCategory: finalCategory,
                     extractedText: extractedText.isEmpty ? nil : extractedText,
-                    rawDoclingOutput: nil,
                     extractedSections: extractionResult.extractedSections,
                     includeInAIContext: existingDocument?.includeInAIContext ?? false, // User must explicitly enable
                     contextPriority: existingDocument?.contextPriority ?? 3,
@@ -509,7 +508,6 @@ class DocumentProcessor: ObservableObject {
                         providerType: existingDocument?.providerType,
                         documentCategory: finalCategory,
                         extractedText: cleanedText.isEmpty ? nil : cleanedText,
-                        rawDoclingOutput: nil,
                         extractedSections: [],
                         includeInAIContext: existingDocument?.includeInAIContext ?? false,
                         contextPriority: existingDocument?.contextPriority ?? 3,

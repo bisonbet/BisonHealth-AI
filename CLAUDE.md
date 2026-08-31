@@ -108,7 +108,7 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 10 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 12 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -373,7 +373,6 @@ struct NewAIProviderSettingsView: View { }
 - **Frameworks**: PDFKit (digital PDFs) + Vision OCR (scans, photos)
 - **Formats**: PDF, DOCX, images (JPEG, PNG, HEIC)
 - **Integration**: `NativeDocumentExtractor.swift`, `DocumentProcessor.swift`
-- **Note**: Docling is retained only as a historical/legacy compatibility reference; no Docling server is required or used by the current path
 
 ---
 
@@ -510,7 +509,6 @@ Emoji prefixes for filtering:
 - `CONTRIBUTING.md` - Contribution guidelines
 - `AGENTS.md` - AI agent guidelines
 - `MEDICAL_DOCUMENTS_IMPLEMENTATION.md` - Document processing
-- `DOCLING_FORMATS_EXPLANATION.md` - Historical/legacy Docling formats note
 
 ---
 
@@ -528,7 +526,7 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Current project facts**:
-- Database version: 10
+- Database version: 12
 - iOS 26.0+ deployment target
 
 ---

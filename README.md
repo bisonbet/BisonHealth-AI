@@ -182,7 +182,7 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 
 ### Document Processing Setup
 
-**Native document extraction** - No Docling server is required
+**Native document extraction** — on-device via PDFKit and Vision OCR:
 - `NativeDocumentExtractor` uses PDFKit for digital PDFs and Vision OCR for scans, photos, and image-based documents
 - `DocumentProcessor` orchestrates the active extraction and processing path
 - `MedicalDocumentExtractor` maps extracted text into structured medical data
@@ -302,7 +302,6 @@ Detailed documentation is available in the repository:
 
 - **[Agent Guidelines](AGENTS.md)** - Development guidelines and coding standards
 - **[Codebase Agent Instructions](AGENT_CODEBASE_INSTRUCTIONS.md)** - Detailed codebase map for AI coding agents
-- **[Historical Docling Formats Note](DOCLING_FORMATS_EXPLANATION.md)** - Legacy format reference; not the current document-processing path
 
 ## 🤝 Contributing
 
