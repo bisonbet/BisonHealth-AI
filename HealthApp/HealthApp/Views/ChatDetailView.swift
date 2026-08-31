@@ -389,6 +389,53 @@ struct EnhancedMessageListView: View {
     }
 }
 
+struct TypingIndicatorView: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: "brain.head.profile")
+                        .foregroundColor(.green)
+                        .font(.caption)
+
+                    Text("BisonHealth AI")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 4) {
+                    ForEach(0..<3) { index in
+                        Circle()
+                            .fill(Color.secondary)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(isAnimating ? 1.2 : 0.8)
+                            .animation(
+                                Animation.easeInOut(duration: 0.6)
+                                    .repeatForever()
+                                    .delay(Double(index) * 0.2),
+                                value: isAnimating
+                            )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(.systemGray6))
+                .cornerRadius(18)
+            }
+
+            Spacer(minLength: 50)
+        }
+        .onAppear {
+            isAnimating = true
+        }
+        .onDisappear {
+            isAnimating = false
+        }
+    }
+}
+
 struct EnhancedMessageBubbleView: View, Equatable {
     let message: ChatMessage
     let isIPad: Bool
