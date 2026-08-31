@@ -42,49 +42,6 @@ extension Font {
     }
 }
 
-// MARK: - Accessibility Label Builder
-
-/// Helper for building comprehensive VoiceOver labels
-struct AccessibilityLabelBuilder {
-    /// Builds a descriptive label for VoiceOver
-    static func buildLabel(
-        primary: String,
-        secondary: String? = nil,
-        status: String? = nil,
-        action: String? = nil
-    ) -> String {
-        var components: [String] = [primary]
-        
-        if let secondary = secondary {
-            components.append(secondary)
-        }
-        
-        if let status = status {
-            components.append(status)
-        }
-        
-        if let action = action {
-            components.append(action)
-        }
-        
-        return components.joined(separator: ", ")
-    }
-    
-    /// Builds a hint for VoiceOver actions
-    static func buildHint(
-        action: String,
-        context: String? = nil
-    ) -> String {
-        var hint = action
-        
-        if let context = context {
-            hint += ". \(context)"
-        }
-        
-        return hint
-    }
-}
-
 // MARK: - Device Type Helper
 
 /// Helper for device-specific accessibility features.

@@ -1,38 +1,8 @@
 import Foundation
 
-// MARK: - AI Connection Status
-
-/// Generic connection status for AI providers
-public enum AIConnectionStatus: Equatable {
-    case disconnected
-    case connecting
-    case connected
-    case error(String)
-
-    public var isConnected: Bool {
-        if case .connected = self {
-            return true
-        }
-        return false
-    }
-
-    public var displayText: String {
-        switch self {
-        case .disconnected:
-            return "Disconnected"
-        case .connecting:
-            return "Connecting..."
-        case .connected:
-            return "Connected"
-        case .error(let message):
-            return "Error: \(message)"
-        }
-    }
-}
-
 // MARK: - Provider Connection Status
 
-/// Provider connection status - wraps generic AIConnectionStatus
+/// Connection status for AI providers.
 public enum ProviderConnectionStatus: Equatable {
     case disconnected
     case connecting
@@ -75,34 +45,6 @@ public enum ProviderConnectionStatus: Equatable {
             return "wifi"
         case .error:
             return "exclamationmark.triangle"
-        }
-    }
-
-    /// Convert to generic AIConnectionStatus
-    public var toGeneric: AIConnectionStatus {
-        switch self {
-        case .disconnected:
-            return .disconnected
-        case .connecting:
-            return .connecting
-        case .connected:
-            return .connected
-        case .error(let error):
-            return .error(error.localizedDescription)
-        }
-    }
-
-    /// Create from generic AIConnectionStatus
-    public static func from(_ status: AIConnectionStatus) -> ProviderConnectionStatus {
-        switch status {
-        case .disconnected:
-            return .disconnected
-        case .connecting:
-            return .connecting
-        case .connected:
-            return .connected
-        case .error(let message):
-            return .error(NSError(domain: "AI", code: -1, userInfo: [NSLocalizedDescriptionKey: message]))
         }
     }
 }

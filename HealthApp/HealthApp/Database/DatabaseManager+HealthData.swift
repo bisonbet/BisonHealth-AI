@@ -249,35 +249,6 @@ extension DatabaseManager {
         return try await fetch(BloodTestResult.self, healthDataType: .bloodTest)
     }
     
-    // MARK: - Fetch Recent Health Data
-    func fetchRecentHealthData(limit: Int = 10) async throws -> [AnyHealthDataItem] {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        var results: [AnyHealthDataItem] = []
-        
-        let query = healthDataTable
-            .order(healthDataUpdatedAt.desc)
-            .limit(limit)
-        
-        let recentIterator = try db.prepareRowIterator(query)
-        while let row = try recentIterator.failableNext() {
-            let typeString = row[healthDataType]
-            let updatedAt = Date(timeIntervalSince1970: TimeInterval(row[healthDataUpdatedAt]))
-            let id = UUID(uuidString: row[healthDataId]) ?? UUID()
-            
-            if let healthDataType = HealthDataType(rawValue: typeString) {
-                let item = AnyHealthDataItem(
-                    id: id,
-                    type: healthDataType,
-                    updatedAt: updatedAt
-                )
-                results.append(item)
-            }
-        }
-        
-        return results
-    }
-    
     // MARK: - Cleanup Corrupted Records
     /// Deletes health data records that have empty or invalid encrypted data
     /// Returns the number of records deleted
@@ -335,20 +306,5 @@ extension DatabaseManager {
         }
         
         return deletedCount
-    }
-}
-
-// MARK: - Helper Types
-struct AnyHealthDataItem {
-    let id: UUID
-    let type: HealthDataType
-    let updatedAt: Date
-    
-    var displayName: String {
-        return type.displayName
-    }
-    
-    var icon: String {
-        return type.icon
     }
 }

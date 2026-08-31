@@ -150,84 +150,6 @@ extension DatabaseManager {
         }
     }
     
-    // MARK: - Attempt Recovery of Corrupted Records
-    /// Attempts to recover data from corrupted records by trying different decryption methods
-    func attemptDataRecovery(for recordIds: [String]? = nil) async throws -> RecoveryAttemptResult {
-        guard let db = db else { throw DatabaseError.connectionFailed }
-        
-        AppLog.shared.database("Attempting data recovery...")
-        
-        var recovered: [String] = []
-        var failed: [String] = []
-        
-        // First, scan to identify records
-        let scanResult = try await scanDatabaseForRecovery()
-        
-        // Focus on corrupted records that have valid format but can't be decrypted
-        let recordsToRecover = recordIds ?? scanResult.corruptedRecords
-            .filter { $0.dataSize >= 28 } // Only try records with valid size
-            .map { $0.recordId }
-        
-        AppLog.shared.database("Attempting to recover \(recordsToRecover.count) record(s)...")
-        
-        for recordId in recordsToRecover {
-            do {
-                // Get the record
-                let query = healthDataTable.filter(healthDataId == recordId)
-                guard let row = try db.pluck(query) else {
-                    AppLog.shared.database("Record \(recordId) not found", level: .warning)
-                    failed.append(recordId)
-                    continue
-                }
-                
-                let typeString = row[healthDataType]
-                let encryptedData = row[healthDataEncryptedData]
-                
-                guard let healthDataType = HealthDataType(rawValue: typeString) else {
-                    AppLog.shared.database("Unknown type for record \(recordId): \(typeString)", level: .warning)
-                    failed.append(recordId)
-                    continue
-                }
-                
-                // Try to decrypt with current key
-                var decrypted = false
-                switch healthDataType {
-                case .personalInfo:
-                    if let _ = try? decryptData(encryptedData, as: PersonalHealthInfo.self) {
-                        decrypted = true
-                    }
-                case .bloodTest:
-                    if let _ = try? decryptData(encryptedData, as: BloodTestResult.self) {
-                        decrypted = true
-                    }
-                case .geneticProfile, .imagingReport, .healthCheckup:
-                    // Not in health_data table
-                    break
-                }
-                
-                if decrypted {
-                    AppLog.shared.database("Successfully recovered record \(recordId)")
-                    recovered.append(recordId)
-                } else {
-                    AppLog.shared.database("Could not recover record \(recordId) - data may be encrypted with different key", level: .warning)
-                    failed.append(recordId)
-                }
-                
-            } catch {
-                AppLog.shared.error("Error recovering record \(recordId): \(error.localizedDescription)", error: error, category: .database)
-                failed.append(recordId)
-            }
-        }
-        
-        AppLog.shared.database("Recovery attempt complete: \(recovered.count) recovered, \(failed.count) failed")
-        
-        return RecoveryAttemptResult(
-            recoveredRecordIds: recovered,
-            failedRecordIds: failed,
-            scanResult: scanResult
-        )
-    }
-    
     // MARK: - Export Corrupted Records for Analysis
     /// Exports corrupted record data for external analysis (without decryption)
     func exportCorruptedRecordsForAnalysis() async throws -> URL {
@@ -267,11 +189,4 @@ extension DatabaseManager {
         
         return fileURL
     }
-}
-
-// MARK: - Recovery Result Types
-struct RecoveryAttemptResult {
-    let recoveredRecordIds: [String]
-    let failedRecordIds: [String]
-    let scanResult: DatabaseManager.RecoveryScanResult
 }

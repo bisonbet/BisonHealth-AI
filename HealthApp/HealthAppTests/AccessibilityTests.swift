@@ -23,35 +23,6 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(scaleFactor, 0.8, accuracy: 0.01)
     }
     
-    // MARK: - Accessibility Label Builder Tests
-    
-    func testAccessibilityLabelBuilder() {
-        let label1 = AccessibilityLabelBuilder.buildLabel(primary: "Button")
-        XCTAssertEqual(label1, "Button")
-        
-        let label2 = AccessibilityLabelBuilder.buildLabel(
-            primary: "Document",
-            secondary: "PDF",
-            status: "Processed",
-            action: "Tap to view"
-        )
-        XCTAssertTrue(label2.contains("Document"))
-        XCTAssertTrue(label2.contains("PDF"))
-        XCTAssertTrue(label2.contains("Processed"))
-    }
-    
-    func testAccessibilityHintBuilder() {
-        let hint1 = AccessibilityLabelBuilder.buildHint(action: "Tap to open")
-        XCTAssertEqual(hint1, "Tap to open")
-        
-        let hint2 = AccessibilityLabelBuilder.buildHint(
-            action: "Double tap",
-            context: "to view details"
-        )
-        XCTAssertTrue(hint2.contains("Double tap"))
-        XCTAssertTrue(hint2.contains("to view details"))
-    }
-    
     // MARK: - Device Helper Tests
     
     func testDeviceAccessibilityHelper() {

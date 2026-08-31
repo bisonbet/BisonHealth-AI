@@ -354,41 +354,6 @@ struct OpenAICompatibleSettingsView: View {
     }
 }
 
-// MARK: - Example Server Row
-struct ExampleServer: View {
-    let name: String
-    let url: String
-    let description: String
-    let action: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .font(.headline)
-                    Text(url)
-                        .font(.caption)
-                        .foregroundColor(BisonTheme.gold)
-                        .fontDesign(.monospaced)
-                }
-
-                Spacer()
-
-                Button("Use") {
-                    action()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-
-            Text(description)
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
 // MARK: - Connection Status Badge
 struct ConnectionStatusBadge: View {
     let status: ConnectionStatus

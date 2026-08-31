@@ -947,23 +947,6 @@ struct BloodTestMappingResult {
     }
 }
 
-enum BloodTestMappingServiceError: Error, LocalizedError {
-    case visionModelNotAvailable(String)
-    case documentModelNotAvailable(String)
-    case processingFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .visionModelNotAvailable(let message):
-            return "Vision Model Not Available: \(message)"
-        case .documentModelNotAvailable(let message):
-            return "Document Model Not Available: \(message)"
-        case .processingFailed(let message):
-            return "Processing Failed: \(message)"
-        }
-    }
-}
-
 struct BloodTestMappingError: Identifiable {
     let id = UUID()
     let error: Error

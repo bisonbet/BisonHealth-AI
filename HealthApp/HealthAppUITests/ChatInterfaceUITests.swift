@@ -220,7 +220,7 @@ final class ChatInterfaceUITests: XCTestCase {
         if contextButton.exists {
             contextButton.tap()
             
-            let contextTitle = app.staticTexts["Health Data Context"]
+            let contextTitle = app.staticTexts["AI Context"]
             XCTAssertTrue(contextTitle.waitForExistence(timeout: 2), "Context selector should open")
             
             // Test selecting a data type

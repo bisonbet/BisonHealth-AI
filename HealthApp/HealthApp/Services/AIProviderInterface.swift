@@ -256,23 +256,3 @@ struct AIProviderConfig {
     }
 }
 
-// MARK: - Authentication
-
-struct AuthCredentials {
-    let apiKey: String?
-    let username: String?
-    let password: String?
-    let token: String?
-
-    init(
-        apiKey: String? = nil,
-        username: String? = nil,
-        password: String? = nil,
-        token: String? = nil
-    ) {
-        self.apiKey = apiKey
-        self.username = username
-        self.password = password
-        self.token = token
-    }
-}

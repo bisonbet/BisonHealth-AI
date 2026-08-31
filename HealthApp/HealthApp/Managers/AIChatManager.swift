@@ -1176,36 +1176,6 @@ class AIChatManager: ObservableObject {
         }
     }
     
-    // MARK: - Statistics and Analytics
-    func getChatStatistics() async throws -> ChatStatistics {
-        return try await databaseManager.getChatStatistics()
-    }
-    
-    // MARK: - Offline Handling
-    func getOfflineCapabilities() -> OfflineCapabilities {
-        return OfflineCapabilities(
-            canViewConversations: true,
-            canViewMessages: true,
-            canCreateConversations: false,
-            canSendMessages: false,
-            canEditConversations: true,
-            canDeleteConversations: true
-        )
-    }
-    
-    func handleOfflineAction(_ action: OfflineAction) -> OfflineActionResult {
-        switch action {
-        case .viewConversations:
-            return .success("Conversations loaded from local storage")
-        case .sendMessage:
-            return .failure("Cannot send messages while offline. Please check your internet connection.")
-        case .createConversation:
-            return .failure("Cannot create new conversations while offline.")
-        case .deleteConversation:
-            return .success("Conversation deleted locally")
-        }
-    }
-    
     // MARK: - Testing Support
     #if DEBUG
     func buildHealthDataContextForTesting() async -> String {
@@ -1286,44 +1256,6 @@ final class NetworkMonitor {
     /// monitor. `NWPathMonitor.cancel()` is safe to call from any thread.
     nonisolated func stopMonitoring() {
         monitor.cancel()
-    }
-}
-
-// MARK: - Supporting Types
-struct OfflineCapabilities {
-    let canViewConversations: Bool
-    let canViewMessages: Bool
-    let canCreateConversations: Bool
-    let canSendMessages: Bool
-    let canEditConversations: Bool
-    let canDeleteConversations: Bool
-}
-
-enum OfflineAction {
-    case viewConversations
-    case sendMessage
-    case createConversation
-    case deleteConversation
-}
-
-enum OfflineActionResult {
-    case success(String)
-    case failure(String)
-    
-    var message: String {
-        switch self {
-        case .success(let message), .failure(let message):
-            return message
-        }
-    }
-    
-    var isSuccess: Bool {
-        switch self {
-        case .success:
-            return true
-        case .failure:
-            return false
-        }
     }
 }
 

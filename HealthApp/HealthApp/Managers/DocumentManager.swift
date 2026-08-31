@@ -84,24 +84,6 @@ class DocumentManager: ObservableObject {
         return filtered
     }
     
-    var documentStatistics: DocumentStatistics {
-        let total = documents.count
-        let processed = documents.filter { $0.processingStatus == .completed }.count
-        let pending = documents.filter { $0.processingStatus == .pending }.count
-        let processing = documents.filter { $0.processingStatus == .processing }.count
-        let failed = documents.filter { $0.processingStatus == .failed }.count
-        let totalSize = documents.reduce(0) { $0 + $1.fileSize }
-        
-        return DocumentStatistics(
-            total: total,
-            processed: processed,
-            pending: pending,
-            processing: processing,
-            failed: failed,
-            totalSize: totalSize
-        )
-    }
-    
     // MARK: - Initialization
     init(
         documentImporter: DocumentImporter,
@@ -493,18 +475,6 @@ class DocumentManager: ObservableObject {
     // encrypted at-rest file paths — a latent ciphertext-share trap with no
     // callers. DocumentDetailView decrypts to a temp copy for sharing.)
 
-    func exportDocumentMetadata() async throws -> URL {
-        let metadata = documents.map { DocumentMetadataExport(from: $0) }
-        let jsonData = try JSONEncoder().encode(metadata)
-        
-        let fileName = "Document_Metadata_Export_\(Date().formatted(date: .numeric, time: .omitted))"
-        return try fileSystemManager.createExportFile(
-            data: jsonData,
-            fileName: fileName,
-            fileType: .json
-        )
-    }
-    
     // MARK: - Thumbnail Management
     func regenerateThumbnail(for document: MedicalDocument) async {
         do {
@@ -539,23 +509,6 @@ class DocumentManager: ObservableObject {
             )
         } catch {
             lastError = error
-        }
-    }
-    
-    func getStorageUsage() async -> StorageUsage {
-        do {
-            let documentsSize = try await fileSystemManager.getDirectorySize(.documents)
-            let thumbnailsSize = try await fileSystemManager.getDirectorySize(.thumbnails)
-            let totalSize = documentsSize + thumbnailsSize
-            
-            return StorageUsage(
-                documentsSize: documentsSize,
-                thumbnailsSize: thumbnailsSize,
-                totalSize: totalSize,
-                documentCount: documents.count
-            )
-        } catch {
-            return StorageUsage(documentsSize: 0, thumbnailsSize: 0, totalSize: 0, documentCount: 0)
         }
     }
     
@@ -615,73 +568,5 @@ enum DocumentSortOrder: String, CaseIterable {
         case .statusDescending:
             return "Status (Z-A)"
         }
-    }
-}
-
-struct DocumentStatistics {
-    let total: Int
-    let processed: Int
-    let pending: Int
-    let processing: Int
-    let failed: Int
-    let totalSize: Int64
-    
-    var formattedTotalSize: String {
-        ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
-    }
-    
-    var processingRate: Double {
-        guard total > 0 else { return 0 }
-        return Double(processed) / Double(total)
-    }
-}
-
-struct DocumentMetadataExport: Codable {
-    let id: UUID
-    let fileName: String
-    let fileType: DocumentType
-    let processingStatus: ProcessingStatus
-    let importedAt: Date
-    let processedAt: Date?
-    let fileSize: Int64
-    let tags: [String]
-    let notes: String?
-    let extractedDataCount: Int
-
-    init(from document: MedicalDocument) {
-        self.id = document.id
-        self.fileName = document.fileName
-        self.fileType = document.fileType
-        self.processingStatus = document.processingStatus
-        self.importedAt = document.importedAt
-        self.processedAt = document.processedAt
-        self.fileSize = document.fileSize
-        self.tags = document.tags
-        self.notes = document.notes
-        self.extractedDataCount = document.extractedHealthData.count
-    }
-}
-
-struct StorageUsage {
-    let documentsSize: Int64
-    let thumbnailsSize: Int64
-    let totalSize: Int64
-    let documentCount: Int
-    
-    var formattedDocumentsSize: String {
-        ByteCountFormatter.string(fromByteCount: documentsSize, countStyle: .file)
-    }
-    
-    var formattedThumbnailsSize: String {
-        ByteCountFormatter.string(fromByteCount: thumbnailsSize, countStyle: .file)
-    }
-    
-    var formattedTotalSize: String {
-        ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
-    }
-    
-    var averageDocumentSize: Int64 {
-        guard documentCount > 0 else { return 0 }
-        return documentsSize / Int64(documentCount)
     }
 }
