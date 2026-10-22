@@ -1,11 +1,16 @@
 # Review tracker — live worklist
 
-**Status**: WS-00, Batch A (01, 02, 03, 07) and Batch B (04, 05, 06, 08) complete (2026-10-22).
-Remaining: WS-09–WS-16, then WS-17 formal triage.
+**Status**: WS-00, Batch A (01, 02, 03, 07), Batch B (04, 05, 06, 08) and Batch C pair 1
+(09, 12) complete (2026-10-22). **Paused here at the owner's request.**
+Remaining: WS-10, WS-11, WS-13–WS-16, then WS-17 formal triage.
+
+WS-09 is the only workstream so far to have **run the app**. Its 29 screenshots are in
+`findings/WS-09-screenshots/`. Note for whoever resumes: the iPhone 17 Pro simulator was
+occupied by an unrelated `BisonVoice` test run, so WS-10 needs a different iPhone device.
 **Owner of this file**: WS-17 (triage) replaces the worklist wholesale; fix agents update
 only the Status column of their own row; anyone may append to "Found during fixing".
 
-**Filed**: 120 findings — P1=37, P2=55, P3=28, P0=0 as filed.
+**Filed**: 149 findings — P1=41, P2=70, P3=38, P0=0 as filed.
 **After orchestrator re-grade: 2 P0.** See "Re-grades" below. The worklist merges the
 P0/P1 set into 24 work items; the P2/P3 remainder stays in the findings files until WS-17.
 
@@ -24,10 +29,10 @@ P0/P1 set into 24 work items; the P2/P3 remainder stays in the findings files un
 | 06 | SwiftUI state & memory | **complete** | [WS-06-swiftui-state.md](findings/WS-06-swiftui-state.md) | 0 | 3 | 9 | 3 |
 | 07 | PHI & security | **complete** | [WS-07-phi-security.md](findings/WS-07-phi-security.md) | 0 | 6 | 6 | 3 |
 | 08 | Error handling & failure UX | **complete** | [WS-08-error-ux.md](findings/WS-08-error-ux.md) | 0 | 5 | 9 | 1 |
-| 09 | iPad & adaptive layout | not started | | | | | |
+| 09 | iPad & adaptive layout | **complete (ran the app)** | [WS-09-ipad-adaptive.md](findings/WS-09-ipad-adaptive.md) | 0 | 1 | 7 | 7 |
 | 10 | Accessibility | not started | | | | | |
 | 11 | Performance & memory | not started | | | | | |
-| 12 | MLX model lifecycle | not started | | | | | |
+| 12 | MLX model lifecycle | **complete** | [WS-12-mlx-lifecycle.md](findings/WS-12-mlx-lifecycle.md) | 0 | 3 | 8 | 3 |
 | 13 | App Store compliance | not started | | | | | |
 | 14 | Build, signing & TestFlight | not started | | | | | |
 | 15 | Test coverage | not started | | | | | |
@@ -113,6 +118,32 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 |---|---|---|---|---|---|---|---|
 | 25 | WS-01-08 | 113 UI test functions in 6 files are orphaned from the UI test target and never compile; stale selectors must be fixed to re-add them. Blocks all UI and accessibility verification | P2 | PP | L | `HealthApp.xcodeproj/project.pbxproj`, `HealthAppUITests/*` | todo |
 | — | WS-00-02 | Review plan's iPad build destination malformed | P2 | — | S | plan + fix protocol | **fixed** |
+
+### Added by Batch C pair 1
+
+| # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
+|---|---|---|---|---|---|---|---|
+| 26 | WS-09-01 | **Import retries forever and silently** when no on-device vision model is present — the fresh-install default. `addToQueue` builds a new queue item with `retryCount = 0` each time, so `maxRetryAttempts` never bites: 13+ "attempt 2/3" cycles in ~50 s, document stuck "Pending", no error shown. Observed live on iPad. An App Review tester hits this first | P1 | BB | M | `Services/DocumentProcessor.swift` | after 2, 6, 11 |
+| 27 | WS-12-02 | **The on-device safety rules are evicted from context.** `compactChatRules` (treat patient data as facts; never tell the user to change a medication) sits in the head of the system block, and `RotatingKVCache(maxSize:, keep: 4)` keeps only the first 4 tokens. With 90% of the budget given to patient data, overflow comes within a turn or two and the guard silently stops applying | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift` | — |
+| 28 | WS-12-01 | Every model load calls `hub.snapshot`, so the on-device path contacts huggingface.co on each load (undisclosed — WS-07's egress row covers only the one-time download). Only `NSURLErrorNotConnectedToInternet` falls back to local files, so a captive portal, DNS failure or timeout fails the load outright | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift`, privacy policy | after 27 |
+| 29 | WS-12-03 + WS-12-07 | A shared retry counter that never resets — and is consumed by backgrounding — deletes the whole model directory including finished shards on the third hit, forcing a ~16 GB re-download. Downloads also start on cellular on one tap, with `allowsExpensiveNetworkAccess`/`allowsConstrainedNetworkAccess` explicitly overriding Low Data Mode | P1 | BB | M | `MLXOnDeviceLLM/MLXModelDownloadManager.swift` | — |
+| 30 | WS-09-02 + WS-09-03 | iPad portrait document grid: four flexible columns hold fixed 200 pt tiles in ~118 pt columns, so tiles overlap and the first clips. The iPad master-detail for Documents is dead code — `HealthTabView` always passes `embedInNavigation: false`, so landscape gets a full-width list and detail opens as a small form sheet | P2 | PP | M | `Views/DocumentGridView.swift`, `Views/HealthTabView.swift` | after 9 |
+
+**Live confirmations from WS-09** — these were statically confirmed earlier and are now
+reproduced in a running app, which raises their priority because they are easy to hit:
+- **Item 9** (tab-switch destroys the import review): confirmed live. Log says
+  "6 groups need review — showing review sheet" and no sheet appears; the document reads
+  Completed with zero values imported. A second import enqueues behind the first and also
+  imports nothing. Only Reprocess Document recovers.
+- **Item 6** (review queue not durable): Cancel discarded all 10 extracted values
+  including the 4 auto-accepted ones, with nothing in the UI offering to re-open them.
+- This also refines WS-01's "P1-8 holds for retry timers": the static review cleared the
+  retry path, and the live run found the infinite-retry hole now filed as item 26.
+
+**Still unexercised after pair 1**: Split View / Slide Over / Stage Manager (the tools
+offered no way to drag or resize windows), hardware-keyboard Tab/Esc, pointer hover,
+drag-and-drop, and the Vitals, Genetics, Imaging, Storage, Export and Privacy/Terms
+screens. WS-09's adaptivity table marks each one untested.
 
 **File-ownership hot spots** — these serialise absolutely:
 `Services/DocumentProcessor.swift` (2, 4, 6, 11, 12) · `Managers/AIChatManager.swift` (14, 19, 20) ·

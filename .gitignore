@@ -171,3 +171,7 @@ HIPAA_Compliance_Remediation_Plan.md
 
 # Migration notes
 MLX_MIGRATION_SUMMARY.md
+
+# Review evidence screenshots are kept out of the repo
+Documentation/Review/findings/**/*.png
+Documentation/Review/findings/*-screenshots/
