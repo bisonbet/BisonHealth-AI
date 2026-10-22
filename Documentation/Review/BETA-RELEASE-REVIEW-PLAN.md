@@ -29,9 +29,10 @@ and verification rules that make it hard to produce noise.
 | Info.plist | only `NSAppTransportSecurity.NSAllowsLocalNetworking`; rest generated from `INFOPLIST_KEY_*` |
 | Privacy manifest | **absent** (no `PrivacyInfo.xcprivacy` anywhere in the project) |
 | CI | **none** (no `.github/`, no fastlane, no xcodebuild automation) |
-| Lint | SwiftLint present, `baseline: SwiftLintBaseline.json` (47 KB) suppresses pre-existing debt; ~30 style rules disabled |
+| Lint | SwiftLint: **5** violations with the baseline applied, **61** without it — `SwiftLintBaseline.json` (95 entries) suppresses 56; 27 style rules disabled (verified WS-00) |
 | Prior review | `PRE-BETA-REVIEW.md` — 2 P0, 15 P1, ~40 P2 findings, marked fixed 2026-08-30, plus a fresh-eyes round |
-| Hygiene snapshot | 0 `try!`, 0 `fatalError`, 0 `NavigationView`, 2 `print(`, 2 TODO/FIXME, 8 force-unwrap-ish sites, 5 `@unchecked Sendable`, 27 `DispatchQueue` uses, 60 `UserDefaults` uses |
+| Hygiene snapshot | 0 `try!`, 0 `fatalError`, 0 `NavigationView`, 0 Swift `print` calls (the 2 grep hits are a custom `PrepPrinter.print`), 2 TODO/FIXME, 5 `@unchecked Sendable`, 27 `DispatchQueue` uses, 60 `UserDefaults` uses (verified WS-00) |
+| Force unwraps | SwiftLint `force_unwrapping`: **20 in app code**, 17 in tests; `implicitly_unwrapped_optional`: 20, all in tests. The suppressed debt is mostly test scaffolding — the 20 app-code sites are the ones that matter (verified WS-00) |
 
 ### Canonical commands
 
@@ -44,7 +45,7 @@ cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 ```bash
 # iPad build
 cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
-  -destination 'platform=iPad Pro 11-inch (M5),OS=26.5' build
+  -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.5' build
 ```
 
 ```bash

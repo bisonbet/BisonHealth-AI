@@ -46,7 +46,7 @@ cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ```bash
 cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
-  -destination 'platform=iPad Pro 11-inch (M5),OS=26.5' build
+  -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.5' build
 ```
 
 ```bash
