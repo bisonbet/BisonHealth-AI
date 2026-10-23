@@ -63,12 +63,19 @@ struct BloodTestImportReviewView: View {
                 }
             }
             .onAppear {
-                // Initialize selectedIds from groups' selectedCandidateId
+                // Initialize selectedIds from groups' selectedCandidateId.
+                //
+                // Groups with no pre-selection are left UNDECIDED. They used to be
+                // inserted into `ignoredGroupIds` — a set documented as "explicit user
+                // choice to skip import" — which marked them "Will Ignore" in red before
+                // the user had looked at anything. Abnormal values never carry a
+                // pre-selection (`isRecommended` requires `!isAbnormal`), so exactly the
+                // results that matter most arrived pre-marked for discard, and one tap on
+                // Import Selected dropped them while saving a record that read
+                // "All normal".
                 for group in importGroups {
                     if let selectedCandidateId = group.selectedCandidateId {
                         selectedIds[group.id] = selectedCandidateId
-                    } else {
-                        ignoredGroupIds.insert(group.id)
                     }
                 }
             }
@@ -86,10 +93,10 @@ struct BloodTestImportReviewView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Import Selected") {
+                    Button("Import \(selectedGroupCount) of \(totalGroupCount)") {
                         acceptSelected()
                     }
-                    .accessibilityLabel("Import selected lab values")
+                    .accessibilityLabel("Import \(selectedGroupCount) of \(totalGroupCount) lab values")
                     .accessibilityHint("Saves the selected values plus all auto-imported values to your health records")
                     .accessibilityIdentifier("importSelectedButton")
                 }
@@ -111,6 +118,28 @@ struct BloodTestImportReviewView: View {
         }
     }
 
+    // MARK: - Import Counts
+    /// Every group the sheet is accounting for.
+    private var totalGroupCount: Int {
+        importGroups.count + demotedGroups.count + autoAcceptedGroups.count
+    }
+
+    /// Groups that will actually be written: ones the user selected, plus the
+    /// auto-accepted ones, which import by definition.
+    private var selectedGroupCount: Int {
+        func chosen(_ groups: [BloodTestImportGroup]) -> Int {
+            groups.filter { selectedIds[$0.id] != nil && !ignoredGroupIds.contains($0.id) }.count
+        }
+        return chosen(importGroups) + chosen(demotedGroups) + autoAcceptedGroups.count
+    }
+
+    /// Groups that will be dropped — whether the user said so or simply has not
+    /// decided. Shown explicitly, because silently discarding an abnormal result and
+    /// then summarising the record as "All normal" is the worst outcome this sheet has.
+    private var omittedGroupCount: Int {
+        max(0, totalGroupCount - selectedGroupCount)
+    }
+
     // MARK: - Header Section
     private var headerSection: some View {
         Section {
@@ -121,6 +150,16 @@ struct BloodTestImportReviewView: View {
                 Text("Please review values before importing. You can deselect items to ignore them.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+
+                if omittedGroupCount > 0 {
+                    Label(
+                        "\(omittedGroupCount) of \(totalGroupCount) will not be imported until you choose a value.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("importReviewOmittedNotice")
+                }
 
                 Button("Accept All Recommended") {
                     showingAcceptAllConfirmation = true

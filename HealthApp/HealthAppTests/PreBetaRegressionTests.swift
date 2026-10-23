@@ -389,4 +389,48 @@ final class PreBetaRegressionTests: XCTestCase {
         // Ordering preserved: reviewed groups stay in presentation order.
         XCTAssertEqual(resolved.map(\.id), [abnormalGroup.id, recommendedGroup.id, ignoredGroup.id])
     }
+
+    /// An undecided group — neither selected nor explicitly ignored — must not import.
+    ///
+    /// The review sheet used to insert every group without a pre-selection into
+    /// `ignoredGroupIds`, a set meaning "explicit user choice to skip". Abnormal values
+    /// never carry a pre-selection, so they arrived pre-marked "Will Ignore" and one tap
+    /// on Import dropped them while the saved record read "All normal". The sheet now
+    /// leaves them undecided; this pins the half of the contract that is reachable from a
+    /// unit test — that undecided still means not-imported, so the new default cannot
+    /// silently start importing unreviewed values instead.
+    ///
+    /// Not covered here: that `onAppear` no longer marks them ignored. That is view state
+    /// and would need a UI test, and the UI test target currently compiles only
+    /// `RegressionSmokeUITests`.
+    func testUndecidedGroupIsNotImported() {
+        // Abnormal, so `isRecommended` is false and `BloodTestImportGroup.init` does not
+        // pre-select it — which is exactly how a group reaches the sheet undecided, and
+        // exactly the clinically interesting case that used to be dropped silently.
+        let candidate = BloodTestImportCandidate(
+            testName: "Potassium",
+            value: "5.9",
+            isAbnormal: true,
+            originalTestName: "K"
+        )
+        let undecided = BloodTestImportGroup(
+            standardTestName: "Potassium",
+            standardKey: "potassium",
+            candidates: [candidate]
+        )
+        XCTAssertNil(undecided.selectedCandidateId, "Precondition: the group must start undecided")
+
+        let resolved = BloodTestImportReviewView.resolvedGroups(
+            importGroups: [undecided],
+            demotedGroups: [],
+            autoAcceptedGroups: [],
+            selectedIds: [:],
+            ignoredGroupIds: []
+        )
+
+        XCTAssertNil(
+            resolved.first(where: { $0.id == undecided.id })?.selectedCandidateId,
+            "A group the user has not decided on must not be imported"
+        )
+    }
 }

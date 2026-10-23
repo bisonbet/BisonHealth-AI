@@ -658,7 +658,15 @@ struct DocumentsView: View {
                 }
             }
         }
-        .onChange(of: documentProcessor.pendingImportReview) { oldValue, newValue in
+        // `initial: true` matters here. `HealthTabView` swaps this view out with a
+        // `switch` when the user taps another segment, so a review that arrives while
+        // the user is elsewhere sets `pendingImportReview` on a view that no longer
+        // exists. Without the initial fire, the rebuilt view never learns the value is
+        // already set: the sheet never appears, the review is never completed, and
+        // `finishPendingImportReview()` is never called — so every later review stays
+        // stuck in `pendingReviewQueue` for the rest of the session and those documents
+        // import nothing.
+        .onChange(of: documentProcessor.pendingImportReview, initial: true) { oldValue, newValue in
             // Show review sheet when pending review is set
             if newValue != nil {
                 showingImportReview = true
@@ -666,10 +674,10 @@ struct DocumentsView: View {
                 showingImportReview = false
             }
         }
-        .onChange(of: documentProcessor.pendingGeneticTestReview) { _, newValue in
+        .onChange(of: documentProcessor.pendingGeneticTestReview, initial: true) { _, newValue in
             showingGeneticTestReview = newValue != nil
         }
-        .onChange(of: documentProcessor.lastAutoImportSummary) { _, newValue in
+        .onChange(of: documentProcessor.lastAutoImportSummary, initial: true) { _, newValue in
             guard let summary = newValue else { return }
             activeAutoImportSummary = summary
 
