@@ -19,7 +19,25 @@ struct PrivacyPolicyView: View {
 
                 PrivacySection(
                     title: "Local Storage",
-                    content: "Your health data, documents, extracted information, chat history, appointment prep records, settings, and generated content are stored on your device. The app encrypts health data, documents, chats, and appointment prep records. iCloud/CloudKit backup is not used by the app. Data leaves your device only when you take an action such as exporting, sharing, backing up through your own device settings, or configuring an external AI provider."
+                    content: """
+                    Your health data, documents, extracted information, chat history, appointment prep records, settings, and generated content are stored on your device. The app encrypts health data, documents, chats, and appointment prep records. The app does not sync your records through CloudKit.
+
+                    Data leaves your device in these cases, and only these:
+
+                    • An AI provider you configure. If you select AWS Bedrock or an OpenAI-compatible server, your message and the health data you selected as context are sent to it. The chat screen shows which provider is in use before you send, and asks you once before the first such message. The on-device model sends nothing.
+
+                    • Your encryption key, through iCloud Keychain. The key that unlocks your database is stored so that it can be restored along with your device. Without this, a restored device could not read its own data. The key syncs; your records do not.
+
+                    • Device backups. Your encrypted database is included in normal iPhone backups, in encrypted form.
+
+                    • Downloading an on-device model, and loading one, contacts Hugging Face to fetch or verify the model files. No health data is sent.
+
+                    • Opening a genetics reference link sends that gene and result to an external site so it can show matching guidance. The app asks first.
+
+                    • Anything you explicitly export or share.
+
+                    The app contains no analytics, tracking, or crash-reporting services.
+                    """
                 )
 
                 PrivacySection(

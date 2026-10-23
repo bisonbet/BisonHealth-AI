@@ -24,7 +24,7 @@ BisonHealth AI is a privacy-first iOS application that empowers users to take co
 ### ✨ Key Features
 
 - 📱 **Universal iOS App** - Built with SwiftUI for iOS 26+, optimized for both iPhone and iPad
-- 🔒 **Privacy-First Design** - All health data stored locally on-device, no cloud backup
+- 🔒 **Privacy-First Design** - Health data is stored locally on-device and processed on-device by default. It leaves the device only where you configure it to: a cloud AI provider you set up, and your encryption key, which syncs via iCloud Keychain so a device restore can read your data.
 - 🤖 **Multiple AI Providers** - Support for on-device MLX models, AWS Bedrock, and OpenAI-compatible servers
 - 👨‍⚕️ **AI Doctor Personas** - Choose from specialized AI doctors (Primary Care, Orthopedic Specialist, Clinical Nutritionist, Exercise Specialist, Internal Medicine, Dentist, Orthodontist, Physical Therapist, Genetic Specialist)
 - 📄 **Smart Document Processing** - Automatic OCR and health-data extraction through the native PDFKit/Vision pipeline (`NativeDocumentExtractor` and `DocumentProcessor`)
@@ -190,7 +190,7 @@ BisonHealth AI supports multiple AI providers. Choose one based on your needs:
 ### Privacy Settings
 
 - **Local Storage** - All health data encrypted and stored locally
-- **No Cloud Backup** - Health data never leaves the device (iCloud/CloudKit backup removed for HIPAA compliance)
+- **No App-Managed Cloud Sync** - There is no CloudKit sync of your health records. Your encrypted database is included in normal device backups, and the key that opens it syncs through your iCloud Keychain so a restored device can still read it.
 - **Data Export** - Export your data anytime in JSON or PDF format
 - **On-Device Extraction** - Native document text extraction does not require a remote server; configured remote AI providers do require network access
 
@@ -316,7 +316,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 BisonHealth AI is built with privacy as the foundation for personal health data management:
 
-- **Local-First** - All sensitive data stays on your device
+- **Local-First** - Sensitive data stays on your device unless you choose a cloud AI provider. The chat screen says which applies before you send, and asks once before the first cloud message.
 - **Encryption** - Health data encrypted using CryptoKit
 - **No Tracking** - No analytics, tracking, or data collection
 - **Open Source** - Transparent, auditable codebase
