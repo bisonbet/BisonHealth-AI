@@ -28,7 +28,18 @@ class DocumentManager: ObservableObject {
     @Published var filterStatus: ProcessingStatus?
     @Published var filterType: DocumentType?
     @Published var sortOrder: DocumentSortOrder = .dateDescending
-    @Published var lastError: Error?
+
+    /// Set on every failed document operation. Roughly a dozen call sites assign to this,
+    /// and for a long time no view read it — so import, load, delete and export failures
+    /// were invisible, and a *failed* load rendered as the "no documents yet" empty state.
+    /// Reporting from `didSet` surfaces every one of those sites through the app's normal
+    /// error alert without each having to remember to do it.
+    @Published var lastError: Error? {
+        didSet {
+            guard let lastError else { return }
+            ErrorHandler.shared.handle(lastError, context: "Documents", severity: .error)
+        }
+    }
     
     // MARK: - Dependencies
     private let documentImporter: DocumentImporter

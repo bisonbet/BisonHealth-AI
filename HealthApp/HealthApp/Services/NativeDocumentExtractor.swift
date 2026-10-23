@@ -458,17 +458,44 @@ class NativeDocumentExtractor {
         let averageConfidence: Float
     }
 
+    /// Guards a checked continuation that two code paths can both reach.
+    ///
+    /// `VNImageRequestHandler.perform` runs its requests synchronously, and on some
+    /// failures Vision invokes the request's completion handler *with* an error and then
+    /// also throws. Resuming a checked continuation twice traps the process with
+    /// `SWIFT TASK CONTINUATION MISUSE`, which the page loop's `catch` cannot recover from
+    /// — so an OCR failure that was meant to degrade to PDFKit text killed the app instead.
+    /// Every resume path claims the gate first; only the winner resumes.
+    private final class ContinuationGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var hasResumed = false
+
+        /// Returns true exactly once, to the first caller.
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if hasResumed { return false }
+            hasResumed = true
+            return true
+        }
+    }
+
     private func performOCR(on cgImage: CGImage) async throws -> OCRResult {
         AppLog.shared.documents("Performing Vision OCR on image (\(cgImage.width)x\(cgImage.height) px), recognition level: accurate", level: .debug)
         let ocrResult: OCRResult = try await withCheckedThrowingContinuation { continuation in
+            let gate = ContinuationGate()
             let request = VNRecognizeTextRequest { request, error in
                 if let error = error {
-                    continuation.resume(throwing: NativeExtractionError.ocrFailed(error.localizedDescription))
+                    if gate.claim() {
+                        continuation.resume(throwing: NativeExtractionError.ocrFailed(error.localizedDescription))
+                    }
                     return
                 }
 
                 guard let results = request.results as? [VNRecognizedTextObservation] else {
-                    continuation.resume(throwing: NativeExtractionError.ocrFailed("No text observations returned"))
+                    if gate.claim() {
+                        continuation.resume(throwing: NativeExtractionError.ocrFailed("No text observations returned"))
+                    }
                     return
                 }
 
@@ -488,10 +515,12 @@ class NativeDocumentExtractor {
 
                 let avgConfidence = observations.isEmpty ? 0 : totalConfidence / Float(observations.count)
 
-                continuation.resume(returning: OCRResult(
-                    observations: observations,
-                    averageConfidence: avgConfidence
-                ))
+                if gate.claim() {
+                    continuation.resume(returning: OCRResult(
+                        observations: observations,
+                        averageConfidence: avgConfidence
+                    ))
+                }
             }
 
             request.recognitionLevel = self.recognitionLevel
@@ -506,8 +535,15 @@ class NativeDocumentExtractor {
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
                 try handler.perform([request])
+                // Vision runs the request synchronously, so the handler has already fired.
+                // If it somehow did not, resume with an error rather than hanging forever.
+                if gate.claim() {
+                    continuation.resume(throwing: NativeExtractionError.ocrFailed("Vision returned no result"))
+                }
             } catch {
-                continuation.resume(throwing: NativeExtractionError.ocrFailed(error.localizedDescription))
+                if gate.claim() {
+                    continuation.resume(throwing: NativeExtractionError.ocrFailed(error.localizedDescription))
+                }
             }
         }
         return ocrResult
@@ -590,23 +626,26 @@ class NativeDocumentExtractor {
     /// good confidence. Returns nil when no reliable quad is detected.
     private func perspectiveCorrectedImage(_ cgImage: CGImage) async -> CGImage? {
         let quad: DocumentQuad? = await withCheckedContinuation { continuation in
+            let gate = ContinuationGate()
             let request = VNDetectDocumentSegmentationRequest { request, error in
                 guard error == nil,
                       let observation = (request.results as? [VNRectangleObservation])?.first,
                       observation.confidence > 0.8 else {
-                    continuation.resume(returning: nil)
+                    if gate.claim() { continuation.resume(returning: nil) }
                     return
                 }
                 // Flattened here because `VNRectangleObservation` is not Sendable and so
                 // cannot be resumed across the continuation.
-                continuation.resume(returning: DocumentQuad(observation))
+                if gate.claim() { continuation.resume(returning: DocumentQuad(observation)) }
             }
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
                 try handler.perform([request])
+                // Synchronous: the handler has already fired. Guard against a hang anyway.
+                if gate.claim() { continuation.resume(returning: nil) }
             } catch {
-                continuation.resume(returning: nil)
+                if gate.claim() { continuation.resume(returning: nil) }
             }
         }
 

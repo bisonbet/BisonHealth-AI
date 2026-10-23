@@ -125,7 +125,11 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - Queue Management
-    func addToQueue(_ document: MedicalDocument, priority: ProcessingPriority = .normal) async {
+    func addToQueue(
+        _ document: MedicalDocument,
+        priority: ProcessingPriority = .normal,
+        retryCount: Int = 0
+    ) async {
         AppLog.shared.documents("Adding document '\(document.fileName)' to queue with priority \(priority.displayName)")
         
         // Dedupe: never queue the same document twice — a second insert would
@@ -136,11 +140,16 @@ class DocumentProcessor: ObservableObject {
             return
         }
         
-        let queueItem = ProcessingQueueItem(
+        var queueItem = ProcessingQueueItem(
             document: document,
             priority: priority,
             addedAt: Date()
         )
+        // Carry the attempt count across a re-queue. Without this the retry path builds a
+        // fresh item at 0 and `maxRetryAttempts` never bites, so a document that can never
+        // succeed — no on-device vision model, which is the fresh-install default —
+        // retries forever, silently, and sits on "Pending".
+        queueItem.retryCount = retryCount
         
         // Insert based on priority
         let insertIndex = processingQueue.firstIndex { item in
@@ -625,7 +634,11 @@ class DocumentProcessor: ObservableObject {
                 retryTasks[currentItem.document.id] = Task {
                     try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
                     guard !Task.isCancelled else { return }
-                    await self.addToQueue(currentItem.document, priority: currentItem.priority)
+                    await self.addToQueue(
+                        currentItem.document,
+                        priority: currentItem.priority,
+                        retryCount: currentItem.retryCount
+                    )
                     self.retryTasks[currentItem.document.id] = nil
                 }
             } else {
@@ -855,11 +868,13 @@ class DocumentProcessor: ObservableObject {
             }
         }
 
-        // Only create basic blood test fallback for lab reports (or uncategorized for backward compatibility)
+        // A lab report whose values could not be parsed used to receive a fabricated
+        // "Lab Report Processed" placeholder row so the record would pass validation —
+        // a false clinical record that the app then summarised as "All normal". Import no
+        // health data instead. The document and its extracted text are still saved, and
+        // the caller surfaces the failure.
         if isLabReport && extractedData.isEmpty && !result.extractedText.isEmpty {
-            AppLog.shared.documents("No specific data extracted, creating basic blood test placeholder", level: .warning)
-            let basicBloodTest = createBasicBloodTestResult(document: document)
-            extractedData.append(try AnyHealthData(basicBloodTest))
+            AppLog.shared.documents("Lab report yielded no parseable values — importing no health data rather than a placeholder", level: .warning)
         } else if !isLabReport && extractedData.isEmpty {
             AppLog.shared.documents("No health data extracted for \(document.documentCategory.displayName) document - this is expected")
         }
@@ -1172,8 +1187,8 @@ class DocumentProcessor: ObservableObject {
 
         // Check if we have enough data to use AI mapping
         guard !items.isEmpty else {
-            AppLog.shared.documents("No health data items found, falling back to basic blood test result", level: .warning)
-            return createBasicBloodTestResult(document: document)
+            AppLog.shared.documents("No health data items found — refusing to fabricate a blood test record", level: .warning)
+            throw DocumentProcessingError.noValuesExtracted(document.fileName)
         }
 
         // Try to get the processed document text for AI analysis
@@ -1280,38 +1295,6 @@ class DocumentProcessor: ObservableObject {
         bloodTest.metadata = metadata
 
         return bloodTest
-    }
-
-    // MARK: - Basic Blood Test Creation (No Data)
-    private func createBasicBloodTestResult(document: MedicalDocument) -> BloodTestResult {
-        AppLog.shared.documents("Creating basic blood test result placeholder")
-
-        let testDate = extractTestDate(from: document.fileName) ?? document.importedAt
-
-        // Create a placeholder result with at least one item to pass validation
-        // This ensures isValid returns true (results not empty + all items have non-empty names)
-        let placeholderResult = BloodTestItem(
-            name: "Lab Report Processed",
-            value: "Document imported successfully",
-            unit: nil,
-            referenceRange: nil,
-            isAbnormal: false,
-            category: .other,
-            notes: "Full lab values require AI processing"
-        )
-
-        return BloodTestResult(
-            testDate: testDate,
-            laboratoryName: extractLaboratoryName(from: document.fileName),
-            orderingPhysician: nil,
-            results: [placeholderResult],
-            metadata: [
-                "source_document_id": document.id.uuidString,
-                "processing_method": "basic_placeholder",
-                "note": "Placeholder result - full lab values require AI processing",
-                "document_filename": document.fileName
-            ]
-        )
     }
 
     private func extractLaboratoryName(from filename: String) -> String? {
@@ -1916,6 +1899,7 @@ enum DocumentProcessingError: LocalizedError {
     case unsupportedFileType
     case documentNotFound(String)
     case nativeExtractionFailed(String)
+    case noValuesExtracted(String)
 
     var errorDescription: String? {
         switch self {
@@ -1933,6 +1917,8 @@ enum DocumentProcessingError: LocalizedError {
             return "Document file '\(fileName)' could not be found."
         case .nativeExtractionFailed(let detail):
             return "On-device document extraction failed: \(detail)"
+        case .noValuesExtracted(let fileName):
+            return "No lab values could be read from '\(fileName)'."
         }
     }
 
@@ -1952,6 +1938,8 @@ enum DocumentProcessingError: LocalizedError {
             return "The file may have been moved or deleted. Try re-importing the document."
         case .nativeExtractionFailed:
             return "Re-scan the document with better lighting and focus, or import a higher-quality copy."
+        case .noValuesExtracted:
+            return "The document was saved, but no results were added to your records. Try a clearer scan, or enter the values by hand."
         }
     }
 }

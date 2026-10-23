@@ -5,7 +5,10 @@ import SmithyIdentity
 
 // MARK: - AWS Bedrock Models for Health App
 enum AWSBedrockModel: String, CaseIterable {
-    case claudeSonnet45 = "global.anthropic.claude-sonnet-4.5-20250929-v1:0"
+    // Version segments in Bedrock model ids are hyphenated ("4-5"), not dotted. The
+    // dotted form this used to carry is not a valid id, so every Bedrock request failed —
+    // and BedrockClient reports all failures as "check your internet", which hid it.
+    case claudeSonnet45 = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     case llama4Maverick = "us.meta.llama4-maverick-17b-instruct-v1:0"
     case amazonNovaPremier = "us.amazon.nova-premier-v1:0"
 

@@ -1,5 +1,31 @@
 # Review tracker — live worklist
 
+## ▶ Fix pass 1 — landed, ready for you to check in the app
+
+Five work items fixed. iPhone and iPad builds succeed, **258 tests pass, 0 failures**
+(confirmed from the `.xcresult` — the console only prints the 2 UI tests because the unit
+bundle runs parallelized), SwiftLint unchanged at 5 pre-existing violations. Four source
+files, +94/−53.
+
+| Item | What changed | How to check it in the app |
+|---|---|---|
+| 7 · WS-03-01 | Vision continuation now claims a shared gate before resuming, on both the OCR and perspective paths, so Vision invoking the completion handler *and* throwing can no longer trap the process | Defensive — hard to trigger on purpose. What you should see is **no change** in normal imports |
+| 26 · WS-09-01 | `addToQueue` now carries `retryCount` across a re-queue, so `maxRetryAttempts` actually bites | On a fresh install with **no on-device vision model**, import a lab PDF. Before: "Pending" forever, silently, retrying every few seconds. Now: it stops after 3 attempts and reports a failure |
+| 2 · WS-05-04 | A lab report with no parseable values no longer gets a fabricated `"Lab Report Processed"` row; the builder is deleted and the item-mapping path throws `noValuesExtracted` instead | Import a lab report the parser can't read. Before: a blood test appeared in Records summarised "All normal". Now: no record is created, and you're told nothing was extracted |
+| 13 (partial) · WS-08-01/04 | `DocumentManager.lastError` now reports through `ErrorHandler` from `didSet`, so all ~12 previously-silent assignment sites surface | Cause any document failure — import an unreadable file, or delete with the DB locked. Before: nothing happened. Now: an error alert |
+| 17 · WS-04-01 | Bedrock model id corrected from the dotted `claude-sonnet-4.5-…` to `claude-sonnet-4-5-20250929-v1:0` | **Needs your AWS credentials.** Configure Bedrock and send a chat message. If it now answers, that confirms the id was the whole problem |
+
+**What this pass deliberately did not touch**: anything gated on decision 1 (the parser's
+unit/reference-range fallback, items 1, 3, 4, 5, 6). Those are the two P0s' real home and
+they need your answer first — the fix is structurally different depending on whether
+auto-accept survives.
+
+**Known limitation introduced**: `noValuesExtracted` is deterministic, but the retry path
+still retries it 3 times before failing. Harmless now that the counter works, wasteful in
+principle. Filed as a follow-up rather than fixed, because classifying errors as
+retryable/non-retryable is a bigger change than this pass warranted.
+
+
 **Status**: WS-00, Batch A (01, 02, 03, 07), Batch B (04, 05, 06, 08) and Batch C pair 1
 (09, 12) complete (2026-10-22). **Paused here at the owner's request.**
 Remaining: WS-10, WS-11, WS-13–WS-16, then WS-17 formal triage.
@@ -68,7 +94,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
 | 1 | WS-05-01 +07 +08 +09 | Unit and reference range silently fall back to the hardcoded registry, and `isAbnormal` is computed from the substituted range. Also: a dashed date in a neighbouring cell becomes the reference range; `5,4` parses as 54 | **P0** | BB | M | `Services/BloodTestMappingService.swift`, `Services/LabReportParser.swift` | todo |
-| 2 | WS-05-04 | A document with zero parsed values is saved as a real blood test holding a fabricated "Lab Report Processed" row, summarised "All normal" | **P0** | BB | S | `Services/DocumentProcessor.swift` | todo |
+| 2 | WS-05-04 | A document with zero parsed values is saved as a real blood test holding a fabricated "Lab Report Processed" row, summarised "All normal" | **P0** | BB | S | `Services/DocumentProcessor.swift` | **fixed (pass 1)** |
 | 3 | WS-05-02 | Urinalysis section state never resets, so serum creatinine is auto-accepted as *Urine* Creatinine and ferritin is dropped | P1 | BB | M | `Services/LabReportParser.swift` | after 1 |
 | 4 | WS-05-11 +12 +10 | Auto-accept UX: abnormal results default to "Will Ignore" so one tap saves a record reading "All normal"; the only notice is a 12 s toast published *before* the commit; the review sheet never shows the test date | P1 | BB | M | `Views/BloodTestImportReviewView.swift`, `Services/DocumentProcessor.swift` | after 2 |
 | 5 | WS-05-03 | Duplicate heuristic compares analyte names only, plus an import-date fallback: five historical labs imported in one sitting save one | P1 | BB | M | `Managers/HealthDataManager.swift`, `Services/BloodTestMappingService.swift` | after 1 |
@@ -78,7 +104,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 7 | WS-03-01 | Vision continuation double-resumes → uncatchable `SWIFT TASK CONTINUATION MISUSE` trap on the import path; the page-loop `catch` written to degrade gracefully cannot catch it | P1 | BB | S | `Services/NativeDocumentExtractor.swift` | **do first** |
+| 7 | WS-03-01 | Vision continuation double-resumes → uncatchable `SWIFT TASK CONTINUATION MISUSE` trap on the import path; the page-loop `catch` written to degrade gracefully cannot catch it | P1 | BB | S | `Services/NativeDocumentExtractor.swift` | **fixed (pass 1)** |
 | 8 | WS-02-01 + WS-07-03 + WS-02-02 | Restore to a new device silently destroys all health data: the DB is in device backups, the `WhenUnlockedThisDeviceOnly` key is not, and the code mints a fresh key over the restored database | P1 | BB | M | `Database/DatabaseManager.swift`, `Utils/Keychain.swift` | todo |
 | 9 | WS-06-01 + WS-06-04 | Tapping Records destroys `DocumentsView`; the review sheets fire only on `.onChange` with no `initial:`, so a review completed off-screen never appears and every later review jams behind it. Values needing review are never imported | P1 | BB | M | `Views/HealthTabView.swift`, `ContentView.swift` | after 4 |
 | 10 | WS-06-02 + WS-02-06 + WS-02-07 | Reset Database says "All health data has been permanently deleted" while the PHI is still in memory and on screen, and a Save writes it back; it also promises a backup it never makes and leaves documents on disk; migration backups are undeletable | P1 | BB | M | `Views/SettingsView.swift`, `Database/DatabaseManager.swift` | after 8 |
@@ -89,7 +115,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Systemic**: `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | todo |
+| 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Partly fixed (pass 1: DocumentManager only)** — `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | todo |
 | 14 | WS-00-01 | 14 discarded error paths in `Task { try await … }`, incl. vitals that appear saved but are not | P1 | BB | M | `ContentView.swift`, `Views/VitalsListView.swift`, `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | after 9, 17, 18 |
 | 15 | WS-08-05 | Lab values the user just reviewed or typed are dropped silently when `addBloodTest` refuses them | P1 | BB | M | `Managers/HealthDataManager.swift` | after 5 |
 | 16 | WS-08-06 + WS-08-12 | Global error layer: `.warning` severity is queued and never displayed (drains only when another alert is dismissed); 5 s dedupe can swallow a Retry failure; a second error overwrites an unacknowledged first. Causes are also mislabelled — Bedrock errors become "Network error" | P2 | BB | M | `Managers/ErrorHandler.swift` | after 13 |
@@ -98,7 +124,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 17 | WS-04-01 | Bedrock model ID is `claude-sonnet-4.5-…` with a dotted version where Anthropic uses hyphens (`claude-sonnet-4-5-20250929-v1:0`); the same repo writes `claude-3-5-sonnet-…` correctly. Probably breaks all Bedrock chat *and* cloud vision extraction, reported as "check your internet" | P1 | BB | S | `Services/BedrockClient.swift` | **verify with one real call, then fix** |
+| 17 | WS-04-01 | Bedrock model ID is `claude-sonnet-4.5-…` with a dotted version where Anthropic uses hyphens (`claude-sonnet-4-5-20250929-v1:0`); the same repo writes `claude-3-5-sonnet-…` correctly. Probably breaks all Bedrock chat *and* cloud vision extraction, reported as "check your internet" | P1 | BB | S | `Services/BedrockClient.swift` | **fixed (pass 1) — still needs one real Bedrock call to confirm** |
 | 18 | WS-04-02 + WS-08-03 | Offline gate is not provider-aware (`ChatDetailView.swift:200`), so airplane mode disables the on-device model — the one path that needs no network. Banner also claims document processing is unavailable | P1 | BB | M | `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | todo |
 | 19 | WS-04-03 | `compressHealthDataContext` blind-truncates a sorted JSON blob from the end, so `personal_info` (allergies, medications, conditions) is dropped before bulky document text | P1 | BB | M | `Managers/AIChatManager.swift` | after 18 |
 | 20 | WS-04-04 + WS-07-01 | No "data, not instructions" guard on the Bedrock or OpenAI-compatible paths (only MLX has `compactChatRules`), and `textual`'s `ImageLoader.shared` fetches any model-emitted image URL with no allowlist — together an exfiltration chain | P1 | BB | M | `Services/BedrockClient.swift`, `Services/OpenAICompatibleClient.swift`, `Views/ChatDetailView.swift` | after 17, 18 |
@@ -123,7 +149,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 26 | WS-09-01 | **Import retries forever and silently** when no on-device vision model is present — the fresh-install default. `addToQueue` builds a new queue item with `retryCount = 0` each time, so `maxRetryAttempts` never bites: 13+ "attempt 2/3" cycles in ~50 s, document stuck "Pending", no error shown. Observed live on iPad. An App Review tester hits this first | P1 | BB | M | `Services/DocumentProcessor.swift` | after 2, 6, 11 |
+| 26 | WS-09-01 | **Import retries forever and silently** when no on-device vision model is present — the fresh-install default. `addToQueue` builds a new queue item with `retryCount = 0` each time, so `maxRetryAttempts` never bites: 13+ "attempt 2/3" cycles in ~50 s, document stuck "Pending", no error shown. Observed live on iPad. An App Review tester hits this first | P1 | BB | M | `Services/DocumentProcessor.swift` | **fixed (pass 1)** |
 | 27 | WS-12-02 | **The on-device safety rules are evicted from context.** `compactChatRules` (treat patient data as facts; never tell the user to change a medication) sits in the head of the system block, and `RotatingKVCache(maxSize:, keep: 4)` keeps only the first 4 tokens. With 90% of the budget given to patient data, overflow comes within a turn or two and the guard silently stops applying | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift` | — |
 | 28 | WS-12-01 | Every model load calls `hub.snapshot`, so the on-device path contacts huggingface.co on each load (undisclosed — WS-07's egress row covers only the one-time download). Only `NSURLErrorNotConnectedToInternet` falls back to local files, so a captive portal, DNS failure or timeout fails the load outright | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift`, privacy policy | after 27 |
 | 29 | WS-12-03 + WS-12-07 | A shared retry counter that never resets — and is consumed by backgrounding — deletes the whole model directory including finished shards on the third hit, forcing a ~16 GB re-download. Downloads also start on cellular on one tap, with `allowsExpensiveNetworkAccess`/`allowsConstrainedNetworkAccess` explicitly overriding Low Data Mode | P1 | BB | M | `MLXOnDeviceLLM/MLXModelDownloadManager.swift` | — |
