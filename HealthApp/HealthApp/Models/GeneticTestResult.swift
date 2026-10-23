@@ -707,6 +707,14 @@ private enum GeneticReferenceLink {
         return catalogGene == .ifnl3 ? "IFNL3" : catalogGene.rawValue
     }
 
+    /// True when the URL carries the user's own genetic data, rather than merely pointing
+    /// at a public gene page. Only the PharmDOG results link does — it encodes the gene and
+    /// both alleles into its `q` parameter.
+    static func carriesGeneticPayload(_ url: URL) -> Bool {
+        guard url.host?.lowercased() == pharmDOGHost else { return false }
+        return !(url.query ?? "").isEmpty
+    }
+
     private static func pharmDOGURL(gene: String, result: String?) -> URL? {
         guard pharmDOGGeneSymbols.contains(gene),
               let alleles = pharmDOGAlleles(from: result) else {
@@ -864,6 +872,15 @@ struct GeneticTestItem: Codable, Identifiable, Hashable {
             return curatedSummary
         }
         return catalogSuggestion?.summary
+    }
+
+    /// Whether opening `referenceURL` would send this result's own genetic data to a third
+    /// party. The PharmDOG link embeds the gene and diplotype in its query string so the
+    /// site can show matching guidance — useful, but it is the user's genotype leaving the
+    /// device, so the UI asks before opening it.
+    var referenceURLSendsGeneticData: Bool {
+        guard let referenceURL else { return false }
+        return GeneticReferenceLink.carriesGeneticPayload(referenceURL)
     }
 
     var referenceURL: URL? {

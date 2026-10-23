@@ -612,10 +612,17 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             systemContent = systemPrompt
         }
 
+        // Every provider carries the same safety rules. Without this the cloud paths had
+        // none: patient data, including text lifted out of an imported document, was
+        // handed to the model with nothing telling it to read rather than obey.
+        if !systemContent.isEmpty {
+            systemContent += "\n\n\(HealthChatRules.systemPromptSection)"
+        } else {
+            systemContent = HealthChatRules.systemPromptSection
+        }
+
         if !context.isEmpty {
-            if !systemContent.isEmpty {
-                systemContent += "\n\nPATIENT HEALTH INFORMATION (JSON Format):\n"
-            }
+            systemContent += "\n\nPATIENT HEALTH INFORMATION (JSON Format):\n"
             systemContent += context
         }
 

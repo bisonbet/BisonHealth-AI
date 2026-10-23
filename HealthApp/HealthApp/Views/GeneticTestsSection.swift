@@ -525,6 +525,10 @@ struct GeneticTestFindingRow: View {
     let onDelete: () -> Void
 
     @State private var showingDeleteConfirmation = false
+    /// Set when the user taps a reference link that would carry their genotype off-device;
+    /// cleared when they confirm or cancel.
+    @State private var pendingGeneticReferenceURL: URL?
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -581,11 +585,41 @@ struct GeneticTestFindingRow: View {
                     .foregroundColor(.secondary)
             }
             if let referenceURL = item.referenceURL {
-                Link(destination: referenceURL) {
-                    Label(item.referenceLinkTitle, systemImage: "link")
-                        .font(.caption)
+                if item.referenceURLSendsGeneticData {
+                    // This link carries the gene and diplotype in its query string, so
+                    // tapping it sends the user's genotype to a third party. Ask first.
+                    Button {
+                        pendingGeneticReferenceURL = referenceURL
+                    } label: {
+                        Label(item.referenceLinkTitle, systemImage: "link")
+                            .font(.caption)
+                    }
+                    .accessibilityHint("Opens an external site and shares this gene and result with it")
+                } else {
+                    Link(destination: referenceURL) {
+                        Label(item.referenceLinkTitle, systemImage: "link")
+                            .font(.caption)
+                    }
                 }
             }
+        }
+        .confirmationDialog(
+            "Open external reference?",
+            isPresented: Binding(
+                get: { pendingGeneticReferenceURL != nil },
+                set: { if !$0 { pendingGeneticReferenceURL = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Open and share") {
+                if let url = pendingGeneticReferenceURL {
+                    openURL(url)
+                }
+                pendingGeneticReferenceURL = nil
+            }
+            Button("Cancel", role: .cancel) { pendingGeneticReferenceURL = nil }
+        } message: {
+            Text("This sends \(item.gene) and your result to an external website so it can show matching guidance. Your other health data stays on this device.")
         }
         .padding(.vertical, 6)
         .overlay(alignment: .bottom) {

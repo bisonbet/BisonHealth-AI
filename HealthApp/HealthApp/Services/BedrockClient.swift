@@ -253,6 +253,11 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 }
             }
 
+            // Every provider carries the same safety rules. Without this the cloud paths
+            // had none: patient data, including text lifted out of an imported document,
+            // was handed to the model with nothing telling it to read rather than obey.
+            systemPrompt += "\n\n\(HealthChatRules.systemPromptSection)"
+
             // Prepare the conversation with context if provided
             var conversationInput = message
             if !actualContext.isEmpty {
@@ -353,6 +358,9 @@ class BedrockClient: ObservableObject, AIProviderInterface {
                 actualContext = ""
             }
         }
+
+        // Same safety rules as every other provider (see the non-streaming path above).
+        effectiveSystemPrompt += "\n\n\(HealthChatRules.systemPromptSection)"
 
         // Use ConversationContextBuilder to get trimmed history within token limits
         let contextResult = ConversationContextBuilder.buildContext(
