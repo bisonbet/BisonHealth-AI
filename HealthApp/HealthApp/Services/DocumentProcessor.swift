@@ -55,11 +55,49 @@ class DocumentProcessor: ObservableObject {
         } else {
             pendingReviewQueue.append(review)
         }
+
+        // Persist before presenting. Until v13 these groups existed only here, so a
+        // cancel or a relaunch destroyed every value the user had not decided on —
+        // including the ones already auto-accepted — and only re-processing the document
+        // brought them back.
+        Task { [databaseManager] in
+            do {
+                try await databaseManager.savePendingImportReview(review)
+            } catch {
+                AppLog.shared.error("Could not persist pending import review", error: error, category: .documents)
+            }
+        }
+    }
+
+    /// Reloads un-reviewed imports left behind by a previous run, so they can be offered
+    /// again instead of being silently lost.
+    func restorePendingImportReviews() async {
+        do {
+            let stored = try await databaseManager.fetchPendingImportReviews()
+            guard !stored.isEmpty else { return }
+
+            AppLog.shared.documents("Restoring \(stored.count) un-reviewed lab import(s) from a previous session", level: .warning)
+            for review in stored where review.documentId != pendingImportReview?.documentId {
+                if pendingImportReview == nil {
+                    pendingImportReview = review
+                } else if !pendingReviewQueue.contains(where: { $0.documentId == review.documentId }) {
+                    pendingReviewQueue.append(review)
+                }
+            }
+        } catch {
+            AppLog.shared.error("Could not restore pending import reviews", error: error, category: .documents)
+        }
     }
 
     /// Promote the next queued review (or clear). Call when the current
     /// review is completed.
     func finishPendingImportReview() {
+        // The user decided on this one, so it no longer needs resurfacing.
+        if let resolved = pendingImportReview?.documentId {
+            Task { [databaseManager] in
+                try? await databaseManager.deletePendingImportReview(documentId: resolved)
+            }
+        }
         if !pendingReviewQueue.isEmpty {
             pendingImportReview = pendingReviewQueue.removeFirst()
         } else {
@@ -67,11 +105,18 @@ class DocumentProcessor: ObservableObject {
         }
     }
 
-    /// Discard the current review only if it still belongs to `documentId`
-    /// (the cancel path; completion promotes the next review first).
+    /// Dismiss the current review only if it still belongs to `documentId`.
+    ///
+    /// This is the Cancel path, and it deliberately leaves the stored copy in place: the
+    /// user declined to decide *now*, which is not the same as discarding their results.
+    /// The review is offered again next launch. Completion goes through
+    /// `finishPendingImportReview`, which removes it.
     func discardPendingImportReview(for documentId: UUID) {
-        if pendingImportReview?.documentId == documentId {
-            finishPendingImportReview()
+        guard pendingImportReview?.documentId == documentId else { return }
+        if !pendingReviewQueue.isEmpty {
+            pendingImportReview = pendingReviewQueue.removeFirst()
+        } else {
+            pendingImportReview = nil
         }
     }
 
@@ -1727,8 +1772,15 @@ struct ProcessingError: Identifiable {
 }
 
 // MARK: - Pending Import Review
-struct PendingImportReview: Identifiable, Equatable {
+struct PendingImportReview: Identifiable, Equatable, Codable {
+    /// Excluded from coding: an initialised `let` cannot be decoded into, and this id is
+    /// only sheet identity — the document id is what identifies the review.
     let id = UUID()
+
+    private enum CodingKeys: String, CodingKey {
+        case documentId, documentName, importGroups, autoAcceptedGroups, bloodTestResult, timestamp
+    }
+
     let documentId: UUID
     let documentName: String
     /// Groups the user must decide on (multiple distinct values or failed validation)

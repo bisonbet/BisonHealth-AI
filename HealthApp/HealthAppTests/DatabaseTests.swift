@@ -172,7 +172,7 @@ final class DatabaseMigrationTests: XCTestCase {
         // Opening it runs the migration.
         let migrated = try DatabaseManager(databaseURL: databaseURL)
 
-        XCTAssertEqual(try storedVersion(), 12, "The stored version must advance")
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion, "The stored version must advance to current")
         XCTAssertFalse(try documentsHasColumn("raw_docling_output"), "v12 drops the legacy column")
 
         let recovered = try await migrated.fetchMedicalDocument(id: document.id)
@@ -180,6 +180,79 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(recovered?.fileName, "lab-report.pdf")
         XCTAssertEqual(recovered?.extractedText, "Glucose 95 mg/dL")
         XCTAssertEqual(recovered?.documentCategory, .labReport)
+    }
+
+    func testUpgradingFromVersion12CreatesThePendingReviewTable() async throws {
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .completed,
+            documentCategory: .labReport,
+            extractedText: "Sodium 140",
+            fileSize: 1024,
+            tags: []
+        )
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+        }
+
+        // Wind back to v12: drop the table v13 introduces.
+        try execute("DROP TABLE pending_import_reviews")
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (12, 0)")
+        XCTAssertEqual(try storedVersion(), 12, "Precondition: the fixture must look like v12")
+
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+        XCTAssertEqual(try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pending_import_reviews'"), 1)
+
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.fileName, "panel.pdf", "Existing documents must survive the upgrade")
+        let pendingAfterUpgrade = try await migrated.fetchPendingImportReviews()
+        XCTAssertEqual(pendingAfterUpgrade.count, 0, "An upgraded database has no pending reviews, which is true of it")
+    }
+
+    func testAPendingReviewSurvivesReopeningTheDatabase() async throws {
+        // The whole point of v13: before it, these groups lived only in DocumentProcessor's
+        // memory, so a cancel or a relaunch discarded every value the user had not decided
+        // on and only re-processing the document brought them back.
+        let documentId = UUID()
+        let review = PendingImportReview(
+            documentId: documentId,
+            documentName: "panel.pdf",
+            importGroups: [
+                BloodTestImportGroup(
+                    standardTestName: "Potassium",
+                    standardKey: "potassium",
+                    candidates: [BloodTestImportCandidate(
+                        testName: "Potassium", value: "5.9", unit: "mmol/L",
+                        isAbnormal: true, originalTestName: "K"
+                    )]
+                )
+            ],
+            bloodTestResult: BloodTestResult(testDate: Date(), results: [])
+        )
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.savePendingImportReview(review)
+        }
+
+        let reopened = try DatabaseManager(databaseURL: databaseURL)
+        let restored = try await reopened.fetchPendingImportReviews()
+
+        XCTAssertEqual(restored.count, 1, "The un-reviewed import must outlive the session")
+        XCTAssertEqual(restored.first?.documentId, documentId)
+        XCTAssertEqual(restored.first?.importGroups.first?.candidates.first?.value, "5.9")
+        XCTAssertEqual(restored.first?.importGroups.first?.candidates.first?.unit, "mmol/L")
+
+        try await reopened.deletePendingImportReview(documentId: documentId)
+        let afterDelete = try await reopened.fetchPendingImportReviews()
+        XCTAssertEqual(afterDelete.count, 0, "Deciding on it removes it")
     }
 
     func testOpeningAFutureVersionIsRefusedRatherThanCrashing() throws {

@@ -40,7 +40,11 @@ class DatabaseManager: ObservableObject {
     }
     
     // MARK: - Database Version
-    private static let currentDatabaseVersion = 12 // Increment when making schema changes
+    /// Not private: the migration tests assert that an upgraded database reaches the
+    /// *current* version rather than a hardcoded number, so they keep covering every
+    /// future bump instead of going stale the moment someone adds a migration.
+    /// (internal for regression tests; @testable access)
+    internal static let currentDatabaseVersion = 13 // Increment when making schema changes
 
     /// Guards the genetic URL normalization so a single migration run performs it once,
     /// even when several versions in the range ask for it. Reset per migration run.
@@ -86,6 +90,15 @@ class DatabaseManager: ObservableObject {
     internal let documentIncludeInAIContext = Expression<Bool>("include_in_ai_context")
     internal let documentContextPriority = Expression<Int>("context_priority")
     internal let documentLastEditedAt = Expression<Int64?>("last_edited_at")
+    // MARK: Pending import reviews (v13)
+    /// Un-reviewed lab imports live in their own table rather than on `documents`.
+    /// `saveMedicalDocument` writes with `insert(or: .replace)` and an explicit column
+    /// list, so a column added to that table would be blanked by any later document save
+    /// — a status update would silently discard values the user had not decided on.
+    internal let pendingReviewsTable = Table("pending_import_reviews")
+    internal let pendingReviewDocumentId = Expression<String>("document_id")
+    internal let pendingReviewPayload = Expression<String>("payload")
+    internal let pendingReviewCreatedAt = Expression<Int64>("created_at")
     
     // Chat Conversations Table
     internal let conversationId = Expression<String>("id")
@@ -242,6 +255,13 @@ class DatabaseManager: ObservableObject {
                 t.column(prepStatus, defaultValue: "draft")
                 t.column(prepCreatedAt)
                 t.column(prepUpdatedAt)
+            })
+
+            // Create pending_import_reviews table (v13)
+            try db.run(pendingReviewsTable.create(ifNotExists: true) { t in
+                t.column(pendingReviewDocumentId, primaryKey: true)
+                t.column(pendingReviewPayload)
+                t.column(pendingReviewCreatedAt)
             })
 
             // Create database_version table
@@ -575,6 +595,17 @@ class DatabaseManager: ObservableObject {
             // Migration for version 12: drop legacy Docling raw_docling_output column.
             try db.run("ALTER TABLE documents DROP COLUMN raw_docling_output")
             AppLog.shared.database("Dropped legacy raw_docling_output column")
+
+        case 13:
+            // Migration for version 13: durable storage for un-reviewed lab imports.
+            // A new table, so existing rows are untouched and simply have no pending
+            // review — which is exactly true of them.
+            try db.run(pendingReviewsTable.create(ifNotExists: true) { t in
+                t.column(pendingReviewDocumentId, primaryKey: true)
+                t.column(pendingReviewPayload)
+                t.column(pendingReviewCreatedAt)
+            })
+            AppLog.shared.database("   ✓ Created pending_import_reviews table")
 
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")

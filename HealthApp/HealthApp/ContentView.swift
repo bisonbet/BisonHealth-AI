@@ -725,6 +725,12 @@ struct DocumentsView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: activeAutoImportSummary)
         .task {
+            // Offer back any lab import the previous session left un-reviewed. Before
+            // v13 these lived only in memory, so a cancel or a force-quit discarded every
+            // extracted value and only re-processing the document recovered them.
+            await documentProcessor.restorePendingImportReviews()
+        }
+        .task {
             guard AppTestRuntime.shouldSeedLabReport else { return }
 
             for _ in 0..<20 {

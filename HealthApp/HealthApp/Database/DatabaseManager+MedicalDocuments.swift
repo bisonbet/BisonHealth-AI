@@ -413,3 +413,56 @@ extension DatabaseManager {
         )
     }
 }
+
+// MARK: - Pending Import Reviews (v13)
+//
+// Extracted lab values the user has not decided on yet. Before this they lived only in
+// `DocumentProcessor`'s memory, so cancelling the sheet or relaunching the app discarded
+// every group — including the ones the reconciler had auto-accepted — with nothing in the
+// UI offering to bring them back. Only re-processing the document recovered them.
+//
+// The payload is encrypted like every other PHI column: it holds the patient's actual
+// results.
+extension DatabaseManager {
+
+    func savePendingImportReview(_ review: PendingImportReview) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        let payload = try encryptData(review).base64EncodedString()
+        try db.run(pendingReviewsTable.insert(or: .replace,
+            pendingReviewDocumentId <- review.documentId.uuidString,
+            pendingReviewPayload <- payload,
+            pendingReviewCreatedAt <- Int64(review.timestamp.timeIntervalSince1970)
+        ))
+    }
+
+    func deletePendingImportReview(documentId: UUID) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        let row = pendingReviewsTable.filter(pendingReviewDocumentId == documentId.uuidString)
+        try db.run(row.delete())
+    }
+
+    /// Every un-reviewed import, oldest first, for resurfacing on launch.
+    ///
+    /// A row that cannot be decoded is dropped rather than thrown: one unreadable payload
+    /// must not stop the others being offered back to the user, and the document itself
+    /// is still there to re-process.
+    func fetchPendingImportReviews() async throws -> [PendingImportReview] {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        var reviews: [PendingImportReview] = []
+        for row in try db.prepare(pendingReviewsTable.order(pendingReviewCreatedAt.asc)) {
+            guard let data = Data(base64Encoded: row[pendingReviewPayload]) else {
+                AppLog.shared.database("Pending review payload is not valid base64 — skipping", level: .warning)
+                continue
+            }
+            do {
+                reviews.append(try decryptData(data, as: PendingImportReview.self))
+            } catch {
+                AppLog.shared.database("Could not decode a pending import review — skipping", level: .warning)
+            }
+        }
+        return reviews
+    }
+}

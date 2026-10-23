@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Blood Test Import Candidate
 /// Represents a candidate value for a blood test during import review
-struct BloodTestImportCandidate: Identifiable, Hashable {
+struct BloodTestImportCandidate: Identifiable, Hashable, Codable {
     let id: UUID
     let testName: String
     let value: String
@@ -27,7 +27,7 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
     let unitWasSubstituted: Bool
     let referenceRangeWasSubstituted: Bool
 
-    enum ValidationStatus: Hashable {
+    enum ValidationStatus: String, Hashable, Codable {
         case valid
         case unitMismatch
         case ocrUnitMismatch
@@ -118,7 +118,7 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
 
 // MARK: - Blood Test Import Group
 /// Groups candidates for the same test (even if single) for user review
-struct BloodTestImportGroup: Identifiable {
+struct BloodTestImportGroup: Identifiable, Codable {
     let id: UUID
     let standardTestName: String
     let standardKey: String
