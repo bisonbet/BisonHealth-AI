@@ -707,7 +707,9 @@ enum LabCandidateReconciler {
                     pageNumber: candidate.pageNumber,
                     sourceSnippet: candidate.sourceSnippet,
                     specimen: candidate.specimen ?? candidate.parameter.defaultSpecimen,
-                    collection: candidate.collection ?? candidate.parameter.defaultCollection
+                    collection: candidate.collection ?? candidate.parameter.defaultCollection,
+                    unitWasSubstituted: candidate.unit == nil,
+                    referenceRangeWasSubstituted: candidate.referenceRange == nil
                 )
             }
 

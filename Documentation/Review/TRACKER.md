@@ -1,6 +1,38 @@
 # Review tracker — live worklist
 
-## ▶ Fix pass 1 — landed, ready for you to check in the app
+## ▶ Fix passes 1–2 — landed and verified in a running app
+
+**Verified on the iPad simulator** (report: `findings/FIX-PASS-1-VERIFICATION.md`):
+
+| Check | Verdict | Evidence |
+|---|---|---|
+| Import stops retrying | **CONFIRMED FIXED** | Log shows attempt 1/3 → 2/3 → 3/3 → "Maximum retry attempts reached, marking as failed", then silence for ~65s. A second, differently-failing file also stopped at 3/3 |
+| No fabricated lab record | **CONFIRMED FIXED** | "Lab report yielded no parseable values — importing no health data rather than a placeholder"; Records still reads "No lab results" |
+| Document failures visible | **PARTIAL → now completed** | A thumbnail failure raised an alert, but a 0-byte import did not: `DocumentImporter` has its *own* `lastError`, which pass 1 never wired up. Fixed in pass 3 below |
+| Substituted value not auto-imported | **CONFIRMED FIXED** | "Reconciler: 10 candidates → 2 auto-accepted, 3 need review". Auto-accepted were exactly Sodium and Chloride (unit + range present); review held exactly Creatinine, Glucose and Potassium (range and/or unit missing). Deterministic parser path only — the mock returns `{}`, so the LLM path is untested |
+
+### Pass 3 — gaps the verification exposed, now fixed
+
+- **`DocumentImporter.lastError` now reports through `ErrorHandler`.** Pass 1 wired up
+  `DocumentManager` only, so per-file batch import failures stayed silent — exactly the
+  0-byte case above.
+- **A registry-completed value is no longer "Recommended" or pre-selected.** Gating
+  auto-accept was not enough: the review sheet still starred Glucose as
+  "85 mg/dL, Expected 70-100" and pre-selected it, when the document stated neither. One
+  tap on *Accept All Recommended* imported the app's assumption as fact. `BloodTestImportCandidate`
+  now carries `unitWasSubstituted` / `referenceRangeWasSubstituted`, and `isRecommended`
+  requires both to be false. The value stays selectable — the user may know the unit is
+  right — it just no longer wears a star.
+
+### Still open from the verification (not regressions)
+
+| Finding | Severity | Note |
+|---|---|---|
+| After 3 failed attempts the list and detail sheet keep showing "Pending" with no message until you switch tabs | P2 | Same view-staleness family as item 9. No longer infinite, but still silent in the moment |
+| The OCR layout pass emits duplicate candidates with misread units (Creatinine "0.9 ng/dL" and "0.9 mg/dL") | P2 | Forces a "Multiple values found" review, which is the safe outcome, but the unit misread is real |
+| Skip/Done on the Document Type sheet re-triggers processing, starting a fresh 1/3 cycle | P2 | Wasteful, and confusing after a failure |
+
+## ▶ Fix pass 1 — what each change was
 
 Five work items fixed. iPhone and iPad builds succeed, **258 tests pass, 0 failures**
 (confirmed from the `.xcresult` — the console only prints the 2 UI tests because the unit

@@ -16,7 +16,17 @@ class DocumentImporter: NSObject, ObservableObject {
     
     @Published var isImporting = false
     @Published var importProgress: Double = 0.0
-    @Published var lastError: Error?
+
+    /// `importMultipleDocuments` catches per-file failures and records them here so one
+    /// bad file does not abort the batch — but nothing read this, so importing a 0-byte
+    /// or unreadable file did nothing visible at all. Reported from `didSet`, matching
+    /// `DocumentManager`.
+    @Published var lastError: Error? {
+        didSet {
+            guard let lastError else { return }
+            ErrorHandler.shared.handle(lastError, context: "Document import", severity: .error)
+        }
+    }
     
     private let fileSystemManager: FileSystemManager
     private let databaseManager: DatabaseManager

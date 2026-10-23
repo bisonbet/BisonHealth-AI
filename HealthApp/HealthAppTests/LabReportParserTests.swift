@@ -599,6 +599,22 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertTrue(results.needsReview.isEmpty)
     }
 
+    func testSubstitutedValueIsNeitherRecommendedNorPreselected() throws {
+        // Gating auto-accept is not enough on its own: the review sheet was still putting
+        // a "Recommended" star on a value whose unit the app had supplied, and
+        // pre-selecting it, so one tap on Accept All imported the assumption as fact.
+        let results = LabCandidateReconciler.reconcile([
+            try makeCandidateWithProvenance(
+                key: "glucose", value: "98",
+                documentUnit: nil, documentReferenceRange: "70-99"
+            )
+        ])
+
+        let group = try XCTUnwrap(results.needsReview.first)
+        XCTAssertNil(group.recommendedCandidate, "A registry-completed value must not be starred as recommended")
+        XCTAssertNil(group.selectedCandidateId, "A registry-completed value must not be pre-selected")
+    }
+
     func testCandidateDoesNotInventAbnormalityFromTheRegistryRange() throws {
         // 5.4 is a normal glucose in mmol/L and wildly low in mg/dL. With no range from
         // the document and no lab flag, the app must not claim either way.

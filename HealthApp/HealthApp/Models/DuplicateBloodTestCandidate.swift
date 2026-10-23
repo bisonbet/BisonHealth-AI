@@ -21,6 +21,12 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
     let specimen: LabSpecimen?
     let collection: LabCollection?
 
+    /// True when `unit` / `referenceRange` came from the app's hardcoded registry because
+    /// the document did not state one. Such a value is never auto-accepted and never
+    /// recommended: the figure shown is the app's assumption, not the lab's.
+    let unitWasSubstituted: Bool
+    let referenceRangeWasSubstituted: Bool
+
     enum ValidationStatus: Hashable {
         case valid
         case unitMismatch
@@ -45,8 +51,12 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
         pageNumber: Int? = nil,
         sourceSnippet: String? = nil,
         specimen: LabSpecimen? = nil,
-        collection: LabCollection? = nil
+        collection: LabCollection? = nil,
+        unitWasSubstituted: Bool = false,
+        referenceRangeWasSubstituted: Bool = false
     ) {
+        self.unitWasSubstituted = unitWasSubstituted
+        self.referenceRangeWasSubstituted = referenceRangeWasSubstituted
         self.id = id
         self.testName = testName
         self.value = value
@@ -82,8 +92,15 @@ struct BloodTestImportCandidate: Identifiable, Hashable {
         return result
     }
     
+    /// A value the app had to complete from its own registry is never *recommended* and
+    /// never pre-selected. It stays selectable — the user may well know the unit is right
+    /// — but the app must not put a star on a figure the document did not state.
     var isRecommended: Bool {
-        return validationStatus == .valid && !isAbnormal && confidence > 0.7
+        return validationStatus == .valid
+            && !isAbnormal
+            && confidence > 0.7
+            && !unitWasSubstituted
+            && !referenceRangeWasSubstituted
     }
 
     /// A genuine unit warning can be imported only after the user explicitly
