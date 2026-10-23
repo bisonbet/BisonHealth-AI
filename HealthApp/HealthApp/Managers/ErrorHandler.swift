@@ -93,8 +93,15 @@ class ErrorHandler: ObservableObject {
     // MARK: - Private Properties
     private var errorHistory: [HandledError] = []
     private let maxHistorySize = 50
+    /// When the user last tapped Retry. Errors raised within `retryGracePeriod` of it
+    /// bypass deduplication — see `shouldDeduplicateError`.
+    private var lastRetryAt: Date?
+    private static let retryGracePeriod: TimeInterval = 10.0
 
-    private init() {}
+    /// Not private: tests construct an isolated handler rather than asserting against the
+    /// shared one, which the parallelized suite would race on.
+    /// (internal for regression tests; @testable access)
+    init() {}
 
     // MARK: - Error Handling
 
@@ -130,14 +137,17 @@ class ErrorHandler: ObservableObject {
         // Add to history
         addToHistory(handledError)
 
-        // Handle based on severity
+        // Handle based on severity.
+        //
+        // Warnings used to go straight to the queue, and the queue is drained only when
+        // some *other* alert is dismissed — so a warning raised while nothing was on
+        // screen was never shown at all. Every URLError classifies as a warning, which
+        // meant chat network failures silently never reached the user. Anything above
+        // `.info` is now presented: immediately if the screen is free, queued behind
+        // whatever is already there otherwise.
         switch detectedSeverity {
-        case .critical, .error:
-            // Show immediately
-            showError(handledError)
-        case .warning:
-            // Queue for display
-            queueError(handledError)
+        case .critical, .error, .warning:
+            present(handledError)
         case .info:
             // Just log, don't display
             break
@@ -168,13 +178,27 @@ class ErrorHandler: ObservableObject {
 
     // MARK: - Error Display
 
-    private func showError(_ handledError: HandledError) {
-        // If there's already a critical error showing, queue this one
-        if let current = currentError, current.severity == .critical && handledError.severity != .critical {
-            queueError(handledError)
+    /// Presents an error, or queues it behind one the user has not acknowledged yet.
+    ///
+    /// Previously this overwrote `currentError` unless the error on screen was critical,
+    /// so a second failure replaced an unacknowledged first and the first was simply
+    /// lost. Nothing on screen is now replaced; a strictly more severe error takes the
+    /// slot and the displaced one goes back on the queue rather than being discarded.
+    private func present(_ handledError: HandledError) {
+        guard let current = currentError else {
+            showError(handledError)
             return
         }
 
+        if handledError.severity > current.severity {
+            queueError(current)
+            showError(handledError)
+        } else {
+            queueError(handledError)
+        }
+    }
+
+    private func showError(_ handledError: HandledError) {
         currentError = handledError
         showErrorAlert = true
     }
@@ -200,6 +224,7 @@ class ErrorHandler: ObservableObject {
 
     /// Retry the current error's action
     func retryCurrentError() {
+        lastRetryAt = Date()
         currentError?.retryAction?()
         dismissCurrentError()
     }
@@ -241,6 +266,13 @@ class ErrorHandler: ObservableObject {
     }
 
     private func shouldDeduplicateError(_ handledError: HandledError) -> Bool {
+        // An error arriving just after the user tapped Retry is the answer to that tap,
+        // not noise. Deduplicating it means the retry appears to do nothing — which is
+        // the worst possible response to someone actively trying again.
+        if let lastRetry = lastRetryAt, lastRetry.timeIntervalSinceNow > -Self.retryGracePeriod {
+            return false
+        }
+
         // Check recent errors (last 10 seconds)
         let recentErrors = errorHistory.filter {
             $0.timestamp.timeIntervalSinceNow > -10.0

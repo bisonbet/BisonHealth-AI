@@ -311,3 +311,65 @@ final class AIChatManagerTests: XCTestCase {
         await harness.healthDataManager.loadHealthData()
     }
 }
+
+// MARK: - Global Error Layer
+@MainActor
+final class ErrorHandlerTests: XCTestCase {
+
+    private struct SampleError: LocalizedError {
+        let errorDescription: String?
+    }
+
+    func testWarningsAreShownRatherThanQueuedForever() {
+        // Warnings went straight to the queue, and the queue drains only when some other
+        // alert is dismissed — so a warning raised with nothing on screen was never seen.
+        // Every URLError classifies as a warning, so chat network failures never surfaced.
+        let handler = ErrorHandler()
+
+        handler.handle(SampleError(errorDescription: "network unreachable"),
+                       context: "Chat", severity: .warning)
+
+        XCTAssertNotNil(handler.currentError, "A warning with nothing on screen must be shown, not queued")
+        XCTAssertEqual(handler.currentError?.message, "network unreachable")
+    }
+
+    func testASecondErrorDoesNotReplaceAnUnacknowledgedFirst() {
+        let handler = ErrorHandler()
+
+        handler.handle(SampleError(errorDescription: "first failure"), context: "A", severity: .error)
+        handler.handle(SampleError(errorDescription: "second failure"), context: "B", severity: .error)
+
+        XCTAssertEqual(handler.currentError?.message, "first failure", "The first error must stay until acknowledged")
+        XCTAssertEqual(handler.errorQueue.count, 1, "The second must be queued, not discarded")
+
+        handler.dismissCurrentError()
+        XCTAssertEqual(handler.currentError?.message, "second failure", "Dismissing shows the queued one")
+    }
+
+    func testAMoreSevereErrorTakesOverWithoutLosingTheFirst() {
+        let handler = ErrorHandler()
+
+        // The first error must be one that is actually *displayed*, or this passes for
+        // the wrong reason: under the old behaviour a warning sat in the queue because
+        // warnings were never shown at all, not because it had been displaced.
+        handler.handle(SampleError(errorDescription: "first failure"), context: "A", severity: .error)
+        XCTAssertEqual(handler.currentError?.message, "first failure", "Precondition: the first error is on screen")
+
+        handler.handle(SampleError(errorDescription: "critical level"), context: "B", severity: .critical)
+
+        XCTAssertEqual(handler.currentError?.message, "critical level")
+        XCTAssertEqual(handler.errorQueue.first?.message, "first failure", "The displaced error is requeued, not dropped")
+    }
+
+    func testRetryFailureIsNotDeduplicatedAway() {
+        // The 5-second similarity window dropped an error that failed again right after
+        // the user tapped Retry, so the retry appeared to do nothing at all.
+        let handler = ErrorHandler()
+
+        handler.handle(SampleError(errorDescription: "save failed"), context: "Save", severity: .error)
+        handler.retryCurrentError()
+        handler.handle(SampleError(errorDescription: "save failed"), context: "Save", severity: .error)
+
+        XCTAssertEqual(handler.currentError?.message, "save failed", "The retry's own failure must reach the user")
+    }
+}
