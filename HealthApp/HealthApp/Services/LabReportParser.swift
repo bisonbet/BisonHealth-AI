@@ -406,6 +406,18 @@ final class LabReportParser {
         // extended by one token (handles "CA 125" where "125" looks like a value)
         var match = BloodTestResult.matchLabParameter(name: name, testType: testType)
 
+        // Trust the analyte over a stale heading. Section tracking is sticky and
+        // heading lists are never complete, so a blood-only test appearing after a
+        // urinalysis block used to match nothing and be dropped silently (ferritin is
+        // the clearest case). If the row does not exist as a urine test but does exist
+        // as a blood test, it is a blood test.
+        var resolvedTestType = testType
+        if match == nil, testType == .urine,
+           let bloodMatch = BloodTestResult.matchLabParameter(name: name, testType: .blood) {
+            match = bloodMatch
+            resolvedTestType = .blood
+        }
+
         // OCR glues superscript footnote markers onto test names ("BUN01",
         // "Chloride °1"). Registry containment needs 4+ characters, so short
         // names like BUN fail outright. Retry without the marker — only after
@@ -478,7 +490,7 @@ final class LabReportParser {
             unit: unit,
             referenceRange: referenceRange,
             abnormalFlag: flag,
-            testType: testType,
+            testType: resolvedTestType,
             source: source,
             pageNumber: pageNumber,
             sourceSnippet: String(snippet.prefix(200)),
@@ -611,9 +623,17 @@ final class LabReportParser {
             return
         }
 
+        // A urinalysis heading makes the section sticky, so every heading that can follow
+        // one has to be able to switch it back. Real reports put blocks like "Iron Studies"
+        // or "Vitamins" after the urinalysis section with no generic blood heading in
+        // between, and the parser then read serum results as urine.
         let bloodMarkers = ["hematology", "chemistry", "complete blood count", "metabolic panel",
                             "lipid panel", "serum", "plasma", "cbc", "cmp", "bmp", "thyroid panel",
-                            "coagulation", "immunology"]
+                            "coagulation", "immunology",
+                            "vitamin", "iron studies", "iron panel", "hormone", "tumor marker",
+                            "cardiac", "liver panel", "hepatic panel", "renal panel",
+                            "kidney panel", "electrolytes", "diabetes", "inflammatory markers",
+                            "allergy", "infectious disease"]
         // Only treat as a section switch when the line looks like a heading, not a data row
         let looksLikeHeading = line.count <= 50 && !line.contains(where: { $0.isNumber })
         if looksLikeHeading && bloodMarkers.contains(where: { lowered.contains($0) }) {

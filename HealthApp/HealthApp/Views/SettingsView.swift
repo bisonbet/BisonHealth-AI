@@ -1012,6 +1012,15 @@ struct SettingsView: View {
         Task {
             do {
                 try DatabaseManager.shared.resetDatabase()
+
+                // Reloading from the now-empty database is what actually clears the
+                // in-memory copies. Without this the managers kept serving the deleted
+                // records: the screen still showed them behind a dialog that said they
+                // were permanently deleted, and saving Personal Info afterwards wrote
+                // them straight back into the fresh database.
+                await HealthDataManager.shared.loadHealthData()
+                await DocumentManager.shared.loadDocuments()
+
                 await MainActor.run {
                     successMessage = "Database has been reset successfully. All health data has been permanently deleted."
                     showingSuccessMessage = true

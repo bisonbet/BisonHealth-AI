@@ -517,6 +517,45 @@ final class LabReportParserTests: XCTestCase {
         )
     }
 
+    func testSectionReturnsToBloodAfterAUrinalysisBlock() {
+        // Section tracking is sticky: a urinalysis heading made every later row urine
+        // until a heading on a short fixed list flipped it back. Real reports put blocks
+        // like "Iron Studies" after the urinalysis section, so serum creatinine was stored
+        // as *Urine* Creatinine and blood-only tests like ferritin matched nothing and
+        // were dropped without a word.
+        let text = """
+        URINALYSIS
+        Protein\tNegative\t\tNegative
+        IRON STUDIES
+        Ferritin\t120\tng/mL\t30-400
+        Creatinine\t0.9\tmg/dL\t0.6-1.2
+        """
+
+        let candidates = parser.parse(plainText: text)
+        let byKey = Dictionary(grouping: candidates, by: { $0.standardKey })
+
+        XCTAssertNotNil(byKey["ferritin"], "A blood-only test after a urinalysis block must not be dropped")
+        XCTAssertEqual(
+            byKey["creatinine"]?.first?.testType,
+            .blood,
+            "Serum creatinine after a urinalysis block must not be stored as urine creatinine"
+        )
+    }
+
+    func testBloodOnlyTestIsRecoveredEvenWithoutABloodHeading() {
+        // The heading list will never be complete, so the analyte itself is the fallback:
+        // a row that does not exist as a urine test but does as a blood test is a blood test.
+        let text = """
+        URINALYSIS
+        Protein\tNegative\t\tNegative
+        Ferritin\t120\tng/mL\t30-400
+        """
+
+        let candidates = parser.parse(plainText: text)
+
+        XCTAssertEqual(candidates.first(where: { $0.standardKey == "ferritin" })?.testType, .blood)
+    }
+
     func testReconcilerAutoAcceptsSingleValidCandidate() {
         let results = LabCandidateReconciler.reconcile([
             makeCandidate(key: "glucose", value: "98")
