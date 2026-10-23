@@ -572,9 +572,15 @@ class BloodTestMappingService: ObservableObject {
                     value: extractedValue.value,
                     unit: extractedValue.unit ?? standardParam.unit,
                     referenceRange: extractedValue.referenceRange ?? standardParam.referenceRange,
+                    // Judge abnormality ONLY against a range the document actually stated.
+                    // Falling back to the registry range invents a clinical interpretation
+                    // the lab never made — and when the unit was substituted too, it
+                    // compares a value against limits in a different unit. With no range,
+                    // `isAbnormal` honours the lab's own H/L flag and otherwise reports
+                    // nothing, which is the honest answer.
                     isAbnormal: BloodTestValueValidator.isAbnormal(
                         value: extractedValue.value,
-                        referenceRange: extractedValue.referenceRange ?? standardParam.referenceRange,
+                        referenceRange: extractedValue.referenceRange,
                         flag: extractedValue.abnormalFlag
                     ),
                     category: standardParam.category,

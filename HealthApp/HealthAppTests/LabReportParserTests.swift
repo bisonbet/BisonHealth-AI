@@ -528,6 +528,88 @@ final class LabReportParserTests: XCTestCase {
         XCTAssertNotNil(results.autoAccepted[0].selectedCandidateId, "Auto-accepted group must have its candidate pre-selected")
     }
 
+    /// Builds a candidate with the unit and reference range exactly as given, including
+    /// `nil`. `makeCandidate` substitutes the registry values, which makes every candidate
+    /// look document-sourced — the distinction this rule turns on.
+    private func makeCandidateWithProvenance(
+        key: String,
+        value: String,
+        documentUnit: String?,
+        documentReferenceRange: String?
+    ) throws -> LabValueCandidate {
+        let parameter = try XCTUnwrap(BloodTestResult.standardizedLabParameters[key])
+        return LabValueCandidate(
+            standardKey: key,
+            parameter: parameter,
+            originalTestName: parameter.name,
+            value: value,
+            unit: documentUnit,
+            referenceRange: documentReferenceRange,
+            abnormalFlag: nil,
+            testType: .blood,
+            source: .deterministicRow,
+            pageNumber: 1,
+            sourceSnippet: "\(parameter.name) \(value)",
+            confidence: 0.9,
+            validation: .valid
+        )
+    }
+
+    func testReconcilerRequiresADocumentUnitBeforeAutoAccepting() throws {
+        // No unit in the document means the registry default is substituted, so a result
+        // reported in mmol/L would be stored and judged as mg/dL. Must be reviewed.
+        //
+        // The value is deliberately NORMAL against the stated range: an abnormal one
+        // would be held back by the pre-existing `!isAbnormal` check, and the test would
+        // pass whether or not the unit rule exists.
+        let results = LabCandidateReconciler.reconcile([
+            try makeCandidateWithProvenance(
+                key: "glucose", value: "98",
+                documentUnit: nil, documentReferenceRange: "70-99"
+            )
+        ])
+
+        XCTAssertTrue(results.autoAccepted.isEmpty, "A substituted unit must never be auto-accepted")
+        XCTAssertEqual(results.needsReview.count, 1)
+    }
+
+    func testReconcilerRequiresADocumentReferenceRangeBeforeAutoAccepting() throws {
+        // Without a stated range, isAbnormal would be judged against registry limits the
+        // lab never published — an invented clinical interpretation. Must be reviewed.
+        let results = LabCandidateReconciler.reconcile([
+            try makeCandidateWithProvenance(
+                key: "glucose", value: "98",
+                documentUnit: "mg/dL", documentReferenceRange: nil
+            )
+        ])
+
+        XCTAssertTrue(results.autoAccepted.isEmpty, "A substituted reference range must never be auto-accepted")
+        XCTAssertEqual(results.needsReview.count, 1)
+    }
+
+    func testReconcilerAutoAcceptsWhenTheDocumentSuppliesBothUnitAndRange() throws {
+        let results = LabCandidateReconciler.reconcile([
+            try makeCandidateWithProvenance(
+                key: "glucose", value: "98",
+                documentUnit: "mg/dL", documentReferenceRange: "70-99"
+            )
+        ])
+
+        XCTAssertEqual(results.autoAccepted.count, 1, "A fully document-sourced normal value still imports silently")
+        XCTAssertTrue(results.needsReview.isEmpty)
+    }
+
+    func testCandidateDoesNotInventAbnormalityFromTheRegistryRange() throws {
+        // 5.4 is a normal glucose in mmol/L and wildly low in mg/dL. With no range from
+        // the document and no lab flag, the app must not claim either way.
+        let candidate = try makeCandidateWithProvenance(
+            key: "glucose", value: "5.4",
+            documentUnit: nil, documentReferenceRange: nil
+        )
+
+        XCTAssertFalse(candidate.isAbnormal, "Abnormality must not be derived from a range the lab never stated")
+    }
+
     func testReconcilerRoutesSingleInvalidCandidateToReview() {
         let results = LabCandidateReconciler.reconcile([
             makeCandidate(key: "glucose", value: "9800", valid: false)

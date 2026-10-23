@@ -84,10 +84,14 @@ struct LabValueCandidate {
         self.collection = collection
     }
 
+    /// Abnormality is judged ONLY against a range the document stated. Substituting the
+    /// hardcoded registry range asserts a clinical interpretation the lab never made, and
+    /// compares against limits that may not even be in this result's unit. With no stated
+    /// range this honours the lab's own H/L flag and otherwise reports nothing.
     var isAbnormal: Bool {
         BloodTestValueValidator.isAbnormal(
             value: value,
-            referenceRange: referenceRange ?? parameter.referenceRange,
+            referenceRange: referenceRange,
             flag: abnormalFlag
         )
     }
@@ -712,12 +716,24 @@ enum LabCandidateReconciler {
             // A value must be structurally valid, have a strong name match, and
             // have enough extraction confidence before it can be silently imported.
             // Abnormal values remain importable but require an explicit review.
+            //
+            // It must also carry its OWN unit and reference range. When the document
+            // does not supply them, `BloodTestImportCandidate` above substitutes the
+            // hardcoded registry defaults — and `isAbnormal` is then judged against a
+            // range the lab never stated. A result reported in mmol/L would be stored
+            // as mg/dL, compared with mg/dL limits, and shown to the user and the AI
+            // as fact. Substituted values are still importable; they just have to be
+            // looked at by a human first.
             let representative = distinct[0].representative
+            let hasDocumentUnit = representative.unit != nil
+            let hasDocumentRange = representative.referenceRange != nil
             let isAutoAccepted = distinct.count == 1
                 && representative.isValid
                 && representative.matchConfidence >= 0.7
                 && distinct[0].confidence > 0.7
                 && !representative.isAbnormal
+                && hasDocumentUnit
+                && hasDocumentRange
 
             let importGroup = BloodTestImportGroup(
                 standardTestName: parameterName,
