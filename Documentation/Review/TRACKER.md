@@ -1,5 +1,32 @@
 # Review tracker — live worklist
 
+## ▶ Verified in a running app: v13 durable review queue (2026-10-23)
+
+Both checks confirmed on iPad Pro 11-inch (M5); report in
+`findings/V13-RESTORE-VERIFICATION.md`.
+
+| Check | Verdict |
+|---|---|
+| A row is written when the review sheet appears | CONFIRMED |
+| Force-quit then relaunch brings the review back | CONFIRMED, **but only once the Documents tab is opened** |
+| Cancel keeps the row; the review returns next launch | CONFIRMED, same caveat |
+| Completing the import deletes the row | CONFIRMED |
+| A real v12 database migrates to v13 with data intact | CONFIRMED — "Migration needed from v12 to v13", table recreated, 4 documents and 1 lab record survived |
+
+**Claim corrected.** The v13 commit says un-reviewed imports are "offered again on
+launch". That is too strong: `restorePendingImportReviews()` runs from a `.task` inside
+`DocumentsView`, and the sheet is attached to the same view, so after a force-quit the app
+opens on Records and nothing surfaces until the user taps Documents. The data is never
+lost — which was the actual defect — but the review appears on the Documents tab, not at
+launch. Making it surface anywhere would mean moving both the restore and the sheet to the
+root view; that is the same view-scoped-presentation family as item 9 and is filed below
+rather than done speculatively.
+
+| New | Title | Sev |
+|---|---|---|
+| 31 | Restored reviews surface only on the Documents tab, not at launch | P2 |
+| 32 | Import tapped at "Import 3 of 10" with no choices made left the sheet up and wrote nothing; it worked after a value was selected. Most likely the sheet being re-presented across the async save — mitigated by dismissing before the await, **not yet re-verified in the app** | P2 |
+
 ## ▶ Fix passes 1–2 — landed and verified in a running app
 
 **Verified on the iPad simulator** (report: `findings/FIX-PASS-1-VERIFICATION.md`):

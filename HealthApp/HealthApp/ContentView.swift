@@ -655,9 +655,15 @@ struct DocumentsView: View {
                     ),
                     autoAcceptedGroups: review.autoAcceptedGroups,
                     onComplete: { selectedGroups in
+                        // Close first, then do the work. The sheet is driven by
+                        // `showingImportReview`, and the view's `dismiss()` does not clear
+                        // that binding — so leaving it true across an await (a database
+                        // save) leaves a window in which the `initial: true` observer can
+                        // re-present the sheet the user just dismissed. A tap on Import
+                        // then looks like it did nothing.
+                        showingImportReview = false
                         Task {
                             await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
-                            showingImportReview = false
                         }
                     },
                     onCancel: {
