@@ -985,7 +985,6 @@ class DocumentProcessor: ObservableObject {
                     testDate: visionDate,
                     laboratoryName: basicInfo?.laboratoryName ?? visionResult.laboratoryName,
                     orderingPhysician: basicInfo?.orderingPhysician ?? visionResult.orderingPhysician,
-                    patientName: nil
                 )
             }
         } else if cloudVisionExplicitlyRequested {
@@ -1213,7 +1212,6 @@ class DocumentProcessor: ObservableObject {
             let mappingResult = try await mappingService.mapDocumentToBloodTest(
                 reconstructedText,
                 suggestedTestDate: suggestedTestDate,
-                patientName: nil as String? // Could be extracted from document metadata if available
             )
 
             AppLog.shared.documents("AI mapping completed with \(mappingResult.confidence)% confidence")

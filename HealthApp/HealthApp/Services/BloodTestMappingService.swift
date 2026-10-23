@@ -27,7 +27,6 @@ class BloodTestMappingService: ObservableObject {
     func mapDocumentToBloodTest(
         _ documentText: String,
         suggestedTestDate: Date? = nil,
-        patientName: String? = nil
     ) async throws -> BloodTestMappingResult {
 
         AppLog.shared.healthData("Starting AI-powered blood test mapping...")
@@ -98,7 +97,6 @@ class BloodTestMappingService: ObservableObject {
                 from: draftResults,
                 basicInfo: basicInfo,
                 testDate: finalTestDate,
-                patientName: patientName,
                 model: "AI Provider"
             )
 
@@ -147,13 +145,11 @@ class BloodTestMappingService: ObservableObject {
         1. Test/Report Date (look for dates near "Date:", "Report Date:", "Collection Date:", etc.)
         2. Laboratory Name (look for lab company names)
         3. Ordering Physician (look for doctor names)
-        4. Patient Name (if clearly visible and not redacted)
 
         Return your response in this exact format:
         TEST_DATE: YYYY-MM-DD or "unknown"
         LAB_NAME: Laboratory name or "unknown"
         PHYSICIAN: Doctor name or "unknown"
-        PATIENT: Patient name or "unknown"
         """
 
         let aiResponse = try await aiClient.sendMessage(prompt, context: "")
@@ -165,7 +161,6 @@ class BloodTestMappingService: ObservableObject {
         var testDate: Date?
         var labName: String?
         var physician: String?
-        var patientName: String?
 
         let lines = response.components(separatedBy: .newlines)
 
@@ -187,11 +182,6 @@ class BloodTestMappingService: ObservableObject {
                 if name != "unknown" {
                     physician = name
                 }
-            } else if trimmedLine.hasPrefix("PATIENT:") {
-                let name = String(trimmedLine.dropFirst("PATIENT:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if name != "unknown" {
-                    patientName = name
-                }
             }
         }
 
@@ -199,7 +189,6 @@ class BloodTestMappingService: ObservableObject {
             testDate: testDate,
             laboratoryName: labName,
             orderingPhysician: physician,
-            patientName: patientName
         )
     }
 
@@ -769,7 +758,6 @@ class BloodTestMappingService: ObservableObject {
         from mappedParameters: [StandardizedLabValue],
         basicInfo: BasicTestInfo,
         testDate: Date,
-        patientName: String?,
         model: String
     ) -> BloodTestResult {
 
@@ -794,9 +782,6 @@ class BloodTestMappingService: ObservableObject {
         metadata["mapping_confidence"] = String(format: "%.2f", calculateOverallConfidence(mappedParameters))
         metadata["ai_model"] = model
         metadata["extracted_count"] = String(mappedParameters.count)
-        if let patientName = patientName {
-            metadata["patient_name"] = patientName
-        }
 
         return BloodTestResult(
             testDate: testDate,
@@ -850,7 +835,6 @@ struct BasicTestInfo {
     let testDate: Date?
     let laboratoryName: String?
     let orderingPhysician: String?
-    let patientName: String?
 }
 
 struct ExtractedLabValue: LabValueLike {
