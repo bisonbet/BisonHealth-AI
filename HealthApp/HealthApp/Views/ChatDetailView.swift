@@ -16,6 +16,11 @@ struct ChatDetailView: View {
     @State private var errorMessage: String?
     @State private var alertTitle: String = "Error"
     @State private var showingErrorAlert = false
+    @ObservedObject private var chatSettingsManager = SettingsManager.shared
+    /// One-time acknowledgement that messages will leave the device. Per-device by design:
+    /// it is a consent the person using this phone gave, not a synced preference.
+    @AppStorage("hasAcknowledgedCloudProcessing") private var hasAcknowledgedCloudProcessing = false
+    @State private var pendingCloudMessage: String?
     @FocusState private var isMessageInputFocused: Bool
     
     var body: some View {
@@ -85,6 +90,23 @@ struct ChatDetailView: View {
                 }
             }
         }
+        .confirmationDialog(
+            "Send to \(chatSettingsManager.modelPreferences.aiProvider.displayName)?",
+            isPresented: Binding(
+                get: { pendingCloudMessage != nil },
+                set: { if !$0 { pendingCloudMessage = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Send and don't ask again") {
+                hasAcknowledgedCloudProcessing = true
+                if let message = pendingCloudMessage { deliver(message) }
+                pendingCloudMessage = nil
+            }
+            Button("Cancel", role: .cancel) { pendingCloudMessage = nil }
+        } message: {
+            Text("Your message and the health data you selected as context will be sent to this provider over the internet. Switch to the on-device model in Settings to keep everything on this device.")
+        }
         .alert(alertTitle, isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) {
                 errorMessage = nil
@@ -138,6 +160,9 @@ struct ChatDetailView: View {
             keyboardAccessoryView
         }
         
+        // Says whether this message leaves the device, right above where it is typed
+        processingLocationBadge
+
         // Message input with keyboard shortcuts
         messageInputView
     }
@@ -193,6 +218,26 @@ struct ChatDetailView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
     
+    /// Says, in the place the user is actually looking, whether this message stays on the
+    /// device or goes to a third party. The app's core claim is that health data stays
+    /// local, and nothing in the chat UI distinguished the two — a user who had configured
+    /// a cloud provider had no way to tell from this screen.
+    private var processingLocationBadge: some View {
+        let goesToCloud = chatManager.currentProviderRequiresNetwork
+        return Label(
+            goesToCloud
+                ? "Sent to \(chatSettingsManager.modelPreferences.aiProvider.displayName)"
+                : "Stays on this device",
+            systemImage: goesToCloud ? "cloud" : "lock.iphone"
+        )
+        .font(.caption2)
+        .foregroundStyle(goesToCloud ? .orange : .secondary)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("processingLocationBadge")
+    }
+
     private var messageInputView: some View {
         EnhancedMessageInputView(
             text: $messageText,
@@ -221,7 +266,19 @@ struct ChatDetailView: View {
             showingErrorAlert = true
             return
         }
-        
+
+        // Nothing previously told the user that configuring a cloud provider means their
+        // health context is sent to a third party. Ask once, before the first such send.
+        if chatManager.currentProviderRequiresNetwork && !hasAcknowledgedCloudProcessing {
+            pendingCloudMessage = message
+            return
+        }
+
+        deliver(message)
+    }
+
+    private func deliver(_ message: String) {
+
         Task {
             do {
                 // Use streaming by default for better user experience

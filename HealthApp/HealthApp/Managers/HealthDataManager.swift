@@ -248,7 +248,9 @@ class HealthDataManager: ObservableObject {
                 let similarity = calculateBloodTestSimilarity(newResult, duplicate)
                 if similarity > 0.8 {
                     AppLog.shared.healthData("Duplicate detected - same date and \(Int(similarity * 100))% similar, skipping save", level: .error)
-                    throw HealthDataError.validationFailed("A very similar blood test already exists for this date")
+                    throw HealthDataError.duplicateOfExistingReport(
+                        "These results were not imported: an existing record for this date has the same readings."
+                    )
                 }
             }
         }
@@ -408,6 +410,18 @@ class HealthDataManager: ObservableObject {
                         // the whole document — the import guard's rejection is
                         // a skip, not a document failure.
                         AppLog.shared.healthData("Blood test import skipped: \(reason)", level: .warning)
+                    } catch let error as HealthDataError {
+                        // A *different* report rejected as a near-duplicate is data the
+                        // user expected to keep — often values they just reviewed by hand.
+                        // Skipping it silently is how a whole imported report disappears
+                        // with no trace outside the log.
+                        //
+                        // Only this case is handled here. Other HealthDataError cases keep
+                        // propagating exactly as before, so this does not quietly turn a
+                        // failed import into a successful one.
+                        guard case .duplicateOfExistingReport = error else { throw error }
+                        AppLog.shared.healthData("Blood test import rejected: \(error.localizedDescription)", level: .error)
+                        ErrorHandler.shared.handle(error, context: "Lab import", severity: .error)
                     }
                 }
 
@@ -827,6 +841,12 @@ struct HealthDataExport: Codable {
 // MARK: - Health Data Errors
 enum HealthDataError: LocalizedError {
     case validationFailed(String)
+    /// A report was rejected because an existing record looks like the same report, but
+    /// it did NOT come from the same document. Distinct from `validationFailed` because
+    /// the two want opposite handling: re-importing the same document is idempotent and
+    /// should pass silently, whereas discarding what the user believes is a different
+    /// report must be visible — otherwise values they just reviewed vanish without a word.
+    case duplicateOfExistingReport(String)
     case invalidData(String)
     case notFound(String)
     case exportFailed(String)
@@ -836,6 +856,8 @@ enum HealthDataError: LocalizedError {
         switch self {
         case .validationFailed(let message):
             return "Validation failed: \(message)"
+        case .duplicateOfExistingReport(let message):
+            return message
         case .invalidData(let message):
             return "Invalid data: \(message)"
         case .notFound(let message):
