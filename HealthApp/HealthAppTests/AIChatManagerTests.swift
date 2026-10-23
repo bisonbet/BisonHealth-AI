@@ -4,6 +4,46 @@ import XCTest
 @MainActor
 final class AIChatManagerTests: XCTestCase {
 
+    func testOnlyCloudProvidersRequireTheNetwork() {
+        // The composer was gated on `isOffline` alone, so airplane mode disabled the
+        // on-device model — the one provider that needs no network, and the one the
+        // app's privacy claim rests on.
+        XCTAssertFalse(AIProvider.onDeviceLLM.requiresNetwork)
+        XCTAssertTrue(AIProvider.bedrock.requiresNetwork)
+        XCTAssertTrue(AIProvider.openAICompatible.requiresNetwork)
+    }
+
+    func testCompressionDropsDocumentsBeforePersonalInfo() throws {
+        // Keys serialize alphabetically (blood_tests, medical_documents, personal_info,
+        // selected_types, timestamp), so the old blind tail-truncation discarded
+        // allergies and medications while keeping entire document transcripts.
+        let bulkyDocumentText = String(repeating: "lorem ipsum dolor sit amet ", count: 200)
+        let context = """
+        {
+          "blood_tests" : [ { "test" : "Glucose", "value" : "98" } ],
+          "medical_documents" : [ { "text" : "\(bulkyDocumentText)" } ],
+          "personal_info" : { "allergies" : [ "penicillin" ] },
+          "selected_types" : [ "personal_info", "blood_test" ],
+          "timestamp" : "2026-10-23"
+        }
+        """
+        XCTAssertGreaterThan(context.count, 1_000, "Precondition: the fixture must be oversized")
+
+        let compressed = AIChatManager.compressedContext(context, targetChars: 600, limit: 10_000)
+
+        XCTAssertTrue(compressed.contains("penicillin"), "Allergies must survive compression")
+        XCTAssertFalse(compressed.contains("lorem ipsum"), "Document text is dropped first")
+        XCTAssertTrue(
+            compressed.contains("omitted_from_context"),
+            "What was dropped must be stated, so the model does not treat the picture as complete"
+        )
+    }
+
+    func testCompressionLeavesAContextThatAlreadyFitsUntouched() {
+        let context = "{\n  \"personal_info\" : { \"allergies\" : [ \"penicillin\" ] }\n}"
+        XCTAssertEqual(AIChatManager.compressedContext(context, targetChars: 10_000, limit: 10_000), context)
+    }
+
     func testProviderContextLimitsAreAvailableForSupportedProviders() {
         XCTAssertGreaterThan(AIProviderContextLimits.limit(for: .onDeviceLLM), 0)
         XCTAssertEqual(AIProviderContextLimits.limit(for: .bedrock), 200_000)

@@ -92,6 +92,19 @@ enum AIProvider: String, CaseIterable {
             return "On-device AI using downloaded models (no internet required)"
         }
     }
+
+    /// Whether losing the network should stop this provider working. The on-device model
+    /// runs entirely locally — it is the one provider that still works in airplane mode,
+    /// and the app's privacy claim rests on it, so a blanket offline gate must not
+    /// disable it.
+    var requiresNetwork: Bool {
+        switch self {
+        case .bedrock, .openAICompatible:
+            return true
+        case .onDeviceLLM:
+            return false
+        }
+    }
 }
 
 struct ModelPreferences: Equatable {

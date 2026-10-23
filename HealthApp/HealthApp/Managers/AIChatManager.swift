@@ -21,6 +21,19 @@ class AIChatManager: ObservableObject {
     @Published var selectedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases)
     @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Primary Care Physician" })
     @Published var isOffline: Bool = false
+
+    /// Whether the currently selected provider needs the network at all.
+    var currentProviderRequiresNetwork: Bool {
+        settingsManager.modelPreferences.aiProvider.requiresNetwork
+    }
+
+    /// True only when the network is down *and* the selected provider needs it. The
+    /// composer used to be gated on `isOffline` alone, so airplane mode disabled the
+    /// on-device model — the single situation in which "your data never leaves your
+    /// device" is most obviously true.
+    var isBlockedByNetwork: Bool {
+        isOffline && currentProviderRequiresNetwork
+    }
     
     // MARK: - Dependencies
     private let healthDataManager: HealthDataManager
@@ -106,6 +119,11 @@ class AIChatManager: ObservableObject {
                     guard let self = self else { return }
 
                     self.isOffline = !status.isConnected
+                    if !status.isConnected && !self.currentProviderRequiresNetwork {
+                        // On-device: the network is irrelevant, so do not tear down a
+                        // working local session just because Wi-Fi dropped.
+                        return
+                    }
                     if status.isConnected {
                         // Only check connection if user has explicitly interacted with chat
                         // This prevents noisy connection attempts when network comes back
@@ -1130,29 +1148,87 @@ class AIChatManager: ObservableObject {
         return contextString
     }
     
+    /// Shrinks an oversized context by dropping the bulkiest sections first.
+    ///
+    /// This was a blind `prefix()` of the serialized JSON. Keys serialize alphabetically —
+    /// blood_tests, medical_documents, personal_info, selected_types, timestamp — so
+    /// cutting the tail threw away `personal_info` (allergies, medications, conditions)
+    /// while keeping entire document transcripts. The model then answered without knowing
+    /// what the patient is allergic to, and nothing told the user.
+    ///
+    /// Order of sacrifice: document text, then older blood tests. `personal_info` is never
+    /// dropped, and whatever goes is named in the context so the model knows the picture
+    /// is incomplete.
     private func compressHealthDataContext(_ context: String) -> String {
-        // Estimate how much we need to compress
-        let targetTokens = contextCompressionThreshold
-        
-        // Estimate characters per token (rough approximation: ~4 chars per token)
-        let charsPerToken = 4.0
-        let targetChars = Int(Double(targetTokens) * charsPerToken)
-        
-        if context.count <= targetChars {
-            // Already small enough
-            return context
+        // ~4 characters per token is the same rough estimate used elsewhere here.
+        Self.compressedContext(
+            context,
+            targetChars: Int(Double(contextCompressionThreshold) * 4.0),
+            limit: contextSizeLimit
+        )
+    }
+
+    /// The compression rule itself, pure and static so it is unit-testable.
+    /// (internal for regression tests; @testable access)
+    static func compressedContext(_ context: String, targetChars: Int, limit: Int) -> String {
+        guard context.count > targetChars else { return context }
+
+        guard let data = context.data(using: .utf8),
+              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            AppLog.shared.ai("[Context] Could not parse context for structured compression — falling back to truncation", level: .warning)
+            return hardTruncatedContext(context, to: targetChars, limit: limit)
         }
-        
-        // Truncate to target character count, but try to preserve structure
+
+        func rendered(_ dict: [String: Any]) -> String? {
+            guard let data = try? JSONSerialization.data(
+                withJSONObject: dict,
+                options: [.prettyPrinted, .sortedKeys]
+            ) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+
+        var omitted: [String] = []
+
+        // 1. Document transcripts are almost always what makes a context oversized.
+        if (rendered(json)?.count ?? 0) > targetChars, json["medical_documents"] != nil {
+            json["medical_documents"] = nil
+            omitted.append("medical documents")
+        }
+
+        // 2. Then older blood tests, keeping the most recent (the array is sorted newest first).
+        if (rendered(json)?.count ?? 0) > targetChars,
+           let tests = json["blood_tests"] as? [Any], tests.count > 1 {
+            json["blood_tests"] = Array(tests.prefix(1))
+            omitted.append("older blood tests")
+        }
+
+        if !omitted.isEmpty {
+            json["omitted_from_context"] = omitted
+            AppLog.shared.ai("[Context] Compressed by dropping: \(omitted.joined(separator: ", "))", level: .warning)
+        }
+
+        guard let result = rendered(json) else {
+            return hardTruncatedContext(context, to: targetChars, limit: limit)
+        }
+
+        // personal_info is never dropped. If even that overflows, the limit is too small
+        // for this patient's data and a hard cut is all that is left.
+        if result.count > targetChars {
+            AppLog.shared.ai("[Context] Still over target after dropping sections — hard truncating", level: .warning)
+            return hardTruncatedContext(result, to: targetChars, limit: limit)
+        }
+
+        return result
+    }
+
+    /// Last-resort character cut, kept for contexts that are not valid JSON.
+    private static func hardTruncatedContext(_ context: String, to targetChars: Int, limit: Int) -> String {
         let truncated = String(context.prefix(targetChars))
-        
-        // Try to end at a complete line if possible
+        let note = "\n\n... (context truncated to fit \(limit) token limit)"
         if let lastNewline = truncated.lastIndex(of: "\n") {
-            let finalTruncated = String(truncated[..<lastNewline])
-            return finalTruncated + "\n\n... (context truncated to fit \(contextSizeLimit) token limit)"
+            return String(truncated[..<lastNewline]) + note
         }
-        
-        return truncated + "\n\n... (context truncated to fit \(contextSizeLimit) token limit)"
+        return truncated + note
     }
     
     // MARK: - Context Size Management

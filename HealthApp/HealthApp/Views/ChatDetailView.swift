@@ -197,7 +197,7 @@ struct ChatDetailView: View {
         EnhancedMessageInputView(
             text: $messageText,
             isEnabled: chatManager.isConnected
-                && !chatManager.isOffline
+                && !chatManager.isBlockedByNetwork
                 && !chatManager.isLoading
                 && !chatManager.isSendingMessage,
             isIPad: isIPad,
