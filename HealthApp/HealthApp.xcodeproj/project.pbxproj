@@ -1310,7 +1310,7 @@
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.15.3;
+				minimumVersion = 0.17.0;
 			};
 		};
 		A2MLX0102F26000100MLX001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
