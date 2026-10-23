@@ -284,7 +284,9 @@ class HealthDataManager: ObservableObject {
         return nil
     }
     
-    private func calculateBloodTestSimilarity(_ test1: BloodTestResult, _ test2: BloodTestResult) -> Double {
+    /// Pure comparison, used by the duplicate guard.
+    /// (internal for regression tests; @testable access)
+    func calculateBloodTestSimilarity(_ test1: BloodTestResult, _ test2: BloodTestResult) -> Double {
         // Compare number of results
         let countDiff = abs(test1.results.count - test2.results.count)
         let maxCount = max(test1.results.count, test2.results.count)
@@ -304,9 +306,34 @@ class HealthDataManager: ObservableObject {
         }
         
         let nameSimilarity = maxCount > 0 ? Double(matchingTests) / Double(max(test1Names.count, test2Names.count)) : 0.0
-        
-        // Weighted average: 40% count similarity, 60% name similarity
-        return (countSimilarity * 0.4) + (nameSimilarity * 0.6)
+
+        // Compare the values, not just which tests were run.
+        //
+        // Name-and-count comparison alone called every repeat of a standard panel a
+        // duplicate: a CMP contains the same analytes whether it was drawn today or five
+        // years ago. Combined with the import-date fallback — an undated report takes the
+        // date it was imported — a stack of historical labs imported in one sitting all
+        // landed within the 24-hour window and only the first was saved. The rest were
+        // rejected as duplicates of a test they merely resembled.
+        var matchingValues = 0
+        let test1Values = Dictionary(
+            test1.results.map { (normalizeTestNameForComparison($0.name), $0.value.trimmingCharacters(in: .whitespaces)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let test2Values = Dictionary(
+            test2.results.map { (normalizeTestNameForComparison($0.name), $0.value.trimmingCharacters(in: .whitespaces)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for (name, value) in test1Values where test2Values[name] == value {
+            matchingValues += 1
+        }
+        let valueSimilarity = matchingTests > 0
+            ? Double(matchingValues) / Double(matchingTests)
+            : 0.0
+
+        // Weighted: the values dominate, because identical readings are what actually
+        // make two reports the same report.
+        return (countSimilarity * 0.1) + (nameSimilarity * 0.3) + (valueSimilarity * 0.6)
     }
     
     private func normalizeTestNameForComparison(_ name: String) -> String {

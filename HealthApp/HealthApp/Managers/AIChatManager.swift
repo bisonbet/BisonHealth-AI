@@ -1043,11 +1043,15 @@ class AIChatManager: ObservableObject {
             conversation.includedHealthDataTypes = types
             conversation.includedPersonalInfoCategories = personalInfoCategories
             Task {
-                try await databaseManager.updateConversation(conversation)
-                if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
-                    conversations[index] = conversation
+                do {
+                    try await databaseManager.updateConversation(conversation)
+                    if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
+                        conversations[index] = conversation
+                    }
+                    AppLog.shared.ai("[Context] Conversation context preferences saved", level: .debug)
+                } catch {
+                    ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
                 }
-                AppLog.shared.ai("[Context] Conversation context preferences saved", level: .debug)
             }
         }
     }

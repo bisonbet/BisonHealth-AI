@@ -320,7 +320,11 @@ struct HealthDataView: View {
                     onEdit: { editingBloodTest = $0 },
                     onDelete: { bloodTest in
                         Task {
-                            try await healthDataManager.deleteBloodTest(bloodTest)
+                            do {
+                                try await healthDataManager.deleteBloodTest(bloodTest)
+                            } catch {
+                                ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                            }
                         }
                     }
                 )
@@ -400,7 +404,11 @@ struct HealthDataView: View {
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { info in
                         Task {
-                            try await healthDataManager.savePersonalInfo(info)
+                            do {
+                                try await healthDataManager.savePersonalInfo(info)
+                            } catch {
+                                ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                            }
                         }
                     }
                 )
@@ -409,7 +417,11 @@ struct HealthDataView: View {
                 BloodTestEntryView(
                     onSave: { bloodTest in
                         Task {
-                            try await healthDataManager.addBloodTest(bloodTest)
+                            do {
+                                try await healthDataManager.addBloodTest(bloodTest)
+                            } catch {
+                                ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                            }
                         }
                     }
                 )
@@ -417,7 +429,11 @@ struct HealthDataView: View {
             .sheet(item: $editingBloodTest) { bloodTest in
                 BloodTestEntryView(bloodTest: bloodTest) { updated in
                     Task {
-                        try await healthDataManager.updateBloodTest(updated)
+                        do {
+                            try await healthDataManager.updateBloodTest(updated)
+                        } catch {
+                            ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                        }
                     }
                 }
             }
@@ -428,7 +444,11 @@ struct HealthDataView: View {
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { updatedInfo in
                         Task {
-                            try await healthDataManager.savePersonalInfo(updatedInfo)
+                            do {
+                                try await healthDataManager.savePersonalInfo(updatedInfo)
+                            } catch {
+                                ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                            }
                         }
                     }
                 )
@@ -443,7 +463,11 @@ struct HealthDataView: View {
                     personalInfo: healthDataManager.personalInfo,
                     onSave: { updatedInfo in
                         Task {
-                            try await healthDataManager.savePersonalInfo(updatedInfo)
+                            do {
+                                try await healthDataManager.savePersonalInfo(updatedInfo)
+                            } catch {
+                                ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                            }
                         }
                     }
                 )
@@ -1446,15 +1470,23 @@ struct ChatView: View {
                 },
                 onNewConversation: {
                     Task {
-                        let conversation = try await chatManager.startNewConversation()
-                        selectedConversationId = conversation.id
+                        do {
+                            let conversation = try await chatManager.startNewConversation()
+                            selectedConversationId = conversation.id
+                        } catch {
+                            ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
+                        }
                     }
                 },
                 onDeleteConversation: { conversation in
                     Task {
-                        try await chatManager.deleteConversation(conversation)
-                        if selectedConversationId == conversation.id {
-                            selectedConversationId = nil
+                        do {
+                            try await chatManager.deleteConversation(conversation)
+                            if selectedConversationId == conversation.id {
+                                selectedConversationId = nil
+                            }
+                        } catch {
+                            ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
                         }
                     }
                 }
@@ -1490,7 +1522,11 @@ struct ChatView: View {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("New Chat") {
                             Task {
-                                _ = try await chatManager.startNewConversation()
+                                do {
+                                    _ = try await chatManager.startNewConversation()
+                                } catch {
+                                    ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
+                                }
                             }
                         }
                         .keyboardShortcut("n", modifiers: [.command])
@@ -1505,9 +1541,13 @@ struct ChatView: View {
                         },
                         onDeleteConversation: { conversation in
                             Task {
-                                try await chatManager.deleteConversation(conversation)
-                                if chatManager.currentConversation?.id == conversation.id {
-                                    chatManager.currentConversation = nil
+                                do {
+                                    try await chatManager.deleteConversation(conversation)
+                                    if chatManager.currentConversation?.id == conversation.id {
+                                        chatManager.currentConversation = nil
+                                    }
+                                } catch {
+                                    ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
                                 }
                             }
                         }

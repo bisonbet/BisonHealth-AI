@@ -32,7 +32,11 @@ struct VitalsListView: View {
                 personalInfo: healthDataManager.personalInfo,
                 onSave: { updatedInfo in
                     Task {
-                        try await healthDataManager.savePersonalInfo(updatedInfo)
+                        do {
+                            try await healthDataManager.savePersonalInfo(updatedInfo)
+                        } catch {
+                            ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                        }
                     }
                 }
             )
@@ -47,7 +51,11 @@ struct VitalsListView: View {
                 personalInfo: healthDataManager.personalInfo,
                 onSave: { updatedInfo in
                     Task {
-                        try await healthDataManager.savePersonalInfo(updatedInfo)
+                        do {
+                            try await healthDataManager.savePersonalInfo(updatedInfo)
+                        } catch {
+                            ErrorHandler.shared.handle(error, context: "Health records", severity: .error)
+                        }
                     }
                 }
             )
