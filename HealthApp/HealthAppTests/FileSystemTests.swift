@@ -113,13 +113,49 @@ final class FileSystemTests: XCTestCase {
         
         // Verify thumbnail is a valid bounded image. Small source images can
         // legitimately produce larger JPEG thumbnails due to encoding overhead.
-        let thumbnailSize = try fileSystemManager.getFileSize(at: thumbnailURL!)
-        let thumbnailImage = UIImage(contentsOfFile: thumbnailURL!.path)
-
+        let url = try XCTUnwrap(thumbnailURL)
+        let thumbnailSize = try fileSystemManager.getFileSize(at: url)
         XCTAssertGreaterThan(thumbnailSize, 0)
-        XCTAssertNotNil(thumbnailImage)
-        XCTAssertLessThanOrEqual(thumbnailImage?.size.width ?? .greatestFiniteMagnitude, 200)
-        XCTAssertLessThanOrEqual(thumbnailImage?.size.height ?? .greatestFiniteMagnitude, 200)
+
+        // A thumbnail is a render of page one of a medical document, so it is written
+        // encrypted. Reading the file directly must NOT produce an image — if it does, the
+        // readable part of every imported record is sitting in the clear on disk.
+        XCTAssertNil(
+            UIImage(contentsOfFile: url.path),
+            "The stored thumbnail must not be a readable image on disk"
+        )
+
+        let decrypted = try XCTUnwrap(
+            fileSystemManager.loadThumbnailData(at: url),
+            "The thumbnail must be readable through the decrypting loader"
+        )
+        let thumbnailImage = try XCTUnwrap(UIImage(data: decrypted))
+        XCTAssertLessThanOrEqual(thumbnailImage.size.width, 200)
+        XCTAssertLessThanOrEqual(thumbnailImage.size.height, 200)
+    }
+
+    func testAPlaintextThumbnailIsStillReadableAndGetsReEncrypted() throws {
+        // Every thumbnail already on a device is plain JPEG. Refusing to read them would
+        // blank the document list for existing users, so they are read and re-encrypted in
+        // place — the clear copy must not survive into the next backup.
+        let legacyURL = try XCTUnwrap(
+            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        ).appendingPathComponent("legacy-thumb-\(UUID().uuidString).jpg")
+        let jpegData = try XCTUnwrap(UIImage(data: testImageData)?.jpegData(compressionQuality: 0.8))
+        try jpegData.write(to: legacyURL)
+        defer { try? FileManager.default.removeItem(at: legacyURL) }
+
+        XCTAssertNotNil(UIImage(contentsOfFile: legacyURL.path), "Precondition: starts as plain JPEG")
+
+        let firstRead = fileSystemManager.loadThumbnailData(at: legacyURL)
+        XCTAssertNotNil(firstRead, "A legacy plaintext thumbnail must still render")
+        XCTAssertNil(
+            UIImage(contentsOfFile: legacyURL.path),
+            "After reading it once, the plaintext copy must be gone"
+        )
+
+        let secondRead = fileSystemManager.loadThumbnailData(at: legacyURL)
+        XCTAssertNotNil(secondRead, "And it must still be readable once encrypted")
     }
     
     func testGenericThumbnailGeneration() async throws {

@@ -205,7 +205,7 @@ struct DocumentDetailView: View {
             Button(action: { showingQuickLook = true }) {
                 HStack {
                     if let thumbnailPath = document.thumbnailPath,
-                       let image = UIImage(contentsOfFile: thumbnailPath.path) {
+                       let image = FileSystemManager.shared.loadThumbnailData(at: thumbnailPath).flatMap(UIImage.init(data:)) {
                         Image(uiImage: image)
                             .resizable()
                             .aspectRatio(contentMode: .fill)

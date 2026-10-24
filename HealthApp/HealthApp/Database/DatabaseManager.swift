@@ -44,7 +44,7 @@ class DatabaseManager: ObservableObject {
     /// *current* version rather than a hardcoded number, so they keep covering every
     /// future bump instead of going stale the moment someone adds a migration.
     /// (internal for regression tests; @testable access)
-    internal static let currentDatabaseVersion = 13 // Increment when making schema changes
+    internal static let currentDatabaseVersion = 14 // Increment when making schema changes
 
     /// Guards the genetic URL normalization so a single migration run performs it once,
     /// even when several versions in the range ask for it. Reset per migration run.
@@ -607,9 +607,71 @@ class DatabaseManager: ObservableObject {
             })
             AppLog.shared.database("   ✓ Created pending_import_reviews table")
 
+        case 14:
+            // Migration for version 14: encrypt the documents table's `tags` column.
+            //
+            // Tags are free text the user types, on a medical document — "oncology",
+            // "Dr Ferris", "second opinion", "HIV panel". They sat in a plaintext column
+            // beside columns that were carefully encrypted, so the database file and every
+            // device backup carried them in the clear.
+            try encryptDocumentTagsColumn(db: db)
+            AppLog.shared.database("   ✓ Encrypted the documents.tags column")
+
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
         }
+    }
+
+    /// v14 helper: encrypt the documents table's `tags` column in place.
+    ///
+    /// Same shape as the v11 helper below: read every row first, then write, because
+    /// SELECT-while-UPDATE on one connection is undefined. A value that already looks like
+    /// ciphertext is left alone, so running this twice cannot double-encrypt.
+    private func encryptDocumentTagsColumn(db: Connection) throws {
+        var pending: [(id: String, tags: String)] = []
+        for row in try db.prepare(documentsTable.select(documentId, documentTags)) {
+            let stored = row[documentTags]
+            // Plaintext tags are a JSON array, so they start with "[". Anything else is
+            // either already encrypted or not worth touching.
+            guard stored.hasPrefix("[") else { continue }
+            pending.append((row[documentId], stored))
+        }
+
+        for entry in pending {
+            let encrypted = try encryptString(entry.tags).base64EncodedString()
+            try db.run(
+                documentsTable.filter(documentId == entry.id).update(documentTags <- encrypted)
+            )
+        }
+        AppLog.shared.database("   ✓ Encrypted tags on \(pending.count) document row(s)")
+    }
+
+    /// Decode the `tags` column, encrypted as of v14.
+    ///
+    /// Keeps reading a plaintext JSON array so a row the migration did not reach still
+    /// renders its tags instead of showing none.
+    /// - Returns: the tags, and whether the stored value was unreadable (neither valid
+    ///   ciphertext nor valid JSON), which the writers use to refuse a lossy write.
+    internal func decodeTagsColumn(_ stored: String) -> (tags: [String], wasUnreadable: Bool) {
+        func decodeJSON(_ text: String) -> [String]? {
+            guard let data = text.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode([String].self, from: data)
+        }
+
+        if let plaintext = decryptTextField(stored), let tags = decodeJSON(plaintext) {
+            return (tags, false)
+        }
+        if let tags = decodeJSON(stored) {
+            return (tags, false)
+        }
+        return ([], !stored.isEmpty)
+    }
+
+    /// Encode the `tags` column for writing. Always encrypted.
+    internal func encodeTagsColumn(_ tags: [String]) throws -> String {
+        let json = try JSONEncoder().encode(tags)
+        let text = String(data: json, encoding: .utf8) ?? "[]"
+        return try encryptString(text).base64EncodedString()
     }
 
     /// v11 helper: encrypt the documents table's PHI text columns in place.

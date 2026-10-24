@@ -2,10 +2,20 @@
 
 ## ▶ Where this stands (2026-10-23)
 
-**Of the original 32 work items: 20 fixed, 6 partly fixed, 6 untouched — and 15 new items
-(33–47) from the six workstreams that ran on 2026-10-24.** Items 10, 14 and 23 moved back out
-of "fixed" after WS-13 and WS-16 found gaps that were each verified in source; see the batch
-section above. The Status
+**Of the original 32 work items: 26 fixed, 2 partly fixed, 4 untouched — plus 15 new items
+(33–47) from the six workstreams that ran on 2026-10-24, of which 33, 34, 36, 45 and 47 are
+fixed and 35 is half done.**
+
+- Partly fixed: **21** (files imported before 2026-10-24 keep `<uuid>_<original name>` names;
+  renaming them needs a migration that rewrites every stored path) and **22** (README and the
+  HealthKit string are corrected; the Privacy Policy and Terms claims WS-13-04 enumerated are
+  not).
+- Untouched: **25** (113 orphaned UI tests, deferred by decision 4), **30** (iPad portrait
+  grid), **31** (restored reviews only on the Documents tab), **32** (the Import-tap
+  mitigation, never re-verified in the app).
+
+Items 10, 14 and 23 spent a day marked "fixed" when they were not — WS-13 and WS-16 found the
+gaps and each was verified in source before being moved back. They are now genuinely done. The Status
 column below is current as of this date — it had drifted badly, and item numbers are not
 unique across the tables in this file, so edit those cells by hand rather than by script.
 
@@ -274,14 +284,14 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 | 8 | WS-02-01 + WS-07-03 + WS-02-02 | Restore to a new device silently destroys all health data: the DB is in device backups, the `WhenUnlockedThisDeviceOnly` key is not, and the code mints a fresh key over the restored database | P1 | BB | M | `Database/DatabaseManager.swift`, `Utils/Keychain.swift` | **fixed** (3c857bbb) |
 | 9 | WS-06-01 + WS-06-04 | Tapping Records destroys `DocumentsView`; the review sheets fire only on `.onChange` with no `initial:`, so a review completed off-screen never appears and every later review jams behind it. Values needing review are never imported | P1 | BB | M | `Views/HealthTabView.swift`, `ContentView.swift` | **fixed** (90f34aa8) |
 | 10 | WS-06-02 + WS-02-06 + WS-02-07 | Reset Database says "All health data has been permanently deleted" while the PHI is still in memory and on screen, and a Save writes it back; it also promises a backup it never makes and leaves documents on disk; migration backups are undeletable | P1 | BB | M | `Views/SettingsView.swift`, `Database/DatabaseManager.swift` | **partly fixed** (65ec1f23 — in-memory PHI + migration backups); files on disk and the false backup promise remain (item 10 row above) |
-| 11 | WS-01-02 + WS-03-06 | Extraction commit uses a pre-AI-call snapshot with no cancellation re-check before `INSERT OR REPLACE`: deleting mid-extraction resurrects a broken row, user edits overwritten | P1 | BB | M | `Services/DocumentProcessor.swift` | after 2, 6 |
-| 12 | WS-02-03 + WS-01-04 | Unreadable fields read as empty then written back over stored data; `validationFailed` swallowed so an invalid report finishes "successfully" | P1 | BB | M | `Database/DatabaseManager+Documents.swift`, `Services/DocumentProcessor.swift` | after 11 |
+| 11 | WS-01-02 + WS-03-06 | Extraction commit uses a pre-AI-call snapshot with no cancellation re-check before `INSERT OR REPLACE`: deleting mid-extraction resurrects a broken row, user edits overwritten | P1 | BB | M | `Services/DocumentProcessor.swift` | **fixed** (ffc8c912) — extractor rethrows cancellation, processor re-checks, and `saveMedicalDocument(requireExistingRow:)` puts the existence check and the write in one transaction |
+| 12 | WS-02-03 + WS-01-04 | Unreadable fields read as empty then written back over stored data; `validationFailed` swallowed so an invalid report finishes "successfully" | P1 | BB | M | `Database/DatabaseManager+Documents.swift`, `Services/DocumentProcessor.swift` | **fixed** (ffc8c912) — `unreadableFields` recorded on read, full-row writers refuse while it is non-empty (`DatabaseError.lossyWriteRefused`), and the AI-context selector uses the partial updater |
 
 ### Failures the user cannot see
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Partly fixed (pass 1: DocumentManager only)** — `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | **partly fixed** — DocumentManager + DocumentImporter report; DocumentExporter, ConversationExporter, MLXOnDeviceClient and AIChatManager.errorMessage still do not |
+| 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Partly fixed (pass 1: DocumentManager only)** — `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | **fixed** (0fa45ec9) — both exporters and all four `AIChatManager.errorMessage` sites report; a failed load no longer renders as "No Documents". `MLXOnDeviceClient.lastError` deliberately left: one site, inside `testConnection()`, whose Bool return is the signal and which has no UI caller for this client |
 | 14 | WS-00-01 | 14 discarded error paths in `Task { try await … }`, incl. vitals that appear saved but are not | P1 | BB | M | `ContentView.swift`, `Views/VitalsListView.swift`, `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | **partly fixed** (c58dd33d); `ChatDetailView.emptyStateView` site missed |
 | 15 | WS-08-05 | Lab values the user just reviewed or typed are dropped silently when `addBloodTest` refuses them | P1 | BB | M | `Managers/HealthDataManager.swift` | **fixed** (8cf5ee97) |
 | 16 | WS-08-06 + WS-08-12 | Global error layer: `.warning` severity is queued and never displayed (drains only when another alert is dismissed); 5 s dedupe can swallow a Retry failure; a second error overwrites an unacknowledged first. Causes are also mislabelled — Bedrock errors become "Network error" | P2 | BB | M | `Managers/ErrorHandler.swift` | **fixed** (d5c040cc) |
@@ -299,7 +309,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 21 | WS-02-04 +05 +12 + WS-07-02 | Plaintext PHI at rest: `patient_name` in the `metadata` column, page-1 thumbnails on disk and in backups, free-text tags, original filenames in on-disk names | P1 | BB | M | `Database/DatabaseManager+HealthData.swift`, `Services/BloodTestMappingService.swift`, thumbnail writer | **partly fixed** (df8cdc10 — patient_name); thumbnails, tags, filenames still plaintext |
+| 21 | WS-02-04 +05 +12 + WS-07-02 | Plaintext PHI at rest: `patient_name` in the `metadata` column, page-1 thumbnails on disk and in backups, free-text tags, original filenames in on-disk names | P1 | BB | M | `Database/DatabaseManager+HealthData.swift`, `Services/BloodTestMappingService.swift`, thumbnail writer | **fixed** — thumbnails encrypted with a legacy-plaintext fallback that re-encrypts in place; new imports stored as `<uuid>.<ext>` so the filename no longer carries the patient's own words; `tags` encrypted by schema **v14**. Remaining: renaming files imported before this needs a path-rewriting migration, still deferred |
 | 22 | WS-07-06 | 11 privacy claims the code does not support: README "never leaves the device"; backup removed "for HIPAA compliance" contradicting the non-HIPAA disclaimer; `NSHealthUpdateUsageDescription` claims write access the app never uses (`toShare: []`) | P1 | SB | M | `README.md`, `Views/PrivacyPolicyView.swift`, `Views/TermsOfServiceView.swift`, `project.pbxproj` | **partly fixed** (3c857bbb — README + HealthKit string); Privacy Policy / Terms remain, feeds WS-13 |
 | 23 | WS-07-04 | No cloud-versus-on-device indicator in chat, and nothing asks before the first cloud send | P1 | BB | M | `Views/ChatDetailView.swift`, provider settings views | **partly fixed** (8cf5ee97 — indicator + consent in ChatDetailView only); Appointment Prep sends with no consent |
 | 24 | WS-07-05 | Tapping a genetics reference sends gene + diplotype in a query string to `pharmdog.clinpgx.org`, undisclosed | P1 | BB | S | `Models/GeneticTestResult.swift` | **fixed** (21666379) |

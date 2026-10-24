@@ -26,9 +26,6 @@ extension DatabaseManager {
         let mergedDoc = existingDoc != nil ? mergeDocument(new: document, existing: existingDoc!) : document
 
         do {
-            let tagsJson = try JSONEncoder().encode(mergedDoc.tags)
-            let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
-
             let extractedHealthDataJson = try JSONEncoder().encode(mergedDoc.extractedHealthData)
 
             // Encode extracted sections
@@ -38,17 +35,17 @@ extension DatabaseManager {
                 documentId <- mergedDoc.id.uuidString,
                 documentFileName <- try encryptString(mergedDoc.fileName).base64EncodedString(),
                 documentFileType <- mergedDoc.fileType.rawValue,
-                // ponytail: file_path/thumbnail_path still carry the original
-                // (patient-identifying) filename, and the on-disk ciphertext
-                // blobs keep UUID_<name> names. Encrypting these needs a file-rename
-                // migration to UUID-only storage; deferred for beta.
+                // New imports are stored as "<uuid>.<ext>", so these paths no longer
+                // carry the patient's own filename. Files imported before that change keep
+                // their "<uuid>_<original name>" names: renaming them needs a migration
+                // that rewrites every stored path, which is still deferred.
                 documentFilePath <- mergedDoc.filePath.absoluteString,
                 documentThumbnailPath <- mergedDoc.thumbnailPath?.absoluteString,
                 documentProcessingStatus <- mergedDoc.processingStatus.rawValue,
                 documentImportedAt <- Int64(mergedDoc.importedAt.timeIntervalSince1970),
                 documentProcessedAt <- mergedDoc.processedAt.map { Int64($0.timeIntervalSince1970) },
                 documentFileSize <- mergedDoc.fileSize,
-                documentTags <- tagsString,
+                documentTags <- try encodeTagsColumn(mergedDoc.tags),
                 documentNotes <- try encryptTextField(mergedDoc.notes),
                 documentExtractedData <- try encryptDataField(extractedHealthDataJson),
                 documentCategory <- mergedDoc.documentCategory.rawValue,
@@ -391,10 +388,8 @@ extension DatabaseManager {
         let fileSize = row[documentFileSize]
         let notes = decryptTextField(row[documentNotes])
 
-        // Decode tags
-        let tagsString = row[documentTags]
-        let tagsData = tagsString.data(using: .utf8) ?? Data()
-        let tags = (try? JSONDecoder().decode([String].self, from: tagsData)) ?? []
+        // Decode tags (encrypted as of v14; plaintext JSON still readable)
+        let tags = decodeTagsColumn(row[documentTags]).tags
 
         // Decode extracted health data (BLOB is encrypted at rest)
         let extractedHealthData: [AnyHealthData]

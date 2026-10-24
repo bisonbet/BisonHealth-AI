@@ -127,6 +127,24 @@ final class DatabaseMigrationTests: XCTestCase {
         return sqlite3_step(statement) == SQLITE_ROW ? Int(sqlite3_column_int(statement, 0)) : nil
     }
 
+    private func textScalar(_ sql: String) throws -> String? {
+        var handle: OpaquePointer?
+        guard sqlite3_open(databaseURL.path, &handle) == SQLITE_OK else {
+            throw MigrationFixtureError.open(String(cString: sqlite3_errmsg(handle)))
+        }
+        defer { sqlite3_close(handle) }
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw MigrationFixtureError.exec(sql, String(cString: sqlite3_errmsg(handle)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let text = sqlite3_column_text(statement, 0) else { return nil }
+        return String(cString: text)
+    }
+
     private enum MigrationFixtureError: Error {
         case open(String)
         case exec(String, String)
@@ -253,6 +271,80 @@ final class DatabaseMigrationTests: XCTestCase {
         try await reopened.deletePendingImportReview(documentId: documentId)
         let afterDelete = try await reopened.fetchPendingImportReviews()
         XCTAssertEqual(afterDelete.count, 0, "Deciding on it removes it")
+    }
+
+    func testUpgradingFromVersion13EncryptsTagsAndKeepsThemReadable() async throws {
+        // v14 encrypts the documents.tags column. Tags are free text on a medical document
+        // — "oncology", "second opinion", a doctor's name — and sat in plaintext beside
+        // columns that were already encrypted.
+        let document = MedicalDocument(
+            fileName: "biopsy.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/biopsy.pdf"),
+            processingStatus: .completed,
+            documentCategory: .labReport,
+            extractedText: "Specimen received",
+            fileSize: 2048,
+            tags: ["oncology", "Dr Ferris", "second opinion"]
+        )
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+        }
+
+        // Wind the stored tags back to plaintext JSON and the version back to 13, which is
+        // exactly what a device upgrading from the previous build has.
+        let plaintextTags = #"["oncology","Dr Ferris","second opinion"]"#
+        try execute("UPDATE documents SET tags = '\(plaintextTags)'")
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (13, 0)")
+
+        XCTAssertEqual(try storedVersion(), 13, "Precondition: the fixture must look like v13")
+        XCTAssertEqual(
+            try textScalar("SELECT tags FROM documents LIMIT 1"),
+            plaintextTags,
+            "Precondition: the tags must start in plaintext"
+        )
+
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+
+        // The stored bytes must no longer be the readable JSON.
+        let storedAfter = try textScalar("SELECT tags FROM documents LIMIT 1")
+        XCTAssertNotEqual(storedAfter, plaintextTags, "The column must no longer hold plaintext")
+        XCTAssertFalse(storedAfter?.hasPrefix("[") ?? true, "Ciphertext is base64, not a JSON array")
+
+        // And the app must still read them.
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.tags, ["oncology", "Dr Ferris", "second opinion"])
+    }
+
+    func testTheTagsMigrationIsSafeToRunTwice() async throws {
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .completed,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: ["lab"]
+        )
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+        }
+
+        // Already-encrypted tags, wound back to v13. Re-running must not double-encrypt,
+        // which would leave the tags unreadable for good.
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (13, 0)")
+
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+
+        XCTAssertEqual(recovered?.tags, ["lab"], "Tags survive a second pass of the migration")
     }
 
     func testOpeningAFutureVersionIsRefusedRatherThanCrashing() throws {

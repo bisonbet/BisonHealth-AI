@@ -124,16 +124,21 @@ class FileSystemManager: ObservableObject {
     // MARK: - Document Storage
     func storeDocument(data: Data, fileName: String, fileType: DocumentType) throws -> URL {
         try ensureAvailable()
-        let sanitizedFileName = sanitizeFileName(fileName)
+        // The on-disk name is a UUID and nothing else.
+        //
+        // It used to be "<uuid>_<original name>.<ext>", which put the patient's own words on
+        // the filesystem: "Quest_Diagnostics_Lipid_Panel_Jan2026.pdf" names the lab, the
+        // test and the date in plaintext, in a path that appears in device backups, in
+        // crash reports and in any file listing — while the file's *contents* were
+        // carefully encrypted. The display name lives in the database's encrypted
+        // `file_name` column, which is where the UI reads it from, so nothing needs the
+        // original name here.
+        //
+        // Forward-only: files already stored keep their names, and their paths are recorded
+        // in the database, so they continue to open. Renaming them would need a migration
+        // that rewrites every stored path, which is a bigger change than this.
         let fileExtension = fileType.rawValue
-        
-        // Check if fileName already has the correct extension, if so don't add it again
-        let finalFileName: String
-        if sanitizedFileName.lowercased().hasSuffix(".\(fileExtension)") {
-            finalFileName = "\(UUID().uuidString)_\(sanitizedFileName)"
-        } else {
-            finalFileName = "\(UUID().uuidString)_\(sanitizedFileName).\(fileExtension)"
-        }
+        let finalFileName = "\(UUID().uuidString).\(fileExtension)"
         let destinationURL = documentsDirectory.appendingPathComponent(finalFileName)
         
         // Encrypt the document data
@@ -241,7 +246,7 @@ class FileSystemManager: ObservableObject {
             throw FileSystemError.thumbnailGenerationFailed
         }
         
-        try thumbnailData.write(to: thumbnailURL)
+        try writeThumbnail(thumbnailData, to: thumbnailURL)
         return thumbnailURL
     }
     
@@ -269,7 +274,7 @@ class FileSystemManager: ObservableObject {
             throw FileSystemError.thumbnailGenerationFailed
         }
         
-        try thumbnailData.write(to: thumbnailURL)
+        try writeThumbnail(thumbnailData, to: thumbnailURL)
         return thumbnailURL
     }
     
@@ -291,10 +296,50 @@ class FileSystemManager: ObservableObject {
             throw FileSystemError.thumbnailGenerationFailed
         }
         
-        try thumbnailData.write(to: thumbnailURL)
+        try writeThumbnail(thumbnailData, to: thumbnailURL)
         return thumbnailURL
     }
     
+    /// Write a thumbnail encrypted, with the same file protection as the document.
+    ///
+    /// A thumbnail is a render of page one of a medical document — a lab report's header
+    /// block, a letter's letterhead and first paragraph — so it is as much PHI as the file
+    /// it was made from. These were written as plain JPEG while the document itself was
+    /// encrypted, which meant the readable part of every imported record sat in the clear
+    /// on disk and in device backups.
+    private func writeThumbnail(_ data: Data, to url: URL) throws {
+        try encryptData(data).write(to: url)
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path
+        )
+    }
+
+    /// Read a thumbnail written by `writeThumbnail`, or one left over from before they were
+    /// encrypted.
+    ///
+    /// The legacy branch matters: every thumbnail already on a device is plain JPEG, and
+    /// refusing to read them would blank the document list for existing users. A plaintext
+    /// one found here is re-encrypted in place, so the clear copy does not survive the next
+    /// backup. Mirrors the same fallback `retrieveDocument` uses for documents.
+    func loadThumbnailData(at url: URL) -> Data? {
+        guard let storedData = try? Data(contentsOf: url) else { return nil }
+
+        if let decrypted = try? decryptData(storedData) {
+            return decrypted
+        }
+
+        // JPEG starts FF D8 FF; a JPEG here was written before thumbnails were encrypted.
+        guard storedData.count > 3, storedData[0] == 0xFF, storedData[1] == 0xD8, storedData[2] == 0xFF else {
+            AppLog.shared.fileManagement("Thumbnail at \(url.lastPathComponent) could not be decrypted or recognised", level: .warning)
+            return nil
+        }
+
+        AppLog.shared.fileManagement("Re-encrypting a plaintext thumbnail left by an earlier version")
+        try? writeThumbnail(storedData, to: url)
+        return storedData
+    }
+
     private func getThumbnailURL(for documentURL: URL) -> URL {
         let documentName = documentURL.deletingPathExtension().lastPathComponent
         return thumbnailsDirectory.appendingPathComponent("\(documentName)_thumb.jpg")
@@ -309,7 +354,7 @@ class FileSystemManager: ObservableObject {
         try ensureAvailable()
         try FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
         let thumbnailURL = thumbnailsDirectory.appendingPathComponent("\(documentId.uuidString)_thumb.jpg")
-        try data.write(to: thumbnailURL)
+        try writeThumbnail(data, to: thumbnailURL)
         return thumbnailURL
     }
 

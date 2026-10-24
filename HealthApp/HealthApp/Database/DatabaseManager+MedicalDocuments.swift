@@ -40,9 +40,6 @@ extension DatabaseManager {
 
 
         do {
-            let tagsJson = try JSONEncoder().encode(document.tags)
-            let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
-
             let extractedHealthDataJson = try JSONEncoder().encode(document.extractedHealthData)
 
             let extractedSectionsJson = try JSONEncoder().encode(document.extractedSections)
@@ -59,7 +56,7 @@ extension DatabaseManager {
                 documentImportedAt <- Int64(document.importedAt.timeIntervalSince1970),
                 documentProcessedAt <- document.processedAt.map { Int64($0.timeIntervalSince1970) },
                 documentFileSize <- document.fileSize,
-                documentTags <- tagsString,
+                documentTags <- try encodeTagsColumn(document.tags),
                 documentNotes <- try encryptTextField(document.notes),
                 documentExtractedData <- try encryptDataField(extractedHealthDataJson),
                 // Medical document fields (PHI text columns encrypted at rest)
@@ -289,9 +286,6 @@ extension DatabaseManager {
         AppLog.shared.database("updateMedicalDocument called for '\(document.fileName)' - extractedText: \(document.extractedText?.count ?? 0) chars, is nil: \(document.extractedText == nil)", level: .debug)
 
         do {
-            let tagsJson = try JSONEncoder().encode(document.tags)
-            let tagsString = String(data: tagsJson, encoding: .utf8) ?? "[]"
-
             let extractedHealthDataJson = try JSONEncoder().encode(document.extractedHealthData)
             let extractedSectionsJson = try JSONEncoder().encode(document.extractedSections)
 
@@ -305,7 +299,7 @@ extension DatabaseManager {
                 documentProcessingStatus <- document.processingStatus.rawValue,
                 documentProcessedAt <- document.processedAt.map { Int64($0.timeIntervalSince1970) },
                 documentFileSize <- document.fileSize,
-                documentTags <- tagsString,
+                documentTags <- try encodeTagsColumn(document.tags),
                 documentNotes <- try encryptTextField(document.notes),
                 documentExtractedData <- try encryptDataField(extractedHealthDataJson),
                 // Medical document fields
@@ -430,17 +424,11 @@ extension DatabaseManager {
             unreadableFields.insert(.notes)
         }
 
-        // Decode tags
-        let tagsString = row[documentTags]
-        let tagsData = tagsString.data(using: .utf8) ?? Data()
-        let tags: [String]
-        if let decodedTags = try? JSONDecoder().decode([String].self, from: tagsData) {
-            tags = decodedTags
-        } else {
-            tags = []
-            if !tagsString.isEmpty, tagsString != "[]" {
-                unreadableFields.insert(.tags)
-            }
+        // Decode tags (encrypted as of v14; plaintext JSON still readable)
+        let decodedTags = decodeTagsColumn(row[documentTags])
+        let tags = decodedTags.tags
+        if decodedTags.wasUnreadable {
+            unreadableFields.insert(.tags)
         }
 
         // Decode extracted health data (BLOB is encrypted at rest)
