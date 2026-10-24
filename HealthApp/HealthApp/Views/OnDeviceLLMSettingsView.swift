@@ -19,6 +19,11 @@ struct OnDeviceLLMSettingsView: View {
     @State private var showDeleteConfirmation = false
     @State private var modelToDelete: MLXModelInfo?
     @State private var showAdvancedSettings = false
+    @ObservedObject private var networkManager = NetworkManager.shared
+    /// Set when the user tapped Download on a metered path, so the confirmation can name
+    /// the model and only start the transfer if they say yes.
+    @State private var modelAwaitingMeteredConsent: MLXModelInfo?
+    @State private var partialToDiscard: MLXModelInfo?
 
     // Sampling parameters
     @State private var temperature = MLXModelInfo.configuredTemperature
@@ -56,7 +61,62 @@ struct OnDeviceLLMSettingsView: View {
                 Text("Delete \(model.displayName)? This will free up storage.")
             }
         }
+        .alert(
+            "Download over \(meteredNetworkDescription)?",
+            isPresented: Binding(
+                get: { modelAwaitingMeteredConsent != nil },
+                set: { if !$0 { modelAwaitingMeteredConsent = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { modelAwaitingMeteredConsent = nil }
+            Button("Download") {
+                if let model = modelAwaitingMeteredConsent {
+                    downloadManager.startDownload(for: model, overMeteredNetwork: true)
+                }
+                modelAwaitingMeteredConsent = nil
+            }
+        } message: {
+            if let model = modelAwaitingMeteredConsent {
+                Text("\(model.displayName) is about \(model.estimatedSize). You are on \(meteredNetworkDescription), so this may count against your data allowance. Downloading on Wi-Fi instead avoids that.")
+            }
+        }
+        .alert(
+            "Remove Partial Download?",
+            isPresented: Binding(
+                get: { partialToDiscard != nil },
+                set: { if !$0 { partialToDiscard = nil } }
+            )
+        ) {
+            Button("Keep", role: .cancel) { partialToDiscard = nil }
+            Button("Remove", role: .destructive) {
+                if let model = partialToDiscard {
+                    downloadManager.discardIncompleteDownload(for: model)
+                    refreshState()
+                }
+                partialToDiscard = nil
+            }
+        } message: {
+            if let model = partialToDiscard, let bytes = downloadManager.incompleteDownloadSize(for: model) {
+                Text("This frees \(downloadManager.formatSize(bytes)) but the next download of \(model.displayName) starts from the beginning.")
+            }
+        }
         .accessibilityIdentifier("onDeviceLLMSettingsView")
+    }
+
+    /// Ask first when the path costs the user money. A personal hotspot reads as Wi-Fi by
+    /// interface type, so this goes by the path's own expensive/constrained flags.
+    private func requestDownload(of model: MLXModelInfo) {
+        if networkManager.isExpensive || networkManager.isConstrained {
+            modelAwaitingMeteredConsent = model
+        } else {
+            downloadManager.startDownload(for: model)
+        }
+    }
+
+    private var meteredNetworkDescription: String {
+        networkManager.isConstrained && !networkManager.isExpensive
+            ? "Low Data Mode"
+            : "a metered connection"
     }
 
     // MARK: - Sections
@@ -116,17 +176,21 @@ struct OnDeviceLLMSettingsView: View {
                     isDownloaded: downloadManager.isModelDownloaded(model),
                     isDownloading: downloadManager.isDownloading
                         && downloadManager.currentlyDownloadingModel?.id == model.id,
+                    partialBytes: downloadManager.incompleteDownloadSize(for: model),
                     onSelect: {
                         if downloadManager.isModelDownloaded(model) {
                             selectModel(model)
                         }
                     },
                     onDownload: {
-                        downloadManager.startDownload(for: model)
+                        requestDownload(of: model)
                     },
                     onDelete: {
                         modelToDelete = model
                         showDeleteConfirmation = true
+                    },
+                    onDiscardPartial: {
+                        partialToDiscard = model
                     }
                 )
             }
@@ -451,9 +515,14 @@ private struct MLXModelRowView: View {
     let isSelected: Bool
     let isDownloaded: Bool
     let isDownloading: Bool
+    /// Bytes already on disk for a download that stopped before it was usable. The row has
+    /// to show these: the manager no longer deletes a partial, so this and the Remove
+    /// action are what keep the space accounted for and reclaimable.
+    let partialBytes: Int64?
     let onSelect: () -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
+    let onDiscardPartial: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -511,6 +580,23 @@ private struct MLXModelRowView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .accessibilityIdentifier("modelDownloadInProgress")
+                } else if partialBytes != nil {
+                    Menu {
+                        Button("Resume Download") {
+                            onDownload()
+                        }
+                        Button("Remove Partial Download", role: .destructive) {
+                            onDiscardPartial()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise.circle")
+                            Text("Resume")
+                        }
+                        .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("modelResumeDownloadMenu")
                 } else {
                     Button {
                         onDownload()
@@ -536,6 +622,13 @@ private struct MLXModelRowView: View {
                     Label("Downloaded", systemImage: "checkmark.circle")
                         .font(.caption2)
                         .foregroundColor(.green)
+                } else if let partialBytes {
+                    Label(
+                        "Paused — \(MLXModelDownloadManager.shared.formatSize(partialBytes)) of \(model.estimatedSize) kept",
+                        systemImage: "pause.circle"
+                    )
+                    .font(.caption2)
+                    .foregroundColor(.orange)
                 }
             }
         }
@@ -546,8 +639,17 @@ private struct MLXModelRowView: View {
                 onSelect()
             }
         }
-        .accessibilityLabel("\(model.displayName), \(model.modelType.displayName) model, \(isDownloaded ? "downloaded" : isDownloading ? "downloading" : "not downloaded")")
+        .accessibilityLabel("\(model.displayName), \(model.modelType.displayName) model, \(accessibilityStateDescription)")
         .accessibilityHint(isDownloaded ? "Tap to select this model" : isDownloading ? "Download in progress" : "Tap download button to get this model")
+    }
+
+    private var accessibilityStateDescription: String {
+        if isDownloaded { return "downloaded" }
+        if isDownloading { return "downloading" }
+        if let partialBytes {
+            return "download paused, \(MLXModelDownloadManager.shared.formatSize(partialBytes)) kept"
+        }
+        return "not downloaded"
     }
 }
 

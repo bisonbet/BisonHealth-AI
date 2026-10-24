@@ -473,3 +473,78 @@ final class MLXContextBudgetTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Model Download Retry Budget
+//
+// The download manager's transfer code is compiled out of the simulator, so the budget is a
+// plain value type precisely so the rule that decides whether a 16 GB download survives can
+// be checked here.
+final class MLXDownloadRetryBudgetTests: XCTestCase {
+
+    private let slice: Int64 = 4 * 1024 * 1024
+
+    private func makeBudget() -> MLXDownloadRetryBudget {
+        MLXDownloadRetryBudget(maximumRetries: 2, progressToRestore: slice)
+    }
+
+    func testRetriesAreSpentUntilExhausted() {
+        var budget = makeBudget()
+
+        XCTAssertFalse(budget.isExhausted)
+        XCTAssertEqual(budget.recordRetry(atBytes: 0), 1)
+        XCTAssertFalse(budget.isExhausted)
+        XCTAssertEqual(budget.recordRetry(atBytes: 0), 2)
+        XCTAssertTrue(budget.isExhausted, "A third stall with no progress is a genuine failure")
+    }
+
+    func testRealProgressEarnsTheBudgetBack() {
+        // This is the whole fix. Three interruptions spread over an hour of a working
+        // download used to exhaust the budget and delete every completed shard, because the
+        // counter was never restored when bytes started flowing again.
+        var budget = makeBudget()
+
+        _ = budget.recordRetry(atBytes: 1_000_000)
+        budget.recordProgress(bytes: 1_000_000 + slice)
+        XCTAssertEqual(budget.retriesUsed, 0, "A full slice of progress clears the retries spent getting there")
+
+        _ = budget.recordRetry(atBytes: 8_000_000)
+        _ = budget.recordRetry(atBytes: 8_000_000)
+        XCTAssertTrue(budget.isExhausted)
+
+        budget.recordProgress(bytes: 8_000_000 + slice)
+        XCTAssertFalse(budget.isExhausted, "Progress after a retry means the connection recovered")
+    }
+
+    func testTrickledBytesDoNotEarnARetryBack() {
+        // The guard against the opposite failure: a connection that moves a few bytes
+        // between stalls must not be able to retry forever.
+        var budget = makeBudget()
+
+        _ = budget.recordRetry(atBytes: 1_000_000)
+        _ = budget.recordRetry(atBytes: 1_000_000)
+        budget.recordProgress(bytes: 1_000_512)
+
+        XCTAssertTrue(budget.isExhausted, "Half a kilobyte is not progress")
+    }
+
+    func testProgressBeforeAnyRetryChangesNothing() {
+        var budget = makeBudget()
+        budget.recordProgress(bytes: 50 * slice)
+
+        XCTAssertEqual(budget.retriesUsed, 0)
+        XCTAssertFalse(budget.isExhausted)
+    }
+
+    func testResetClearsBothCounterAndBaseline() {
+        var budget = makeBudget()
+        _ = budget.recordRetry(atBytes: 9_000_000)
+        budget.reset()
+
+        XCTAssertEqual(budget.retriesUsed, 0)
+        // After a reset the baseline must be gone too, or the first progress report would
+        // be measured against a stale byte count.
+        _ = budget.recordRetry(atBytes: 0)
+        budget.recordProgress(bytes: slice)
+        XCTAssertEqual(budget.retriesUsed, 0)
+    }
+}

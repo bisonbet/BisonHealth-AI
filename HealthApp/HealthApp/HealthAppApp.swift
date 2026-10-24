@@ -324,6 +324,9 @@ class AppState: ObservableObject {
         switch phase {
         case .active:
             AppLog.shared.markSessionActive()
+            // A model download's stall watchdog measures wall-clock time, so it has to be
+            // told that the gap it is about to see was a background trip and not a stall.
+            MLXModelDownloadManager.shared.resumeAfterForeground()
             Task {
                 await settingsManager.resumeOnDeviceLLMAfterForeground()
             }
@@ -331,6 +334,7 @@ class AppState: ObservableObject {
             break
         case .background:
             AppLog.shared.markCleanShutdown()
+            MLXModelDownloadManager.shared.pauseForBackground()
             Task {
                 await settingsManager.suspendOnDeviceLLMForBackground()
             }

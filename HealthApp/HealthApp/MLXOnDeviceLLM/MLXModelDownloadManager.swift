@@ -46,6 +46,56 @@ enum MLXDownloadPhase: Equatable {
     }
 }
 
+// MARK: - Retry Budget
+
+/// How many automatic retries a download has left, and when it earns them back.
+///
+/// The counter this replaces was spent but never restored: it reset only on a fresh start,
+/// a success or a cancel, never when bytes resumed flowing. Because the transfer uses a
+/// foreground `URLSession` and the app declares no background mode, iOS suspends it about
+/// 30 seconds after the user switches away — so the watchdog sees "no progress for 60s" the
+/// moment they return and spends a retry on an interruption that was not a network fault at
+/// all. Three of those (checking mail three times, or three Wi-Fi dropouts across an hour)
+/// reached the terminal path, which deleted the whole model directory. For MedGemma that is
+/// about 16 GB discarded after three ordinary interruptions.
+///
+/// A retry is earned back once real progress lands — one transfer slice, not one byte, so a
+/// connection that nudges a few bytes between stalls cannot retry forever.
+struct MLXDownloadRetryBudget: Equatable {
+    let maximumRetries: Int
+    /// Bytes that must arrive after a retry before the budget is restored.
+    let progressToRestore: Int64
+
+    private(set) var retriesUsed = 0
+    private var bytesAtLastRetry: Int64 = 0
+
+    init(maximumRetries: Int, progressToRestore: Int64) {
+        self.maximumRetries = maximumRetries
+        self.progressToRestore = progressToRestore
+    }
+
+    var isExhausted: Bool { retriesUsed >= maximumRetries }
+
+    /// Spend a retry. Returns the attempt number, for the phase label and the log.
+    mutating func recordRetry(atBytes bytes: Int64) -> Int {
+        retriesUsed += 1
+        bytesAtLastRetry = bytes
+        return retriesUsed
+    }
+
+    /// Report the current byte count; restores the budget once enough has landed.
+    mutating func recordProgress(bytes: Int64) {
+        guard retriesUsed > 0, bytes - bytesAtLastRetry >= progressToRestore else { return }
+        retriesUsed = 0
+        bytesAtLastRetry = bytes
+    }
+
+    mutating func reset() {
+        retriesUsed = 0
+        bytesAtLastRetry = 0
+    }
+}
+
 private enum MLXDownloadTransferError: LocalizedError {
     case invalidResponse(file: String)
     case httpStatus(file: String, statusCode: Int)
@@ -81,6 +131,14 @@ class MLXModelDownloadManager: ObservableObject {
     @Published var currentlyDownloadingModel: MLXModelInfo?
     @Published var downloadError: String?
     @Published var downloadedModelIds: Set<String> = []
+
+    /// Model id → bytes on disk for a download that stopped before it was usable.
+    ///
+    /// These used to be deleted the moment a download ended badly, because nothing counted
+    /// or showed them and the space would have been stranded. Published instead, so the
+    /// model list can offer Resume or Remove and a 16 GB transfer is never discarded on the
+    /// app's own initiative.
+    @Published private(set) var incompleteDownloadBytes: [String: Int64] = [:]
     @Published var selectedModelId: String = MLXModelInfo.selectedModel.id
     @Published var selectedExtractionModelId: String? = MLXModelInfo.selectedExtractionModel?.id
 
@@ -89,9 +147,18 @@ class MLXModelDownloadManager: ObservableObject {
     private var downloadTask: Task<Void, Never>?
     private var progressMonitorTask: Task<Void, Never>?
     private var stallRetryTask: Task<Void, Never>?
+    /// Retained so the stall watchdog can be stopped and restarted across a background
+    /// trip without tearing down the transfer itself.
+    private var activeProgressBox: DownloadProgressBox?
+    private var isWatchdogPausedForBackground = false
+    /// The user's answer for the download in flight; see `startDownload(for:overMeteredNetwork:)`.
+    private var allowsMeteredTransfer = false
     private var cancelledByUser = false
     private var activeDownloadID: UUID?
-    private var automaticStallRetryCount = 0
+    private var retryBudget = MLXDownloadRetryBudget(
+        maximumRetries: MLXModelDownloadManager.maxAutomaticStallRetries,
+        progressToRestore: MLXModelDownloadManager.downloadSliceBytes
+    )
 
     /// No byte progress for this long while downloading is surfaced as a stall.
     private nonisolated static let stallThreshold: TimeInterval = 60
@@ -109,19 +176,34 @@ class MLXModelDownloadManager: ObservableObject {
     #if !targetEnvironment(simulator)
     /// The default URLSession can wait for connectivity and retain a dead connection longer
     /// than the UI's stall watchdog. Use a bounded, non-waiting session for Hub transfers.
-    private nonisolated static let realtimeURLSession: URLSession = {
+    ///
+    /// `allowingMeteredPaths` decides whether this session may use a path the user pays for.
+    /// Both overrides used to be hardcoded to `true`, which put a 2–16 GB transfer on
+    /// cellular, on a personal hotspot, and through Low Data Mode, on one tap and with no
+    /// warning beyond the size on the button.
+    private nonisolated static func makeTransferSession(allowingMeteredPaths: Bool) -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = stallThreshold
         configuration.timeoutIntervalForResource = 24 * 60 * 60
         configuration.httpMaximumConnectionsPerHost = maxConcurrentFileDownloads + 1
-        configuration.allowsExpensiveNetworkAccess = true
-        configuration.allowsConstrainedNetworkAccess = true
+        configuration.allowsExpensiveNetworkAccess = allowingMeteredPaths
+        configuration.allowsConstrainedNetworkAccess = allowingMeteredPaths
         return URLSession(configuration: configuration)
-    }()
+    }
 
+    /// Weights move over Wi-Fi unless the user has explicitly chosen otherwise.
+    private nonisolated static let unmeteredTransferSession = makeTransferSession(allowingMeteredPaths: false)
+    private nonisolated static let meteredTransferSession = makeTransferSession(allowingMeteredPaths: true)
+
+    private nonisolated static func transferSession(allowingMeteredPaths: Bool) -> URLSession {
+        allowingMeteredPaths ? meteredTransferSession : unmeteredTransferSession
+    }
+
+    /// Repository metadata is a few kilobytes, so it is never worth refusing over cost;
+    /// only the weights are gated.
     private nonisolated static let realtimeHubClient = HuggingFace.HubClient(
-        session: realtimeURLSession,
+        session: meteredTransferSession,
         cache: nil
     )
     #endif
@@ -138,8 +220,13 @@ class MLXModelDownloadManager: ObservableObject {
 
     // MARK: - Download Management
 
-    /// Start downloading an MLX model from HuggingFace Hub
-    func startDownload(for model: MLXModelInfo) {
+    /// Start downloading an MLX model from HuggingFace Hub.
+    ///
+    /// `overMeteredNetwork` must be the user's own answer, not a guess: these are 2–16 GB
+    /// transfers, and the caller is expected to have asked when `NetworkManager.isExpensive`
+    /// or `isConstrained` is set. Left false, the transfer simply waits for Wi-Fi rather
+    /// than quietly spending someone's data allowance.
+    func startDownload(for model: MLXModelInfo, overMeteredNetwork: Bool = false) {
         guard model.isAvailable else {
             downloadError = MLXOnDeviceError.modelUnavailableOnDevice.localizedDescription
             AppLog.shared.mlx("[MLXDownload] Refusing unavailable model: \(model.displayName)", level: .warning)
@@ -154,9 +241,10 @@ class MLXModelDownloadManager: ObservableObject {
             return
         }
 
-        automaticStallRetryCount = 0
+        retryBudget.reset()
         stallRetryTask?.cancel()
         stallRetryTask = nil
+        allowsMeteredTransfer = overMeteredNetwork
         startDownloadAttempt(for: model)
     }
 
@@ -173,6 +261,7 @@ class MLXModelDownloadManager: ObservableObject {
         let downloadID = UUID()
         activeDownloadID = downloadID
         let progressBox = DownloadProgressBox()
+        activeProgressBox = progressBox
         startProgressMonitor(for: model, progressBox: progressBox)
 
         downloadTask = Task {
@@ -193,7 +282,8 @@ class MLXModelDownloadManager: ObservableObject {
                 let modelDirectory = try await downloadModelWithRealtimeProgress(
                     model: model,
                     configuration: configuration,
-                    progressBox: progressBox
+                    progressBox: progressBox,
+                    allowingMeteredPaths: allowsMeteredTransfer
                 )
 
                 // A cancellation can race the final filesystem validation. Do not let an old
@@ -219,7 +309,7 @@ class MLXModelDownloadManager: ObservableObject {
                 currentlyDownloadingModel = nil
                 downloadTask = nil
                 activeDownloadID = nil
-                automaticStallRetryCount = 0
+                retryBudget.reset()
                 markModelDownloaded(model)
                 ensureValidExtractionModelSelection()
                 #endif
@@ -237,7 +327,7 @@ class MLXModelDownloadManager: ObservableObject {
         cancelledByUser = true
         stallRetryTask?.cancel()
         stallRetryTask = nil
-        automaticStallRetryCount = 0
+        retryBudget.reset()
         activeDownloadID = nil
         stopProgressMonitor()
         downloadTask?.cancel()
@@ -251,10 +341,12 @@ class MLXModelDownloadManager: ObservableObject {
         // Reset the visible byte count after cancellation.
         downloadedBytes = 0
         if let model {
-            cleanupIncompleteDownload(for: model)
+            // Keep what has landed. Cancel means stop, not erase: the shards already on
+            // disk let the next attempt resume, and `refreshModelStatus()` below publishes
+            // them as a partial so the list can offer Resume or Remove.
             removeDownloadedModel(model)
         }
-        AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model?.displayName ?? "unknown model") after \(formatSize(bytesAtCancellation))")
+        AppLog.shared.mlx("[MLXDownload] Download cancelled for \(model?.displayName ?? "unknown model") after \(formatSize(bytesAtCancellation)) — bytes kept for resume")
         cancelledByUser = false
         refreshModelStatus()
     }
@@ -290,13 +382,14 @@ class MLXModelDownloadManager: ObservableObject {
         activeDownloadID = nil
         stallRetryTask?.cancel()
         stallRetryTask = nil
-        automaticStallRetryCount = 0
-        cleanupIncompleteDownload(for: model)
+        retryBudget.reset()
         removeDownloadedModel(model)
         if !wasCancelled {
             downloadError = error.localizedDescription
         }
         cancelledByUser = false
+        // Publishes whatever landed as a resumable partial rather than deleting it.
+        refreshModelStatus()
     }
 
     /// Check if a model is downloaded.
@@ -367,17 +460,70 @@ class MLXModelDownloadManager: ObservableObject {
     /// Refresh the download status of all models
     func refreshModelStatus() {
         var downloaded = Set<String>()
+        var partials: [String: Int64] = [:]
         for model in MLXModelInfo.allModels {
             let cacheDir = huggingFaceCacheDirectory(for: model)
             let valid = isModelCacheValid(for: model)
             AppLog.shared.mlx("[MLXDownload] Model \(model.displayName) cache path: \(cacheDir.path), valid: \(valid)")
             if valid {
                 downloaded.insert(model.id)
+            } else if FileManager.default.fileExists(atPath: cacheDir.path) {
+                let bytes = Self.directorySize(at: cacheDir, includingHiddenFiles: true)
+                if bytes > 0 {
+                    partials[model.id] = bytes
+                }
             }
         }
         downloadedModelIds = downloaded
+        incompleteDownloadBytes = partials
         persistDownloadedModelIds()
         ensureValidExtractionModelSelection()
+    }
+
+    /// Bytes on disk for a model that is downloaded but not usable yet.
+    func incompleteDownloadSize(for model: MLXModelInfo) -> Int64? {
+        incompleteDownloadBytes[model.id]
+    }
+
+    // MARK: - App Lifecycle
+
+    /// Stop the stall watchdog while the app is in the background.
+    ///
+    /// Transfers run on a foreground `URLSession` and the app declares no background mode,
+    /// so iOS suspends them roughly 30 seconds after the user switches away. The watchdog
+    /// measures wall-clock time since the last byte, so on return it saw well over its
+    /// 60-second threshold and charged the user a retry for an OS suspension that was not a
+    /// network fault. Pausing it means a background trip is a pause, which is what it is.
+    func pauseForBackground() {
+        guard isDownloading, !isWatchdogPausedForBackground else { return }
+        isWatchdogPausedForBackground = true
+        stopProgressMonitor()
+        AppLog.shared.mlx("[MLXDownload] Paused the stall watchdog for backgrounding")
+    }
+
+    /// Restart the watchdog with a fresh clock, so the 60-second window is measured from
+    /// the moment the user came back rather than from before the suspension.
+    func resumeAfterForeground() {
+        guard isWatchdogPausedForBackground else { return }
+        isWatchdogPausedForBackground = false
+        guard isDownloading, let model = currentlyDownloadingModel, let progressBox = activeProgressBox else {
+            return
+        }
+        isDownloadStalled = false
+        startProgressMonitor(for: model, progressBox: progressBox)
+        AppLog.shared.mlx("[MLXDownload] Resumed the stall watchdog for \(model.displayName)")
+    }
+
+    /// Throw away a partial download. This is the reclaim path that justifies keeping the
+    /// partial in the first place: the bytes are visible in the on-device model list and the
+    /// user decides whether to resume or remove them, instead of the app deciding for them.
+    func discardIncompleteDownload(for model: MLXModelInfo) {
+        guard currentlyDownloadingModel?.id != model.id else {
+            AppLog.shared.mlx("[MLXDownload] Refusing to discard \(model.displayName) while it is downloading", level: .warning)
+            return
+        }
+        deleteIncompleteCache(for: model)
+        refreshModelStatus()
     }
 
     // MARK: - Storage Info
@@ -466,7 +612,8 @@ class MLXModelDownloadManager: ObservableObject {
     private func downloadModelWithRealtimeProgress(
         model: MLXModelInfo,
         configuration: ModelConfiguration,
-        progressBox: DownloadProgressBox
+        progressBox: DownloadProgressBox,
+        allowingMeteredPaths: Bool
     ) async throws -> URL {
         let repositoryParts = model.huggingFaceId.split(separator: "/", maxSplits: 1).map(String.init)
         guard repositoryParts.count == 2 else {
@@ -524,7 +671,8 @@ class MLXModelDownloadManager: ObservableObject {
             revision: "main",
             modelDirectory: modelDirectory,
             bearerToken: bearerToken,
-            progressBox: progressBox
+            progressBox: progressBox,
+            allowingMeteredPaths: allowingMeteredPaths
         )
 
         return modelDirectory
@@ -536,7 +684,8 @@ class MLXModelDownloadManager: ObservableObject {
         revision: String,
         modelDirectory: URL,
         bearerToken: String?,
-        progressBox: DownloadProgressBox
+        progressBox: DownloadProgressBox,
+        allowingMeteredPaths: Bool
     ) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             var activeCount = 0
@@ -554,7 +703,8 @@ class MLXModelDownloadManager: ObservableObject {
                         revision: revision,
                         modelDirectory: modelDirectory,
                         bearerToken: bearerToken,
-                        progressBox: progressBox
+                        progressBox: progressBox,
+                        allowingMeteredPaths: allowingMeteredPaths
                     )
                 }
                 activeCount += 1
@@ -573,7 +723,8 @@ class MLXModelDownloadManager: ObservableObject {
         revision: String,
         modelDirectory: URL,
         bearerToken: String?,
-        progressBox: DownloadProgressBox
+        progressBox: DownloadProgressBox,
+        allowingMeteredPaths: Bool
     ) async throws {
         let destination = modelDirectory.appendingPathComponent(entry.path)
         let partialDestination = destination.appendingPathExtension("incomplete")
@@ -644,7 +795,8 @@ class MLXModelDownloadManager: ObservableObject {
                 : completedBytes + Self.downloadSliceBytes - 1
             request.setValue("bytes=\(completedBytes)-\(sliceUpperBound)", forHTTPHeaderField: "Range")
 
-            let (temporaryURL, response) = try await Self.realtimeURLSession.download(for: request)
+            let session = Self.transferSession(allowingMeteredPaths: allowingMeteredPaths)
+            let (temporaryURL, response) = try await session.download(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: temporaryURL)
@@ -790,6 +942,10 @@ class MLXModelDownloadManager: ObservableObject {
                     lastSpeedSampleTime = now
                     lastMovement = now
                     self.isDownloadStalled = false
+                    // Bytes are landing again, so the retries spent getting here are earned
+                    // back. Without this the budget only ever drained, and three ordinary
+                    // interruptions over an hour deleted the whole download.
+                    self.retryBudget.recordProgress(bytes: bytes)
                 } else if now.timeIntervalSince(lastMovement) > 5 {
                     // Never leave a stale 2 KB/s (or similar) callback visible while the
                     // underlying Progress has stopped moving.
@@ -846,7 +1002,7 @@ class MLXModelDownloadManager: ObservableObject {
             return
         }
 
-        guard automaticStallRetryCount < Self.maxAutomaticStallRetries else {
+        guard !retryBudget.isExhausted else {
             AppLog.shared.mlx("[MLXDownload] Giving up after \(Self.maxAutomaticStallRetries) stalled retries for \(model.displayName)", level: .warning)
             activeDownloadID = nil
             downloadTask?.cancel()
@@ -859,16 +1015,17 @@ class MLXModelDownloadManager: ObservableObject {
             downloadPhase = .connecting
             isDownloadStalled = false
             currentlyDownloadingModel = nil
-            cleanupIncompleteDownload(for: model)
+            // The completed shards stay on disk. This path used to delete them, which for
+            // MedGemma meant discarding about 16 GB because the network wobbled three
+            // times — and the retries were spent by backgrounding as often as by a fault.
             removeDownloadedModel(model)
-            downloadError = "Download stalled. Check your network connection and tap Download to retry."
-            automaticStallRetryCount = 0
+            downloadError = "Download paused after repeated connection problems. Your progress is kept — tap Resume to continue."
+            retryBudget.reset()
             refreshModelStatus()
             return
         }
 
-        automaticStallRetryCount += 1
-        let retryNumber = automaticStallRetryCount
+        let retryNumber = retryBudget.recordRetry(atBytes: downloadedBytes)
         downloadPhase = .retrying(attempt: retryNumber)
         AppLog.shared.mlx("[MLXDownload] Retrying stalled transfer for \(model.displayName) (attempt \(retryNumber)/\(Self.maxAutomaticStallRetries))", level: .warning)
 
@@ -907,12 +1064,11 @@ class MLXModelDownloadManager: ObservableObject {
         guard isDownloading,
               currentlyDownloadingModel?.id == model.id,
               stallRetryTask == nil,
-              automaticStallRetryCount < Self.maxAutomaticStallRetries else {
+              !retryBudget.isExhausted else {
             return false
         }
 
-        automaticStallRetryCount += 1
-        let retryNumber = automaticStallRetryCount
+        let retryNumber = retryBudget.recordRetry(atBytes: downloadedBytes)
         let reason = error.localizedDescription
             .replacingOccurrences(of: "\n", with: " ")
         downloadPhase = .retrying(attempt: retryNumber)
@@ -1129,13 +1285,12 @@ class MLXModelDownloadManager: ObservableObject {
 
     /// Delete a model cache that will not be completed.
     ///
-    /// Every caller is a terminal path — the user cancelled, or the automatic retries were
-    /// exhausted. Automatic retries deliberately do *not* call this, which is what preserves
-    /// completed shards and `.incomplete` files for the next attempt. Once the download is
-    /// over, the model is no longer in `downloadedModelIds`, so `totalStorageUsed` stops
-    /// counting these bytes and no UI can reclaim them: keeping them would strand multiple
-    /// gigabytes with no way for the user to get the space back.
-    private func cleanupIncompleteDownload(for model: MLXModelInfo) {
+    /// Only ever called for the user: `discardIncompleteDownload(for:)` on an explicit
+    /// Remove. The terminal paths used to call it too, and that is what threw away a 16 GB
+    /// download after three interruptions. The old justification — that nothing counted or
+    /// could reclaim the bytes — is answered by `incompleteDownloadBytes`, which publishes
+    /// them for the model list to show and remove.
+    private func deleteIncompleteCache(for model: MLXModelInfo) {
         let cacheDir = huggingFaceCacheDirectory(for: model)
         guard FileManager.default.fileExists(atPath: cacheDir.path), !isModelCacheValid(for: model) else {
             return

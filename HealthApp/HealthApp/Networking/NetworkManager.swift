@@ -16,6 +16,14 @@ class NetworkManager: ObservableObject {
     @Published var networkQuality: NetworkQuality = .good
     @Published var isMonitoring: Bool = false
 
+    /// The current path costs the user money or counts against an allowance — cellular, but
+    /// also a personal hotspot reached over Wi-Fi, which `connectionType` alone reads as
+    /// Wi-Fi. Anything about to move gigabytes has to ask first.
+    @Published var isExpensive: Bool = false
+
+    /// The user has asked the system to hold back on this path (Low Data Mode).
+    @Published var isConstrained: Bool = false
+
     // MARK: - Private Properties
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.bisonhealth.networkmonitor")
@@ -72,6 +80,8 @@ class NetworkManager: ObservableObject {
                 self.isConnected = newIsConnected
                 self.connectionType = self.determineConnectionType(from: path)
                 self.networkQuality = self.determineNetworkQuality(from: path)
+                self.isExpensive = path.isExpensive
+                self.isConstrained = path.isConstrained
 
                 // Log connection changes
                 if wasConnected != newIsConnected {
