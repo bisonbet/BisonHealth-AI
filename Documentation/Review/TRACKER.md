@@ -1,5 +1,49 @@
 # Review tracker — live worklist
 
+## ▶ Where this stands (2026-10-23)
+
+**23 of the 32 work items are fixed; 3 are partly fixed; 6 are untouched.** The Status
+column below is current as of this date — it had drifted badly, and item numbers are not
+unique across the tables in this file, so edit those cells by hand rather than by script.
+
+| Still open | Item | Sev |
+|---|---|---|
+| Extraction commit races a delete and resurrects a broken row | 11 | P1 |
+| Unreadable fields written back over stored data | 12 | P1 |
+| Four more `lastError` surfaces nobody reads | 13 (rest) | P1 |
+| Thumbnails, tags and filenames still plaintext on disk | 21 (rest) | P1 |
+| Privacy Policy and Terms claims | 22 (rest) | P1 (submission) |
+| 113 orphaned UI tests | 25 | P2, deferred by decision 4 |
+| iPad portrait grid overlap; dead master-detail | 30 | P2 |
+| Restored reviews surface only on the Documents tab | 31 | P2 |
+| Import tap mitigation not re-verified | 32 | P2 |
+
+Workstreams never run: **WS-10** accessibility, **WS-11** performance, **WS-13** App Store
+compliance, **WS-14** build/signing/TestFlight, **WS-15** test coverage, **WS-16** docs
+drift, **WS-17** triage. WS-13 and WS-14 are the submission-critical pair and nobody has yet
+looked at `PrivacyInfo.xcprivacy`, the encryption-exemption declaration, or whether an
+archive signs.
+
+Owner-only checks outstanding: one real Bedrock call (decision 5), and the keychain
+migration on a genuine device upgrade.
+
+### A verification lesson from the MLX work
+
+`MLXOnDeviceClient.swift` and `MLXModelDownloadManager.swift` are inside
+`#if !targetEnvironment(simulator)`, so **a simulator build compiles none of their
+substance and cannot catch an error in it.** Typecheck them with:
+
+```
+xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
+  -destination 'generic/platform=iOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build
+```
+
+Nothing in those files can be exercised at runtime without a physical device. Items 27, 28
+and 29 are therefore **typechecked and unit-tested but never run**: each fix deliberately
+puts its decision rule in a plain value type (`MLXContextBudget`,
+`MLXDownloadRetryBudget`) so the rule itself is testable in the simulator even though the
+code around it is not. The MLX-side wiring still needs a device.
+
 ## ▶ Verified in a running app: v13 durable review queue (2026-10-23)
 
 Both checks confirmed on iPad Pro 11-inch (M5); report in
@@ -152,21 +196,21 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 1 | WS-05-01 +07 +08 +09 | Unit and reference range silently fall back to the hardcoded registry, and `isAbnormal` is computed from the substituted range. Also: a dashed date in a neighbouring cell becomes the reference range; `5,4` parses as 54 | **P0** | BB | M | `Services/BloodTestMappingService.swift`, `Services/LabReportParser.swift` | todo |
+| 1 | WS-05-01 +07 +08 +09 | Unit and reference range silently fall back to the hardcoded registry, and `isAbnormal` is computed from the substituted range. Also: a dashed date in a neighbouring cell becomes the reference range; `5,4` parses as 54 | **P0** | BB | M | `Services/BloodTestMappingService.swift`, `Services/LabReportParser.swift` | **fixed** (bf6aff50, 65ec1f23) |
 | 2 | WS-05-04 | A document with zero parsed values is saved as a real blood test holding a fabricated "Lab Report Processed" row, summarised "All normal" | **P0** | BB | S | `Services/DocumentProcessor.swift` | **fixed (pass 1)** |
-| 3 | WS-05-02 | Urinalysis section state never resets, so serum creatinine is auto-accepted as *Urine* Creatinine and ferritin is dropped | P1 | BB | M | `Services/LabReportParser.swift` | after 1 |
-| 4 | WS-05-11 +12 +10 | Auto-accept UX: abnormal results default to "Will Ignore" so one tap saves a record reading "All normal"; the only notice is a 12 s toast published *before* the commit; the review sheet never shows the test date | P1 | BB | M | `Views/BloodTestImportReviewView.swift`, `Services/DocumentProcessor.swift` | after 2 |
-| 5 | WS-05-03 | Duplicate heuristic compares analyte names only, plus an import-date fallback: five historical labs imported in one sitting save one | P1 | BB | M | `Managers/HealthDataManager.swift`, `Services/BloodTestMappingService.swift` | after 1 |
-| 6 | WS-05-06 | Review queue is in-memory only: Cancel or relaunch discards the document's extracted values, including auto-accepted ones, and nothing re-opens them | P1 | BB | M | `Services/DocumentProcessor.swift` | after 2, 4 |
+| 3 | WS-05-02 | Urinalysis section state never resets, so serum creatinine is auto-accepted as *Urine* Creatinine and ferritin is dropped | P1 | BB | M | `Services/LabReportParser.swift` | **fixed** (65ec1f23) |
+| 4 | WS-05-11 +12 +10 | Auto-accept UX: abnormal results default to "Will Ignore" so one tap saves a record reading "All normal"; the only notice is a 12 s toast published *before* the commit; the review sheet never shows the test date | P1 | BB | M | `Views/BloodTestImportReviewView.swift`, `Services/DocumentProcessor.swift` | **fixed** (90f34aa8) |
+| 5 | WS-05-03 | Duplicate heuristic compares analyte names only, plus an import-date fallback: five historical labs imported in one sitting save one | P1 | BB | M | `Managers/HealthDataManager.swift`, `Services/BloodTestMappingService.swift` | **fixed** (c58dd33d) |
+| 6 | WS-05-06 | Review queue is in-memory only: Cancel or relaunch discards the document's extracted values, including auto-accepted ones, and nothing re-opens them | P1 | BB | M | `Services/DocumentProcessor.swift` | **fixed** (05c1d940, schema v13) |
 
 ### Crash and data loss
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
 | 7 | WS-03-01 | Vision continuation double-resumes → uncatchable `SWIFT TASK CONTINUATION MISUSE` trap on the import path; the page-loop `catch` written to degrade gracefully cannot catch it | P1 | BB | S | `Services/NativeDocumentExtractor.swift` | **fixed (pass 1)** |
-| 8 | WS-02-01 + WS-07-03 + WS-02-02 | Restore to a new device silently destroys all health data: the DB is in device backups, the `WhenUnlockedThisDeviceOnly` key is not, and the code mints a fresh key over the restored database | P1 | BB | M | `Database/DatabaseManager.swift`, `Utils/Keychain.swift` | todo |
-| 9 | WS-06-01 + WS-06-04 | Tapping Records destroys `DocumentsView`; the review sheets fire only on `.onChange` with no `initial:`, so a review completed off-screen never appears and every later review jams behind it. Values needing review are never imported | P1 | BB | M | `Views/HealthTabView.swift`, `ContentView.swift` | after 4 |
-| 10 | WS-06-02 + WS-02-06 + WS-02-07 | Reset Database says "All health data has been permanently deleted" while the PHI is still in memory and on screen, and a Save writes it back; it also promises a backup it never makes and leaves documents on disk; migration backups are undeletable | P1 | BB | M | `Views/SettingsView.swift`, `Database/DatabaseManager.swift` | after 8 |
+| 8 | WS-02-01 + WS-07-03 + WS-02-02 | Restore to a new device silently destroys all health data: the DB is in device backups, the `WhenUnlockedThisDeviceOnly` key is not, and the code mints a fresh key over the restored database | P1 | BB | M | `Database/DatabaseManager.swift`, `Utils/Keychain.swift` | **fixed** (3c857bbb) |
+| 9 | WS-06-01 + WS-06-04 | Tapping Records destroys `DocumentsView`; the review sheets fire only on `.onChange` with no `initial:`, so a review completed off-screen never appears and every later review jams behind it. Values needing review are never imported | P1 | BB | M | `Views/HealthTabView.swift`, `ContentView.swift` | **fixed** (90f34aa8) |
+| 10 | WS-06-02 + WS-02-06 + WS-02-07 | Reset Database says "All health data has been permanently deleted" while the PHI is still in memory and on screen, and a Save writes it back; it also promises a backup it never makes and leaves documents on disk; migration backups are undeletable | P1 | BB | M | `Views/SettingsView.swift`, `Database/DatabaseManager.swift` | **fixed** (65ec1f23) |
 | 11 | WS-01-02 + WS-03-06 | Extraction commit uses a pre-AI-call snapshot with no cancellation re-check before `INSERT OR REPLACE`: deleting mid-extraction resurrects a broken row, user edits overwritten | P1 | BB | M | `Services/DocumentProcessor.swift` | after 2, 6 |
 | 12 | WS-02-03 + WS-01-04 | Unreadable fields read as empty then written back over stored data; `validationFailed` swallowed so an invalid report finishes "successfully" | P1 | BB | M | `Database/DatabaseManager+Documents.swift`, `Services/DocumentProcessor.swift` | after 11 |
 
@@ -174,28 +218,28 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Partly fixed (pass 1: DocumentManager only)** — `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | todo |
-| 14 | WS-00-01 | 14 discarded error paths in `Task { try await … }`, incl. vitals that appear saved but are not | P1 | BB | M | `ContentView.swift`, `Views/VitalsListView.swift`, `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | after 9, 17, 18 |
-| 15 | WS-08-05 | Lab values the user just reviewed or typed are dropped silently when `addBloodTest` refuses them | P1 | BB | M | `Managers/HealthDataManager.swift` | after 5 |
-| 16 | WS-08-06 + WS-08-12 | Global error layer: `.warning` severity is queued and never displayed (drains only when another alert is dismissed); 5 s dedupe can swallow a Retry failure; a second error overwrites an unacknowledged first. Causes are also mislabelled — Bedrock errors become "Network error" | P2 | BB | M | `Managers/ErrorHandler.swift` | after 13 |
+| 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Partly fixed (pass 1: DocumentManager only)** — `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | **partly fixed** — DocumentManager + DocumentImporter report; DocumentExporter, ConversationExporter, MLXOnDeviceClient and AIChatManager.errorMessage still do not |
+| 14 | WS-00-01 | 14 discarded error paths in `Task { try await … }`, incl. vitals that appear saved but are not | P1 | BB | M | `ContentView.swift`, `Views/VitalsListView.swift`, `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | **fixed** (c58dd33d) |
+| 15 | WS-08-05 | Lab values the user just reviewed or typed are dropped silently when `addBloodTest` refuses them | P1 | BB | M | `Managers/HealthDataManager.swift` | **fixed** (8cf5ee97) |
+| 16 | WS-08-06 + WS-08-12 | Global error layer: `.warning` severity is queued and never displayed (drains only when another alert is dismissed); 5 s dedupe can swallow a Retry failure; a second error overwrites an unacknowledged first. Causes are also mislabelled — Bedrock errors become "Network error" | P2 | BB | M | `Managers/ErrorHandler.swift` | **fixed** (d5c040cc) |
 
 ### AI providers
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
 | 17 | WS-04-01 | Bedrock model ID is `claude-sonnet-4.5-…` with a dotted version where Anthropic uses hyphens (`claude-sonnet-4-5-20250929-v1:0`); the same repo writes `claude-3-5-sonnet-…` correctly. Probably breaks all Bedrock chat *and* cloud vision extraction, reported as "check your internet" | P1 | BB | S | `Services/BedrockClient.swift` | **fixed (pass 1) — still needs one real Bedrock call to confirm** |
-| 18 | WS-04-02 + WS-08-03 | Offline gate is not provider-aware (`ChatDetailView.swift:200`), so airplane mode disables the on-device model — the one path that needs no network. Banner also claims document processing is unavailable | P1 | BB | M | `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | todo |
-| 19 | WS-04-03 | `compressHealthDataContext` blind-truncates a sorted JSON blob from the end, so `personal_info` (allergies, medications, conditions) is dropped before bulky document text | P1 | BB | M | `Managers/AIChatManager.swift` | after 18 |
-| 20 | WS-04-04 + WS-07-01 | No "data, not instructions" guard on the Bedrock or OpenAI-compatible paths (only MLX has `compactChatRules`), and `textual`'s `ImageLoader.shared` fetches any model-emitted image URL with no allowlist — together an exfiltration chain | P1 | BB | M | `Services/BedrockClient.swift`, `Services/OpenAICompatibleClient.swift`, `Views/ChatDetailView.swift` | after 17, 18 |
+| 18 | WS-04-02 + WS-08-03 | Offline gate is not provider-aware (`ChatDetailView.swift:200`), so airplane mode disables the on-device model — the one path that needs no network. Banner also claims document processing is unavailable | P1 | BB | M | `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | **fixed** (a7c44147) |
+| 19 | WS-04-03 | `compressHealthDataContext` blind-truncates a sorted JSON blob from the end, so `personal_info` (allergies, medications, conditions) is dropped before bulky document text | P1 | BB | M | `Managers/AIChatManager.swift` | **fixed** (a7c44147) |
+| 20 | WS-04-04 + WS-07-01 | No "data, not instructions" guard on the Bedrock or OpenAI-compatible paths (only MLX has `compactChatRules`), and `textual`'s `ImageLoader.shared` fetches any model-emitted image URL with no allowlist — together an exfiltration chain | P1 | BB | M | `Services/BedrockClient.swift`, `Services/OpenAICompatibleClient.swift`, `Views/ChatDetailView.swift` | **fixed** (21666379) |
 
 ### Privacy and claims
 
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
-| 21 | WS-02-04 +05 +12 + WS-07-02 | Plaintext PHI at rest: `patient_name` in the `metadata` column, page-1 thumbnails on disk and in backups, free-text tags, original filenames in on-disk names | P1 | BB | M | `Database/DatabaseManager+HealthData.swift`, `Services/BloodTestMappingService.swift`, thumbnail writer | after 1, 8 |
-| 22 | WS-07-06 | 11 privacy claims the code does not support: README "never leaves the device"; backup removed "for HIPAA compliance" contradicting the non-HIPAA disclaimer; `NSHealthUpdateUsageDescription` claims write access the app never uses (`toShare: []`) | P1 | SB | M | `README.md`, `Views/PrivacyPolicyView.swift`, `Views/TermsOfServiceView.swift`, `project.pbxproj` | feeds WS-13 |
-| 23 | WS-07-04 | No cloud-versus-on-device indicator in chat, and nothing asks before the first cloud send | P1 | BB | M | `Views/ChatDetailView.swift`, provider settings views | after 18, 20 |
-| 24 | WS-07-05 | Tapping a genetics reference sends gene + diplotype in a query string to `pharmdog.clinpgx.org`, undisclosed | P1 | BB | S | `Models/GeneticTestResult.swift` | todo |
+| 21 | WS-02-04 +05 +12 + WS-07-02 | Plaintext PHI at rest: `patient_name` in the `metadata` column, page-1 thumbnails on disk and in backups, free-text tags, original filenames in on-disk names | P1 | BB | M | `Database/DatabaseManager+HealthData.swift`, `Services/BloodTestMappingService.swift`, thumbnail writer | **partly fixed** (df8cdc10 — patient_name); thumbnails, tags, filenames still plaintext |
+| 22 | WS-07-06 | 11 privacy claims the code does not support: README "never leaves the device"; backup removed "for HIPAA compliance" contradicting the non-HIPAA disclaimer; `NSHealthUpdateUsageDescription` claims write access the app never uses (`toShare: []`) | P1 | SB | M | `README.md`, `Views/PrivacyPolicyView.swift`, `Views/TermsOfServiceView.swift`, `project.pbxproj` | **partly fixed** (3c857bbb — README + HealthKit string); Privacy Policy / Terms remain, feeds WS-13 |
+| 23 | WS-07-04 | No cloud-versus-on-device indicator in chat, and nothing asks before the first cloud send | P1 | BB | M | `Views/ChatDetailView.swift`, provider settings views | **fixed** (8cf5ee97) |
+| 24 | WS-07-05 | Tapping a genetics reference sends gene + diplotype in a query string to `pharmdog.clinpgx.org`, undisclosed | P1 | BB | S | `Models/GeneticTestResult.swift` | **fixed** (21666379) |
 
 ### Test infrastructure
 
@@ -209,9 +253,9 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
 | 26 | WS-09-01 | **Import retries forever and silently** when no on-device vision model is present — the fresh-install default. `addToQueue` builds a new queue item with `retryCount = 0` each time, so `maxRetryAttempts` never bites: 13+ "attempt 2/3" cycles in ~50 s, document stuck "Pending", no error shown. Observed live on iPad. An App Review tester hits this first | P1 | BB | M | `Services/DocumentProcessor.swift` | **fixed (pass 1)** |
-| 27 | WS-12-02 | **The on-device safety rules are evicted from context.** `compactChatRules` (treat patient data as facts; never tell the user to change a medication) sits in the head of the system block, and `RotatingKVCache(maxSize:, keep: 4)` keeps only the first 4 tokens. With 90% of the budget given to patient data, overflow comes within a turn or two and the guard silently stops applying | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift` | — |
-| 28 | WS-12-01 | Every model load calls `hub.snapshot`, so the on-device path contacts huggingface.co on each load (undisclosed — WS-07's egress row covers only the one-time download). Only `NSURLErrorNotConnectedToInternet` falls back to local files, so a captive portal, DNS failure or timeout fails the load outright | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift`, privacy policy | after 27 |
-| 29 | WS-12-03 + WS-12-07 | A shared retry counter that never resets — and is consumed by backgrounding — deletes the whole model directory including finished shards on the third hit, forcing a ~16 GB re-download. Downloads also start on cellular on one tap, with `allowsExpensiveNetworkAccess`/`allowsConstrainedNetworkAccess` explicitly overriding Low Data Mode | P1 | BB | M | `MLXOnDeviceLLM/MLXModelDownloadManager.swift` | — |
+| 27 | WS-12-02 | **The on-device safety rules are evicted from context.** `compactChatRules` (treat patient data as facts; never tell the user to change a medication) sits in the head of the system block, and `RotatingKVCache(maxSize:, keep: 4)` keeps only the first 4 tokens. With 90% of the budget given to patient data, overflow comes within a turn or two and the guard silently stops applying | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift` | **fixed** (6ad65405) |
+| 28 | WS-12-01 | Every model load calls `hub.snapshot`, so the on-device path contacts huggingface.co on each load (undisclosed — WS-07's egress row covers only the one-time download). Only `NSURLErrorNotConnectedToInternet` falls back to local files, so a captive portal, DNS failure or timeout fails the load outright | P1 | BB | M | `MLXOnDeviceLLM/MLXOnDeviceClient.swift`, privacy policy | **fixed** (330bebf9) |
+| 29 | WS-12-03 + WS-12-07 | A shared retry counter that never resets — and is consumed by backgrounding — deletes the whole model directory including finished shards on the third hit, forcing a ~16 GB re-download. Downloads also start on cellular on one tap, with `allowsExpensiveNetworkAccess`/`allowsConstrainedNetworkAccess` explicitly overriding Low Data Mode | P1 | BB | M | `MLXOnDeviceLLM/MLXModelDownloadManager.swift` | **fixed** (e825f276) |
 | 30 | WS-09-02 + WS-09-03 | iPad portrait document grid: four flexible columns hold fixed 200 pt tiles in ~118 pt columns, so tiles overlap and the first clips. The iPad master-detail for Documents is dead code — `HealthTabView` always passes `embedInNavigation: false`, so landscape gets a full-width list and detail opens as a small form sheet | P2 | PP | M | `Views/DocumentGridView.swift`, `Views/HealthTabView.swift` | after 9 |
 
 **Live confirmations from WS-09** — these were statically confirmed earlier and are now
@@ -246,11 +290,11 @@ WS-06-11 (`AIResponseCleaner` main-thread cost on device).
 
 | # | Decision | Options | Recommendation | Answer |
 |---|---|---|---|---|
-| 1 | **Should the app auto-accept any parsed lab value without review?** Items 1–6 all stem from auto-accept plus a lossy parser. | (a) require review for every imported value until the parser is trusted; (b) keep auto-accept but only when unit *and* range came from the document, never from the registry; (c) keep as-is and fix the individual bugs | (b) — it preserves the feature and makes the P0 structurally impossible: no substituted unit or range may ever be auto-accepted | |
-| 2 | The core privacy claim ("health data never leaves the device") is false whenever a cloud provider is configured. Fix the claim or the product? | (a) reword to "on-device by default, cloud only if you configure it"; (b) ship v1 on-device only | (a) | |
-| 3 | Device backups hold the encrypted DB but not the key, so a restore yields unreadable data. | (a) exclude the DB from backup too — a restore starts clean and the loss is explicit; (b) keep it and move the key to a syncable class; (c) build an explicit encrypted export/import | (a) for beta, (c) before public release | |
-| 4 | Re-enabling the 113 orphaned UI tests is L-sized with stale selectors. Before beta or after? | (a) before; (b) after, with manual walkthroughs for the beta | (b) for beta, (a) before submission — and WS-09/WS-10 must then be told the tests don't exist | |
-| 5 | **Is Bedrock in scope for the beta at all?** If item 17 confirms it never worked, nobody has been using it. | (a) fix the ID and keep it; (b) hide Bedrock for the beta and ship MLX + OpenAI-compatible | (a) if the one-line fix works; (b) if it needs more, since items 19, 20 and 23 all get smaller | |
+| 1 | **Should the app auto-accept any parsed lab value without review?** Items 1–6 all stem from auto-accept plus a lossy parser. | (a) require review for every imported value until the parser is trusted; (b) keep auto-accept but only when unit *and* range came from the document, never from the registry; (c) keep as-is and fix the individual bugs | (b) — it preserves the feature and makes the P0 structurally impossible: no substituted unit or range may ever be auto-accepted | **(b)** — auto-accept only when the unit *and* range came from the document. Done. |
+| 2 | The core privacy claim ("health data never leaves the device") is false whenever a cloud provider is configured. Fix the claim or the product? | (a) reword to "on-device by default, cloud only if you configure it"; (b) ship v1 on-device only | (a) | **(a)** — reword the claims. Partly done (README, HealthKit string); Privacy Policy and Terms remain. |
+| 3 | Device backups hold the encrypted DB but not the key, so a restore yields unreadable data. | (a) exclude the DB from backup too — a restore starts clean and the loss is explicit; (b) keep it and move the key to a syncable class; (c) build an explicit encrypted export/import | (a) for beta, (c) before public release | **(b)** — make the key restorable (synchronizable keychain class). Done; the upgrade path is still unverified on a real device. |
+| 4 | Re-enabling the 113 orphaned UI tests is L-sized with stale selectors. Before beta or after? | (a) before; (b) after, with manual walkthroughs for the beta | (b) for beta, (a) before submission — and WS-09/WS-10 must then be told the tests don't exist | **(b)** — after the beta, with manual walkthroughs meanwhile. WS-09/WS-10 are told the UI tests do not exist. |
+| 5 | **Is Bedrock in scope for the beta at all?** If item 17 confirms it never worked, nobody has been using it. | (a) fix the ID and keep it; (b) hide Bedrock for the beta and ship MLX + OpenAI-compatible | (a) if the one-line fix works; (b) if it needs more, since items 19, 20 and 23 all get smaller | **(a)** — keep Bedrock with the corrected id. Owner will confirm with one real call. |
 
 ---
 
@@ -258,4 +302,6 @@ WS-06-11 (`AIResponseCleaner` main-thread cost on device).
 
 | Date | Found by | ID | Title | File:line | Sev | Status |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| 2026-10-23 | item 28/29 work | — | **A simulator build typechecks none of the MLX code.** Both MLX files are inside `#if !targetEnvironment(simulator)`, so every MLX review and fix before this one was validated by a build that skipped the code under change. Use a `generic/platform=iOS` build. | `MLXOnDeviceLLM/*` | process | **fixed** — recorded at the top of this file and in the fix protocol |
+| 2026-10-23 | item 29 work | — | Cancelling a download now *keeps* the bytes instead of deleting them, so Cancel means stop rather than stop-and-erase. Deliberate, and paired with a Resume/Remove row — but it is a visible behaviour change the owner may want to weigh. | `MLXModelDownloadManager.swift` | note | by design |
+| 2026-10-23 | item 27 work | — | Context overflow still has no on-screen notice. It reaches the log and the response metadata (`contextWindowRebuilt`) only. | `MLXOnDeviceClient.swift` | P3 | open |

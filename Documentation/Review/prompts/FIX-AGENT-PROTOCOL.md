@@ -58,6 +58,23 @@ cd HealthApp && xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp \
 cd HealthApp && swiftlint lint --config .swiftlint.yml
 ```
 
+`swiftlint` must be run from `HealthApp/` — that is where `.swiftlint.yml` lives, and from
+the repository root it reports a dozen times the baseline because it finds no config.
+
+**If your change touches `MLXOnDeviceLLM/`, a simulator build proves nothing.** Both
+`MLXOnDeviceClient.swift` and `MLXModelDownloadManager.swift` sit inside
+`#if !targetEnvironment(simulator)`, so the simulator compiles none of their substance.
+Typecheck them with a device build as well:
+
+```bash
+cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
+  -destination 'generic/platform=iOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build
+```
+
+Nothing in those files can be *run* without a physical device, so put the decision rule of
+any MLX fix in a plain value type that the simulator can unit-test, and say in your report
+that the MLX-side wiring is unverified.
+
 Then:
 
 - Execute the finding's `Verification` steps and state the result.
