@@ -535,16 +535,22 @@ final class MLXDownloadRetryBudgetTests: XCTestCase {
         XCTAssertFalse(budget.isExhausted)
     }
 
-    func testResetClearsBothCounterAndBaseline() {
+    func testResetRestoresTheFullBudget() {
         var budget = makeBudget()
         _ = budget.recordRetry(atBytes: 9_000_000)
+        _ = budget.recordRetry(atBytes: 9_000_000)
+        XCTAssertTrue(budget.isExhausted, "Precondition: the budget must actually be spent")
+
         budget.reset()
 
         XCTAssertEqual(budget.retriesUsed, 0)
-        // After a reset the baseline must be gone too, or the first progress report would
-        // be measured against a stale byte count.
-        _ = budget.recordRetry(atBytes: 0)
-        budget.recordProgress(bytes: slice)
-        XCTAssertEqual(budget.retriesUsed, 0)
+        XCTAssertFalse(budget.isExhausted, "A fresh download starts with its retries back")
+
+        // This test deliberately does NOT claim to verify that `reset()` clears
+        // `bytesAtLastRetry`. It cannot: `recordProgress` only acts once a retry has been
+        // spent, and `recordRetry` always overwrites the baseline first, so a stale baseline
+        // is unobservable from outside. Clearing it in `reset()` is defensive hygiene, not
+        // behaviour under test — an earlier version of this test asserted otherwise and
+        // passed for the wrong reason.
     }
 }

@@ -2,7 +2,10 @@
 
 ## ▶ Where this stands (2026-10-23)
 
-**23 of the 32 work items are fixed; 3 are partly fixed; 6 are untouched.** The Status
+**Of the original 32 work items: 20 fixed, 6 partly fixed, 6 untouched — and 15 new items
+(33–47) from the six workstreams that ran on 2026-10-24.** Items 10, 14 and 23 moved back out
+of "fixed" after WS-13 and WS-16 found gaps that were each verified in source; see the batch
+section above. The Status
 column below is current as of this date — it had drifted badly, and item numbers are not
 unique across the tables in this file, so edit those cells by hand rather than by script.
 
@@ -29,9 +32,13 @@ migration on a genuine device upgrade.
 
 ### A verification lesson from the MLX work
 
-`MLXOnDeviceClient.swift` and `MLXModelDownloadManager.swift` are inside
-`#if !targetEnvironment(simulator)`, so **a simulator build compiles none of their
-substance and cannot catch an error in it.** Typecheck them with:
+`MLXOnDeviceClient.swift` and `MLXModelDownloadManager.swift` compile in the simulator —
+their types, published state and pure helpers are outside the guards, and `MLXOnDeviceModels`
+reaches 57% line coverage. What is `#if !targetEnvironment(simulator)` is the MLX imports and
+the **bodies** that load a model, generate, and transfer bytes: a simulator build replaces
+those with stubs, so **an error inside one of them compiles clean and no test can reach it.**
+(An earlier version of this note said the files compile out entirely. That was too strong;
+WS-15 corrected it. The operational advice is unchanged.) Typecheck them with:
 
 ```
 xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
@@ -145,6 +152,51 @@ P0/P1 set into 24 work items; the P2/P3 remainder stays in the findings files un
 
 ---
 
+## ▶ Batch C pair 2 and Batch D (2026-10-24) — all 18 workstreams now run
+
+WS-10, WS-11, WS-13, WS-14, WS-15 and WS-16 complete. Findings: WS-13 P0=1 P1=4, WS-14 P1=3,
+WS-11 P1=3, WS-15 P1=4, WS-10 P2=8 (no P0/P1), WS-16 P1=3.
+
+**Two reviews independently reached the same top blocker: there is no app-level
+`PrivacyInfo.xcprivacy`.** Verified: none exists anywhere under `HealthApp/`, and the app uses
+UserDefaults and file-timestamp APIs that need declared reasons. `ITSAppUsesNonExemptEncryption`
+is also absent, so every TestFlight build stops at "Missing Compliance". Both confirmed by hand.
+
+### Items wrongly marked fixed — found by WS-13 and WS-16, each verified in source
+
+| # | What the tracker claimed | What is actually true |
+|---|---|---|
+| 10 | Reset Database fixed | Only the in-memory half. `performDatabaseReset` deletes the database, its sidecars and migration backups, then says "All health data has been permanently deleted" while document files in `Documents/Imported` and plaintext thumbnails in `Documents/Thumbnails` remain. `DocumentManager.cleanupOrphanedFiles()` has **no callers**. `SettingsView.swift:50` still promises "A backup will be created first", which nothing does. |
+| 14 | All 14 discarded error paths report | `ChatDetailView.swift` `emptyStateView` still has `Task { _ = try await chatManager.startNewConversation() }`. Missed site. |
+| 23 | Cloud-send consent fixed | The gate is an `@AppStorage` **inside `ChatDetailView`** — all three references are in that one file. `AppointmentPrepManager.swift:148` calls `getAIClient()` and sends health context with no consent at all. Same view-scoped mistake as item 9. |
+
+### New items
+
+| # | Title | Sev | Source |
+|---|---|---|---|
+| 33 | No app-level `PrivacyInfo.xcprivacy`; required-reason APIs undeclared | **P0** (submission) | WS-13-01, WS-14 |
+| 34 | `ITSAppUsesNonExemptEncryption` absent — every TestFlight build blocks on Missing Compliance | P1 (submission) | WS-13-06, WS-14 |
+| 35 | Release path not repeatable: `CURRENT_PROJECT_VERSION = 1` hard-coded in **6** places (WS-14 said 8; recounted), no CI, no test plan, no export options, no distribution identity | P1 | WS-14 |
+| 36 | **Session rebuild re-prefills the entire conversation.** `AIChatManager` builds `mlxConversationHistory` from all of `conversation.messages`; `ConversationContextBuilder` is never applied on this path. My own comment in `MLXOnDeviceClient.swift` claims "history trimmed to fit" — it is false, and commit 6ad65405 *added* a rebuild trigger, so it made this fire more often while asserting it was handled | P1 | WS-11-03 |
+| 37 | No device-aware memory ceiling for the KV cache: `MLX.Memory.memoryLimit` is never set and the context slider reaches 65,536. Item 27 sized patient data within the window but never asked whether the window fits the device | P1 | WS-11-01 |
+| 38 | `AIResponseCleaner.clean`/`cleanConversational` runs ~35×/s on the full accumulated text — once per 50 ms from the client and again per render in the bubble's `body`. Measured on Mac: 15 ms at 30K chars, >50% of the main thread. (This answers WS-06-11: the amortized repetition scan was the right fix to the wrong function — the scan is 1.4 ms at 30K) | P2 | WS-11-07 |
+| 39 | Doctor personas claim "board-certified" and instruct the model to suppress disclaimers and AI disclosure, against guideline 1.4.1 and the shared safety rules | P1 | WS-13-02 |
+| 40 | White on `BisonTheme.gold` is 2.91:1 light and **1.89:1 dark** — fails AA and even AA-large. `BisonTheme.inkOnGold` already exists and gives 5.83:1 / 8.97:1. Ratios recomputed by hand; a one-token swap at ~6 sites, one of them the chat user bubble | P2 (under-graded; cheapest high-value fix in the review) | WS-10 |
+| 41 | 9 regressions injected at once left all 291 unit tests green (mutation-tested): v11 encryption migration, migration-backup deletion, reprocess metadata merge, stuck-`.processing` startup sweep, streaming throttle guards, privacy-category persistence, the P0-1 PDF page-index fix | P1 | WS-15-01..04 |
+| 42 | Tests that cannot fail, with `file:line` in the findings — including **my own** `MLXDownloadRetryBudget` reset test, whose baseline claim is unobservable (fixed 2026-10-24), and `AIChatManagerTests.swift:94` asserting a count `>= 0` | P2 | WS-15-06 |
+| 43 | No test constructs `MLXModelDownloadManager`, so deleting the `recordProgress` call leaves the suite green. Extracting the rule makes the rule testable, not the wiring — and both MLX bugs that motivated it were wiring bugs | P2 | WS-15-07 |
+| 44 | Hosted tests use `DatabaseManager()` / `FileSystemManager()` with no URL (3 sites each), writing to the real app container rather than a temp directory | P2 | WS-15-08 |
+| 45 | `CLAUDE.md` says database version 10, 12 and 11 in five places (real: 13) and still claims "no iCloud/CloudKit backup" and "all data on-device" — an agent reading it could re-harden the key to `ThisDeviceOnly` and reintroduce item 8 | P1 (agent-facing) | WS-16-03 |
+| 46 | Six documents claim encryption unqualified while thumbnails, tags and on-disk filenames are plaintext; build/test commands in CLAUDE.md, AGENTS.md, README and CONTRIBUTING fail as written (wrong project name, scheme, a simulator that is not installed, missing `cd HealthApp`); `MEDICAL_DOCUMENTS_IMPLEMENTATION.md` is referenced but absent; `.claude/CLAUDE.md` is tracked lowercase as `claude.md` | P2 | WS-16 |
+| 47 | Privacy Policy line 33 says loading a model contacts Hugging Face. Commit 330bebf9 removed that yesterday — my own fix made the copy inaccurate | P2 | WS-13-04, WS-16 |
+
+**Corrections to agent reports, each checked against source:** WS-14's `CURRENT_PROJECT_VERSION`
+count is 6, not 8. WS-16's `@unchecked Sendable` count of 4 is right (the plan says 5, WS-03
+said 3 — the difference is the `ContinuationGate` added by the item-7 fix). WS-15 corrected
+*me*: the MLX files are not wholesale `#if`-wrapped, only their bodies are.
+
+---
+
 ## Workstream status
 
 | WS | Name | Status | Findings file | P0 | P1 | P2 | P3 |
@@ -159,13 +211,13 @@ P0/P1 set into 24 work items; the P2/P3 remainder stays in the findings files un
 | 07 | PHI & security | **complete** | [WS-07-phi-security.md](findings/WS-07-phi-security.md) | 0 | 6 | 6 | 3 |
 | 08 | Error handling & failure UX | **complete** | [WS-08-error-ux.md](findings/WS-08-error-ux.md) | 0 | 5 | 9 | 1 |
 | 09 | iPad & adaptive layout | **complete (ran the app)** | [WS-09-ipad-adaptive.md](findings/WS-09-ipad-adaptive.md) | 0 | 1 | 7 | 7 |
-| 10 | Accessibility | not started | | | | | |
-| 11 | Performance & memory | not started | | | | | |
+| 10 | Accessibility | **complete (ran the app)** | [WS-10-accessibility.md](findings/WS-10-accessibility.md) | 0 | 0 | 8 | 7 |
+| 11 | Performance & memory | **complete (measured)** | [WS-11-performance.md](findings/WS-11-performance.md) | 0 | 3 | 11 | 1 |
 | 12 | MLX model lifecycle | **complete** | [WS-12-mlx-lifecycle.md](findings/WS-12-mlx-lifecycle.md) | 0 | 3 | 8 | 3 |
-| 13 | App Store compliance | not started | | | | | |
-| 14 | Build, signing & TestFlight | not started | | | | | |
-| 15 | Test coverage | not started | | | | | |
-| 16 | Docs drift | not started | | | | | |
+| 13 | App Store compliance | **complete** | [WS-13-appstore-compliance.md](findings/WS-13-appstore-compliance.md) | 1 | 4 | 8 | 1 |
+| 14 | Build, signing & TestFlight | **complete** | [WS-14-build-testflight.md](findings/WS-14-build-testflight.md) | 0 | 3 | 5 | 2 |
+| 15 | Test coverage | **complete (mutation-tested)** | [WS-15-test-coverage.md](findings/WS-15-test-coverage.md) | 0 | 4 | 8 | 3 |
+| 16 | Docs drift | **complete** | [WS-16-docs-drift.md](findings/WS-16-docs-drift.md) | 0 | 3 | 7 | 5 |
 | 17 | Triage & sequencing | not started | | | | | |
 
 ---
@@ -210,7 +262,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 | 7 | WS-03-01 | Vision continuation double-resumes → uncatchable `SWIFT TASK CONTINUATION MISUSE` trap on the import path; the page-loop `catch` written to degrade gracefully cannot catch it | P1 | BB | S | `Services/NativeDocumentExtractor.swift` | **fixed (pass 1)** |
 | 8 | WS-02-01 + WS-07-03 + WS-02-02 | Restore to a new device silently destroys all health data: the DB is in device backups, the `WhenUnlockedThisDeviceOnly` key is not, and the code mints a fresh key over the restored database | P1 | BB | M | `Database/DatabaseManager.swift`, `Utils/Keychain.swift` | **fixed** (3c857bbb) |
 | 9 | WS-06-01 + WS-06-04 | Tapping Records destroys `DocumentsView`; the review sheets fire only on `.onChange` with no `initial:`, so a review completed off-screen never appears and every later review jams behind it. Values needing review are never imported | P1 | BB | M | `Views/HealthTabView.swift`, `ContentView.swift` | **fixed** (90f34aa8) |
-| 10 | WS-06-02 + WS-02-06 + WS-02-07 | Reset Database says "All health data has been permanently deleted" while the PHI is still in memory and on screen, and a Save writes it back; it also promises a backup it never makes and leaves documents on disk; migration backups are undeletable | P1 | BB | M | `Views/SettingsView.swift`, `Database/DatabaseManager.swift` | **fixed** (65ec1f23) |
+| 10 | WS-06-02 + WS-02-06 + WS-02-07 | Reset Database says "All health data has been permanently deleted" while the PHI is still in memory and on screen, and a Save writes it back; it also promises a backup it never makes and leaves documents on disk; migration backups are undeletable | P1 | BB | M | `Views/SettingsView.swift`, `Database/DatabaseManager.swift` | **partly fixed** (65ec1f23 — in-memory PHI + migration backups); files on disk and the false backup promise remain (item 10 row above) |
 | 11 | WS-01-02 + WS-03-06 | Extraction commit uses a pre-AI-call snapshot with no cancellation re-check before `INSERT OR REPLACE`: deleting mid-extraction resurrects a broken row, user edits overwritten | P1 | BB | M | `Services/DocumentProcessor.swift` | after 2, 6 |
 | 12 | WS-02-03 + WS-01-04 | Unreadable fields read as empty then written back over stored data; `validationFailed` swallowed so an invalid report finishes "successfully" | P1 | BB | M | `Database/DatabaseManager+Documents.swift`, `Services/DocumentProcessor.swift` | after 11 |
 
@@ -219,7 +271,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
 | 13 | WS-08-01 + WS-08-04 + WS-05-05 + WS-08-07 | **Partly fixed (pass 1: DocumentManager only)** — `lastError` is written at ~12 sites in `DocumentManager` and read by no view; same for `DocumentImporter`, `DocumentExporter`, `ConversationExporter`, `MLXOnDeviceClient`, and `AIChatManager.errorMessage`. Every import failure is invisible, and a *failed load* renders as "you have no documents" | P1 | BB | L | `Managers/DocumentManager.swift`, `Utils/Document*.swift`, `Views/DocumentListView.swift`, `Views/DocumentGridView.swift` | **partly fixed** — DocumentManager + DocumentImporter report; DocumentExporter, ConversationExporter, MLXOnDeviceClient and AIChatManager.errorMessage still do not |
-| 14 | WS-00-01 | 14 discarded error paths in `Task { try await … }`, incl. vitals that appear saved but are not | P1 | BB | M | `ContentView.swift`, `Views/VitalsListView.swift`, `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | **fixed** (c58dd33d) |
+| 14 | WS-00-01 | 14 discarded error paths in `Task { try await … }`, incl. vitals that appear saved but are not | P1 | BB | M | `ContentView.swift`, `Views/VitalsListView.swift`, `Views/ChatDetailView.swift`, `Managers/AIChatManager.swift` | **partly fixed** (c58dd33d); `ChatDetailView.emptyStateView` site missed |
 | 15 | WS-08-05 | Lab values the user just reviewed or typed are dropped silently when `addBloodTest` refuses them | P1 | BB | M | `Managers/HealthDataManager.swift` | **fixed** (8cf5ee97) |
 | 16 | WS-08-06 + WS-08-12 | Global error layer: `.warning` severity is queued and never displayed (drains only when another alert is dismissed); 5 s dedupe can swallow a Retry failure; a second error overwrites an unacknowledged first. Causes are also mislabelled — Bedrock errors become "Network error" | P2 | BB | M | `Managers/ErrorHandler.swift` | **fixed** (d5c040cc) |
 
@@ -238,7 +290,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 |---|---|---|---|---|---|---|---|
 | 21 | WS-02-04 +05 +12 + WS-07-02 | Plaintext PHI at rest: `patient_name` in the `metadata` column, page-1 thumbnails on disk and in backups, free-text tags, original filenames in on-disk names | P1 | BB | M | `Database/DatabaseManager+HealthData.swift`, `Services/BloodTestMappingService.swift`, thumbnail writer | **partly fixed** (df8cdc10 — patient_name); thumbnails, tags, filenames still plaintext |
 | 22 | WS-07-06 | 11 privacy claims the code does not support: README "never leaves the device"; backup removed "for HIPAA compliance" contradicting the non-HIPAA disclaimer; `NSHealthUpdateUsageDescription` claims write access the app never uses (`toShare: []`) | P1 | SB | M | `README.md`, `Views/PrivacyPolicyView.swift`, `Views/TermsOfServiceView.swift`, `project.pbxproj` | **partly fixed** (3c857bbb — README + HealthKit string); Privacy Policy / Terms remain, feeds WS-13 |
-| 23 | WS-07-04 | No cloud-versus-on-device indicator in chat, and nothing asks before the first cloud send | P1 | BB | M | `Views/ChatDetailView.swift`, provider settings views | **fixed** (8cf5ee97) |
+| 23 | WS-07-04 | No cloud-versus-on-device indicator in chat, and nothing asks before the first cloud send | P1 | BB | M | `Views/ChatDetailView.swift`, provider settings views | **partly fixed** (8cf5ee97 — indicator + consent in ChatDetailView only); Appointment Prep sends with no consent |
 | 24 | WS-07-05 | Tapping a genetics reference sends gene + diplotype in a query string to `pharmdog.clinpgx.org`, undisclosed | P1 | BB | S | `Models/GeneticTestResult.swift` | **fixed** (21666379) |
 
 ### Test infrastructure

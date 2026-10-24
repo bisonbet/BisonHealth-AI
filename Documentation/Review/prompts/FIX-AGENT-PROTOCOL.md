@@ -61,10 +61,12 @@ cd HealthApp && swiftlint lint --config .swiftlint.yml
 `swiftlint` must be run from `HealthApp/` — that is where `.swiftlint.yml` lives, and from
 the repository root it reports a dozen times the baseline because it finds no config.
 
-**If your change touches `MLXOnDeviceLLM/`, a simulator build proves nothing.** Both
-`MLXOnDeviceClient.swift` and `MLXModelDownloadManager.swift` sit inside
-`#if !targetEnvironment(simulator)`, so the simulator compiles none of their substance.
-Typecheck them with a device build as well:
+**If your change touches `MLXOnDeviceLLM/`, a simulator build may prove nothing.** Those
+files do compile in the simulator — their types, published state and pure helpers sit outside
+the guards. What is `#if !targetEnvironment(simulator)` is the MLX imports and the bodies that
+load a model, generate, and transfer bytes; the simulator builds stubs in their place. So an
+error inside one of those bodies compiles clean and no test reaches it. Typecheck them with a
+device build as well:
 
 ```bash
 cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
