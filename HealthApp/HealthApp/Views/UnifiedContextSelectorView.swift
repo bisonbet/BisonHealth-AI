@@ -1061,10 +1061,16 @@ class UnifiedContextSelectorViewModel: ObservableObject {
                 let shouldInclude = selectedDocuments.contains(document.id)
 
                 if document.includeInAIContext != shouldInclude {
-                    var updatedDoc = document
-                    updatedDoc.includeInAIContext = shouldInclude
-
-                    try await databaseManager.updateMedicalDocument(updatedDoc)
+                    // One column changes, so update one column. This used to be a full-row
+                    // write of `document` — a snapshot taken when the sheet opened — which
+                    // meant toggling a checkbox rolled back anything the background
+                    // processor had finished meanwhile, and re-encrypted empty values over
+                    // any column that had failed to decode. `updateDocumentAIContextStatus`
+                    // existed for this and was unused.
+                    try await databaseManager.updateDocumentAIContextStatus(
+                        document.id,
+                        includeInContext: shouldInclude
+                    )
                 }
             }
 

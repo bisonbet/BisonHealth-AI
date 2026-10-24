@@ -64,6 +64,39 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
     var tags: [String]
     var notes: String?
 
+    /// Columns this record could not be read back from. Not persisted — it describes this
+    /// in-memory copy, not the row.
+    ///
+    /// Every decode in `buildMedicalDocument` falls back to empty on failure: a blob that
+    /// will not decrypt, or a `[AnyHealthData]` array where one element's `type` no longer
+    /// exists, both arrive as `[]`. That was survivable while it stayed in memory. What made
+    /// it destructive is that `saveMedicalDocument` and `updateMedicalDocument` write every
+    /// column unconditionally, so the next save re-encrypted the empty value over ciphertext
+    /// that a later decoder fix could still have read. The trigger did not even need an edit:
+    /// flipping the AI-context toggle took a full-row write of a snapshot.
+    ///
+    /// The writers refuse a full-row write while this is non-empty, so a lossy read cannot
+    /// become a lossy write. Partial updaters stay available for changing one field.
+    var unreadableFields: Set<UnreadableField> = []
+
+    enum UnreadableField: String, Codable, Hashable {
+        case extractedHealthData
+        case extractedSections
+        case extractedText
+        case notes
+        case providerName
+        case tags
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, fileName, fileType, filePath, thumbnailPath, processingStatus
+        case documentDate, providerName, providerType, documentCategory
+        case extractedText, extractedSections
+        case includeInAIContext, contextPriority
+        case extractedHealthData
+        case importedAt, processedAt, lastEditedAt, fileSize, tags, notes
+    }
+
     init(
         id: UUID = UUID(),
         fileName: String,

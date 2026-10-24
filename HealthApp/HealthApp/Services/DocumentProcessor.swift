@@ -491,7 +491,7 @@ class DocumentProcessor: ObservableObject {
                 let extractedText = cleanMarkdownForAIContext(rawExtractedText)
                 AppLog.shared.documents("Text lengths -- extraction: \(extractionResult.extractedText.count), raw: \(result.extractedText.count), cleaned: \(extractedText.count)", level: .debug)
 
-                medicalDocument = MedicalDocument(
+                let extractedDocument = MedicalDocument(
                     id: currentItem.document.id,
                     fileName: currentItem.document.fileName,
                     fileType: currentItem.document.fileType,
@@ -519,14 +519,31 @@ class DocumentProcessor: ObservableObject {
                     tags: existingDocument?.tags ?? currentItem.document.tags,
                     notes: existingDocument?.notes ?? currentItem.document.notes
                 )
+                medicalDocument = extractedDocument
 
-                // Save as MedicalDocument
-                try await databaseManager.saveMedicalDocument(medicalDocument!)
+                // Commit, but never resurrect a row the user deleted while this was
+                // running. The AI enhancement pass above is a network call that can take
+                // seconds, and `existingDocument` was read before it started — so without
+                // this check a delete during that window ended with the row recreated,
+                // pointing at a file that had already been removed, stuck on "Pending"
+                // and impossible to open or reprocess.
+                try Task.checkCancellation()
+                let didCommit = try await databaseManager.saveMedicalDocument(
+                    extractedDocument,
+                    requireExistingRow: true
+                )
+                guard didCommit else {
+                    AppLog.shared.documents(
+                        "Abandoned extraction for '\(currentItem.document.fileName)' — it was deleted while processing",
+                        level: .warning
+                    )
+                    throw CancellationError()
+                }
                 AppLog.shared.documents("Medical document saved -- text: \(extractedText.count) chars, sections: \(extractionResult.extractedSections.count), category: \(finalCategory.rawValue)")
 
                 // CRITICAL: Verify the document is still in DB correctly AFTER potential UI interactions
                 try? await Task.sleep(nanoseconds: 500_000_000) // Wait 0.5 seconds
-                if let verifiedDoc = try? await databaseManager.fetchMedicalDocument(id: medicalDocument!.id) {
+                if let verifiedDoc = try? await databaseManager.fetchMedicalDocument(id: extractedDocument.id) {
                     AppLog.shared.documents("Post-save verification: extractedText \(verifiedDoc.extractedText?.count ?? 0) chars, isNil: \(verifiedDoc.extractedText == nil)", level: .debug)
                     if verifiedDoc.extractedText == nil || verifiedDoc.extractedText?.isEmpty == true {
                         AppLog.shared.documents("DATA LOST: extractedText was overwritten between save and verification", level: .critical)
@@ -573,9 +590,25 @@ class DocumentProcessor: ObservableObject {
                         tags: existingDocument?.tags ?? currentItem.document.tags,
                         notes: existingDocument?.notes ?? currentItem.document.notes
                     )
-                    try await databaseManager.saveMedicalDocument(fallbackDocument)
+                    try Task.checkCancellation()
+                    guard try await databaseManager.saveMedicalDocument(
+                        fallbackDocument,
+                        requireExistingRow: true
+                    ) else {
+                        AppLog.shared.documents(
+                            "Abandoned fallback save for '\(currentItem.document.fileName)' — it was deleted while processing",
+                            level: .warning
+                        )
+                        throw CancellationError()
+                    }
                     medicalDocument = fallbackDocument
                     AppLog.shared.documents("Saved MedicalDocument with fallback text (\(cleanedText.count) chars)")
+                } catch is CancellationError {
+                    // An abandoned run must stay abandoned. This catch exists so a failed
+                    // fallback save does not sink the whole extraction, but swallowing
+                    // cancellation here would let the run carry on to the relink step
+                    // after the document had already been deleted.
+                    throw CancellationError()
                 } catch {
                     AppLog.shared.error("Failed to save fallback MedicalDocument", error: error, category: .documents)
                 }

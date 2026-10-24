@@ -272,3 +272,126 @@ final class DatabaseMigrationTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Write Safety
+//
+// Two ways the document writers used to destroy data, both now refused. These tests build a
+// real database and go through DatabaseManager's own API, because the bug was in the
+// interaction between a lossy read and a full-row write — a mock of either half would prove
+// nothing.
+@MainActor
+final class MedicalDocumentWriteSafetyTests: XCTestCase {
+
+    private let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("write-safety-\(UUID().uuidString)", isDirectory: true)
+    private var databaseURL: URL { directory.appendingPathComponent("health_data.sqlite") }
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+        try super.tearDownWithError()
+    }
+
+    private func sampleDocument() -> MedicalDocument {
+        MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .completed,
+            documentCategory: .labReport,
+            extractedText: "Potassium 5.9 mmol/L",
+            fileSize: 4096,
+            tags: ["lab"]
+        )
+    }
+
+    func testASaveDoesNotResurrectADeletedDocument() async throws {
+        // The extraction commit is an INSERT OR REPLACE running after a network call that
+        // takes seconds. Deleting during that window used to recreate the row, pointing at a
+        // file that was already gone — a document stuck on "Pending" that could not be
+        // opened or reprocessed.
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        let document = sampleDocument()
+        try await manager.saveMedicalDocument(document)
+        let beforeDelete = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertNotNil(beforeDelete, "Precondition: the row must exist before it is deleted")
+
+        try await manager.deleteMedicalDocument(id: document.id)
+
+        let didWrite = try await manager.saveMedicalDocument(document, requireExistingRow: true)
+
+        XCTAssertFalse(didWrite, "A commit racing a delete must report that it wrote nothing")
+        let recovered = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertNil(recovered, "The deleted document must stay deleted")
+    }
+
+    func testAnOrdinaryFirstSaveStillWorks() async throws {
+        // The guard is opt-in for a reason: importing a new document has no row yet.
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        let document = sampleDocument()
+
+        try await manager.saveMedicalDocument(document)
+
+        let stored = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertNotNil(stored)
+    }
+
+    func testAFullRowWriteIsRefusedWhenAFieldCouldNotBeRead() async throws {
+        // A record that failed to decode arrives with empty values. Writing it back whole
+        // put that emptiness over ciphertext a decoder fix could still have recovered — and
+        // the trigger did not need an edit at all: flipping the AI-context checkbox took a
+        // full-row write of a stale snapshot.
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        var document = sampleDocument()
+        try await manager.saveMedicalDocument(document)
+
+        document.unreadableFields = [.extractedHealthData]
+
+        do {
+            _ = try await manager.saveMedicalDocument(document, requireExistingRow: true)
+            XCTFail("A lossy full-row write must be refused")
+        } catch let error as DatabaseError {
+            guard case .lossyWriteRefused(let fields) = error else {
+                return XCTFail("Expected lossyWriteRefused, got \(error)")
+            }
+            XCTAssertEqual(fields, ["extractedHealthData"])
+        }
+
+        // The point of refusing: the stored copy is still readable.
+        let stored = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(stored?.extractedText, "Potassium 5.9 mmol/L")
+    }
+
+    func testTogglingAIContextDoesNotRewriteTheWholeRow() async throws {
+        // `updateDocumentAIContextStatus` is the partial updater the selector now uses. It
+        // must work on a record that a full-row write would be refused for, because that is
+        // exactly the case the refusal strands otherwise.
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        let document = sampleDocument()
+        try await manager.saveMedicalDocument(document)
+
+        try await manager.updateDocumentAIContextStatus(document.id, includeInContext: true)
+
+        let stored = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(stored?.includeInAIContext, true)
+        XCTAssertEqual(stored?.extractedText, "Potassium 5.9 mmol/L", "The other columns are untouched")
+        XCTAssertEqual(stored?.tags, ["lab"])
+    }
+
+    func testUnreadableFieldsAreNotPersisted() throws {
+        // It describes an in-memory copy, not the row — so it must not round-trip through
+        // Codable and resurrect a stale warning on a record that reads fine.
+        var document = sampleDocument()
+        document.unreadableFields = [.extractedText, .notes]
+
+        let encoded = try JSONEncoder().encode(document)
+        let decoded = try JSONDecoder().decode(MedicalDocument.self, from: encoded)
+
+        XCTAssertTrue(decoded.unreadableFields.isEmpty)
+        XCTAssertEqual(decoded.extractedText, "Potassium 5.9 mmol/L", "Everything else still round-trips")
+    }
+}

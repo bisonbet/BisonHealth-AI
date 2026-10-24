@@ -6,7 +6,38 @@ extension DatabaseManager {
 
     // MARK: - Save Medical Document
     func saveMedicalDocument(_ document: MedicalDocument) async throws {
+        try await saveMedicalDocument(document, requireExistingRow: false)
+    }
+
+    /// Save a document, optionally refusing to recreate a row that has been deleted.
+    ///
+    /// The write is `INSERT OR REPLACE`, which is what reprocessing needs — but it means a
+    /// save that races a delete does not fail, it *resurrects* the row, pointing at a file
+    /// that is already gone. The library is then left with a document stuck on "Pending"
+    /// that cannot be opened or reprocessed.
+    ///
+    /// With `requireExistingRow` the existence check and the write happen in one
+    /// transaction, so there is no window between them. Extraction commits pass true; the
+    /// first save of a newly imported document passes false, because there is no row yet.
+    ///
+    /// - Returns: false when the row was gone and nothing was written.
+    @discardableResult
+    func saveMedicalDocument(_ document: MedicalDocument, requireExistingRow: Bool) async throws -> Bool {
         guard let db = db else { throw DatabaseError.connectionFailed }
+        var wasWritten = true
+
+        // A record whose columns could not be read must never be written back whole: the
+        // in-memory value for those fields is empty, and this write would put that emptiness
+        // over ciphertext a decoder fix could still recover. Partial updaters exist for
+        // changing one field without touching the rest.
+        guard document.unreadableFields.isEmpty else {
+            AppLog.shared.database(
+                "Refusing a full-row write of '\(document.fileName)': \(document.unreadableFields.map(\.rawValue).sorted()) could not be read back",
+                level: .error
+            )
+            throw DatabaseError.lossyWriteRefused(document.unreadableFields.map(\.rawValue).sorted())
+        }
+
 
         do {
             let tagsJson = try JSONEncoder().encode(document.tags)
@@ -43,7 +74,28 @@ extension DatabaseManager {
                 documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
             )
 
-            try db.run(insert)
+            if requireExistingRow {
+                try db.transaction {
+                    let stillPresent = try db.scalar(
+                        documentsTable.filter(self.documentId == document.id.uuidString).count
+                    ) > 0
+                    guard stillPresent else {
+                        wasWritten = false
+                        return
+                    }
+                    try db.run(insert)
+                }
+            } else {
+                try db.run(insert)
+            }
+
+            guard wasWritten else {
+                AppLog.shared.database(
+                    "Refused to recreate deleted document row for '\(document.fileName)'",
+                    level: .warning
+                )
+                return false
+            }
             AppLog.shared.database("MedicalDocument saved successfully to database")
 
             // CRITICAL: Force a WAL checkpoint to ensure data is written to disk
@@ -62,6 +114,8 @@ extension DatabaseManager {
             AppLog.shared.error("Error saving MedicalDocument: \(error.localizedDescription)", error: error, category: .database)
             throw DatabaseError.encryptionFailed
         }
+
+        return wasWritten
     }
 
     // MARK: - Fetch Medical Documents
@@ -217,6 +271,19 @@ extension DatabaseManager {
 
     // MARK: - Update Medical Document
     func updateMedicalDocument(_ document: MedicalDocument) async throws {
+        // A record whose columns could not be read must never be written back whole: the
+        // in-memory value for those fields is empty, and this write would put that emptiness
+        // over ciphertext a decoder fix could still recover. Partial updaters exist for
+        // changing one field without touching the rest.
+        guard document.unreadableFields.isEmpty else {
+            AppLog.shared.database(
+                "Refusing a full-row write of '\(document.fileName)': \(document.unreadableFields.map(\.rawValue).sorted()) could not be read back",
+                level: .error
+            )
+            throw DatabaseError.lossyWriteRefused(document.unreadableFields.map(\.rawValue).sorted())
+        }
+
+
         guard let db = db else { throw DatabaseError.connectionFailed }
 
         AppLog.shared.database("updateMedicalDocument called for '\(document.fileName)' - extractedText: \(document.extractedText?.count ?? 0) chars, is nil: \(document.extractedText == nil)", level: .debug)
@@ -351,44 +418,97 @@ extension DatabaseManager {
         let importedAt = Date(timeIntervalSince1970: TimeInterval(row[documentImportedAt]))
         let processedAt = row[documentProcessedAt].map { Date(timeIntervalSince1970: TimeInterval($0)) }
         let fileSize = row[documentFileSize]
-        let notes = decryptTextField(row[documentNotes])
+        let storedNotes = row[documentNotes]
+
+        // Every decode below falls back to an empty value, and the full-row writers would
+        // then persist that emptiness over readable ciphertext. Record each failure so the
+        // writers can refuse instead.
+        var unreadableFields: Set<MedicalDocument.UnreadableField> = []
+
+        let notes = decryptTextField(storedNotes)
+        if notes == nil, storedNotes != nil {
+            unreadableFields.insert(.notes)
+        }
 
         // Decode tags
         let tagsString = row[documentTags]
         let tagsData = tagsString.data(using: .utf8) ?? Data()
-        let tags = (try? JSONDecoder().decode([String].self, from: tagsData)) ?? []
+        let tags: [String]
+        if let decodedTags = try? JSONDecoder().decode([String].self, from: tagsData) {
+            tags = decodedTags
+        } else {
+            tags = []
+            if !tagsString.isEmpty, tagsString != "[]" {
+                unreadableFields.insert(.tags)
+            }
+        }
 
         // Decode extracted health data (BLOB is encrypted at rest)
         let extractedHealthData: [AnyHealthData]
-        if let extractedDataBlob = decryptDataField(row[documentExtractedData]) {
-            extractedHealthData = (try? JSONDecoder().decode([AnyHealthData].self, from: extractedDataBlob)) ?? []
+        let storedExtractedData = row[documentExtractedData]
+        if let extractedDataBlob = decryptDataField(storedExtractedData) {
+            if let decoded = try? JSONDecoder().decode([AnyHealthData].self, from: extractedDataBlob) {
+                extractedHealthData = decoded
+            } else {
+                // One unknown `type` discards the whole array, which is exactly the case a
+                // later decoder fix could recover — if the ciphertext is still there.
+                extractedHealthData = []
+                unreadableFields.insert(.extractedHealthData)
+            }
         } else {
             extractedHealthData = []
+            if storedExtractedData != nil {
+                unreadableFields.insert(.extractedHealthData)
+            }
         }
 
         // Medical document fields
         let documentDate = try? row.get(self.documentDate).map { Date(timeIntervalSince1970: TimeInterval($0)) }
-        let providerName = decryptTextField((try? row.get(self.documentProviderName)) ?? nil)
+        let storedProviderName = (try? row.get(self.documentProviderName)) ?? nil
+        let providerName = decryptTextField(storedProviderName)
+        if providerName == nil, storedProviderName != nil {
+            unreadableFields.insert(.providerName)
+        }
         let providerTypeRaw = try? row.get(self.documentProviderType)
         let providerType = providerTypeRaw.flatMap { ProviderType(rawValue: $0) }
         let categoryRaw = (try? row.get(self.documentCategory)) ?? "other"
         let category = DocumentCategory(rawValue: categoryRaw) ?? .other
-        let extractedText = decryptTextField((try? row.get(self.documentExtractedText)) ?? nil)
+        let storedExtractedText = (try? row.get(self.documentExtractedText)) ?? nil
+        let extractedText = decryptTextField(storedExtractedText)
+        if extractedText == nil, storedExtractedText != nil {
+            unreadableFields.insert(.extractedText)
+        }
         AppLog.shared.database("Loading MedicalDocument '\(fileName)' - extractedText: \(extractedText?.count ?? 0) chars, is nil: \(extractedText == nil)", level: .debug)
 
         // Decode extracted sections (BLOB is encrypted at rest)
         let extractedSections: [DocumentSection]
-        if let sectionsBlob = decryptDataField((try? row.get(self.documentExtractedSections)) ?? nil) {
-            extractedSections = (try? JSONDecoder().decode([DocumentSection].self, from: sectionsBlob)) ?? []
+        let storedSections = (try? row.get(self.documentExtractedSections)) ?? nil
+        if let sectionsBlob = decryptDataField(storedSections) {
+            if let decoded = try? JSONDecoder().decode([DocumentSection].self, from: sectionsBlob) {
+                extractedSections = decoded
+            } else {
+                extractedSections = []
+                unreadableFields.insert(.extractedSections)
+            }
         } else {
             extractedSections = []
+            if storedSections != nil {
+                unreadableFields.insert(.extractedSections)
+            }
         }
 
         let includeInAIContext = (try? row.get(self.documentIncludeInAIContext)) ?? false
         let contextPriority = (try? row.get(self.documentContextPriority)) ?? 3
         let lastEditedAt = try? row.get(self.documentLastEditedAt).map { Date(timeIntervalSince1970: TimeInterval($0)) }
 
-        return MedicalDocument(
+        if !unreadableFields.isEmpty {
+            AppLog.shared.database(
+                "MedicalDocument '\(fileName)' has unreadable columns \(unreadableFields.map(\.rawValue).sorted()) — full-row writes will be refused so the stored bytes survive",
+                level: .warning
+            )
+        }
+
+        var document = MedicalDocument(
             id: id,
             fileName: fileName,
             fileType: fileType,
@@ -411,6 +531,8 @@ extension DatabaseManager {
             tags: tags,
             notes: notes
         )
+        document.unreadableFields = unreadableFields
+        return document
     }
 }
 

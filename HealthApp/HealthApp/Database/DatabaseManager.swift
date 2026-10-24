@@ -1072,6 +1072,10 @@ enum DatabaseError: LocalizedError {
     case constraintViolation
     case incompatibleVersion(String)
     case migrationFailed(String)
+    /// A whole-record write was blocked because some of its columns could not be read back,
+    /// so writing would have replaced recoverable ciphertext with the empty value the read
+    /// produced. Carries the field names.
+    case lossyWriteRefused([String])
 
     var errorDescription: String? {
         switch self {
@@ -1091,6 +1095,8 @@ enum DatabaseError: LocalizedError {
             return "Database version incompatibility: \(message)"
         case .migrationFailed(let message):
             return "Database migration failed: \(message)"
+        case .lossyWriteRefused(let fields):
+            return "This document could not be saved because part of it could not be read: \(fields.joined(separator: ", ")). Saving would have erased the stored copy."
         }
     }
 
@@ -1111,6 +1117,9 @@ enum DatabaseError: LocalizedError {
             return "This copy of BisonHealth AI is older than the data already stored on this device. Install the latest version to open it — nothing has been changed or deleted."
         case .migrationFailed:
             return "The upgrade to this version's data format did not finish. Your records are still on this device, along with a copy taken before the upgrade started. Do not delete the app — that erases your records and that copy with them. Share the diagnostic logs instead."
+        case .lossyWriteRefused:
+            // Never a launch failure — the refusal happens on a save, with the app running.
+            return "Part of a stored document could not be read, so the app stopped a save that would have erased it. Your data is still on this device. Share the diagnostic logs."
         }
     }
 
@@ -1120,7 +1129,10 @@ enum DatabaseError: LocalizedError {
     /// build opens them fine, so offering to erase would destroy recoverable data.
     var isRecoverableByErasingData: Bool {
         switch self {
-        case .incompatibleVersion:
+        // `.lossyWriteRefused` joins `.incompatibleVersion` here for the same reason: the
+        // stored bytes are intact and the refusal exists to keep them that way. Offering to
+        // erase would destroy precisely the data this error was raised to protect.
+        case .incompatibleVersion, .lossyWriteRefused:
             return false
         case .connectionFailed, .encryptionFailed, .decryptionFailed,
              .invalidData, .notFound, .constraintViolation, .migrationFailed:

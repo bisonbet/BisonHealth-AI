@@ -65,6 +65,17 @@ class MedicalDocumentExtractor {
                     extractedText: text,
                     extractedSections: aiEnhanced.sections.isEmpty ? sections : aiEnhanced.sections
                 )
+            } catch is CancellationError {
+                // Cancellation is not a failed enhancement — it means the run was
+                // abandoned, usually because the user deleted the document while this
+                // call was in flight. Swallowing it here made the extractor return
+                // normally, and the caller then committed a stale snapshot and recreated
+                // the row it had just deleted.
+                throw CancellationError()
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                // URLSession reports a cancelled request this way rather than as
+                // CancellationError, so a cloud enhancement pass needs both.
+                throw CancellationError()
             } catch {
                 AppLog.shared.documents("AI enhancement failed, falling back to basic extraction: \(error.localizedDescription)", level: .warning)
                 // Fall through to basic extraction
