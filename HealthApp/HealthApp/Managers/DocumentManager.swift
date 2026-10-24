@@ -116,10 +116,20 @@ class DocumentManager: ObservableObject {
     }
     
     // MARK: - Document Loading
+    /// True when the last load threw, so an empty list is not mistaken for an empty library.
+    ///
+    /// A failed fetch left `documents` empty and the Documents tab then rendered its
+    /// "No Documents — import your health documents to get started" state. Someone whose
+    /// database would not open was told, in as many words, that they had never imported
+    /// anything.
+    @Published private(set) var didFailToLoad = false
+
     func loadDocuments() async {
         do {
             documents = try await databaseManager.fetchDocuments()
+            didFailToLoad = false
         } catch {
+            didFailToLoad = true
             lastError = error
             AppLog.shared.documents("Failed to load documents: \(error)", level: .error)
         }

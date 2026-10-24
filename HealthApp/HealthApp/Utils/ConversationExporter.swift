@@ -35,7 +35,12 @@ class ConversationExporter: ObservableObject {
 
     @Published var isExporting = false
     @Published var exportProgress: Double = 0.0
-    @Published var lastError: Error?
+    @Published var lastError: Error? {
+        didSet {
+            guard let lastError else { return }
+            ErrorHandler.shared.handle(lastError, context: "Conversation export", severity: .error)
+        }
+    }
 
     private let fileSystemManager: FileSystemManager
     private let paperSize: PaperSize

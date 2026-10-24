@@ -2,23 +2,69 @@ import SwiftUI
 
 struct DocumentsEmptyStateView: View {
     let supportsDocumentScanning: Bool
+    /// The list is empty because the load failed, not because nothing was ever imported.
+    /// Telling someone they have no documents when their records are there but unreadable
+    /// is the worst possible reading of this screen.
+    let didFailToLoad: Bool
     let onScanDocument: () -> Void
     let onImportFile: () -> Void
     let onImportPhotos: () -> Void
+    let onRetry: (() -> Void)?
 
     init(
         supportsDocumentScanning: Bool = PlatformCapabilities.supportsDocumentScanning,
+        didFailToLoad: Bool = false,
         onScanDocument: @escaping () -> Void,
         onImportFile: @escaping () -> Void,
-        onImportPhotos: @escaping () -> Void
+        onImportPhotos: @escaping () -> Void,
+        onRetry: (() -> Void)? = nil
     ) {
         self.supportsDocumentScanning = supportsDocumentScanning
+        self.didFailToLoad = didFailToLoad
         self.onScanDocument = onScanDocument
         self.onImportFile = onImportFile
         self.onImportPhotos = onImportPhotos
+        self.onRetry = onRetry
     }
     
     var body: some View {
+        if didFailToLoad {
+            loadFailureState
+        } else {
+            emptyLibraryState
+        }
+    }
+
+    private var loadFailureState: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 60))
+                .foregroundColor(.orange)
+
+            VStack(spacing: 8) {
+                Text("Couldn't Load Your Documents")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .multilineTextAlignment(.center)
+
+                Text("Your documents are still on this device — they just could not be read right now. Nothing has been deleted.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            if let onRetry {
+                Button("Try Again", action: onRetry)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("documentsRetryLoadButton")
+            }
+        }
+        .padding(32)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("documentsLoadFailedState")
+    }
+
+    private var emptyLibraryState: some View {
         VStack(spacing: 24) {
             VStack(spacing: 16) {
                 Image(systemName: "doc.badge.plus")

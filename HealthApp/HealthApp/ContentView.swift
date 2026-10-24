@@ -812,9 +812,13 @@ struct DocumentsView: View {
             if documentManager.documents.isEmpty {
                 DocumentsEmptyStateView(
                     supportsDocumentScanning: supportsDocumentScanning,
+                    didFailToLoad: documentManager.didFailToLoad,
                     onScanDocument: showDocumentScanner,
                     onImportFile: showDocumentPicker,
-                    onImportPhotos: showPhotosPicker
+                    onImportPhotos: showPhotosPicker,
+                    onRetry: {
+                        Task { await documentManager.loadDocuments() }
+                    }
                 )
             } else {
                 VStack(spacing: 0) {

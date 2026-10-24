@@ -241,6 +241,8 @@ class AIChatManager: ObservableObject {
             AppLog.shared.ai("Loaded \(conversations.count) conversations")
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
+            // `errorMessage` is read by no view, so every one of these was invisible.
+            ErrorHandler.shared.handle(error, context: "Loading conversations", severity: .error)
             errorHandler.handle(error, context: "Load Conversations")
             AppLog.shared.error("Failed to load conversations", error: error, category: .ai)
         }
@@ -845,6 +847,13 @@ class AIChatManager: ObservableObject {
                             }
                         } catch {
                             self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                            // The reply is on screen but not in the database, so it
+                            // disappears on relaunch. Silence made that look like success.
+                            ErrorHandler.shared.handle(
+                                error,
+                                context: "Saving a chat message",
+                                severity: .error
+                            )
                         }
                     }
                 }
@@ -919,6 +928,13 @@ class AIChatManager: ObservableObject {
                             }
                         } catch {
                             self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                            // The reply is on screen but not in the database, so it
+                            // disappears on relaunch. Silence made that look like success.
+                            ErrorHandler.shared.handle(
+                                error,
+                                context: "Saving a chat message",
+                                severity: .error
+                            )
                         }
                     }
                 }
@@ -1015,6 +1031,13 @@ class AIChatManager: ObservableObject {
                             }
                         } catch {
                             self.errorMessage = "Failed to save message: \(error.localizedDescription)"
+                            // The reply is on screen but not in the database, so it
+                            // disappears on relaunch. Silence made that look like success.
+                            ErrorHandler.shared.handle(
+                                error,
+                                context: "Saving a chat message",
+                                severity: .error
+                            )
                         }
                     }
                 }
