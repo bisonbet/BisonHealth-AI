@@ -554,3 +554,132 @@ final class MLXDownloadRetryBudgetTests: XCTestCase {
         // passed for the wrong reason.
     }
 }
+
+// MARK: - Cloud Processing Consent
+//
+// The consent used to be an `@AppStorage` inside ChatDetailView, so Appointment Prep sent
+// the same patient record to the same provider having asked nothing. These tests are about
+// the policy being reachable and fail-closed wherever a send happens, not about one screen.
+@MainActor
+final class CloudProcessingConsentTests: XCTestCase {
+
+    private let key = "hasAcknowledgedCloudProcessing"
+    private var savedValue: Any?
+
+    override func setUp() {
+        super.setUp()
+        savedValue = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    override func tearDown() {
+        if let savedValue {
+            UserDefaults.standard.set(savedValue, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        super.tearDown()
+    }
+
+    func testTheOnDeviceProviderNeverNeedsConsent() throws {
+        // Nothing leaves the device, so asking would be noise — and would train the user to
+        // dismiss the prompt that matters.
+        XCTAssertFalse(CloudProcessingConsent.isRequired(for: .onDeviceLLM))
+        XCTAssertNoThrow(try CloudProcessingConsent.requireConsent(for: .onDeviceLLM))
+    }
+
+    func testACloudSendIsRefusedUntilTheUserAgrees() {
+        XCTAssertTrue(CloudProcessingConsent.isRequired(for: .bedrock))
+        XCTAssertTrue(CloudProcessingConsent.isRequired(for: .openAICompatible))
+
+        // Fail-closed is the whole point: a feature added later that forgets to ask must
+        // stop here rather than quietly posting a health record to a third party.
+        XCTAssertThrowsError(try CloudProcessingConsent.requireConsent(for: .bedrock)) { error in
+            XCTAssertEqual(error as? CloudProcessingConsentError, .notGiven)
+        }
+    }
+
+    func testAgreeingOnceCoversEveryCloudProvider() throws {
+        CloudProcessingConsent.acknowledge()
+
+        XCTAssertTrue(CloudProcessingConsent.hasAcknowledged)
+        XCTAssertFalse(CloudProcessingConsent.isRequired(for: .bedrock))
+        XCTAssertFalse(CloudProcessingConsent.isRequired(for: .openAICompatible))
+        XCTAssertNoThrow(try CloudProcessingConsent.requireConsent(for: .bedrock))
+    }
+
+    func testTheStorageKeyIsUnchangedSoNobodyIsAskedTwice() {
+        // The key has to stay what ChatDetailView's @AppStorage used, or everyone who
+        // already agreed gets asked again after an update.
+        UserDefaults.standard.set(true, forKey: "hasAcknowledgedCloudProcessing")
+        XCTAssertTrue(CloudProcessingConsent.hasAcknowledged)
+    }
+}
+
+// MARK: - History Trimming
+
+@MainActor
+final class ConversationHistoryBudgetTests: XCTestCase {
+
+    private func history(messageCount: Int, charactersEach: Int) -> [ChatMessage] {
+        (0..<messageCount).map { index in
+            ChatMessage(
+                content: String(repeating: "x", count: charactersEach),
+                role: index.isMultiple(of: 2) ? .user : .assistant
+            )
+        }
+    }
+
+    func testABiggerReplyReserveTrimsMoreHistory() {
+        // The on-device reply can be 4,096 tokens against the builder's own 512 default, so
+        // a reserve that ignores it leaves the window to overflow — which is what evicted
+        // the persona, the patient data and the safety rules from the head of the context.
+        let messages = history(messageCount: 40, charactersEach: 800)
+
+        let withDefaultReserve = ConversationContextBuilder.buildContext(
+            currentMessage: "and now?",
+            healthContext: String(repeating: "h", count: 20_000),
+            conversationHistory: messages,
+            systemPrompt: "persona",
+            provider: .onDeviceLLM
+        )
+        let withRealReserve = ConversationContextBuilder.buildContext(
+            currentMessage: "and now?",
+            healthContext: String(repeating: "h", count: 20_000),
+            conversationHistory: messages,
+            systemPrompt: "persona",
+            provider: .onDeviceLLM,
+            reservedTokens: 4_096 + MLXContextBudget.defaultInstructionReserve
+        )
+
+        XCTAssertGreaterThan(
+            withRealReserve.trimmedMessageCount,
+            withDefaultReserve.trimmedMessageCount,
+            "Reserving room for the real reply budget must cost history, not instructions"
+        )
+        XCTAssertLessThan(
+            withRealReserve.conversationHistory.count,
+            messages.count,
+            "Precondition: the history must actually be too long to fit"
+        )
+    }
+
+    func testTrimmingKeepsTheNewestMessages() {
+        let messages = history(messageCount: 30, charactersEach: 1_000)
+        let result = ConversationContextBuilder.buildContext(
+            currentMessage: "latest question",
+            healthContext: String(repeating: "h", count: 20_000),
+            conversationHistory: messages,
+            systemPrompt: "persona",
+            provider: .onDeviceLLM,
+            reservedTokens: 4_096 + MLXContextBudget.defaultInstructionReserve
+        )
+
+        XCTAssertGreaterThan(result.trimmedMessageCount, 0, "Precondition: something must be dropped")
+        XCTAssertEqual(
+            result.conversationHistory.last?.id,
+            messages.last?.id,
+            "The most recent exchange is the one the answer depends on"
+        )
+    }
+}

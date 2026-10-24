@@ -14,6 +14,9 @@ struct AppointmentPrepEditorView: View {
     @State private var hasDate: Bool
     @State private var validationErrors: [String] = []
     @State private var didPrefill = false
+    /// Set when generation is waiting on the cloud-processing acknowledgement, so this
+    /// screen asks the same question chat does instead of letting the manager refuse.
+    @State private var awaitingCloudConsent = false
 
     init(
         manager: AppointmentPrepManager,
@@ -72,6 +75,19 @@ struct AppointmentPrepEditorView: View {
                 }
             }
             .onAppear(perform: prefillIfNeeded)
+            .confirmationDialog(
+                "Send your health data to the cloud?",
+                isPresented: $awaitingCloudConsent,
+                titleVisibility: .visible
+            ) {
+                Button("Generate and don't ask again") {
+                    CloudProcessingConsent.acknowledge()
+                    startGeneration()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Preparing this summary sends your symptoms, notes, medications and the health data you selected to the AI provider you configured, over the internet. Switch to the on-device model in Settings to keep everything on this device.")
+            }
         }
     }
 
@@ -253,6 +269,18 @@ struct AppointmentPrepEditorView: View {
             return
         }
         validationErrors = []
+
+        // Generating sends the patient's record to the configured provider. Ask the same
+        // question the chat screen asks, rather than reaching the manager's refusal.
+        if CloudProcessingConsent.isRequired(for: SettingsManager.shared.modelPreferences.aiProvider) {
+            awaitingCloudConsent = true
+            return
+        }
+
+        startGeneration()
+    }
+
+    private func startGeneration() {
         Task {
             let result = await manager.generate(for: prep)
             prep = result

@@ -466,9 +466,15 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
         // Would the next turn spill out of the KV window? The cache rotates, so it does not
         // fail — it evicts from the head, which is where the persona, the patient data and
-        // the rules are. Dropping the session instead means the next request re-prefills
-        // those instructions, with history trimmed to fit, rather than answering from a
-        // window they have quietly fallen out of.
+        // the rules are. Dropping the session means the next request re-prefills those
+        // instructions rather than answering from a window they have quietly fallen out of.
+        //
+        // This only helps if the history coming back is small enough to leave room for
+        // them, which is the caller's job: `AIChatManager` runs the conversation through
+        // `ConversationContextBuilder` before handing it over. An earlier version of this
+        // comment asserted that trimming as though it happened here; it did not happen
+        // anywhere, so a rebuild re-prefilled the whole conversation and evicted the very
+        // instructions it was meant to restore.
         let budget = MLXContextBudget(
             window: MLXModelInfo.configuredContextSize,
             replyReserve: maximumTokens

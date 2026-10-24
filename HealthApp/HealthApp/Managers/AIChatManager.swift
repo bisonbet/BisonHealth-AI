@@ -22,9 +22,14 @@ class AIChatManager: ObservableObject {
     @Published var selectedDoctor: Doctor? = Doctor.defaultDoctors.first(where: { $0.name == "Primary Care Physician" })
     @Published var isOffline: Bool = false
 
+    /// The provider a send would use right now.
+    var currentProvider: AIProvider {
+        settingsManager.modelPreferences.aiProvider
+    }
+
     /// Whether the currently selected provider needs the network at all.
     var currentProviderRequiresNetwork: Bool {
-        settingsManager.modelPreferences.aiProvider.requiresNetwork
+        currentProvider.requiresNetwork
     }
 
     /// True only when the network is down *and* the selected provider needs it. The
@@ -938,7 +943,31 @@ class AIChatManager: ObservableObject {
                 mlxConversationHistory = []
             }
 
-            AppLog.shared.ai("OnDeviceTurn: conversationId=\(conversationId.uuidString), historyMessages=\(mlxConversationHistory.count), healthContextBytes=\(context.utf8.count)")
+            // Trim the history to what the window can actually seat.
+            //
+            // Every rebuild re-prefilled the entire conversation, and commit 6ad65405 added
+            // a rebuild under window pressure — so the longest histories became the ones
+            // most likely to be re-sent in full, pushing the persona, the patient data and
+            // the safety rules off the head of the context. A comment in MLXOnDeviceClient
+            // claimed this trimming already happened. It did not; now it does.
+            //
+            // The reserve has to cover what this builder cannot see: the reply (up to 4,096
+            // tokens on-device, against the builder's own 512 default) and the rules block
+            // the client appends.
+            let budgetedContext = ConversationContextBuilder.buildContext(
+                currentMessage: content,
+                healthContext: context,
+                conversationHistory: mlxConversationHistory,
+                systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
+                provider: .onDeviceLLM,
+                reservedTokens: replyTokenReserve + MLXContextBudget.defaultInstructionReserve
+            )
+            let trimmedHistory = budgetedContext.conversationHistory
+            if budgetedContext.trimmedMessageCount > 0 {
+                AppLog.shared.ai("OnDeviceTurn: trimmed \(budgetedContext.trimmedMessageCount) older messages so the instructions stay in the window")
+            }
+
+            AppLog.shared.ai("OnDeviceTurn: conversationId=\(conversationId.uuidString), historyMessages=\(trimmedHistory.count) of \(mlxConversationHistory.count), healthContextBytes=\(context.utf8.count)")
 
             // MLX ChatSession handles multi-turn context via KV cache internally.
             // System prompt + health context are set as session instructions (once per session).
@@ -946,7 +975,7 @@ class AIChatManager: ObservableObject {
             try await mlxClient.sendStreamingChatMessage(
                 content,
                 healthContext: context,
-                conversationHistory: mlxConversationHistory,
+                conversationHistory: trimmedHistory,
                 conversationId: conversationId,
                 systemPrompt: shouldSendSystemPrompt ? selectedDoctor?.compactSystemPrompt : nil,
                 onUpdate: { [weak self] partialContent in

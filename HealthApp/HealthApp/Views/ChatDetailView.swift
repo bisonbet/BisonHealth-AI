@@ -17,8 +17,9 @@ struct ChatDetailView: View {
     @State private var alertTitle: String = "Error"
     @State private var showingErrorAlert = false
     @ObservedObject private var chatSettingsManager = SettingsManager.shared
-    /// One-time acknowledgement that messages will leave the device. Per-device by design:
-    /// it is a consent the person using this phone gave, not a synced preference.
+    /// Mirrors `CloudProcessingConsent` so the view redraws when it changes. The policy
+    /// itself lives in `CloudProcessingConsent` and is enforced by the send paths — this
+    /// screen is one caller of it, not its owner.
     @AppStorage("hasAcknowledgedCloudProcessing") private var hasAcknowledgedCloudProcessing = false
     @State private var pendingCloudMessage: String?
     @FocusState private var isMessageInputFocused: Bool
@@ -99,7 +100,7 @@ struct ChatDetailView: View {
             titleVisibility: .visible
         ) {
             Button("Send and don't ask again") {
-                hasAcknowledgedCloudProcessing = true
+                CloudProcessingConsent.acknowledge()
                 if let message = pendingCloudMessage { deliver(message) }
                 pendingCloudMessage = nil
             }
@@ -171,7 +172,15 @@ struct ChatDetailView: View {
         ChatEmptyStateView(
             onStartNewChat: {
                 Task {
-                    _ = try await chatManager.startNewConversation()
+                    do {
+                        _ = try await chatManager.startNewConversation()
+                    } catch {
+                        ErrorHandler.shared.handle(
+                            error,
+                            context: "Starting a new conversation",
+                            severity: .error
+                        )
+                    }
                 }
             }
         )
@@ -269,7 +278,7 @@ struct ChatDetailView: View {
 
         // Nothing previously told the user that configuring a cloud provider means their
         // health context is sent to a third party. Ask once, before the first such send.
-        if chatManager.currentProviderRequiresNetwork && !hasAcknowledgedCloudProcessing {
+        if CloudProcessingConsent.isRequired(for: chatManager.currentProvider) {
             pendingCloudMessage = message
             return
         }

@@ -132,7 +132,7 @@ struct OnDeviceLLMSettingsView: View {
         } header: {
             Text("On-Device AI (MLX)")
         } footer: {
-            Text("Run AI models directly on your device using Apple MLX. Your health data is not sent to any AI provider on this setting — chats are processed on this device. Downloading or loading a model contacts Hugging Face.")
+            Text("Run AI models directly on your device using Apple MLX. Your health data is not sent to any AI provider on this setting — chats are processed on this device. Downloading a model contacts Hugging Face; using one afterwards needs no network.")
         }
     }
 

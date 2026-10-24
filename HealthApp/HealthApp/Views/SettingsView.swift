@@ -47,7 +47,7 @@ struct SettingsView: View {
             case .servers: return "This will reset server configurations to defaults."
             case .preferences: return "This will reset app preferences to defaults."
             case .all: return "This will reset all settings to their default values."
-            case .database: return "⚠️ WARNING: This will permanently delete ALL your health data, documents, and chat history. This action cannot be undone. A backup will be created first."
+            case .database: return "⚠️ WARNING: This will permanently delete ALL your health data, documents, imported files, and chat history. This action cannot be undone, and no backup is kept — any migration backups still on the device are erased too."
             case .disclaimer: return "This will reset the disclaimer acceptance. You will need to accept the disclaimer again on next app launch."
             }
         }
@@ -1021,8 +1021,16 @@ struct SettingsView: View {
                 await HealthDataManager.shared.loadHealthData()
                 await DocumentManager.shared.loadDocuments()
 
+                // The database was only half of it. Imported documents and their page-1
+                // thumbnails live on disk, and the thumbnails are plaintext — so a reset
+                // that cleared only the rows left the readable part of a lab report behind
+                // while telling the user everything was permanently deleted. The reloads
+                // above empty `documents`, so every stored file is now orphaned by
+                // definition and this removes it.
+                await DocumentManager.shared.cleanupOrphanedFiles()
+
                 await MainActor.run {
-                    successMessage = "Database has been reset successfully. All health data has been permanently deleted."
+                    successMessage = "Database has been reset. All health data, documents and chat history have been permanently deleted from this device."
                     showingSuccessMessage = true
                 }
             } catch {

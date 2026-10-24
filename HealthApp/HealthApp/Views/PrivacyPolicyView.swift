@@ -30,7 +30,7 @@ struct PrivacyPolicyView: View {
 
                     • Device backups. Your encrypted database is included in normal iPhone backups, in encrypted form.
 
-                    • Downloading an on-device model, and loading one, contacts Hugging Face to fetch or verify the model files. No health data is sent.
+                    • Downloading an on-device model contacts Hugging Face to fetch the model files. No health data is sent. Loading a model you have already downloaded needs no network at all.
 
                     • Opening a genetics reference link sends that gene and result to an external site so it can show matching guidance. The app asks first.
 

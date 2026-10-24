@@ -86,22 +86,28 @@ struct ConversationContextBuilder {
     ///   - conversationHistory: Previous messages in the conversation
     ///   - systemPrompt: System prompt (Doctor persona)
     ///   - provider: The AI provider being used
+    ///   - reservedTokens: Tokens to hold back for everything this builder cannot see —
+    ///     the reply itself and any rules block the provider appends. `responseReserve` is
+    ///     512, which is fine for a cloud window and far too small on-device, where the
+    ///     reply alone can be 4,096 tokens. Pass the real figure there.
     /// - Returns: ContextResult with trimmed history and token info
     static func buildContext(
         currentMessage: String,
         healthContext: String,
         conversationHistory: [ChatMessage],
         systemPrompt: String?,
-        provider: AIProvider
+        provider: AIProvider,
+        reservedTokens: Int? = nil
     ) -> ContextResult {
         let contextLimit = AIProviderContextLimits.limit(for: provider)
+        let responseReserve = reservedTokens ?? TokenEstimates.responseReserve
 
         // Calculate fixed token costs (these cannot be trimmed)
         let systemPromptTokens = estimateTokens(systemPrompt ?? "")
         let healthContextTokens = estimateTokens(healthContext)
         let currentMessageTokens = estimateTokens(currentMessage) + TokenEstimates.messageOverhead
 
-        let fixedTokens = systemPromptTokens + healthContextTokens + currentMessageTokens + TokenEstimates.responseReserve
+        let fixedTokens = systemPromptTokens + healthContextTokens + currentMessageTokens + responseReserve
 
         // Calculate available tokens for conversation history
         let availableForHistory = max(0, contextLimit - fixedTokens)
@@ -119,7 +125,7 @@ struct ConversationContextBuilder {
 
         let debugInfo = """
         [ContextBuilder] Provider: \(provider), Limit: \(contextLimit) tokens
-        [ContextBuilder] Fixed costs: system=\(systemPromptTokens), health=\(healthContextTokens), current=\(currentMessageTokens), reserve=\(TokenEstimates.responseReserve)
+        [ContextBuilder] Fixed costs: system=\(systemPromptTokens), health=\(healthContextTokens), current=\(currentMessageTokens), reserve=\(responseReserve)
         [ContextBuilder] History: \(trimmedHistory.count)/\(relevantHistory.count) messages (\(historyTokens) tokens), trimmed \(trimmedCount)
         [ContextBuilder] Total: ~\(totalTokens) tokens
         """

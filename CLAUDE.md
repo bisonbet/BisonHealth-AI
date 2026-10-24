@@ -7,10 +7,10 @@
 - **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 6 language mode (strict concurrency) with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
-- **Database**: SQLite with CryptoKit encryption (current version: 10)
+- **Database**: SQLite with CryptoKit encryption (current version: 13)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: On-device (PDFKit + Vision OCR via `NativeDocumentExtractor`)
-- **Privacy**: Local-first, all data on-device (no iCloud/CloudKit backup)
+- **Privacy**: Local-first. No iCloud/CloudKit *sync* of records, but see the backup note below — the encrypted database IS in device backups and the key DOES sync via iCloud Keychain, deliberately.
 
 ---
 
@@ -104,11 +104,22 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
   -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.5' clean build
 ```
 
+**MLX code needs a device build.** `MLXOnDeviceLLM/MLXOnDeviceClient.swift` and
+`MLXModelDownloadManager.swift` compile in the simulator, but the bodies that load a model,
+generate, and transfer bytes are inside `#if !targetEnvironment(simulator)` and are replaced
+by stubs. An error in one of them compiles clean and no test reaches it:
+
+```bash
+cd HealthApp
+xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
+  -destination 'generic/platform=iOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build
+```
+
 ### 2. Database Migrations
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 12 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 13 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -124,10 +135,10 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 **Migration workflow**:
 ```swift
 // 1. Increment version
-private static let currentDatabaseVersion = 11  // Was 10
+private static let currentDatabaseVersion = 14  // Was 13
 
 // 2. Add migration case
-case 11:
+case 14:
     try db.run(table.addColumn(newColumn, defaultValue: ""))
     print("   ✓ Added newColumn to table")
 ```
@@ -180,6 +191,15 @@ Button("Add Blood Test") {
 ---
 
 ## Coding Standards
+
+### Linting
+
+`swiftlint` must run from `HealthApp/`, where `.swiftlint.yml` lives. From the repository
+root it finds no config and reports ~61 violations against a real baseline of **5**:
+
+```bash
+cd HealthApp && swiftlint lint --quiet
+```
 
 ### File Organization
 
@@ -310,7 +330,7 @@ struct NewDataType: HealthDataProtocol {
 }
 
 // 3. Increment database version & add migration
-private static let currentDatabaseVersion = 11
+private static let currentDatabaseVersion = 14
 case 11:
     try db.run(newDataTypeTable.create { t in
         t.column(id, primaryKey: true)
@@ -395,13 +415,18 @@ struct NewAIProviderSettingsView: View { }
 ### Running Tests
 
 ```bash
-# Unit tests
-xcodebuild test -scheme HealthApp \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+# Unit tests. Run from HealthApp/, and read the count from the .xcresult — stdout shows
+# only the 2 UI tests because the unit bundle runs parallelized.
+cd HealthApp
+xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+  -resultBundlePath /tmp/HealthApp.xcresult
+xcrun xcresulttool get test-results summary --path /tmp/HealthApp.xcresult
 
-# iPad tests
-xcodebuild test -scheme HealthApp \
-  -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M4)'
+# iPad tests (M5 — no M4 simulator is installed)
+cd HealthApp
+xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp \
+  -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.5'
 ```
 
 To inspect the current source and test-file counts:
@@ -419,7 +444,16 @@ find HealthApp/HealthAppTests HealthApp/HealthAppUITests -type f -name '*.swift'
 - **Encryption**: CryptoKit for all health data
 - **Storage**: SQLite with encrypted blobs
 - **Secrets**: Keychain for credentials
-- **Backup**: On-device only (iCloud/CloudKit backup removed — no BAA available)
+- **Backup**: No CloudKit sync and no iCloud Documents (no BAA available). But the
+  encrypted database *is* included in ordinary encrypted device backups, and since
+  2026-10-23 the database key is stored as a **synchronizable** Keychain item
+  (`kSecAttrAccessibleAfterFirstUnlock`) so it restores with the device.
+
+  ⚠️ **Do not "harden" this back to `ThisDeviceOnly`.** That combination — database in the
+  backup, key not — is what made a restore to a new device yield an unreadable database and
+  then mint a fresh key over it, destroying every record. It was review item 8 and owner
+  decision 3 chose to make the key restorable. Changing it back reintroduces silent total
+  data loss on restore.
 - **Network**: TLS 1.2+ only
 
 ### .gitignore Protection
@@ -508,7 +542,7 @@ Emoji prefixes for filtering:
 - `CLAUDE.md` - This file
 - `CONTRIBUTING.md` - Contribution guidelines
 - `AGENTS.md` - AI agent guidelines
-- `MEDICAL_DOCUMENTS_IMPLEMENTATION.md` - Document processing
+- `Documentation/Review/` - Beta/App Store review plan, tracker and per-workstream findings
 
 ---
 
@@ -526,10 +560,10 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Current project facts**:
-- Database version: 12
+- Database version: 13
 - iOS 26.0+ deployment target
 
 ---
 
-**Last Updated**: 2026-08-22
+**Last Updated**: 2026-10-24
 **License**: MIT

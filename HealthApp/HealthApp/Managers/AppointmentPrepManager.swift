@@ -142,6 +142,22 @@ final class AppointmentPrepManager: ObservableObject {
             return prep
         }
 
+        // This path sends the patient's record to whatever provider is configured, exactly
+        // as chat does, and until now asked nothing at all — the consent lived inside
+        // ChatDetailView, so every other caller inherited none of it. The UI asks first;
+        // this is the backstop that makes a forgotten prompt fail instead of send.
+        do {
+            try CloudProcessingConsent.requireConsent(for: settingsManager.modelPreferences.aiProvider)
+        } catch {
+            let message = error.localizedDescription
+            errorMessage = message
+            generationStage = .failed(message)
+            prep.status = .draft
+            currentPrep = prep
+            ErrorHandler.shared.handle(error, context: "Appointment prep", severity: .warning)
+            return prep
+        }
+
         isGenerating = true
         defer { isGenerating = false }
 

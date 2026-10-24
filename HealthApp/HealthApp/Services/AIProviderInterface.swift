@@ -279,3 +279,55 @@ enum HealthChatRules {
     /// The core, prefixed for appending to a provider's system prompt.
     static var systemPromptSection: String { "Rules: \(core)" }
 }
+
+// MARK: - Cloud Processing Consent
+
+/// One-time acknowledgement that a message and the selected health context leave the device.
+///
+/// This began as an `@AppStorage` inside `ChatDetailView`, which meant the consent existed on
+/// exactly one screen. Appointment Prep sent the same patient record to the same cloud
+/// provider with nothing asked at all — the same shape of mistake as a review sheet owned by
+/// a single view: put a rule in a view and every other caller inherits nothing.
+///
+/// So the policy lives here and the send paths enforce it. `requireConsent(for:)` throws
+/// rather than proceeding, which means a feature added later that forgets to ask fails
+/// loudly instead of quietly posting someone's health record to a third party. The UI still
+/// asks first, so the throw is a backstop and not the normal path.
+@MainActor
+enum CloudProcessingConsent {
+    /// Unchanged from the `@AppStorage` key this replaces, so anyone who already agreed is
+    /// not asked a second time.
+    private static let storageKey = "hasAcknowledgedCloudProcessing"
+
+    static var hasAcknowledged: Bool {
+        UserDefaults.standard.bool(forKey: storageKey)
+    }
+
+    static func acknowledge() {
+        UserDefaults.standard.set(true, forKey: storageKey)
+    }
+
+    /// True when this provider sends data off the device and the user has not yet agreed.
+    static func isRequired(for provider: AIProvider) -> Bool {
+        provider.requiresNetwork && !hasAcknowledged
+    }
+
+    /// Call on every path that can reach a cloud provider, before the request is built.
+    static func requireConsent(for provider: AIProvider) throws {
+        guard !isRequired(for: provider) else {
+            throw CloudProcessingConsentError.notGiven
+        }
+    }
+}
+
+enum CloudProcessingConsentError: LocalizedError, Equatable {
+    case notGiven
+
+    var errorDescription: String? {
+        "This feature sends your message and the health data you selected to the AI provider you configured, over the internet."
+    }
+
+    var recoverySuggestion: String? {
+        "Open a chat to review and accept cloud processing, or switch to the on-device model in Settings to keep everything on this device."
+    }
+}
