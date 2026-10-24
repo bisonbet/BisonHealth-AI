@@ -174,9 +174,9 @@ is also absent, so every TestFlight build stops at "Missing Compliance". Both co
 
 | # | Title | Sev | Source |
 |---|---|---|---|
-| 33 | No app-level `PrivacyInfo.xcprivacy`; required-reason APIs undeclared | **P0** (submission) | WS-13-01, WS-14 |
-| 34 | `ITSAppUsesNonExemptEncryption` absent — every TestFlight build blocks on Missing Compliance | P1 (submission) | WS-13-06, WS-14 |
-| 35 | Release path not repeatable: `CURRENT_PROJECT_VERSION = 1` hard-coded in **6** places (WS-14 said 8; recounted), no CI, no test plan, no export options, no distribution identity | P1 | WS-14 |
+| 33 | No app-level `PrivacyInfo.xcprivacy`; required-reason APIs undeclared | **P0** (submission) | **fixed** — `HealthApp/PrivacyInfo.xcprivacy`, verified present and parsed in the built bundle |
+| 34 | `ITSAppUsesNonExemptEncryption` absent — every TestFlight build blocks on Missing Compliance | P1 (submission) | **mechanism fixed**, value set `false` and verified in the built Info.plist — ⚠️ **the value is a legal declaration and needs the owner's sign-off**; see the comment in `Info.plist` for the BoringSSL complication |
+| 35 | Release path not repeatable: `CURRENT_PROJECT_VERSION = 1` hard-coded in **6** places (WS-14 said 8; recounted), no CI, no test plan, no export options, no distribution identity | P1 | **build numbering fixed** — `Scripts/archive.sh` derives it from the commit count, proven to reach `CFBundleVersion` (1 → 584). Still open: CI, test plan, `ExportOptions.plist`, distribution identity |
 | 36 | **Session rebuild re-prefills the entire conversation.** `AIChatManager` builds `mlxConversationHistory` from all of `conversation.messages`; `ConversationContextBuilder` is never applied on this path. My own comment in `MLXOnDeviceClient.swift` claims "history trimmed to fit" — it is false, and commit 6ad65405 *added* a rebuild trigger, so it made this fire more often while asserting it was handled | P1 | WS-11-03 |
 | 37 | No device-aware memory ceiling for the KV cache: `MLX.Memory.memoryLimit` is never set and the context slider reaches 65,536. Item 27 sized patient data within the window but never asked whether the window fits the device | P1 | WS-11-01 |
 | 38 | `AIResponseCleaner.clean`/`cleanConversational` runs ~35×/s on the full accumulated text — once per 50 ms from the client and again per render in the bubble's `body`. Measured on Mac: 15 ms at 30K chars, >50% of the main thread. (This answers WS-06-11: the amortized repetition scan was the right fix to the wrong function — the scan is 1.4 ms at 30K) | P2 | WS-11-07 |
@@ -189,6 +189,17 @@ is also absent, so every TestFlight build stops at "Missing Compliance". Both co
 | 45 | `CLAUDE.md` says database version 10, 12 and 11 in five places (real: 13) and still claims "no iCloud/CloudKit backup" and "all data on-device" — an agent reading it could re-harden the key to `ThisDeviceOnly` and reintroduce item 8 | P1 (agent-facing) | WS-16-03 |
 | 46 | Six documents claim encryption unqualified while thumbnails, tags and on-disk filenames are plaintext; build/test commands in CLAUDE.md, AGENTS.md, README and CONTRIBUTING fail as written (wrong project name, scheme, a simulator that is not installed, missing `cd HealthApp`); `MEDICAL_DOCUMENTS_IMPLEMENTATION.md` is referenced but absent; `.claude/CLAUDE.md` is tracked lowercase as `claude.md` | P2 | WS-16 |
 | 47 | Privacy Policy line 33 says loading a model contacts Hugging Face. Commit 330bebf9 removed that yesterday — my own fix made the copy inaccurate | P2 | WS-13-04, WS-16 |
+
+**Privacy-manifest reason codes, verified rather than recalled.** WS-13 said its code
+strings came from its own knowledge, not a quote. Apple's documentation pages render via
+JavaScript and return only a title to a fetch, so two independent sources were cross-checked
+instead: they agree on `CA92.1` (user defaults reachable only by this app), `C617.1` (files in
+the app's own container) and `3B52.1` (a file the user granted access to via the picker), and
+disagree only on `0A2A.1`, which this app does not need. `DDA9.1` is deliberately omitted — no
+file timestamp is displayed in the UI. A per-call-site audit decided which applied: `AppLog`
+and `cleanupOldThumbnails` read container timestamps (C617.1), and `DocumentImporter`'s
+`attributesOfItem` runs on a picked URL (3B52.1) — it reads only `.size`, but the API itself is
+required-reason, so the declaration covers the call.
 
 **Corrections to agent reports, each checked against source:** WS-14's `CURRENT_PROJECT_VERSION`
 count is 6, not 8. WS-16's `@unchecked Sendable` count of 4 is right (the plan says 5, WS-03

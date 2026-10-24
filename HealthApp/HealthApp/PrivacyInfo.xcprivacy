@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- No tracking: the app has no analytics SDK, no attribution, and no ATT prompt. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	    Nothing is collected. The developer operates no server and receives no data.
+	    Health records stay in an encrypted SQLite database on the device.
+
+	    The one case worth stating explicitly, because it looks like collection and is not:
+	    if the user configures a cloud AI provider (AWS Bedrock, or an OpenAI-compatible
+	    endpoint), their message and the health context they selected are sent to THAT
+	    provider using THEIR OWN credentials, for a real-time response. It is their
+	    account, not the developer's, and nothing is retained by the developer. The chat
+	    screen says where each message goes and asks once before the first cloud send.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!--
+		    UserDefaults, in 15 files: AI provider choice, model and sampling settings,
+		    the on-device model selection, the disclaimer acknowledgement, and the
+		    cloud-processing acknowledgement. The app declares no app group, so these
+		    defaults are reachable only by this app.
+		-->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+
+		<!--
+		    File timestamps, for two distinct reasons:
+
+		    C617.1 — files inside the app's own container. AppLog rotates and prunes its
+		    log files by creation/modification date, and FileSystemManager's
+		    cleanupOldThumbnails reads contentModificationDate on the thumbnails
+		    directory to delete anything older than 30 days.
+
+		    3B52.1 — a file the user specifically granted access to. DocumentImporter
+		    calls attributesOfItem on a URL returned by the document picker. It reads
+		    only .size, but attributesOfItem is itself a required-reason API, so the
+		    declaration covers the call rather than the attribute.
+
+		    DDA9.1 is deliberately absent: no file timestamp is displayed in the UI.
+		    Document dates shown to the user come from the database record, not the
+		    filesystem.
+		-->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+				<string>3B52.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

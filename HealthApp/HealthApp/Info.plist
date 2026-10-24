@@ -4,10 +4,33 @@
 <dict>
 	<!--
 	  Remaining keys are generated from the INFOPLIST_KEY_* build settings
-	  (GENERATE_INFOPLIST_FILE stays on and merges into this file). This file exists
-	  only for NSAppTransportSecurity, which is a dictionary and so cannot be
-	  expressed as a build setting.
+	  (GENERATE_INFOPLIST_FILE stays on and merges into this file). This file holds the
+	  keys that cannot be expressed as a build setting, or that are easier to read with
+	  their reasoning beside them.
 	-->
+
+	<!--
+	  Export compliance. Without this key App Store Connect asks the export questions on
+	  every upload and holds the build at "Missing Compliance" until they are answered,
+	  which blocks repeated TestFlight builds.
+
+	  ⚠️ THE VALUE BELOW IS A LEGAL DECLARATION AND NEEDS THE OWNER'S SIGN-OFF.
+
+	  The case for `false`: the app implements no cryptography of its own. Data at rest
+	  uses CryptoKit AES-GCM (an OS-provided implementation) and network traffic uses
+	  TLS. Both are the standard exempt cases.
+
+	  The complication, which the owner should weigh before the first upload: the
+	  dependency graph pins swift-nio-ssl 2.36.1, which vendors BoringSSL, reached
+	  through the AWS SDK's HTTP client. So the binary can ship a third-party TLS
+	  implementation rather than only the system one. That is ordinary mass-market TLS
+	  and is normally still exempt, but it is a self-classification call to make
+	  knowingly rather than by default. Removing Bedrock (review decision 5) would
+	  remove the question with it.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!--

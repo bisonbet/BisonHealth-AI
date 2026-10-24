@@ -78,6 +78,7 @@
 		9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */; };
 		A1000001294A0000000000001 /* HealthAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002294A0000000000001 /* HealthAppApp.swift */; };
 		A1000003294A0000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004294A0000000000001 /* ContentView.swift */; };
+		PRIVACYMANIFEST00BUILD001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = PRIVACYMANIFEST000FILE001 /* PrivacyInfo.xcprivacy */; };
 		A1000005294A0000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000006294A0000000000001 /* Assets.xcassets */; };
 		A1000007294A0000000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000008294A0000000000001 /* Preview Assets.xcassets */; };
 		A1000009294A0000000000001 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = A1000010294A0000000000001 /* SQLite */; };
@@ -243,6 +244,7 @@
 		A1000001294A0000000000000 /* HealthApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HealthApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000002294A0000000000001 /* HealthAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthAppApp.swift; sourceTree = "<group>"; };
 		A1000004294A0000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		PRIVACYMANIFEST000FILE001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A1000006294A0000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateBloodTestCandidate.swift; sourceTree = "<group>"; };
 		A1000008294A0000000000001 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
@@ -417,6 +419,7 @@
 				A1000006294A0000000000001 /* Assets.xcassets */,
 				ENT123456789ENTITLE0001 /* HealthApp.entitlements */,
 				INFOPLIST0000000000PLIST1 /* Info.plist */,
+				PRIVACYMANIFEST000FILE001 /* PrivacyInfo.xcprivacy */,
 				A1000009294A0000000000002 /* Preview Content */,
 			);
 			path = HealthApp;
@@ -758,6 +761,7 @@
 			files = (
 				A1000007294A0000000000001 /* Preview Assets.xcassets in Resources */,
 				A1000005294A0000000000001 /* Assets.xcassets in Resources */,
+				PRIVACYMANIFEST00BUILD001 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
