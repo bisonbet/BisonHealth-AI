@@ -525,6 +525,28 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             throw MLXOnDeviceError.modelNotDownloaded
         }
 
+        // Load from the directory the download manager wrote, never from the Hub id.
+        //
+        // A `ModelConfiguration(id:)` sends MLX through `hub.snapshot`, which lists the repo
+        // and HEADs every matching file on huggingface.co on *every* load — and each return
+        // from the background reloads the model, because `suspendForBackground` unloads it.
+        // Worse, that call can silently re-download a multi-gigabyte shard with no progress
+        // UI while this task holds `MLXGPUGate`, and its offline branch throws for any file
+        // it has no Hub metadata for rather than using the copy already on disk. Downloading
+        // at home and then asking a question in airplane mode failed outright.
+        //
+        // The directory form resolves to the local path with no network at all, and the
+        // tokenizer is read from the same folder. This manager downloads tokenizer.model and
+        // every .json itself, so the folder is complete where the library's own globs were
+        // not (that gap is why MedGemma could never load offline).
+        guard let modelDirectory = MLXModelDownloadManager.shared.localModelDirectory(for: selectedModel) else {
+            AppLog.shared.mlx(
+                "[MLXClient] \(selectedModel.displayName) is flagged as downloaded but its files are missing or incomplete",
+                level: .warning
+            )
+            throw MLXOnDeviceError.modelNotDownloaded
+        }
+
         AppLog.shared.mlx("[MLXClient] Loading model: \(selectedModel.displayName) (\(selectedModel.huggingFaceId))")
 
         // Keep retained MLX cache small on iPhone. VLM inference has large
@@ -535,7 +557,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         MLX.Memory.cacheLimit = cacheLimit
 
         let configuration = ModelConfiguration(
-            id: selectedModel.huggingFaceId,
+            directory: modelDirectory,
             extraEOSTokens: selectedModel.extraEOSTokens
         )
 

@@ -305,6 +305,19 @@ class MLXModelDownloadManager: ObservableObject {
         downloadedModelIds.contains(model.id)
     }
 
+    /// The directory this manager downloaded `model` into, or nil if it holds no usable model.
+    ///
+    /// The load path needs the directory rather than the Hugging Face id. Configured with an
+    /// id, MLX asks the Hub to resolve the repo on *every* load — which contacts
+    /// huggingface.co, and in airplane mode throws instead of using the files already on
+    /// disk. This manager downloads the files itself, so it is the one that knows where they
+    /// are; `isModelDownloaded` only reports the persisted flag, which can outlive the files.
+    func localModelDirectory(for model: MLXModelInfo) -> URL? {
+        let directory = huggingFaceCacheDirectory(for: model)
+        guard isModelCacheValid(at: directory) else { return nil }
+        return directory
+    }
+
     /// Delete a downloaded model's cached files.
     ///
     /// Removes both the snapshot directory and the Hub blob store, which each hold a full copy
