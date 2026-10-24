@@ -51,9 +51,43 @@ class AIChatManager: ObservableObject {
         AIProviderContextLimits.limit(for: settingsManager.modelPreferences.aiProvider)
     }
     
-    /// Context compression threshold (90% of limit to allow some headroom)
+    /// The most the current provider may spend on one answer, which has to be reserved
+    /// before deciding how much of the patient's record will fit beside it.
+    private var replyTokenReserve: Int {
+        switch settingsManager.modelPreferences.aiProvider {
+        case .onDeviceLLM:
+            return MLXModelInfo.configuredMaxTokens
+        case .openAICompatible:
+            return settingsManager.openAICompatibleMaxTokens
+        case .bedrock:
+            return AIChatManager.bedrockReplyTokenReserve
+        }
+    }
+
+    /// Matches the `maxTokens` in `SettingsManager.getBedrockClient()`.
+    static let bedrockReplyTokenReserve = 4096
+
+    /// How many tokens of patient data are allowed before the context is compressed.
+    ///
+    /// This was a flat 90% of the window, which is survivable on a 200k cloud window and
+    /// wrong on a 16k on-device one: it let patient data take ~14,700 tokens and left
+    /// ~1,600 for the persona, the safety rules, the question *and* a reply of up to 4,096
+    /// tokens. The window then overflowed within an exchange or two and the on-device KV
+    /// cache evicted from the head — persona, patient data, and the rules with them. See
+    /// `MLXContextBudget`.
+    ///
+    /// The budget subtracts the fixed costs first. The old 90% is kept as a ceiling so a
+    /// large cloud window does not become *looser* than it was.
     private var contextCompressionThreshold: Int {
-        Int(Double(contextSizeLimit) * 0.9)
+        Self.patientDataThreshold(contextSizeLimit: contextSizeLimit, replyReserve: replyTokenReserve)
+    }
+
+    /// The rule itself, pure and static so it is unit-testable — the same reason
+    /// `compressedContext` is. (internal for regression tests; @testable access)
+    static func patientDataThreshold(contextSizeLimit: Int, replyReserve: Int) -> Int {
+        let ceiling = Int(Double(contextSizeLimit) * 0.9)
+        let budget = MLXContextBudget(window: contextSizeLimit, replyReserve: replyReserve)
+        return min(ceiling, budget.patientDataAllowance)
     }
     
     // MARK: - Context Management

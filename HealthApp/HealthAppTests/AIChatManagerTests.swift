@@ -373,3 +373,103 @@ final class ErrorHandlerTests: XCTestCase {
         XCTAssertEqual(handler.currentError?.message, "save failed", "The retry's own failure must reach the user")
     }
 }
+
+// MARK: - On-device Context Budget
+//
+// MLX is compiled out of the simulator, so none of the client's generation code runs in a
+// test run. The budget arithmetic is deliberately a dependency-free value type precisely so
+// that this — the part that decides whether the safety rules stay in the window — can be
+// checked here rather than only on a device.
+@MainActor
+final class MLXContextBudgetTests: XCTestCase {
+
+    func testFixedCostsAreReservedBeforePatientData() {
+        // The old rule was a flat 90% of the window: 14,745 tokens of patient data out of
+        // 16,384, leaving 1,639 for persona, rules, question and a reply of up to 4,096.
+        let budget = MLXContextBudget(window: 16_384, replyReserve: 4_096)
+
+        XCTAssertEqual(
+            budget.patientDataAllowance,
+            16_384 - 4_096 - MLXContextBudget.defaultInstructionReserve - MLXContextBudget.defaultHistoryReserve
+        )
+        XCTAssertLessThan(
+            budget.patientDataAllowance,
+            Int(Double(16_384) * 0.9),
+            "The budget must be stricter than the 90% rule it replaces, or it changes nothing"
+        )
+        XCTAssertFalse(budget.isOversubscribed)
+    }
+
+    func testEverythingFitsInsideTheWindow() {
+        let budget = MLXContextBudget(window: 16_384, replyReserve: 1_200)
+        let total = budget.patientDataAllowance
+            + budget.replyReserve
+            + budget.instructionReserve
+            + budget.historyReserve
+
+        XCTAssertLessThanOrEqual(total, budget.window, "A budget that overflows its own window is no budget")
+    }
+
+    func testATightWindowStillLeavesSomeRoomForPatientData() {
+        // A 4k window cannot seat a 4k reply plus the reserves. Patient data must not go to
+        // zero — an assistant with none of the record is worse than one with a little.
+        let budget = MLXContextBudget(window: 4_096, replyReserve: 4_096)
+
+        XCTAssertEqual(budget.patientDataAllowance, MLXContextBudget.minimumPatientDataAllowance)
+        XCTAssertTrue(budget.isOversubscribed, "The caller can tell that eviction is now unavoidable")
+    }
+
+    func testTheNextTurnIsDetectedBeforeItOverflows() {
+        let budget = MLXContextBudget(window: 16_384, replyReserve: 1_200)
+
+        XCTAssertFalse(
+            budget.nextTurnWouldOverflow(promptTokens: 8_000, generatedTokens: 400),
+            "Mid-window turns must not throw away a warm session"
+        )
+        XCTAssertTrue(
+            budget.nextTurnWouldOverflow(promptTokens: 15_000, generatedTokens: 400),
+            "Once the reply reserve no longer fits, the session has to be rebuilt"
+        )
+    }
+
+    func testTheOnDeviceThresholdIsTighterWhileCloudWindowsAreUnchanged() {
+        // This is the wiring, not just the arithmetic: the compressor asks for this number.
+        let onDevice = AIChatManager.patientDataThreshold(contextSizeLimit: 16_384, replyReserve: 4_096)
+        let ninetyPercentOfOnDevice = Int(Double(16_384) * 0.9)
+
+        XCTAssertEqual(onDevice, 11_008)
+        XCTAssertLessThan(
+            onDevice,
+            ninetyPercentOfOnDevice,
+            "On a 16k window the fixed costs have to bind, or the rules keep getting evicted"
+        )
+
+        // A 200k cloud window has room for the reserves many times over, so the long-standing
+        // 90% ceiling must still be what applies — this fix must not loosen Bedrock.
+        let bedrock = AIChatManager.patientDataThreshold(
+            contextSizeLimit: 200_000,
+            replyReserve: AIChatManager.bedrockReplyTokenReserve
+        )
+        XCTAssertEqual(bedrock, Int(Double(200_000) * 0.9))
+    }
+
+    func testTheRealInstructionTextFitsItsReserve() {
+        // The reserve is a constant, so this is what stops it drifting: if the rules or a
+        // persona grow past it, the budget silently starts squeezing patient data instead,
+        // and this test fails first.
+        let rules = MLXOnDeviceClient.compactChatRules(maxTokens: 4_096)
+        let longestPersona = Doctor.defaultDoctors
+            .map(\.compactSystemPrompt)
+            .max(by: { $0.count < $1.count }) ?? ""
+
+        let estimated = ConversationContextBuilder.estimateTokens(rules)
+            + ConversationContextBuilder.estimateTokens(longestPersona)
+            + ConversationContextBuilder.estimateTokens(MLXOnDeviceClient.rulesReminder)
+
+        XCTAssertLessThanOrEqual(
+            estimated,
+            MLXContextBudget.defaultInstructionReserve,
+            "Persona + rules + reminder must fit the instruction reserve (measured \(estimated))"
+        )
+    }
+}

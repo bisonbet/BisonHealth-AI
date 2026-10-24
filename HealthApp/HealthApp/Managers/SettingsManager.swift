@@ -173,6 +173,14 @@ class SettingsManager: ObservableObject {
     @Published var openAICompatibleAPIKey = ServerConfigurationConstants.defaultOpenAICompatibleAPIKey
     @Published var openAICompatibleContextSize: Int = 32768  // Default: 32k tokens
 
+    /// The most this provider may spend on one answer. Read here as well as when the client
+    /// is built, because context budgeting has to reserve room for the reply before it
+    /// decides how much of the patient's record will fit.
+    var openAICompatibleMaxTokens: Int {
+        let configured = UserDefaults.standard.integer(forKey: "openAICompatibleMaxTokens")
+        return configured > 0 ? configured : ServerConfigurationConstants.defaultOpenAICompatibleMaxTokens
+    }
+
     // Connection statuses
     @Published var openAICompatibleStatus: ConnectionStatus = .unknown
 
@@ -470,11 +478,10 @@ class SettingsManager: ObservableObject {
         let client: OpenAICompatibleClient
         if openAICompatibleClient == nil {
             let temperature = UserDefaults.standard.double(forKey: "openAICompatibleTemperature")
-            let maxTokens = UserDefaults.standard.integer(forKey: "openAICompatibleMaxTokens")
 
             // Use defaults if not set
             let finalTemperature = temperature == 0 ? 0.1 : temperature
-            let finalMaxTokens = maxTokens == 0 ? 2048 : maxTokens
+            let finalMaxTokens = openAICompatibleMaxTokens
 
             AppLog.shared.settings("Creating new OpenAICompatibleClient:")
             AppLog.shared.settings("   baseURL: [configured]")

@@ -76,6 +76,77 @@ enum MLXResponseBudget {
         "_This response was cut short because it began repeating itself. Ask “continue” or rephrase for the rest._"
 }
 
+// MARK: - Context Budget
+
+/// How a fixed context window is divided between the parts of a prompt.
+///
+/// The on-device window is small and hard. `GenerateParameters.maxKVSize` builds a
+/// `RotatingKVCache(maxSize:keep: 4)`, which holds the first four tokens and evicts the
+/// *oldest* of the rest. Eviction therefore starts at the head of the prompt and works
+/// forwards — persona, then `PATIENT_DATA`, then the operational rules at the end of the
+/// system block — while the newest conversation turns are always kept, and nothing anywhere
+/// reports that it happened.
+///
+/// Sizing patient data at a flat fraction of the window guaranteed that overflow. A
+/// 16,384-token window allowed ~14,700 tokens of patient data, leaving ~1,600 for the
+/// persona, the rules, the question and a reply of up to 4,096 tokens: the first or second
+/// exchange pushed past the window, and the safety rules — treat patient data as facts, do
+/// not tell the user to change a medicine or dose — were evicted with everything else at the
+/// head. Budgeting the fixed costs *first* is what keeps them resident.
+///
+/// Deliberately a plain value type with no dependencies: MLX itself is compiled out of the
+/// simulator, so arithmetic that lives here is the only part of this fix a simulator test
+/// run can check.
+struct MLXContextBudget: Equatable {
+    /// The whole usable window, in tokens (`maxKVSize` for the on-device provider).
+    let window: Int
+    /// Tokens the model may spend on its answer (`maxTokens`).
+    let replyReserve: Int
+    /// Persona plus the operational rules block.
+    let instructionReserve: Int
+    /// Room kept for the question and at least one previous exchange.
+    let historyReserve: Int
+
+    /// Persona and rules together. `MLXContextBudgetTests` asserts the real strings fit,
+    /// so growing the rules fails a test rather than silently squeezing patient data.
+    static let defaultInstructionReserve = 768
+    /// The question plus one prior exchange.
+    static let defaultHistoryReserve = 512
+    /// A window this tight cannot honour the reserves; patient data still gets this much,
+    /// because an assistant with no record at all is of no use to anyone.
+    static let minimumPatientDataAllowance = 512
+
+    init(
+        window: Int,
+        replyReserve: Int,
+        instructionReserve: Int = MLXContextBudget.defaultInstructionReserve,
+        historyReserve: Int = MLXContextBudget.defaultHistoryReserve
+    ) {
+        self.window = window
+        self.replyReserve = replyReserve
+        self.instructionReserve = instructionReserve
+        self.historyReserve = historyReserve
+    }
+
+    /// Tokens patient data may occupy before it has to be compressed.
+    var patientDataAllowance: Int {
+        let fixedCosts = replyReserve + instructionReserve + historyReserve
+        return max(Self.minimumPatientDataAllowance, window - fixedCosts)
+    }
+
+    /// True when a window this size cannot seat its own fixed costs, so the allowance is
+    /// the floor rather than a real budget and some eviction is unavoidable.
+    var isOversubscribed: Bool {
+        window - (replyReserve + instructionReserve + historyReserve) < Self.minimumPatientDataAllowance
+    }
+
+    /// True when the turn just finished leaves no room for the next one, so the cached
+    /// session should be dropped and its instructions re-prefilled instead of evicted.
+    func nextTurnWouldOverflow(promptTokens: Int, generatedTokens: Int) -> Bool {
+        promptTokens + generatedTokens + replyReserve > window
+    }
+}
+
 // MARK: - Model Info
 
 /// Represents an MLX on-device model available for download
