@@ -1,0 +1,150 @@
+# CI for BisonHealth AI.
+#
+# ⚠️ NEVER EXECUTED. This file was written without access to GitHub Actions, so the runner
+# image, the Xcode version it carries and the simulator names it provides are all unverified.
+# The first run is expected to need adjustment — which is why the `environment` job prints
+# what the runner actually has instead of leaving a failure to be guessed at.
+#
+# What each job is for, and why it is not just "run the tests":
+#
+#   lint      — SwiftLint has a known baseline of 5 pre-existing violations and must run from
+#               HealthApp/, where .swiftlint.yml lives. From the repository root it finds no
+#               config and reports ~61. This job fails on a *new* violation, which has drifted
+#               twice by hand already.
+#   test      — PreRelease (everything) on main, Fast (unit only) on a pull request.
+#               PreRelease is the scheme's *default*, so a bare `xcodebuild test` runs the
+#               complete suite: defaulting to Fast would have silently stopped covering the
+#               UI tests locally, and miscounted tests have already cost time here. The
+#               count is read from the .xcresult, not
+#               stdout: stdout prints only the UI tests because the unit bundle is
+#               parallelized, so a stdout-based gate silently passes on 2 tests.
+#   typecheck — a device build. HealthApp/HealthApp/MLXOnDeviceLLM/ wraps the bodies that load
+#               a model, generate and transfer bytes in `#if !targetEnvironment(simulator)`,
+#               so the simulator compiles stubs and an error in them never surfaces. This is
+#               the only job that compiles that code. It may need the Metal toolchain, which
+#               mlx's Cmlx target requires and which is a separate download.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: HealthApp/HealthApp.xcodeproj
+  SCHEME: HealthApp
+  SIMULATOR: platform=iOS Simulator,name=iPhone 17 Pro
+
+jobs:
+  environment:
+    name: Report the runner's toolchain
+    runs-on: macos-15
+    steps:
+      - name: Xcode versions available
+        run: ls /Applications | grep -i '^Xcode' || echo "no Xcode found"
+      - name: Selected Xcode
+        run: xcodebuild -version
+      - name: Installed simulator runtimes
+        run: xcrun simctl list runtimes
+      - name: iPhone simulators available
+        run: xcrun simctl list devices available | grep -i iphone || true
+
+  lint:
+    name: SwiftLint (baseline 5)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Lint from HealthApp/, where the config lives
+        working-directory: HealthApp
+        run: |
+          set -o pipefail
+          swiftlint lint --quiet | tee /tmp/lint.txt || true
+          COUNT=$(grep -c . /tmp/lint.txt || true)
+          echo "violations: $COUNT (baseline 5)"
+          if [ "$COUNT" -gt 5 ]; then
+            echo "::error::SwiftLint reported $COUNT violations, above the baseline of 5"
+            cat /tmp/lint.txt
+            exit 1
+          fi
+
+  test:
+    name: Tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache resolved packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: spm-${{ hashFiles('HealthApp/HealthApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      - name: Resolve dependencies
+        run: xcodebuild -project "$PROJECT" -scheme "$SCHEME" -resolvePackageDependencies
+
+      - name: Choose the plan — Fast on a pull request, everything on main
+        id: plan
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "name=Fast" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=PreRelease" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the test plan
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -testPlan '${{ steps.plan.outputs.name }}' \
+            -destination "$SIMULATOR" \
+            -resultBundlePath /tmp/HealthApp.xcresult
+
+      - name: Report the real test count
+        if: always()
+        run: |
+          # stdout is not the source of truth here; the result bundle is. A heredoc rather
+          # than `python3 -c`, because the quote nesting in a one-liner inside YAML inside
+          # shell does not survive — the first version of this step was broken.
+          xcrun xcresulttool get test-results summary --path /tmp/HealthApp.xcresult > /tmp/summary.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/summary.json'))
+          print('total', d.get('totalTestCount'),
+                'passed', d.get('passedTests'),
+                'failed', d.get('failedTests'))
+          PY
+
+      - name: Keep the result bundle when something failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: /tmp/HealthApp.xcresult
+
+  typecheck:
+    name: Device build (the only one that compiles MLX)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve dependencies
+        run: xcodebuild -project "$PROJECT" -scheme "$SCHEME" -resolvePackageDependencies
+      - name: Build for a generic iOS device, unsigned
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination 'generic/platform=iOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build

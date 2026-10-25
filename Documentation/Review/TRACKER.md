@@ -50,8 +50,16 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    owner, not a flag to flip (see below).
 4. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
    without a device, so pair it with W-C.
-5. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and
-   unblocks W-R.
+5. ~~**W-I**~~ — **mostly done 2026-10-25.** Two shared test plans in
+   `HealthApp/TestPlans/` (**PreRelease** = unit + UI + coverage, the scheme's default so a
+   bare `xcodebuild test` still runs everything; **Fast** = unit only, for pull requests),
+   `.github/workflows/ci.yml` with lint/test/device-build jobs, and `ExportOptions.plist`.
+   Verified locally: both plans resolve and run the right counts (346 vs 348), the lint gate
+   catches a sixth violation, and the bare invocation still covers 348.
+   **Left for the owner: the Apple Distribution identity** — without it no signed export can
+   be produced, so `ExportOptions.plist`'s `method` is unvalidated. **The workflow has never
+   executed**; its first job prints the runner's toolchain so the first run diagnoses itself.
+   **W-R is unblocked.**
 6. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
    fail. WS-15 proved nine injected regressions leave the suite green; this is the item that
    makes the suite mean something.

@@ -1,0 +1,31 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1F2C3D4-0001-4000-8000-000000000001",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:HealthApp.xcodeproj",
+      "identifier" : "A1000000294A0000000000001",
+      "name" : "HealthApp"
+    },
+    "testTimeoutsEnabled" : true,
+    "maximumTestExecutionTimeAllowance" : 180
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:HealthApp.xcodeproj",
+        "identifier" : "A1000037294A0000000000001",
+        "name" : "HealthAppTests"
+      }
+    }
+  ],
+  "version" : 1
+}

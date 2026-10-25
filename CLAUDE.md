@@ -434,7 +434,41 @@ xcrun xcresulttool get test-results summary --path /tmp/HealthApp.xcresult
 cd HealthApp
 xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp \
   -destination 'platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.5'
+
+# Unit tests only, skipping the UI bundle (what CI runs on a pull request)
+cd HealthApp
+xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -testPlan Fast \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
 ```
+
+### Test plans
+
+Two shared plans live in `HealthApp/TestPlans/`:
+
+| Plan | Contents | Used by |
+|---|---|---|
+| **PreRelease** | unit + UI, code coverage on | the scheme's **default**, so a bare `xcodebuild test` runs everything; CI on `main` |
+| **Fast** | unit only | CI on a pull request, and local iteration |
+
+PreRelease is the default on purpose. Defaulting to Fast would mean a bare `xcodebuild test`
+silently stopped covering the UI tests, and misreading what ran has already cost time in this
+project.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs lint, tests and a device build. **It has never executed** —
+it was written without access to GitHub Actions, so the runner image, its Xcode version and
+its simulator names are unverified. The first job in it prints what the runner actually has,
+so the first run diagnoses itself. The device-build job may need the Metal toolchain, which
+mlx's `Cmlx` target requires and which is a separate download.
+
+### Release
+
+`Scripts/archive.sh` sets the build number from the commit count. `ExportOptions.plist` holds
+the export settings for `xcodebuild -exportArchive`. **Neither has produced a signed,
+uploadable build yet**: the keychain has an Apple Development identity and no Apple
+Distribution identity. The `method` value in particular is unverified — Apple renamed
+`app-store` to `app-store-connect` and which one a given Xcode accepts has changed.
 
 To inspect the current source and test-file counts:
 

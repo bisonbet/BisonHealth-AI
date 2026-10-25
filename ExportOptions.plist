@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Options for `xcodebuild -exportArchive`, which is the step between
+	  `Scripts/archive.sh` and an upload. Without this file that command has to be given
+	  every option on the command line, which is how an upload ends up differing from the
+	  last one in ways nobody recorded.
+
+	  ⚠️ NOT YET USED FOR A REAL EXPORT. The keychain holds an Apple Development identity
+	  and no Apple Distribution identity, so an App Store export cannot be produced on this
+	  machine yet. The values below are derived from the project's own settings, not from a
+	  successful run:
+	    - teamID matches DEVELOPMENT_TEAM in project.pbxproj
+	    - signingStyle matches CODE_SIGN_STYLE = Automatic
+	  Expect to adjust `method` if this Xcode reports it as unsupported; Apple renamed
+	  `app-store` to `app-store-connect`, and which one a given Xcode accepts has changed
+	  between versions.
+	-->
+
+	<key>method</key>
+	<string>app-store-connect</string>
+
+	<key>teamID</key>
+	<string>4W55VW7UXX</string>
+
+	<!-- Let Xcode pick the distribution certificate and profile, matching the project. -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+
+	<!-- Symbols let App Store Connect symbolicate crash reports. The app has no
+	     crash-reporting SDK, so this is the only route to a readable crash. -->
+	<key>uploadSymbols</key>
+	<true/>
+
+	<!-- Export to disk rather than uploading, so the archive can be checked before it is
+	     sent. Change to `upload` only once an upload has succeeded at least once by hand. -->
+	<key>destination</key>
+	<string>export</string>
+
+	<!-- Bitcode has been removed from the toolchain; stating it avoids a warning on older
+	     Xcode versions and is harmless on newer ones. -->
+	<key>uploadBitcode</key>
+	<false/>
+
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>
