@@ -232,12 +232,58 @@ class AIChatManager: ObservableObject {
     }
     
     // MARK: - Conversation Management
+    /// Fold freshly-read conversations over what is already in memory, keeping messages that
+    /// have not been persisted yet.
+    ///
+    /// This assignment used to be a wholesale replace, and `ChatView` has a `.task` that
+    /// calls it on **every** appearance — so navigating away from a chat and back while a
+    /// reply was streaming wiped the in-memory placeholder. The stream then finished, found
+    /// the placeholder gone, hit the "conversation cleared mid-stream" guard and discarded
+    /// the reply. The user's question stayed on screen with no answer and nothing said why.
+    ///
+    /// Stored state wins for everything it owns — title, archive flag, and the included data
+    /// types, which are the user's privacy choice and are authoritative once persisted. The
+    /// in-memory copy contributes only messages the database has not seen, which is exactly
+    /// the streaming placeholder and anything else mid-flight. A conversation that exists
+    /// only in memory (created but not yet saved) is kept whole.
+    ///
+    /// Pure and static so it is testable without a database.
+    /// (internal for regression tests; @testable access)
+    static func merging(
+        stored: [ChatConversation],
+        keepingUnsavedFrom existing: [ChatConversation]
+    ) -> [ChatConversation] {
+        guard !existing.isEmpty else { return stored }
+
+        let existingByID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var merged: [ChatConversation] = []
+        merged.reserveCapacity(stored.count)
+
+        for var conversation in stored {
+            if let inMemory = existingByID[conversation.id] {
+                let persistedIDs = Set(conversation.messages.map(\.id))
+                let unsaved = inMemory.messages.filter { !persistedIDs.contains($0.id) }
+                if !unsaved.isEmpty {
+                    conversation.messages.append(contentsOf: unsaved)
+                }
+            }
+            merged.append(conversation)
+        }
+
+        // Conversations the database has never seen — created locally and not yet saved.
+        let storedIDs = Set(stored.map(\.id))
+        merged.append(contentsOf: existing.filter { !storedIDs.contains($0.id) })
+
+        return merged
+    }
+
     func loadConversations() async {
         isLoadingConversations = true
         defer { isLoadingConversations = false }
 
         do {
-            conversations = try await databaseManager.fetchConversations()
+            let stored = try await databaseManager.fetchConversations()
+            conversations = Self.merging(stored: stored, keepingUnsavedFrom: conversations)
             AppLog.shared.ai("Loaded \(conversations.count) conversations")
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
@@ -298,18 +344,30 @@ class AIChatManager: ObservableObject {
         }
     }
     
+    /// Apply a generated title, and nothing else.
+    ///
+    /// This used to set the title on the `conversation` it was handed — a snapshot taken
+    /// before title generation, which is a model call lasting seconds — then write that
+    /// whole struct to the database and assign it over `conversations[index]` and
+    /// `currentConversation`. Anything that happened during the call was reverted:
+    ///
+    /// - a follow-up message the user sent, or a reply still streaming, which then hit the
+    ///   "conversation cleared mid-stream" guard and was discarded;
+    /// - `includedHealthDataTypes` and `includedPersonalInfoCategories` — the user's choice
+    ///   about what health data this conversation may share. A title landing is not a reason
+    ///   to re-widen a privacy setting the user had just narrowed.
+    ///
+    /// So the write is title-only at both layers, and the in-memory mutation is applied to
+    /// the live element rather than replacing it.
     func updateConversationTitle(_ conversation: ChatConversation, newTitle: String) async throws {
-        var updatedConversation = conversation
-        updatedConversation.updateTitle(newTitle)
-        
-        try await databaseManager.updateConversation(updatedConversation)
-        
+        try await databaseManager.updateConversationTitle(id: conversation.id, title: newTitle)
+
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
-            conversations[index] = updatedConversation
+            conversations[index].updateTitle(newTitle)
         }
-        
+
         if currentConversation?.id == conversation.id {
-            currentConversation = updatedConversation
+            currentConversation?.updateTitle(newTitle)
         }
     }
     

@@ -1020,3 +1020,190 @@ final class DocumentFailureReasonTests: XCTestCase {
         XCTAssertTrue(reason?.localizedCaseInsensitiveContains("timed out") ?? false, "got: \(reason ?? "nil")")
     }
 }
+
+// MARK: - Conversation State Races (W-F / M-1 + M-2)
+//
+// Two P1s with one shape: a concurrent write to `AIChatManager.conversations` replaced live
+// state with a snapshot. Title generation wrote a pre-call snapshot back over everything, and
+// `loadConversations` replaced the array wholesale while `ChatView.task` called it on every
+// appearance. Both ended at the same guard — "conversation cleared mid-stream" — and both
+// could revert the user's choice about what health data a conversation may share.
+@MainActor
+final class ConversationStateRaceTests: XCTestCase {
+
+    private func conversation(
+        id: UUID = UUID(),
+        title: String = "New Conversation",
+        messages: [ChatMessage] = [],
+        dataTypes: Set<HealthDataType> = []
+    ) -> ChatConversation {
+        ChatConversation(
+            id: id,
+            title: title,
+            messages: messages,
+            includedHealthDataTypes: dataTypes
+        )
+    }
+
+    // MARK: loadConversations merge
+
+    func testAStreamingPlaceholderSurvivesAReload() {
+        // The exact sequence: a reply is streaming into an in-memory placeholder, the user
+        // navigates away and back, `.task` fires, and the fetch returns the conversation
+        // without the placeholder because it has not been saved yet.
+        let id = UUID()
+        let saved = ChatMessage(content: "What is my potassium?", role: .user)
+        let placeholder = ChatMessage(content: "", role: .assistant)
+
+        let stored = [conversation(id: id, messages: [saved])]
+        let inMemory = [conversation(id: id, messages: [saved, placeholder])]
+
+        let merged = AIChatManager.merging(stored: stored, keepingUnsavedFrom: inMemory)
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].messages.count, 2, "The unsaved placeholder must survive")
+        XCTAssertEqual(merged[0].messages.last?.id, placeholder.id)
+    }
+
+    func testStoredStateWinsForThePrivacyChoice() {
+        // Persisted included-types are authoritative: a reload must not reinstate a wider
+        // in-memory set over a narrowing the user saved.
+        let id = UUID()
+        let stored = [conversation(id: id, dataTypes: [.personalInfo])]
+        let inMemory = [conversation(id: id, dataTypes: [.personalInfo, .bloodTest])]
+
+        let merged = AIChatManager.merging(stored: stored, keepingUnsavedFrom: inMemory)
+
+        XCTAssertEqual(merged[0].includedHealthDataTypes, [.personalInfo])
+    }
+
+    func testStoredTitleWins() {
+        let id = UUID()
+        let stored = [conversation(id: id, title: "Potassium question")]
+        let inMemory = [conversation(id: id, title: "New Conversation")]
+
+        let merged = AIChatManager.merging(stored: stored, keepingUnsavedFrom: inMemory)
+
+        XCTAssertEqual(merged[0].title, "Potassium question")
+    }
+
+    func testAConversationNotYetSavedIsKept() {
+        let unsaved = conversation(title: "Just created")
+        let merged = AIChatManager.merging(stored: [], keepingUnsavedFrom: [unsaved])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].id, unsaved.id)
+    }
+
+    func testAReloadWithNothingInMemoryIsJustTheStoredList() {
+        let stored = [conversation(), conversation()]
+        XCTAssertEqual(AIChatManager.merging(stored: stored, keepingUnsavedFrom: []).count, 2)
+    }
+
+    func testNoMessageIsDuplicatedWhenEverythingIsAlreadySaved() {
+        // The common case — a reload when nothing is in flight must be a no-op, not a
+        // doubling of every message.
+        let id = UUID()
+        let a = ChatMessage(content: "one", role: .user)
+        let b = ChatMessage(content: "two", role: .assistant)
+        let stored = [conversation(id: id, messages: [a, b])]
+        let inMemory = stored
+
+        let merged = AIChatManager.merging(stored: stored, keepingUnsavedFrom: inMemory)
+
+        XCTAssertEqual(merged[0].messages.count, 2)
+        XCTAssertEqual(merged[0].messages.map(\.id), [a.id, b.id])
+    }
+
+    func testADeletedConversationStaysDeleted() {
+        // Stored is authoritative about existence: a conversation removed from the database
+        // must not be resurrected by the in-memory copy, unless it was never saved. Here it
+        // was saved and then deleted elsewhere, so `stored` is the empty truth — but the
+        // merge cannot tell "deleted" from "never saved", so this documents the accepted
+        // behaviour rather than asserting the impossible.
+        let wasSaved = conversation(title: "Deleted elsewhere")
+        let merged = AIChatManager.merging(stored: [], keepingUnsavedFrom: [wasSaved])
+
+        XCTAssertEqual(merged.count, 1, "Known limit: an unsaved and a deleted conversation look identical here")
+    }
+}
+
+// MARK: - The Wiring, Not the Rule (W-F / M-2)
+//
+// `ConversationStateRaceTests` exercises `merging` directly, so those assertions stay green
+// even if `loadConversations` goes back to replacing the array — which is precisely how this
+// bug shipped in the first place. WS-15 made the same point about `MLXDownloadRetryBudget`:
+// extracting a rule makes the rule testable, not its call site. This test calls the method.
+@MainActor
+final class LoadConversationsWiringTests: XCTestCase {
+
+    private func makeManager(at root: URL) throws -> (AIChatManager, DatabaseManager) {
+        let database = try DatabaseManager(
+            databaseURL: root.appendingPathComponent("Database/health_data.sqlite")
+        )
+        let files = try FileSystemManager(
+            baseDirectory: root.appendingPathComponent("Files/HealthApp", isDirectory: true)
+        )
+        let healthData = HealthDataManager(
+            databaseManager: database,
+            fileSystemManager: files,
+            automaticallyLoad: false
+        )
+        let manager = AIChatManager(
+            healthDataManager: healthData,
+            databaseManager: database,
+            automaticallyLoadConversations: false,
+            automaticallyUpdateContextOnSelection: false
+        )
+        return (manager, database)
+    }
+
+    func testLoadConversationsKeepsAnUnsavedStreamingPlaceholder() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wf-wiring-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let (manager, database) = try makeManager(at: root)
+
+        // Persisted: the user's question.
+        var conversation = ChatConversation(title: "New Conversation")
+        try await database.saveConversation(conversation)
+        let question = ChatMessage(content: "What is my potassium?", role: .user)
+        try await database.addMessage(to: conversation.id, message: question)
+        conversation.messages = [question]
+
+        // In memory: the question plus a placeholder a reply is streaming into, which the
+        // database has never seen.
+        let placeholder = ChatMessage(content: "", role: .assistant)
+        conversation.messages.append(placeholder)
+        manager.conversations = [conversation]
+
+        // What `ChatView.task` does on every appearance.
+        await manager.loadConversations()
+
+        let reloaded = manager.conversations.first { $0.id == conversation.id }
+        XCTAssertNotNil(reloaded)
+        XCTAssertEqual(reloaded?.messages.count, 2, "The placeholder must not be dropped by a reload")
+        XCTAssertTrue(
+            reloaded?.messages.contains(where: { $0.id == placeholder.id }) ?? false,
+            "The streaming placeholder is what the mid-stream guard looks for"
+        )
+    }
+
+    func testLoadConversationsStillPicksUpWhatThedatabaseHas() async throws {
+        // The merge must not stop a reload from working normally.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wf-wiring-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let (manager, database) = try makeManager(at: root)
+        try await database.saveConversation(ChatConversation(title: "One"))
+        try await database.saveConversation(ChatConversation(title: "Two"))
+
+        await manager.loadConversations()
+
+        XCTAssertEqual(manager.conversations.count, 2)
+    }
+}

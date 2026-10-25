@@ -21,9 +21,15 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
 
 ### Best next engineering work, in order
 
-1. **W-F** — `AIChatManager` + `ContentView`. Two P1s in one work item: a stale title
-   snapshot clobbers live state, which drops a follow-up message *and* reverts a privacy
-   opt-out. Highest-value open bug. Blocks W-G and W-S (same files).
+1. ~~**W-F**~~ — **done 2026-10-25.** The title write is now title-only at both layers
+   (`DatabaseManager.updateConversationTitle(id:title:)`), so a generated title can no longer
+   revert `includedHealthDataTypes` / `includedPersonalInfoCategories` — the user's choice
+   about what health data a conversation may share — or drop a message sent during the
+   seconds-long model call. And `loadConversations` merges instead of replacing, so
+   `ChatView.task` firing on every appearance can no longer orphan a streaming placeholder
+   into the "conversation cleared mid-stream" guard. Stored state stays authoritative for
+   everything it owns; the in-memory copy contributes only messages the database has not seen.
+   **W-G and W-S are unblocked** (they share these files).
 2. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
    without a device, so pair it with W-C.
 3. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and

@@ -115,6 +115,31 @@ extension DatabaseManager {
     }
     
     // MARK: - Update Conversation
+    /// Write only the title.
+    ///
+    /// `updateConversation` writes every mutable column, including
+    /// `included_data_types` and `included_personal_info` — the user's choice about what
+    /// health data a conversation may share. Title generation runs a model call that takes
+    /// seconds and then wrote a pre-call snapshot back through that method, so a privacy
+    /// narrowing made during the call was silently reverted by the title landing. A title is
+    /// not worth reverting a privacy decision, so it gets its own statement.
+    func updateConversationTitle(id: UUID, title: String, updatedAt: Date = Date()) async throws {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+
+        do {
+            let query = chatConversationsTable.filter(conversationId == id.uuidString)
+            let rowsUpdated = try db.run(query.update(
+                conversationTitle <- try encryptString(title).base64EncodedString(),
+                conversationUpdatedAt <- Int64(updatedAt.timeIntervalSince1970)
+            ))
+            if rowsUpdated == 0 {
+                throw DatabaseError.notFound
+            }
+        } catch {
+            throw error is DatabaseError ? error : DatabaseError.encryptionFailed
+        }
+    }
+
     func updateConversation(_ conversation: ChatConversation) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
         

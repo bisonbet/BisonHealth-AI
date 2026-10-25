@@ -487,3 +487,83 @@ final class MedicalDocumentWriteSafetyTests: XCTestCase {
         XCTAssertEqual(decoded.extractedText, "Potassium 5.9 mmol/L", "Everything else still round-trips")
     }
 }
+
+// MARK: - Title-only Write (W-F / M-1)
+//
+// Title generation is a model call lasting seconds. It used to write its pre-call snapshot
+// back through `updateConversation`, which writes every mutable column — including
+// `included_data_types` and `included_personal_info`, the user's choice about what health
+// data a conversation may share. A privacy narrowing made during the call was reverted by the
+// title landing. These tests are about that column set, not about the title.
+@MainActor
+final class ConversationTitleWriteTests: XCTestCase {
+
+    private let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("title-write-\(UUID().uuidString)", isDirectory: true)
+    private var databaseURL: URL { directory.appendingPathComponent("health_data.sqlite") }
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+        try super.tearDownWithError()
+    }
+
+    func testWritingATitleLeavesThePrivacyChoiceAlone() async throws {
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+
+        // Saved wide, as a conversation starts.
+        var conversation = ChatConversation(
+            title: "New Conversation",
+            includedHealthDataTypes: [.personalInfo, .bloodTest]
+        )
+        try await manager.saveConversation(conversation)
+
+        // The user narrows it while the title is being generated.
+        conversation.includedHealthDataTypes = [.personalInfo]
+        try await manager.updateConversation(conversation)
+
+        // The title lands, carrying a snapshot taken before the narrowing.
+        try await manager.updateConversationTitle(id: conversation.id, title: "Potassium question")
+
+        let stored = try await manager.fetchConversation(id: conversation.id)
+        XCTAssertEqual(stored?.title, "Potassium question", "The title must be applied")
+        XCTAssertEqual(
+            stored?.includedHealthDataTypes,
+            [.personalInfo],
+            "The narrowed privacy choice must survive the title write"
+        )
+    }
+
+    func testWritingATitleLeavesMessagesAlone() async throws {
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        let conversation = ChatConversation(title: "New Conversation")
+        try await manager.saveConversation(conversation)
+
+        try await manager.addMessage(
+            to: conversation.id,
+            message: ChatMessage(content: "a follow-up sent during generation", role: .user)
+        )
+        try await manager.updateConversationTitle(id: conversation.id, title: "Titled")
+
+        let stored = try await manager.fetchConversation(id: conversation.id)
+        XCTAssertEqual(stored?.messages.count, 1, "A message added during generation must survive")
+        XCTAssertEqual(stored?.title, "Titled")
+    }
+
+    func testTitlingAMissingConversationReportsRatherThanSilentlyDoingNothing() async throws {
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+
+        do {
+            try await manager.updateConversationTitle(id: UUID(), title: "Gone")
+            XCTFail("Expected notFound for a conversation that is not there")
+        } catch let error as DatabaseError {
+            guard case .notFound = error else {
+                return XCTFail("Expected notFound, got \(error)")
+            }
+        }
+    }
+}
