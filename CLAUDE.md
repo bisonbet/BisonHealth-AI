@@ -7,7 +7,7 @@
 - **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 6 language mode (strict concurrency) with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
-- **Database**: SQLite with CryptoKit encryption (current version: 13)
+- **Database**: SQLite with CryptoKit encryption (current version: 14)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: On-device (PDFKit + Vision OCR via `NativeDocumentExtractor`)
 - **Privacy**: Local-first. No iCloud/CloudKit *sync* of records, but see the backup note below — the encrypted database IS in device backups and the key DOES sync via iCloud Keychain, deliberately.
@@ -119,7 +119,7 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 13 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 14 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -135,10 +135,10 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 **Migration workflow**:
 ```swift
 // 1. Increment version
-private static let currentDatabaseVersion = 14  // Was 13
+private static let currentDatabaseVersion = 15  // Was 14
 
 // 2. Add migration case
-case 14:
+case 15:
     try db.run(table.addColumn(newColumn, defaultValue: ""))
     print("   ✓ Added newColumn to table")
 ```
@@ -146,7 +146,14 @@ case 14:
 **Always test**:
 - Fresh install (new database)
 - Upgrade (existing database migrates)
-- Data integrity post-migration
+- Data integrity post-migration — `DatabaseMigrationTests` in `HealthAppTests/DatabaseTests.swift`
+  is the harness for this: it builds the real current schema, winds it back, and reopens it.
+  Add a case there for every new version, and one proving the migration is safe to run twice.
+
+**And update this file in the same commit.** The version appears in three places here — Quick
+Facts, the line above, and Current project facts at the bottom. Both times this file has gone
+stale, it was a version bump that updated the code and not the docs; an agent then reads "13"
+and writes a migration against the wrong number.
 
 **Downgrades are refused, not crashed**: opening a database newer than
 `currentDatabaseVersion` throws `DatabaseError.incompatibleVersion`. `DatabaseManager.shared`
@@ -330,8 +337,8 @@ struct NewDataType: HealthDataProtocol {
 }
 
 // 3. Increment database version & add migration
-private static let currentDatabaseVersion = 14
-case 11:
+private static let currentDatabaseVersion = 15
+case 15:
     try db.run(newDataTypeTable.create { t in
         t.column(id, primaryKey: true)
         t.column(customField)
@@ -491,7 +498,7 @@ Before finishing:
 - Resolve packages: `xcodebuild -resolvePackageDependencies`
 
 **Simulator Issues**
-- Use iPhone 17 Pro or iPad Pro 11-inch (M4)
+- Use iPhone 17 Pro or iPad Pro 11-inch (M5) — no M4 simulator is installed
 - Install the required simulator runtime via Xcode > Settings > Platforms
 
 **Database Migration Errors**
@@ -560,7 +567,7 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Current project facts**:
-- Database version: 13
+- Database version: 14
 - iOS 26.0+ deployment target
 
 ---
