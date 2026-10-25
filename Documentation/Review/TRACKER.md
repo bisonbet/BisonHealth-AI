@@ -39,14 +39,23 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    `DocumentProcessor` beside `completeGeneticTestReview`, uses the processor's injected
    `healthDataManager` rather than the singleton, and the completion path awaits the stored
    row's deletion so a completed review cannot be re-offered next launch. **W-H is unblocked.**
-3. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
+3. ~~**W-H**~~ — **done 2026-10-25.** The grid is one `.adaptive` column instead of a
+   hardcoded four, and the tile fills its column instead of asserting a fixed 200 pt. The old
+   arithmetic really did overflow: 834 pt portrait gives a 188 pt column, and a Split View
+   half-pane gives ~80 pt. The dead iPad master-detail is **deleted**, not revived —
+   `embedInNavigation` was always false because `HealthTabView` is the only caller and
+   deliberately owns one nav bar, so `documentsSplitView`, `documentsStackView` and
+   `HealthDataView`'s own stack branch were all unreachable. **Whether iPad should get a real
+   two-column layout is a design question about `HealthTabView`** and is a decision for the
+   owner, not a flag to flip (see below).
+4. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
    without a device, so pair it with W-C.
-4. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and
+5. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and
    unblocks W-R.
-5. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
+6. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
    fail. WS-15 proved nine injected regressions leave the suite green; this is the item that
    makes the suite mean something.
-6. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
+7. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
    white-on-gold only; this is the other half and I had wrongly treated it as done.
 
 ### Serialise these
@@ -68,7 +77,13 @@ makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
 - Revert-and-confirm is worth the time: it caught **four** tests of mine that asserted
   nothing, including one whose own comment claimed otherwise.
 
-### Five decisions waiting on you
+### Six decisions waiting on you
+
+**New (W-H):** should iPad have a real two-column Documents layout? The old one was dead
+code and is now gone. Building it means `HealthTabView` adopting a `NavigationSplitView`
+instead of its single nav bar with a segment switcher, which is a visible redesign of the
+merged Records/Documents tab — not something to infer from a bug report. Today a document
+opens in a sheet on every device, which works but wastes a 13-inch landscape.
 
 §6 of the triage report has them in full. In short: sign off
 `ITSAppUsesNonExemptEncryption = false` (legal call, BoringSSL via the AWS SDK is the

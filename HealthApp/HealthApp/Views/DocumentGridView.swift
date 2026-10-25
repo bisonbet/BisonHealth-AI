@@ -6,13 +6,25 @@ struct DocumentGridView: View {
     let onDocumentTap: (MedicalDocument) -> Void
     
     @Environment(\.editMode) private var editMode
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    
+    /// One adaptive column rather than a fixed count.
+    ///
+    /// This used to be a hardcoded 4 columns on any regular-width device, holding tiles with
+    /// a fixed 200 pt frame. The arithmetic does not work: an 11-inch iPad in portrait is
+    /// 834 pt, so after the grid's padding and spacing each column is 188 pt and every tile
+    /// overflowed by 12 pt — they overlapped, and the first one clipped. In Split View the
+    /// column drops to around 80 pt and the layout collapses completely.
+    ///
+    /// `.adaptive` lets the column count follow the available width, so there is no width to
+    /// get wrong: Split View, Slide Over, portrait, landscape and a phone all work from the
+    /// same rule, and the tile fills whatever column it is given.
     private var columns: [GridItem] {
-        let isCompact = !PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
-        let columnCount = isCompact ? 2 : 4
-        return Array(repeating: GridItem(.flexible(), spacing: 16), count: columnCount)
+        [GridItem(.adaptive(minimum: Self.minimumTileWidth, maximum: Self.maximumTileWidth), spacing: 16)]
     }
+
+    /// Below this a tile cannot show a readable filename; above it the thumbnails get
+    /// gratuitously large on a 13-inch landscape.
+    static let minimumTileWidth: CGFloat = 150
+    static let maximumTileWidth: CGFloat = 220
     
     var body: some View {
         ScrollView {
@@ -45,11 +57,10 @@ struct DocumentGridItem: View {
     let onTap: () -> Void
     let onToggleSelection: () -> Void
     
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
-    private var itemSize: CGFloat {
-        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass) ? 200 : 160
-    }
+    /// The thumbnail's shape, not its size. The tile takes whatever width its column gives
+    /// it — a fixed size inside a flexible column is what made tiles overlap.
+    private static let thumbnailAspectRatio: CGFloat = 4.0 / 3.0
     
     var body: some View {
         VStack(spacing: 8) {
@@ -86,7 +97,8 @@ struct DocumentGridItem: View {
                     }
                 }
             }
-            .frame(width: itemSize, height: itemSize * 0.75)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(Self.thumbnailAspectRatio, contentMode: .fit)
             .background(Color(.systemGray6))
             .cornerRadius(12)
             .overlay(
@@ -114,7 +126,7 @@ struct DocumentGridItem: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            .frame(width: itemSize)
+            .frame(maxWidth: .infinity)
         }
         .contentShape(Rectangle())
         .onTapGesture {

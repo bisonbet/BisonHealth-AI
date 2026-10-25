@@ -28,9 +28,9 @@ struct HealthTabView: View {
     private var content: some View {
         switch segment {
         case .records:
-            HealthDataView(embedInNavigation: false)
+            HealthDataView()
         case .documents:
-            DocumentsView(embedInNavigation: false)
+            DocumentsView()
         }
     }
 

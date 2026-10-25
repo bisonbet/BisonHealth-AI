@@ -162,3 +162,80 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Document Grid Geometry (W-H / item 30)
+//
+// The grid used a hardcoded 4 columns on any regular-width device, holding tiles with a
+// fixed 200 pt frame. On an 11-inch iPad in portrait (834 pt) that makes each column 188 pt,
+// so every tile overflowed by 12 pt — they overlapped and the first clipped. In Split View
+// the column drops to about 80 pt.
+//
+// **What these tests can and cannot do.** They do not lay anything out: SwiftUI resolves
+// `GridItem(.adaptive(minimum:maximum:))` itself and no unit test here executes that. A
+// first version asserted "the resolved column is at least the minimum", which is true by
+// construction of the adaptive rule and stayed green when the minimum was reverted to the
+// old 200 pt — a test that asserted nothing. So what is pinned here is the *old* scheme's
+// arithmetic, which is real, falsifiable, and the reason the rule changed. The layout itself
+// needs a device or simulator run; the UI tests that would cover it are deferred (item 25).
+@MainActor
+final class DocumentGridGeometryTests: XCTestCase {
+
+    private let gridPadding: CGFloat = 16 * 2
+    private let spacing: CGFloat = 16
+
+    /// Widths a tile can actually be laid out at, including the Split View and Slide Over
+    /// panes where the old layout collapsed hardest.
+    private let realisticWidths: [(name: String, width: CGFloat)] = [
+        ("Slide Over", 320),
+        ("Split View third of 11-inch landscape", 375),
+        ("iPhone portrait", 393),
+        ("Split View half of 11-inch portrait", 400),
+        ("iPad 11-inch portrait", 834),
+        ("iPhone landscape", 852),
+        ("iPad 13-inch portrait", 1024),
+        ("iPad 11-inch landscape", 1194),
+        ("iPad 13-inch landscape", 1366)
+    ]
+
+    /// The column width the shipped layout produced: always four columns, regular width.
+    private func fixedFourColumnWidth(forWidth width: CGFloat) -> CGFloat {
+        (width - gridPadding - spacing * 3) / 4
+    }
+
+    func testTheShippedLayoutOverflowedOnEveryIPadPaneNarrowerThanLandscape() {
+        // This is the finding, as arithmetic. A 200 pt tile in these columns overlaps.
+        let oldTileWidth: CGFloat = 200
+        let overflowing = realisticWidths.filter { fixedFourColumnWidth(forWidth: $0.width) < oldTileWidth }
+
+        XCTAssertFalse(overflowing.isEmpty, "The premise must hold or there was nothing to fix")
+        XCTAssertTrue(
+            overflowing.contains { $0.name == "iPad 11-inch portrait" },
+            "11-inch portrait is the case WS-09 saw on a real simulator"
+        )
+        XCTAssertEqual(Int(fixedFourColumnWidth(forWidth: 834)), 188, "834pt portrait gives a 188pt column")
+    }
+
+    func testTheShippedLayoutCollapsedCompletelyInSplitView() {
+        // Around 80 pt, which is what WS-09 described as tiles overlapping and clipping.
+        let halfPane = fixedFourColumnWidth(forWidth: 400)
+        XCTAssertLessThan(halfPane, 100)
+        XCTAssertLessThan(halfPane, DocumentGridView.minimumTileWidth, "Below even one adaptive column's minimum")
+    }
+
+    func testTheAdaptiveMinimumIsNarrowerThanTheNarrowestPaneCanHold() {
+        // The one genuine constraint on the new constants: the minimum has to fit inside the
+        // narrowest pane the app runs in, or the adaptive rule is forced to one cramped
+        // column everywhere. 320 pt Slide Over minus padding is 288 pt.
+        let narrowestContentWidth = 320 - gridPadding
+        XCTAssertLessThanOrEqual(
+            DocumentGridView.minimumTileWidth,
+            narrowestContentWidth,
+            "A minimum wider than Slide Over's content width cannot lay out at all"
+        )
+    }
+
+    func testTheTileBoundsAreSaneRelativeToEachOther() {
+        XCTAssertLessThan(DocumentGridView.minimumTileWidth, DocumentGridView.maximumTileWidth)
+        XCTAssertGreaterThan(DocumentGridView.minimumTileWidth, 100, "A tile has to fit a readable filename")
+    }
+}

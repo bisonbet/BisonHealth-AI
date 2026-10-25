@@ -363,16 +363,13 @@ struct HealthDataView: View {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
 
-    /// When false (e.g. embedded in HealthTabView), renders content without its
-    /// own NavigationStack so a parent can own the navigation bar.
-    var embedInNavigation: Bool = true
-
+    /// `HealthTabView` owns the navigation bar for both of its segments — it puts the
+    /// segment switcher in the principal position so there is exactly one bar — and it is
+    /// the only thing that constructs this view. The `embedInNavigation: true` branch that
+    /// used to live here wrapped the content in its own `NavigationStack` and was therefore
+    /// unreachable; it is gone rather than left looking like a supported mode.
     var body: some View {
-        if embedInNavigation {
-            NavigationStack { healthContent }
-        } else {
-            healthContent
-        }
+        healthContent
     }
 
     private var healthContent: some View {
@@ -643,17 +640,9 @@ struct DocumentsView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.editMode) private var editMode
 
-    /// When false (e.g. embedded in HealthTabView), renders content without its
-    /// own NavigationStack/SplitView and uses sheet-based detail on all devices.
-    var embedInNavigation: Bool = true
 
     private var isIPad: Bool {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
-    }
-
-    /// The two-column split is only used when this view owns its navigation.
-    private var usesSplitView: Bool {
-        isIPad && embedInNavigation
     }
 
     private var supportsDocumentScanning: Bool {
@@ -661,15 +650,16 @@ struct DocumentsView: View {
     }
 
     var body: some View {
-        Group {
-            if usesSplitView {
-                documentsSplitView
-            } else if embedInNavigation {
-                documentsStackView
-            } else {
-                documentsPrimaryContent
-            }
-        }
+        // Content only: `HealthTabView` owns the navigation bar for both segments. The
+        // `documentsSplitView` and `documentsStackView` branches that used to be selected
+        // here were unreachable — `embedInNavigation` was always false, because the merged
+        // Records/Documents tab is the only caller. WS-09 reported the iPad master-detail as
+        // dead code and it was: landscape got a full-width list with the detail in a sheet.
+        //
+        // Whether iPad *should* have a real two-column layout is a design question about
+        // `HealthTabView`, not a flag to flip here, and it is recorded as such in the
+        // tracker rather than guessed at.
+        documentsPrimaryContent
         .fullScreenCover(isPresented: $showingCamera) {
             DocumentCameraView { scan in
                 Task {
@@ -708,10 +698,7 @@ struct DocumentsView: View {
                 documentProcessor: documentProcessor
             )
         }
-        .sheet(item: Binding(
-            get: { usesSplitView ? nil : selectedDocument },
-            set: { selectedDocument = $0 }
-        )) { document in
+        .sheet(item: $selectedDocument) { document in
             DocumentDetailView(
                 document: document,
                 documentManager: documentManager,
@@ -781,35 +768,6 @@ struct DocumentsView: View {
                 )
             }
         }
-    }
-
-    private var documentsStackView: some View {
-        NavigationStack {
-            documentsPrimaryContent
-        }
-    }
-
-    private var documentsSplitView: some View {
-        NavigationSplitView {
-            documentsPrimaryContent
-                .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 520)
-        } detail: {
-            if let selectedDocument {
-                DocumentDetailView(
-                    document: selectedDocument,
-                    documentManager: documentManager,
-                    documentProcessor: documentProcessor,
-                    showsCloseButton: false
-                )
-            } else {
-                ContentUnavailableView(
-                    "Select a Document",
-                    systemImage: "doc.text.magnifyingglass",
-                    description: Text("Choose a document to preview details and extracted health data.")
-                )
-            }
-        }
-        .navigationSplitViewStyle(.balanced)
     }
 
     private var documentsPrimaryContent: some View {
