@@ -1099,7 +1099,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "BisonHealth needs access to your health data to provide personalized health insights and sync your vitals, sleep data, and other health metrics with the AI doctor for better health recommendations.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "BisonHealth AI reads your Apple Health records so you do not have to type them in: date of birth, biological sex, blood type, height, weight, heart rate, blood pressure, body temperature, respiratory rate, blood oxygen and sleep. It only reads; it never writes anything to Apple Health.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BisonHealth AI connects to AI servers you run on your own local network, such as Ollama or LM Studio, so your health data can be processed without leaving your network.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -1141,7 +1141,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to scan health documents for import and processing.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "BisonHealth needs access to your health data to provide personalized health insights and sync your vitals, sleep data, and other health metrics with the AI doctor for better health recommendations.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "BisonHealth AI reads your Apple Health records so you do not have to type them in: date of birth, biological sex, blood type, height, weight, heart rate, blood pressure, body temperature, respiratory rate, blood oxygen and sleep. It only reads; it never writes anything to Apple Health.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BisonHealth AI connects to AI servers you run on your own local network, such as Ollama or LM Studio, so your health data can be processed without leaving your network.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "This app accesses your photo library to import health documents and images.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

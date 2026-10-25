@@ -8,7 +8,7 @@ struct PrivacyPolicyView: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 
-                Text("Last updated: July 3, 2026")
+                Text("Last updated: October 25, 2026")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
@@ -20,7 +20,11 @@ struct PrivacyPolicyView: View {
                 PrivacySection(
                     title: "Local Storage",
                     content: """
-                    Your health data, documents, extracted information, chat history, appointment prep records, settings, and generated content are stored on your device. The app encrypts health data, documents, chats, and appointment prep records. The app does not sync your records through CloudKit.
+                    Your health data, documents, extracted information, chat history, appointment prep records, settings, and generated content are stored on your device. The app does not sync your records through CloudKit.
+
+                    Encrypted on this device: health records, imported document files, the page previews made from them, document tags and notes, extracted text, chat history, and appointment prep records.
+
+                    Not encrypted: documents imported before 25 October 2026 kept a copy of their original file name in their stored file name, so a name like "Lab_Results_March.pdf" can still appear in a file listing or a device backup. The file's contents were always encrypted. Documents imported after that date are stored under a random name instead.
 
                     Data leaves your device in these cases, and only these:
 
@@ -37,6 +41,15 @@ struct PrivacyPolicyView: View {
                     • Anything you explicitly export or share.
 
                     The app contains no analytics, tracking, or crash-reporting services.
+                    """
+                )
+
+                PrivacySection(
+                    title: "Apple Health",
+                    content: """
+                    If you grant permission, the app reads from Apple Health so your own records are filled in for you. It reads only, and only these: date of birth, biological sex, blood type, height, body mass, heart rate, blood pressure, body temperature, respiratory rate, blood oxygen, and sleep analysis.
+
+                    The app never writes anything to Apple Health, and it asks Apple for no permission to do so. What it reads is stored on this device like any other health record, and leaves the device only in the cases listed above. You can withdraw access at any time in the Health app, under Sharing.
                     """
                 )
 
@@ -72,7 +85,7 @@ struct PrivacyPolicyView: View {
                 
                 PrivacySection(
                     title: "Your Rights",
-                    content: "Because your app data is stored locally, you can view, edit, export, or delete it through the app and your device controls. If you delete the app or erase your device data, locally stored app information may be deleted according to iOS behavior and your backup settings."
+                    content: "Because your app data is stored locally, you can view, edit, export, or delete it through the app and your device controls. Reset Database in Settings removes your health records, imported document files and their page previews, and your chat history from this device, and keeps no backup of them. If you delete the app or erase your device data, locally stored app information may be deleted according to iOS behavior and your backup settings."
                 )
                 
                 Text("Contact Us")

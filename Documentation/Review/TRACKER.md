@@ -2,14 +2,12 @@
 
 ## ▶ Where this stands (2026-10-23)
 
-**Of the original 32 work items: 26 fixed, 2 partly fixed, 4 untouched — plus 15 new items
+**Of the original 32 work items: 27 fixed, 1 partly fixed (21's file renaming), 4 untouched — plus 15 new items
 (33–47) from the six workstreams that ran on 2026-10-24, of which 33, 34, 36, 45 and 47 are
 fixed and 35 is half done.**
 
 - Partly fixed: **21** (files imported before 2026-10-24 keep `<uuid>_<original name>` names;
-  renaming them needs a migration that rewrites every stored path) and **22** (README and the
-  HealthKit string are corrected; the Privacy Policy and Terms claims WS-13-04 enumerated are
-  not).
+  renaming them needs a migration that rewrites every stored path) **22 is now fixed.**
 - Untouched: **25** (113 orphaned UI tests, deferred by decision 4), **30** (iPad portrait
   grid), **31** (restored reviews only on the Documents tab), **32** (the Import-tap
   mitigation, never re-verified in the app).
@@ -310,7 +308,7 @@ Classification: BB = beta-blocker, SB = submission-blocker, PP = pre-public.
 | # | ID(s) | Title | Sev | Class | Eff | Files (ownership) | Status |
 |---|---|---|---|---|---|---|---|
 | 21 | WS-02-04 +05 +12 + WS-07-02 | Plaintext PHI at rest: `patient_name` in the `metadata` column, page-1 thumbnails on disk and in backups, free-text tags, original filenames in on-disk names | P1 | BB | M | `Database/DatabaseManager+HealthData.swift`, `Services/BloodTestMappingService.swift`, thumbnail writer | **fixed** — thumbnails encrypted with a legacy-plaintext fallback that re-encrypts in place; new imports stored as `<uuid>.<ext>` so the filename no longer carries the patient's own words; `tags` encrypted by schema **v14**. Remaining: renaming files imported before this needs a path-rewriting migration, still deferred |
-| 22 | WS-07-06 | 11 privacy claims the code does not support: README "never leaves the device"; backup removed "for HIPAA compliance" contradicting the non-HIPAA disclaimer; `NSHealthUpdateUsageDescription` claims write access the app never uses (`toShare: []`) | P1 | SB | M | `README.md`, `Views/PrivacyPolicyView.swift`, `Views/TermsOfServiceView.swift`, `project.pbxproj` | **partly fixed** (3c857bbb — README + HealthKit string); Privacy Policy / Terms remain, feeds WS-13 |
+| 22 | WS-07-06 | 11 privacy claims the code does not support: README "never leaves the device"; backup removed "for HIPAA compliance" contradicting the non-HIPAA disclaimer; `NSHealthUpdateUsageDescription` claims write access the app never uses (`toShare: []`) | P1 | SB | M | `README.md`, `Views/PrivacyPolicyView.swift`, `Views/TermsOfServiceView.swift`, `project.pbxproj` | **fixed** — Apple Health section added (12 types, read-only, never written), encryption claim made exact including the one thing that is not encrypted, Reset Database wording made concrete, policy date corrected, HealthKit usage string rewritten and verified in the built Info.plist. **Terms date left at July 3 deliberately: git shows that file genuinely has not changed since, so WS-16 was wrong to pair them.** |
 | 23 | WS-07-04 | No cloud-versus-on-device indicator in chat, and nothing asks before the first cloud send | P1 | BB | M | `Views/ChatDetailView.swift`, provider settings views | **partly fixed** (8cf5ee97 — indicator + consent in ChatDetailView only); Appointment Prep sends with no consent |
 | 24 | WS-07-05 | Tapping a genetics reference sends gene + diplotype in a query string to `pharmdog.clinpgx.org`, undisclosed | P1 | BB | S | `Models/GeneticTestResult.swift` | **fixed** (21666379) |
 
