@@ -8,14 +8,19 @@ briefs do not repeat them.
 The ordering and file-ownership map these come from is §4 of
 `../findings/WS-17-triage.md`. Current status is the top of `../TRACKER.md`.
 
-## Ready to hand off
+## Handed off and implemented — 2026-10-25
 
-| Brief | Item | Effort | Notes |
+All four were implemented in one branch. **None of them was compiled or tested**: the agent
+ran in a Linux container with no Xcode and no SwiftLint, so the protocol's verification
+commands were not executable. Treat each as source-reviewed only, and run them before
+trusting any of it. Per-item notes are in `../TRACKER.md`.
+
+| Brief | Item | Effort | Outcome |
 |---|---|---|---|
-| `HANDOFF-W-E-background-cancel.md` | W-E | M | Biggest of these. Touches MLX code that **no test can reach** and no simulator compiles. |
-| `HANDOFF-W-J-migration-tests.md` | W-J | L | Tests only. Serialise with W-K — same file. |
-| `HANDOFF-W-B-persist-failure-reason.md` | W-B rest | M | **Claims schema v15. Mutually exclusive with W-Q.** |
-| `HANDOFF-W-A-icon-cleanup.md` | W-A rest | S | Minutes. Good first task for a new agent. |
+| `HANDOFF-W-E-background-cancel.md` | W-E | M | Implemented. `MLXTurnInterruption` + token-loop check; `MLXGPUGate` unchanged. Runtime behaviour unverified by design — no simulator compiles it, no test reaches it. |
+| `HANDOFF-W-J-migration-tests.md` | W-J | L | Implemented. v10 fixture, backup-deletion coverage. **Found that the v11 encryption helpers are not idempotent** — reported, not fixed (tests-only item). **W-K may now start.** |
+| `HANDOFF-W-B-persist-failure-reason.md` | W-B rest | M | Implemented. **Took schema v15; W-Q is now v16.** Reason stored encrypted. |
+| `HANDOFF-W-A-icon-cleanup.md` | W-A rest | S | Done. Directory deleted, no orphaned references. |
 
 ## Do not hand these off
 

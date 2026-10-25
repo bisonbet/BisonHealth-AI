@@ -6,12 +6,18 @@ The full sequenced list with file ownership and effort is §4 of
 `findings/WS-17-triage.md`. This is just the front of that queue, with what has since been
 done struck off, so a session can begin without re-deriving anything.
 
+> ⚠️ **The 2026-10-25 agent run (W-A, W-B, W-E, W-J) was done in a Linux container with no
+> Xcode and no SwiftLint.** Nothing in that run was compiled, no test in it was executed, and
+> the lint baseline was not re-checked. Every claim below from that run is a claim about the
+> source, not about a build. **Run the protocol's four commands — plus the
+> `generic/platform=iOS` device build for W-E — before trusting any of it.**
+
 ### Beta-blockers — what stands between you and a tester build
 
 | | Item | State |
 |---|---|---|
-| W-A | Icon alpha, `aps-environment`, delete unused icon set | **mostly done** (`9f3ef1c4`). Left: delete the unused `AppIcon-Doctor-Dark.appiconset` — it is referenced **0 times** in `project.pbxproj`, so it is dead weight, not a build input. ~5 minutes. |
-| W-B | Show why a document failed | **mostly done** (`a020a48a`). Left: persist a short reason alongside `.failed`, so it survives a relaunch. ⚠️ **This needs a column, i.e. schema v15 — which collides with W-Q's claim on v15.** WS-17 marked W-B "no migration"; that is wrong if the reason is persisted. Decide which of the two takes v15 before either starts. |
+| W-A | Icon alpha, `aps-environment`, delete unused icon set | **done 2026-10-25.** `AppIcon-Doctor-Dark.appiconset` deleted (16 files; still 0 references in `project.pbxproj`, and the asset catalog's root `Contents.json` lists no children, so nothing was orphaned). `BisonHealthAI_ProIcon_1024.imageset` was left alone — `ContentView.swift:261` uses it. |
+| W-B | Show why a document failed | **done 2026-10-25.** ⚠️ **W-B took schema v15** — W-Q was not in flight, so the collision resolved in W-B's favour. **W-Q is now v16.** `documents.failure_reason` holds the reason, written in the same statement as the status and cleared by any status other than `.failed`. Stored **encrypted** (`encryptTextField`), not filename-free as WS-17 suggested: two of these error strings interpolate the file name, and encrypting the column is cheaper to keep correct than auditing every present and future error case for PHI. Not an `UnreadableField` — a corrupt message is not worth refusing to save a document over. |
 | W-C | One device archive + three owner-only checks | **done 2026-10-25 by the owner** (archive built; background mid-reply, one Bedrock call, keychain restore on a real upgrade all run). ⚠️ **The outcomes were not reported to this session** — see "What W-C settled" below. |
 | W-D | TestFlight tester notes | **done 2026-10-25 by the owner.** |
 
@@ -64,8 +70,20 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    `HealthDataView`'s own stack branch were all unreachable. **Whether iPad should get a real
    two-column layout is a design question about `HealthTabView`** and is a decision for the
    owner, not a flag to flip (see below).
-4. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
-   without a device, so pair it with W-C.
+4. ~~**W-E**~~ — **done 2026-10-25.** `isSuspendedForBackground` is now genuinely consulted:
+   the streaming token loop evaluates `MLXTurnInterruption` at every chunk and breaks at a
+   token boundary, so `suspendForBackground()`'s `acquire()` waits one token instead of up to
+   the full 4,096-token budget. The gate is still taken rather than skipped — tearing down
+   with GPU work in flight is what the gate exists to prevent, so the fix is to make the
+   generation stop, not to stop waiting for it. `MLXGPUGate` is unchanged, so no
+   `acquire()` call site had its control flow altered. A kept partial reply gets a notice and
+   `finishReason: "interrupted"`; one too short to be an answer throws
+   `MLXOnDeviceError.generationInterrupted`, which drops the empty assistant placeholder and
+   leaves the user's message retryable (existing handling in `AIChatManager`). The decision
+   rule is a plain value type with unit tests; **the MLX wiring itself is unverified — it
+   compiles into no simulator build and no test reaches it.** The device-build typecheck
+   could not be run in this environment either (see the note at the top). Severity stays
+   unconfirmed: the owner's background-mid-reply result was never reported back.
 5. ~~**W-I**~~ — **mostly done 2026-10-25.** Two shared test plans in
    `HealthApp/TestPlans/` (**PreRelease** = unit + UI + coverage, the scheme's default so a
    bare `xcodebuild test` still runs everything; **Fast** = unit only, for pull requests),
@@ -76,9 +94,22 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    be produced, so `ExportOptions.plist`'s `method` is unvalidated. **The workflow has never
    executed**; its first job prints the runner's toolchain so the first run diagnoses itself.
    **W-R is unblocked.**
-6. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
-   fail. WS-15 proved nine injected regressions leave the suite green; this is the item that
-   makes the suite mean something.
+6. ~~**W-J**~~ — **done 2026-10-25**, so **W-K is unblocked** (it owns the same file; do not
+   run them together). A v10 fixture now exists, built the established way — let
+   `DatabaseManager` create the real schema, then wind it back, including the hard part: the
+   v11 columns written back as genuine plaintext, which the app's API will never produce.
+   It asserts the v11 step *ran* (the stored bytes are no longer the readable strings) **and**
+   that the app reads the originals back; asserting only the second half would pass against
+   plaintext. Also covered: the whole chain reaching `currentDatabaseVersion` (asserted
+   against the constant, never a literal), every later step's schema change, migration-backup
+   deletion after a committed migration, and `resetDatabase()` sweeping a leftover backup.
+   ⚠️ **New finding, not fixed here (tests only):** `encryptDocumentPHIColumns` and
+   `encryptChatTitles` are **not idempotent** — unlike the v14 tags helper they re-encrypt
+   unconditionally, so a second pass over an already-migrated row double-encrypts and
+   strands the data for good. Not reachable in production, because each step and its version
+   bump share one transaction, so v11 only runs at stored version 10. Making it idempotent is
+   a `DatabaseManager` change and needs its own item. No v11 idempotency test was written,
+   because the honest one would assert data loss.
 7. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
    white-on-gold only; this is the other half and I had wrongly treated it as done.
 
@@ -86,14 +117,16 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
 
 `project.pbxproj` is touched by **W-A, W-I, W-P, W-R** — one at a time, and hand-editing it
 makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
-`HealthAppTests/DatabaseTests.swift` by W-J and W-K. Only **one** migration is outstanding
-(W-Q → v15) — see the W-B warning above before that stays true.
+`HealthAppTests/DatabaseTests.swift` by W-J (**done**) and **W-K** — W-K may now start.
+Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 on
+2026-10-25.
 
 ### Standing verification facts for this repo
 
 - 329 tests, 0 failures. Read the count from the `.xcresult`, never stdout.
 - SwiftLint baseline **5**, and it must run from `HealthApp/`.
-- Schema **v14**. `DatabaseMigrationTests` is the harness; add an idempotency case per version.
+- Schema **v15** (W-B). `DatabaseMigrationTests` is the harness; add an idempotency case per
+  version. The fixtures now start at **v10**, so the v11 encryption pass is covered.
 - **Nothing in `MLXOnDeviceLLM/` has ever executed.** The simulator stubs out the load,
   generate and transfer bodies, so items 27, 28, 29 and 37 are typechecked and unit-tested
   but unrun. Typecheck with `-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`;
@@ -146,11 +179,13 @@ description and its recovery suggestion, and both the detail view and the list r
 On a fresh install that now reads "No on-device vision model is downloaded… Go to Settings >
 On-Device AI and download a Vision model" instead of a bare red badge. Session-scoped by
 design — the status persists but `processingErrors` does not, so the detail view carries an
-actionable fallback after a relaunch; making the reason durable needs a column (→ v15).
+actionable fallback after a relaunch. **The reason is now durable too** (v15, W-B,
+2026-10-25), so that fallback is reached only by a row that failed before the column existed.
 Remaining: WS-01-01 + WS-03-02 (a stale title snapshot
-clobbers live state, one work item), WS-06-03, WS-11-02 + WS-03-03 (background mid-reply;
-`isSuspendedForBackground` is read only to make suspend/resume idempotent, never to stop
-generation), WS-04-05 (`makeClientConfig` passes no timeout).
+clobbers live state, one work item), WS-06-03, WS-04-05 (`makeClientConfig` passes no
+timeout). **WS-11-02 + WS-03-03 are addressed in source** by W-E — the token loop now reads
+`isSuspendedForBackground` and stops at a token boundary — but unverified at runtime, which
+needs a device.
 
 **Also corrected:** item 40 closed WS-10-01 only — gold *as foreground* at 2.7:1 across ~25
 sites (WS-10-02) is still open, and I had treated it as done. WS-13-07's evidence was false
