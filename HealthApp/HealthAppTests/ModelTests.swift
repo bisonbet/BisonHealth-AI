@@ -266,6 +266,81 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(MLXResponseBudget.lengthLimitNotice.contains("Ask “continue”"))
     }
 
+    // MARK: - Turn Interruption (W-E)
+
+    func testTurnKeepsGeneratingWhileForegroundedAndUncancelled() {
+        XCTAssertNil(MLXTurnInterruption.evaluate(
+            isSuspendedForBackground: false,
+            isTaskCancelled: false,
+            accumulatedContent: String(repeating: "a", count: 500)
+        ))
+    }
+
+    func testBackgroundingStopsATurnAndKeepsAnAnswerWorthShowing() {
+        let answer = "Your most recent LDL cholesterol was 128 mg/dL, measured on 3 March."
+        XCTAssertGreaterThan(answer.count, MLXTurnInterruption.minimumUsefulCharacterCount)
+
+        let interruption = MLXTurnInterruption.evaluate(
+            isSuspendedForBackground: true,
+            isTaskCancelled: false,
+            accumulatedContent: answer
+        )
+
+        XCTAssertEqual(interruption, MLXTurnInterruption(reason: .backgrounded, disposition: .keepPartial))
+    }
+
+    func testBackgroundingDiscardsAPreambleTooShortToBeAnAnswer() {
+        let interruption = MLXTurnInterruption.evaluate(
+            isSuspendedForBackground: true,
+            isTaskCancelled: false,
+            accumulatedContent: "Based on your records,"
+        )
+
+        XCTAssertEqual(interruption, MLXTurnInterruption(reason: .backgrounded, disposition: .discard))
+    }
+
+    func testWhitespaceOnlyOutputIsNotAPartialAnswer() {
+        let interruption = MLXTurnInterruption.evaluate(
+            isSuspendedForBackground: true,
+            isTaskCancelled: false,
+            accumulatedContent: "   \n\n\t  "
+        )
+
+        XCTAssertEqual(interruption?.disposition, .discard)
+    }
+
+    func testTaskCancellationStopsATurnAndIsReportedAsCancellation() {
+        let interruption = MLXTurnInterruption.evaluate(
+            isSuspendedForBackground: false,
+            isTaskCancelled: true,
+            accumulatedContent: String(repeating: "a", count: 500)
+        )
+
+        XCTAssertEqual(interruption, MLXTurnInterruption(reason: .cancelled, disposition: .keepPartial))
+    }
+
+    func testBackgroundingTakesPrecedenceOverCancellationInTheReportedReason() {
+        let interruption = MLXTurnInterruption.evaluate(
+            isSuspendedForBackground: true,
+            isTaskCancelled: true,
+            accumulatedContent: String(repeating: "a", count: 500)
+        )
+
+        XCTAssertEqual(interruption?.reason, .backgrounded)
+    }
+
+    func testTheNoticeNamesBackgroundingOnlyWhenThatIsWhyTheTurnStopped() {
+        let backgrounded = MLXTurnInterruption(reason: .backgrounded, disposition: .keepPartial)
+        let cancelled = MLXTurnInterruption(reason: .cancelled, disposition: .keepPartial)
+
+        XCTAssertTrue(backgrounded.notice.contains("background"))
+        XCTAssertFalse(cancelled.notice.contains("background"), "A cancelled turn was not backgrounded")
+        for notice in [backgrounded.notice, cancelled.notice] {
+            XCTAssertTrue(notice.contains("continue"), "The notice must say how to resume")
+            XCTAssertNotEqual(notice, MLXResponseBudget.lengthLimitNotice)
+        }
+    }
+
     func testRunawayRepetitionIsTruncatedToOneCopy() {
         let repeatedBlock = """
         The above is a placeholder for ongoing dialogue with the assistant, which would continue to offer detailed pharmacogenomic advice from the user's input.

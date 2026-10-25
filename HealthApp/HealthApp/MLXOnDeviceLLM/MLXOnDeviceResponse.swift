@@ -49,6 +49,7 @@ enum MLXOnDeviceError: LocalizedError {
     case modelDownloadIncomplete
     case visionModelNotDownloaded
     case modelUnavailableOnDevice
+    case generationInterrupted
 
     var errorDescription: String? {
         switch self {
@@ -68,6 +69,8 @@ enum MLXOnDeviceError: LocalizedError {
             return "No on-device vision model is downloaded. Download a vision-capable model before using on-device document extraction."
         case .modelUnavailableOnDevice:
             return "This model is only available on a Mac with at least 24 GB of installed physical memory."
+        case .generationInterrupted:
+            return "The response stopped because the app went to the background."
         }
     }
 
@@ -85,6 +88,8 @@ enum MLXOnDeviceError: LocalizedError {
             return "Try sending your message again."
         case .simulatorNotSupported:
             return "Deploy the app to a physical iPhone or iPad to use on-device AI."
+        case .generationInterrupted:
+            return "Send your message again now that the app is in the foreground."
         }
     }
 }
