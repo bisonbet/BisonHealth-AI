@@ -44,7 +44,7 @@ class DatabaseManager: ObservableObject {
     /// *current* version rather than a hardcoded number, so they keep covering every
     /// future bump instead of going stale the moment someone adds a migration.
     /// (internal for regression tests; @testable access)
-    internal static let currentDatabaseVersion = 14 // Increment when making schema changes
+    internal static let currentDatabaseVersion = 15 // Increment when making schema changes
 
     /// Guards the genetic URL normalization so a single migration run performs it once,
     /// even when several versions in the range ask for it. Reset per migration run.
@@ -90,6 +90,8 @@ class DatabaseManager: ObservableObject {
     internal let documentIncludeInAIContext = Expression<Bool>("include_in_ai_context")
     internal let documentContextPriority = Expression<Int>("context_priority")
     internal let documentLastEditedAt = Expression<Int64?>("last_edited_at")
+    /// Why processing last failed, encrypted like the other PHI text columns (v15).
+    internal let documentFailureReason = Expression<String?>("failure_reason")
     // MARK: Pending import reviews (v13)
     /// Un-reviewed lab imports live in their own table rather than on `documents`.
     /// `saveMedicalDocument` writes with `insert(or: .replace)` and an explicit column
@@ -220,6 +222,7 @@ class DatabaseManager: ObservableObject {
                 t.column(documentIncludeInAIContext, defaultValue: false)
                 t.column(documentContextPriority, defaultValue: 3)
                 t.column(documentLastEditedAt)
+                t.column(documentFailureReason)
             })
             
             // Create chat_conversations table
@@ -617,9 +620,43 @@ class DatabaseManager: ObservableObject {
             try encryptDocumentTagsColumn(db: db)
             AppLog.shared.database("   ✓ Encrypted the documents.tags column")
 
+        case 15:
+            // Migration for version 15: persist why a document's processing failed.
+            //
+            // The reason was only ever held in `DocumentProcessor.processingErrors`, which is
+            // memory, while `.failed` is persisted — so a relaunch left a red badge with no
+            // explanation and the detail view had to guess at the most common cause.
+            //
+            // Encrypted like `notes` and `provider_name`, not stored as plaintext: several
+            // of these error strings interpolate the file name, which is patient-identifying
+            // and is exactly why `file_name` is encrypted. Encrypting the column is cheaper
+            // to keep correct than auditing every present and future error case for PHI.
+            try addDocumentFailureReasonColumn(db: db)
+            AppLog.shared.database("   ✓ Added documents.failure_reason")
+
         default:
             throw DatabaseError.migrationFailed("Unknown migration version: \(toVersion)")
         }
+    }
+
+    /// v15 helper: add `documents.failure_reason` if it is not already there.
+    ///
+    /// `ALTER TABLE ... ADD COLUMN` throws on a column that exists, so the migration is
+    /// guarded rather than retried — `CLAUDE.md` requires every step to be safe to run
+    /// twice, and a half-applied migration run is the case that needs it.
+    private func addDocumentFailureReasonColumn(db: Connection) throws {
+        guard try !documentsTableHasColumn(named: "failure_reason", db: db) else {
+            AppLog.shared.database("   · documents.failure_reason already present, skipping")
+            return
+        }
+        try db.run(documentsTable.addColumn(documentFailureReason))
+    }
+
+    private func documentsTableHasColumn(named column: String, db: Connection) throws -> Bool {
+        let count = try db.scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = ?", column
+        ) as? Int64
+        return (count ?? 0) > 0
     }
 
     /// v14 helper: encrypt the documents table's `tags` column in place.

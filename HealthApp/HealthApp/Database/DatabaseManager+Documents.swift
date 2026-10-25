@@ -112,15 +112,27 @@ extension DatabaseManager {
     }
     
     // MARK: - Update Document Status
-    func updateDocumentStatus(_ documentId: UUID, status: ProcessingStatus) async throws {
+    /// Set a document's processing status, and the reason when that status is `.failed`.
+    ///
+    /// The reason is written in the same statement as the status so the two cannot disagree,
+    /// and any status other than `.failed` clears it — a stale explanation on a document
+    /// that now processes cleanly is its own bug. Encrypted at rest like the table's other
+    /// PHI text columns, because these messages can name the file.
+    func updateDocumentStatus(
+        _ documentId: UUID,
+        status: ProcessingStatus,
+        failureReason: String? = nil
+    ) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
         let query = documentsTable.filter(self.documentId == documentId.uuidString)
         let processedAt = status == .completed ? Int64(Date().timeIntervalSince1970) : nil
+        let storedReason = status == .failed ? try encryptTextField(failureReason) : nil
         
         let update = query.update(
             documentProcessingStatus <- status.rawValue,
-            documentProcessedAt <- processedAt
+            documentProcessedAt <- processedAt,
+            documentFailureReason <- storedReason
         )
         
         let rowsUpdated = try db.run(update)

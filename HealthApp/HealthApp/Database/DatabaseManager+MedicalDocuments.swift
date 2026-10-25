@@ -68,7 +68,10 @@ extension DatabaseManager {
                 documentExtractedSections <- try encryptDataField(extractedSectionsJson),
                 documentIncludeInAIContext <- document.includeInAIContext,
                 documentContextPriority <- document.contextPriority,
-                documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
+                documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) },
+                // `insert(or: .replace)` rewrites the whole row, so leaving this out would
+                // null a stored failure reason on any unrelated full-row save.
+                documentFailureReason <- try encryptTextField(document.failureReason)
             )
 
             if requireExistingRow {
@@ -311,7 +314,8 @@ extension DatabaseManager {
                 documentExtractedSections <- try encryptDataField(extractedSectionsJson),
                 documentIncludeInAIContext <- document.includeInAIContext,
                 documentContextPriority <- document.contextPriority,
-                documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
+                documentLastEditedAt <- document.lastEditedAt.map { Int64($0.timeIntervalSince1970) },
+                documentFailureReason <- try encryptTextField(document.failureReason)
             )
 
             let rowsUpdated = try db.run(update)
@@ -520,6 +524,9 @@ extension DatabaseManager {
             notes: notes
         )
         document.unreadableFields = unreadableFields
+        // Added in v15, so a row written by an older build has no column to read.
+        let storedFailureReason = (try? row.get(self.documentFailureReason)) ?? nil
+        document.failureReason = decryptTextField(storedFailureReason)
         return document
     }
 }

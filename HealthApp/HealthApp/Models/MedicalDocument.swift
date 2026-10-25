@@ -79,6 +79,20 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
     /// become a lossy write. Partial updaters stay available for changing one field.
     var unreadableFields: Set<UnreadableField> = []
 
+    /// Why processing last failed, as stored in `documents.failure_reason` (v15).
+    ///
+    /// `DocumentProcessor` keeps the freshest reason in memory for the current session; this
+    /// is the copy that survives a relaunch, so a red badge still explains itself. Cleared
+    /// by `updateDocumentStatus` whenever the status moves off `.failed`, because a stale
+    /// reason on a now-working document is its own bug.
+    ///
+    /// Deliberately **not** an ``UnreadableField``: a reason that will not decrypt reads as
+    /// nil and the next full-row write drops it, which is the right trade — refusing to save
+    /// a document because its failure message is corrupt would cost more than the message
+    /// is worth. Not in `CodingKeys` either: it describes a processing attempt, not the
+    /// document, and nothing exported needs it.
+    var failureReason: String?
+
     enum UnreadableField: String, Codable, Hashable {
         case extractedHealthData
         case extractedSections

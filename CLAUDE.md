@@ -7,7 +7,7 @@
 - **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 6 language mode (strict concurrency) with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
-- **Database**: SQLite with CryptoKit encryption (current version: 14)
+- **Database**: SQLite with CryptoKit encryption (current version: 15)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: On-device (PDFKit + Vision OCR via `NativeDocumentExtractor`)
 - **Privacy**: Local-first. No iCloud/CloudKit *sync* of records, but see the backup note below — the encrypted database IS in device backups and the key DOES sync via iCloud Keychain, deliberately.
@@ -119,7 +119,7 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 14 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 15 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -135,10 +135,10 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 **Migration workflow**:
 ```swift
 // 1. Increment version
-private static let currentDatabaseVersion = 15  // Was 14
+private static let currentDatabaseVersion = 16  // Was 15
 
 // 2. Add migration case
-case 15:
+case 16:
     try db.run(table.addColumn(newColumn, defaultValue: ""))
     print("   ✓ Added newColumn to table")
 ```
@@ -337,8 +337,8 @@ struct NewDataType: HealthDataProtocol {
 }
 
 // 3. Increment database version & add migration
-private static let currentDatabaseVersion = 15
-case 15:
+private static let currentDatabaseVersion = 16
+case 16:
     try db.run(newDataTypeTable.create { t in
         t.column(id, primaryKey: true)
         t.column(customField)
@@ -601,10 +601,10 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Current project facts**:
-- Database version: 14
+- Database version: 15
 - iOS 26.0+ deployment target
 
 ---
 
-**Last Updated**: 2026-10-24
+**Last Updated**: 2026-10-25
 **License**: MIT

@@ -15,6 +15,14 @@ class DocumentProcessor: ObservableObject {
         healthDataManager: HealthDataManager.shared
     )
     
+    // MARK: - Failure Reasons
+
+    /// Persisted for a row recovered from a run that was killed mid-processing. There is no
+    /// error object in that path — the process that would have produced one is gone — so the
+    /// reason states what is actually known, and names the action that resolves it.
+    static let interruptedRunFailureReason =
+        "Processing stopped before it finished, probably because the app was closed. Tap Retry Processing."
+
     // MARK: - Published Properties
     @Published var processingQueue: [ProcessingQueueItem] = []
     @Published var isProcessing = false
@@ -540,16 +548,20 @@ class DocumentProcessor: ObservableObject {
     /// error already carries both a description and a "Settings › On-Device AI" suggestion,
     /// and neither reached the screen.
     ///
-    /// Session-scoped, because `processingErrors` is in memory: after a relaunch the status
-    /// is still `.failed` (that much is persisted) but the reason is gone, so callers should
-    /// fall back to something actionable rather than showing nothing. Making it durable
-    /// needs a column on the documents table.
-    func failureReason(for documentId: UUID) -> String? {
-        guard let recorded = processingErrors.last(where: { $0.documentId == documentId }) else {
-            return nil
+    /// The in-memory record is preferred because it is the freshest — it is appended in the
+    /// same block that sets the status — and `documents.failure_reason` (v15) is the fallback
+    /// that survives a relaunch. Before that column the reason was memory-only, so after a
+    /// relaunch a failed document showed a red badge and no explanation.
+    func failureReason(for document: MedicalDocument) -> String? {
+        if let recorded = processingErrors.last(where: { $0.documentId == document.id }) {
+            return Self.describe(recorded.error)
         }
+        return document.failureReason
+    }
 
-        let error = recorded.error
+    /// The recorded error's description plus its recovery suggestion, which is what makes a
+    /// failure actionable ("… Go to Settings > On-Device AI and download a Vision model.").
+    static func describe(_ error: Error) -> String {
         let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         guard let suggestion = (error as? LocalizedError)?.recoverySuggestion else {
             return description
@@ -881,7 +893,11 @@ class DocumentProcessor: ObservableObject {
                 currentItem.status = .failed
                 
                 do {
-                    try await databaseManager.updateDocumentStatus(currentItem.document.id, status: .failed)
+                    try await databaseManager.updateDocumentStatus(
+                        currentItem.document.id,
+                        status: .failed,
+                        failureReason: Self.describe(error)
+                    )
                     AppLog.shared.documents("Status updated to failed")
                 } catch {
                     AppLog.shared.error("Failed to update status to failed", error: error, category: .documents)
@@ -1901,7 +1917,11 @@ class DocumentProcessor: ObservableObject {
                 let stuckDocuments = try await databaseManager.fetchDocuments(with: .processing)
                 for document in stuckDocuments {
                     AppLog.shared.documents("Recovering stuck document from interrupted processing run", level: .warning)
-                    try await databaseManager.updateDocumentStatus(document.id, status: .failed)
+                    try await databaseManager.updateDocumentStatus(
+                        document.id,
+                        status: .failed,
+                        failureReason: Self.interruptedRunFailureReason
+                    )
                 }
                 
                 let pendingDocuments = try await databaseManager.fetchDocuments(with: .queued)

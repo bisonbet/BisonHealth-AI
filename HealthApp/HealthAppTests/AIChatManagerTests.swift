@@ -940,6 +940,19 @@ final class DocumentFailureReasonTests: XCTestCase {
         DocumentProcessor.shared
     }
 
+    /// The lookup takes the document because the stored reason (v15) lives on the row.
+    private func makeDocument(id: UUID = UUID(), storedReason: String? = nil) -> MedicalDocument {
+        var document = MedicalDocument(
+            id: id,
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .failed
+        )
+        document.failureReason = storedReason
+        return document
+    }
+
     private func record(_ error: Error, for documentId: UUID, on processor: DocumentProcessor) {
         processor.processingErrors.append(
             ProcessingError(
@@ -960,7 +973,7 @@ final class DocumentFailureReasonTests: XCTestCase {
         let processor = makeProcessor()
         processor.processingErrors.removeAll()
 
-        XCTAssertNil(processor.failureReason(for: UUID()))
+        XCTAssertNil(processor.failureReason(for: makeDocument()))
     }
 
     func testTheFreshInstallCauseIsExplainedWithItsFix() {
@@ -970,7 +983,7 @@ final class DocumentFailureReasonTests: XCTestCase {
         let documentId = UUID()
         record(MLXOnDeviceError.visionModelNotDownloaded, for: documentId, on: processor)
 
-        let reason = processor.failureReason(for: documentId)
+        let reason = processor.failureReason(for: makeDocument(id: documentId))
 
         XCTAssertNotNil(reason)
         XCTAssertTrue(
@@ -992,7 +1005,10 @@ final class DocumentFailureReasonTests: XCTestCase {
         let documentId = UUID()
         record(Bare(), for: documentId, on: processor)
 
-        XCTAssertEqual(processor.failureReason(for: documentId), "The file could not be read.")
+        XCTAssertEqual(
+            processor.failureReason(for: makeDocument(id: documentId)),
+            "The file could not be read."
+        )
     }
 
     func testOnlyTheRequestedDocumentsReasonIsReturned() {
@@ -1003,7 +1019,7 @@ final class DocumentFailureReasonTests: XCTestCase {
         record(DocumentProcessingError.fileReadError, for: other, on: processor)
         record(MLXOnDeviceError.visionModelNotDownloaded, for: mine, on: processor)
 
-        let reason = processor.failureReason(for: mine)
+        let reason = processor.failureReason(for: makeDocument(id: mine))
         XCTAssertTrue(reason?.localizedCaseInsensitiveContains("vision model") ?? false)
         XCTAssertFalse(reason?.localizedCaseInsensitiveContains("corrupted") ?? false)
     }
@@ -1016,8 +1032,50 @@ final class DocumentFailureReasonTests: XCTestCase {
         record(MLXOnDeviceError.visionModelNotDownloaded, for: documentId, on: processor)
         record(DocumentProcessingError.processingTimeout, for: documentId, on: processor)
 
-        let reason = processor.failureReason(for: documentId)
+        let reason = processor.failureReason(for: makeDocument(id: documentId))
         XCTAssertTrue(reason?.localizedCaseInsensitiveContains("timed out") ?? false, "got: \(reason ?? "nil")")
+    }
+
+    // MARK: - Persisted reason (W-B remainder, schema v15)
+
+    func testTheStoredReasonIsUsedWhenNothingWasRecordedThisSession() {
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+        let document = makeDocument(storedReason: "No on-device vision model is downloaded.")
+
+        XCTAssertEqual(
+            processor.failureReason(for: document),
+            "No on-device vision model is downloaded."
+        )
+    }
+
+    func testTheInSessionRecordWinsOverTheStoredReason() {
+        // The in-memory record is appended in the same block that writes the status, so on a
+        // retry that fails differently it is the fresher of the two.
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+        let documentId = UUID()
+        record(DocumentProcessingError.processingTimeout, for: documentId, on: processor)
+        let document = makeDocument(id: documentId, storedReason: "Something from a previous launch.")
+
+        let reason = processor.failureReason(for: document)
+
+        XCTAssertTrue(reason?.localizedCaseInsensitiveContains("timed out") ?? false, "got: \(reason ?? "nil")")
+        XCTAssertFalse(reason?.contains("previous launch") ?? true)
+    }
+
+    func testTheRecoveryReasonForAnInterruptedRunNamesTheActionThatFixesIt() {
+        // No error object exists in that path, so the constant has to carry the whole message.
+        XCTAssertTrue(DocumentProcessor.interruptedRunFailureReason.contains("Retry Processing"))
+    }
+
+    func testTheStoredReasonCarriesTheRecoverySuggestionItWasBuiltFrom() {
+        // `describe` is what the processor persists, so what reaches the column is the same
+        // text the in-session reader shows.
+        let described = DocumentProcessor.describe(MLXOnDeviceError.visionModelNotDownloaded)
+
+        XCTAssertTrue(described.localizedCaseInsensitiveContains("vision model"))
+        XCTAssertTrue(described.localizedCaseInsensitiveContains("Settings"))
     }
 }
 

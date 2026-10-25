@@ -5,11 +5,11 @@ import UniformTypeIdentifiers
 struct DocumentDetailView: View {
     /// The recorded reason, or an actionable fallback.
     ///
-    /// `failureReason` is session-scoped: after a relaunch the `.failed` status persists but
-    /// the captured error does not. Showing nothing in that case would put us back where we
-    /// started, so the fallback names the most common cause instead.
+    /// `failureReason` prefers the in-memory record and falls back to the stored column
+    /// (v15), so the explanation survives a relaunch. The literal below is reached only for
+    /// a row that failed before that column existed, where nothing was recorded at all.
     private var failureExplanation: String {
-        documentProcessor.failureReason(for: document.id)
+        documentProcessor.failureReason(for: document)
             ?? "Processing failed. Tap Retry Processing — if it keeps failing, check Settings › On-Device AI for a downloaded Vision model."
     }
 
