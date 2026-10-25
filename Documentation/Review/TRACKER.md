@@ -12,8 +12,24 @@ done struck off, so a session can begin without re-deriving anything.
 |---|---|---|
 | W-A | Icon alpha, `aps-environment`, delete unused icon set | **mostly done** (`9f3ef1c4`). Left: delete the unused `AppIcon-Doctor-Dark.appiconset` — it is referenced **0 times** in `project.pbxproj`, so it is dead weight, not a build input. ~5 minutes. |
 | W-B | Show why a document failed | **mostly done** (`a020a48a`). Left: persist a short reason alongside `.failed`, so it survives a relaunch. ⚠️ **This needs a column, i.e. schema v15 — which collides with W-Q's claim on v15.** WS-17 marked W-B "no migration"; that is wrong if the reason is persisted. Decide which of the two takes v15 before either starts. |
-| W-C | One device archive + three owner-only checks | **yours** — background mid-reply, one Bedrock call, keychain restore on a real upgrade. Needs hardware and your developer account. |
-| W-D | TestFlight tester notes | **yours** — say imports need a vision model downloaded first, and give the download size. |
+| W-C | One device archive + three owner-only checks | **done 2026-10-25 by the owner** (archive built; background mid-reply, one Bedrock call, keychain restore on a real upgrade all run). ⚠️ **The outcomes were not reported to this session** — see "What W-C settled" below. |
+| W-D | TestFlight tester notes | **done 2026-10-25 by the owner.** |
+
+### What W-C settled — and what is still unknown
+
+The device session happened, so three things that could only be checked on hardware have now
+been checked. **This session was not told the results**, so they are recorded as pending an
+answer rather than as passes:
+
+| Check | What it decides | Status |
+|---|---|---|
+| Background mid-reply | **W-E.** WS-17 would not promote WS-11-02 + WS-03-03 without a device: `isSuspendedForBackground` is read only to make suspend/resume idempotent, and the unload queues behind the running generation. If this crashed or hung, W-E is a confirmed P1; if it was clean, W-E drops down the list. | awaiting the owner's result |
+| One real Bedrock call | **Item 17 / decision 5.** The model id was corrected from a dotted `claude-sonnet-4.5-…` to `claude-sonnet-4-5-20250929-v1:0`. If Bedrock answered, that fix is confirmed and Bedrock stays in scope. | awaiting the owner's result |
+| Keychain restore on a real upgrade | **Item 8 / decision 3.** The database key became a synchronizable Keychain item so a restore can read its own data. A device-only key still opening its database after the change was the one thing never verified. | awaiting the owner's result |
+
+Two decisions were also meant to be settled during this run: **measure the 384 KiB/token KV
+constant** (it is still an estimate, and `MLXMemoryBudget`'s floor exists only because of
+that), and **re-verify item 32**, the Import-tap mitigation.
 
 **Everything else is optional for a beta.** WS-17 verified that both P0s, the
 restore-data-loss bug, PHI-at-rest, the exfiltration chain, fail-closed consent and the
