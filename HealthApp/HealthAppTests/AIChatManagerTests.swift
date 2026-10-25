@@ -925,3 +925,98 @@ final class MLXMemoryBudgetTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Document Failure Reason
+//
+// WS-08-02: the reason a document failed was recorded beside the write that set the status to
+// `.failed`, and its only reader showed a count on the batch screen. A failed import was a
+// red badge and a Retry button. On a fresh install the cause is usually that no vision model
+// has been downloaded — an error that already carried both a description and a
+// "Settings › On-Device AI" suggestion, neither of which reached the screen.
+@MainActor
+final class DocumentFailureReasonTests: XCTestCase {
+
+    private func makeProcessor() -> DocumentProcessor {
+        DocumentProcessor.shared
+    }
+
+    private func record(_ error: Error, for documentId: UUID, on processor: DocumentProcessor) {
+        processor.processingErrors.append(
+            ProcessingError(
+                documentId: documentId,
+                documentName: "panel.pdf",
+                error: error,
+                timestamp: Date()
+            )
+        )
+    }
+
+    override func tearDown() {
+        DocumentProcessor.shared.processingErrors.removeAll()
+        super.tearDown()
+    }
+
+    func testNoReasonBeforeAnythingFails() {
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+
+        XCTAssertNil(processor.failureReason(for: UUID()))
+    }
+
+    func testTheFreshInstallCauseIsExplainedWithItsFix() {
+        // The important case: this is what a tester's first import hits.
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+        let documentId = UUID()
+        record(MLXOnDeviceError.visionModelNotDownloaded, for: documentId, on: processor)
+
+        let reason = processor.failureReason(for: documentId)
+
+        XCTAssertNotNil(reason)
+        XCTAssertTrue(
+            reason?.localizedCaseInsensitiveContains("vision model") ?? false,
+            "The reason must name the cause, got: \(reason ?? "nil")"
+        )
+        XCTAssertTrue(
+            reason?.localizedCaseInsensitiveContains("Settings") ?? false,
+            "The reason must carry the recovery suggestion, got: \(reason ?? "nil")"
+        )
+    }
+
+    func testAReasonWithoutASuggestionIsStillShown() {
+        struct Bare: LocalizedError {
+            var errorDescription: String? { "The file could not be read." }
+        }
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+        let documentId = UUID()
+        record(Bare(), for: documentId, on: processor)
+
+        XCTAssertEqual(processor.failureReason(for: documentId), "The file could not be read.")
+    }
+
+    func testOnlyTheRequestedDocumentsReasonIsReturned() {
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+        let mine = UUID()
+        let other = UUID()
+        record(DocumentProcessingError.fileReadError, for: other, on: processor)
+        record(MLXOnDeviceError.visionModelNotDownloaded, for: mine, on: processor)
+
+        let reason = processor.failureReason(for: mine)
+        XCTAssertTrue(reason?.localizedCaseInsensitiveContains("vision model") ?? false)
+        XCTAssertFalse(reason?.localizedCaseInsensitiveContains("corrupted") ?? false)
+    }
+
+    func testTheMostRecentFailureWins() {
+        // A retry that fails differently must not keep showing the first reason.
+        let processor = makeProcessor()
+        processor.processingErrors.removeAll()
+        let documentId = UUID()
+        record(MLXOnDeviceError.visionModelNotDownloaded, for: documentId, on: processor)
+        record(DocumentProcessingError.processingTimeout, for: documentId, on: processor)
+
+        let reason = processor.failureReason(for: documentId)
+        XCTAssertTrue(reason?.localizedCaseInsensitiveContains("timed out") ?? false, "got: \(reason ?? "nil")")
+    }
+}

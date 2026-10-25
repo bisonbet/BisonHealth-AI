@@ -22,9 +22,14 @@ from the PNG IHDR (colour type 6), confirmed every pixel was already `alpha=255`
 as colour type 2, and proved the 3,145,728 visible bytes are **identical**. `aps-environment`
 also removed — there is no remote-push code at all.
 
-**Still open and now itemised** (WS-17 found five P1s that never got item numbers):
-WS-08-02 (a failed document shows a Retry button and no reason — item 26's fix made this
-reachable by correctly ending the infinite retry), WS-01-01 + WS-03-02 (a stale title snapshot
+**Still open and now itemised** (WS-17 found five P1s that never got item numbers).
+**WS-08-02 is fixed**: `DocumentProcessor.failureReason(for:)` composes the recorded error's
+description and its recovery suggestion, and both the detail view and the list row show it.
+On a fresh install that now reads "No on-device vision model is downloaded… Go to Settings >
+On-Device AI and download a Vision model" instead of a bare red badge. Session-scoped by
+design — the status persists but `processingErrors` does not, so the detail view carries an
+actionable fallback after a relaunch; making the reason durable needs a column (→ v15).
+Remaining: WS-01-01 + WS-03-02 (a stale title snapshot
 clobbers live state, one work item), WS-06-03, WS-11-02 + WS-03-03 (background mid-reply;
 `isSuspendedForBackground` is read only to make suspend/resume idempotent, never to stop
 generation), WS-04-05 (`makeClientConfig` passes no timeout).

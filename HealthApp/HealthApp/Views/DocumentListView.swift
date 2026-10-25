@@ -30,6 +30,13 @@ struct DocumentListView: View {
 }
 
 struct DocumentRowView: View {
+    /// Session-scoped: `DocumentProcessor` keeps the captured error in memory, so this is
+    /// nil after a relaunch and the row simply shows the badge, as it did before. The detail
+    /// view carries the actionable fallback.
+    private var failureReason: String? {
+        DocumentProcessor.shared.failureReason(for: document.id)
+    }
+
     let document: MedicalDocument
     let isSelected: Bool
     let isEditing: Bool
@@ -66,6 +73,18 @@ struct DocumentRowView: View {
                         .padding(.vertical, 2)
                         .background(Color.secondary.opacity(0.2))
                         .cornerRadius(4)
+                }
+
+                // A red "Failed" badge on its own tells the user nothing they can act on.
+                // The reason was recorded all along and only ever counted on the batch
+                // screen; one line here means they do not have to open the document to
+                // find out, which on a fresh install is usually "download a vision model".
+                if document.processingStatus == .failed, let reason = failureReason {
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .accessibilityIdentifier("documentRowFailureReason")
                 }
                 
                 HStack {

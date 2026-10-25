@@ -401,6 +401,33 @@ class DocumentProcessor: ObservableObject {
         isProcessing = false
     }
     
+    /// Why this document's processing failed, phrased for the person looking at it.
+    ///
+    /// The reason has always been captured — `processingErrors` is appended right beside the
+    /// write that sets the status to `.failed` — but its only reader showed a *count* on the
+    /// batch screen. A failed document offered a Retry button and no explanation, so a
+    /// tester's first import ended in an unexplained red badge. Worse on a fresh install,
+    /// where the usual cause is that no on-device vision model has been downloaded: the
+    /// error already carries both a description and a "Settings › On-Device AI" suggestion,
+    /// and neither reached the screen.
+    ///
+    /// Session-scoped, because `processingErrors` is in memory: after a relaunch the status
+    /// is still `.failed` (that much is persisted) but the reason is gone, so callers should
+    /// fall back to something actionable rather than showing nothing. Making it durable
+    /// needs a column on the documents table.
+    func failureReason(for documentId: UUID) -> String? {
+        guard let recorded = processingErrors.last(where: { $0.documentId == documentId }) else {
+            return nil
+        }
+
+        let error = recorded.error
+        let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        guard let suggestion = (error as? LocalizedError)?.recoverySuggestion else {
+            return description
+        }
+        return "\(description) \(suggestion)"
+    }
+
     func clearQueue() async {
         // Cancel all processing
         pauseProcessing()

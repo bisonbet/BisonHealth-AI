@@ -3,6 +3,16 @@ import QuickLook
 import UniformTypeIdentifiers
 
 struct DocumentDetailView: View {
+    /// The recorded reason, or an actionable fallback.
+    ///
+    /// `failureReason` is session-scoped: after a relaunch the `.failed` status persists but
+    /// the captured error does not. Showing nothing in that case would put us back where we
+    /// started, so the fallback names the most common cause instead.
+    private var failureExplanation: String {
+        documentProcessor.failureReason(for: document.id)
+            ?? "Processing failed. Tap Retry Processing — if it keeps failing, check Settings › On-Device AI for a downloaded Vision model."
+    }
+
     let document: MedicalDocument
     @ObservedObject var documentManager: DocumentManager
     @ObservedObject var documentProcessor: DocumentProcessor
@@ -268,6 +278,16 @@ struct DocumentDetailView: View {
                 }
                 
                 if document.processingStatus == .failed {
+                    // Say what went wrong before offering to try again. The reason was
+                    // always recorded and never shown, so a failed import was a red badge
+                    // and a button — and on a fresh install the cause is usually a missing
+                    // vision model, which the user can actually fix.
+                    Label(failureExplanation, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("documentFailureReason")
+
                     Button("Retry Processing") {
                         Task {
                             await documentProcessor.addToQueue(document, priority: .high)
