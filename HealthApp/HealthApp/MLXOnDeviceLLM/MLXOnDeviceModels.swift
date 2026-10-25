@@ -78,8 +78,11 @@ enum MLXResponseBudget {
 
 // MARK: - Device Memory Budget
 
-/// How large a context window this device can plausibly hold, and the hard ceiling handed to
-/// MLX so the process cannot grow without limit.
+/// How large a context window this device can plausibly hold.
+///
+/// Bounding the window is the whole mechanism: the KV cache is sized from it before any
+/// allocation happens. An earlier version also set `MLX.Memory.memoryLimit`; see
+/// `MLXOnDeviceClient.performLoadModel` for why that was removed.
 ///
 /// Nothing capped either before. `MLX.Memory.memoryLimit` was never set, and the context
 /// slider went to 65,536 on any device. The KV cache is the dominant cost and it scales
@@ -109,12 +112,6 @@ enum MLXMemoryBudget {
     /// iOS kills an app well before it reaches the installed total, and generation needs
     /// transient room on top of the cache.
     static let kvShareOfPhysicalMemory = 0.35
-
-    /// The ceiling handed to `MLX.Memory.memoryLimit`: above this MLX releases cached buffers
-    /// rather than letting the footprint keep climbing.
-    static func allocationLimitBytes(physicalMemory: UInt64) -> Int {
-        Int(Double(physicalMemory) * 0.55)
-    }
 
     /// The largest context window to offer on this device.
     ///

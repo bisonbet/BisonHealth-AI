@@ -906,10 +906,22 @@ final class MLXMemoryBudgetTests: XCTestCase {
         }
     }
 
-    func testTheAllocationCeilingLeavesHeadroomForTheSystem() {
-        let limit = MLXMemoryBudget.allocationLimitBytes(physicalMemory: 8 * gb)
-
-        XCTAssertGreaterThan(limit, 0)
-        XCTAssertLessThan(limit, Int(8 * gb), "MLX must never be allowed the whole device")
+    func testTheBudgetNeverOffersAWindowLargerThanTheModelCanAfford() {
+        // Replaces a test for `allocationLimitBytes`, which set `MLX.Memory.memoryLimit` and
+        // has been removed: MLX blocks rather than releases above that limit, and 55% of a
+        // 24 GiB Mac is below MedGemma's 16.02 GB of weights. The window cap is the real
+        // mechanism, so this asserts the property that matters — the offered window times
+        // the assumed per-token cost always fits the share this budget claims.
+        for memory in [UInt64(8), 16, 24, 48].map({ $0 * gb }) {
+            let limit = MLXMemoryBudget.maximumContextSize(
+                physicalMemory: memory,
+                modelSizeBytes: mediPhiBytes,
+                ceiling: MLXModelInfo.maxContextSize
+            )
+            guard limit > MLXModelInfo.defaultContextSize else { continue }  // the floor case
+            let cacheBytes = Double(limit) * Double(MLXMemoryBudget.assumedKVBytesPerToken)
+            let claimed = Double(memory) * MLXMemoryBudget.kvShareOfPhysicalMemory - Double(mediPhiBytes)
+            XCTAssertLessThanOrEqual(cacheBytes, claimed, "The offered window must fit the budget it came from")
+        }
     }
 }

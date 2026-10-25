@@ -588,13 +588,20 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             : 512 * 1024 * 1024
         MLX.Memory.cacheLimit = cacheLimit
 
-        // A hard ceiling on total MLX allocation. `cacheLimit` only bounds the *retained*
-        // buffer pool; nothing bounded the footprint itself, so a large context window grew
-        // the KV cache until iOS killed the process. Above this, MLX releases buffers rather
-        // than climbing further.
-        MLX.Memory.memoryLimit = MLXMemoryBudget.allocationLimitBytes(
-            physicalMemory: ProcessInfo.processInfo.physicalMemory
-        )
+        // `MLX.Memory.memoryLimit` is deliberately NOT set here.
+        //
+        // An earlier version of this fix set it to 55% of installed memory, with a comment
+        // claiming MLX would release buffers above that. It does not: mlx-swift's own
+        // documentation for the property says "calls to malloc will wait on scheduled tasks
+        // if the limit is exceeded" — it blocks, and releasing is what `cacheLimit` above
+        // already does. Worse, 55% of a 24 GiB Mac is 14.17 GB while MedGemma's weights are
+        // 16.02 GB, so the limit landed *below* the model on the one device class where that
+        // model is enabled, turning a load into a wait. MLX's own default is 1.5x the
+        // device's recommended working set, which is a better-informed number than anything
+        // derived from `physicalMemory` here.
+        //
+        // The context-window cap in `MLXMemoryBudget.maximumContextSize` is what actually
+        // bounds the KV cache, and it is bounded before any allocation happens.
 
         let configuration = ModelConfiguration(
             directory: modelDirectory,

@@ -241,8 +241,10 @@ class AIChatManager: ObservableObject {
             AppLog.shared.ai("Loaded \(conversations.count) conversations")
         } catch {
             errorMessage = "Failed to load conversations: \(error.localizedDescription)"
-            // `errorMessage` is read by no view, so every one of these was invisible.
-            ErrorHandler.shared.handle(error, context: "Loading conversations", severity: .error)
+            // Reported once, here. `errorMessage` is read by no view, but unlike the
+            // message-save sites below this one already reached `ErrorHandler` — item 13
+            // added a second call and the result was two alerts for one failure, because
+            // the two contexts differed in wording so the 5-second dedupe did not match.
             errorHandler.handle(error, context: "Load Conversations")
             AppLog.shared.error("Failed to load conversations", error: error, category: .ai)
         }

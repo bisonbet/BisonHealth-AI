@@ -1,5 +1,46 @@
 # Review tracker — live worklist
 
+## ▶ WS-17 triage (2026-10-25) — all 18 workstreams now run and merged
+
+Report: `findings/WS-17-triage.md`. It was told **not** to replace this file: the prompt's
+step 10 was written when nothing was fixed, and following it would have erased the record
+below. It was also told to separate "fixed" from "evidence did not support", because for most
+findings the code no longer matches the report *because it was fixed* — the prompt's
+verification rule would otherwise have branded a dozen correct findings as hallucinations.
+
+**It found two regressions I had shipped, both verified here before acting:**
+
+| | What |
+|---|---|
+| `782b52db` (item 37) | `MLX.Memory.memoryLimit` was set to 55% of installed memory — **14.17 GB on a 24 GiB Mac, below MedGemma's 16.02 GB of weights**, on the one device class where that model is enabled. And mlx-swift's own doc for the property says "calls to malloc will **wait** on scheduled tasks if the limit is exceeded" — it blocks; releasing is `cacheLimit`'s job, which the code already set. My comment claimed the opposite. **The line is removed**; the context-window cap is the real mechanism and is unaffected. |
+| `0fa45ec9` (item 13) | `loadConversations` already called `ErrorHandler`; my change added a second call with a differently-worded context, so the 5-second dedupe missed and **one failure raised two alerts**. The three message-save sites it also touched had no prior reporting and were correct. **Duplicate removed.** |
+
+**Re-prioritisation accepted:** the 1024 app icon's alpha channel (filed P2 by two
+workstreams) is an **upload blocker** — ITMS-90717 rejects it at validation, so it gated every
+build to every tester while the rest of the submission checklist was being cleared. Verified
+from the PNG IHDR (colour type 6), confirmed every pixel was already `alpha=255`, re-encoded
+as colour type 2, and proved the 3,145,728 visible bytes are **identical**. `aps-environment`
+also removed — there is no remote-push code at all.
+
+**Still open and now itemised** (WS-17 found five P1s that never got item numbers):
+WS-08-02 (a failed document shows a Retry button and no reason — item 26's fix made this
+reachable by correctly ending the infinite retry), WS-01-01 + WS-03-02 (a stale title snapshot
+clobbers live state, one work item), WS-06-03, WS-11-02 + WS-03-03 (background mid-reply;
+`isSuspendedForBackground` is read only to make suspend/resume idempotent, never to stop
+generation), WS-04-05 (`makeClientConfig` passes no timeout).
+
+**Also corrected:** item 40 closed WS-10-01 only — gold *as foreground* at 2.7:1 across ~25
+sites (WS-10-02) is still open, and I had treated it as done. WS-13-07's evidence was false
+while its conclusion stood: `UNUserNotificationCenter` appears 4× in `DocumentProcessor`, so
+the app does post notifications — local ones, which need no `aps-environment`.
+
+**Shortest honest path to a tester build, per WS-17: about half a day.** The icon and
+`aps-environment` are done above. Remaining: show the failure reason on a failed document;
+archive once on a device and run the three owner-only checks; TestFlight notes saying imports
+need a vision model first.
+
+---
+
 ## ▶ Where this stands (2026-10-23)
 
 **Of the original 32 work items: 27 fixed, 1 partly fixed (21's file renaming), 4 untouched — plus 15 new items
