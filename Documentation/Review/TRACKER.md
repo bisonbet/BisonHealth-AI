@@ -1,5 +1,69 @@
 # Review tracker — live worklist
 
+## ▶▶ START HERE (written 2026-10-25, after WS-17)
+
+The full sequenced list with file ownership and effort is §4 of
+`findings/WS-17-triage.md`. This is just the front of that queue, with what has since been
+done struck off, so a session can begin without re-deriving anything.
+
+### Beta-blockers — what stands between you and a tester build
+
+| | Item | State |
+|---|---|---|
+| W-A | Icon alpha, `aps-environment`, delete unused icon set | **mostly done** (`9f3ef1c4`). Left: delete the unused `AppIcon-Doctor-Dark.appiconset` — it is referenced **0 times** in `project.pbxproj`, so it is dead weight, not a build input. ~5 minutes. |
+| W-B | Show why a document failed | **mostly done** (`a020a48a`). Left: persist a short reason alongside `.failed`, so it survives a relaunch. ⚠️ **This needs a column, i.e. schema v15 — which collides with W-Q's claim on v15.** WS-17 marked W-B "no migration"; that is wrong if the reason is persisted. Decide which of the two takes v15 before either starts. |
+| W-C | One device archive + three owner-only checks | **yours** — background mid-reply, one Bedrock call, keychain restore on a real upgrade. Needs hardware and your developer account. |
+| W-D | TestFlight tester notes | **yours** — say imports need a vision model downloaded first, and give the download size. |
+
+**Everything else is optional for a beta.** WS-17 verified that both P0s, the
+restore-data-loss bug, PHI-at-rest, the exfiltration chain, fail-closed consent and the
+privacy copy are genuinely fixed, at the specific sites rather than from this file.
+
+### Best next engineering work, in order
+
+1. **W-F** — `AIChatManager` + `ContentView`. Two P1s in one work item: a stale title
+   snapshot clobbers live state, which drops a follow-up message *and* reverts a privacy
+   opt-out. Highest-value open bug. Blocks W-G and W-S (same files).
+2. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
+   without a device, so pair it with W-C.
+3. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and
+   unblocks W-R.
+4. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
+   fail. WS-15 proved nine injected regressions leave the suite green; this is the item that
+   makes the suite mean something.
+5. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
+   white-on-gold only; this is the other half and I had wrongly treated it as done.
+
+### Serialise these
+
+`project.pbxproj` is touched by **W-A, W-I, W-P, W-R** — one at a time, and hand-editing it
+makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
+`HealthAppTests/DatabaseTests.swift` by W-J and W-K. Only **one** migration is outstanding
+(W-Q → v15) — see the W-B warning above before that stays true.
+
+### Standing verification facts for this repo
+
+- 329 tests, 0 failures. Read the count from the `.xcresult`, never stdout.
+- SwiftLint baseline **5**, and it must run from `HealthApp/`.
+- Schema **v14**. `DatabaseMigrationTests` is the harness; add an idempotency case per version.
+- **Nothing in `MLXOnDeviceLLM/` has ever executed.** The simulator stubs out the load,
+  generate and transfer bodies, so items 27, 28, 29 and 37 are typechecked and unit-tested
+  but unrun. Typecheck with `-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`;
+  that build cannot reach the Keychain, so it will not run.
+- Revert-and-confirm is worth the time: it caught **four** tests of mine that asserted
+  nothing, including one whose own comment claimed otherwise.
+
+### Five decisions waiting on you
+
+§6 of the triage report has them in full. In short: sign off
+`ITSAppUsesNonExemptEncryption = false` (legal call, BoringSSL via the AWS SDK is the
+complication); internal vs external TestFlight for round one (WS-17 recommends internal,
+which makes W-A..W-D the complete list); measure the 384 KiB/token KV constant during W-C;
+hide the MedGemma 27B Mac path for the beta; re-verify item 32 during the W-C run.
+
+---
+
+
 ## ▶ WS-17 triage (2026-10-25) — all 18 workstreams now run and merged
 
 Report: `findings/WS-17-triage.md`. It was told **not** to replace this file: the prompt's
