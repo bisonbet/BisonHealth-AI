@@ -68,6 +68,58 @@ struct AIResponseCleaner {
     // MARK: - Special Tokens
 
     /// Common special tokens that should be removed from AI responses
+    /// Mojibake and HTML-entity substitutions. A `private static let` rather than a local,
+    /// so `needsCleaning` can ask whether any of them apply instead of restating them —
+    /// a second copy would drift and the pre-check would start missing cases.
+    private static let mojibakeReplacements: [String: String] = [
+            // Em-dash (—) UTF-8 bytes misinterpreted as Windows-1252
+            "\u{00E2}\u{0080}\u{0094}": "—",  // â€"
+            // En-dash (–) UTF-8 bytes misinterpreted as Windows-1252
+            "\u{00E2}\u{0080}\u{0093}": "–",  // â€"
+            // Ellipsis (…) UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{00A6}": "…",  // â€¦
+            // Right single quote (') UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{0099}": "'",  // â€™
+            // Left single quote (') UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{0098}": "'",  // â€˜
+            // Left double quote (") UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{009C}": "\"", // â€œ
+            // Right double quote (") UTF-8 bytes misinterpreted
+            "\u{00E2}\u{0080}\u{009D}": "\"", // â€
+            // Common Latin characters with UTF-8 mojibake
+            "\u{00C3}\u{00A9}": "é",  // Ã©
+            "\u{00C3}\u{00A8}": "è",  // Ã¨
+            "\u{00C3}\u{00A0}": "à",  // Ã
+            "\u{00C3}\u{00B1}": "ñ",  // Ã±
+            "\u{00C3}\u{00A7}": "ç"   // Ã§
+    ]
+
+    /// HTML entities the cleaner decodes. Hoisted for the same reason as
+    /// `mojibakeReplacements`: `needsCleaning` has to consult every table that `clean`
+    /// uses, and a local copy is one `needsCleaning` cannot see. Missing this one is
+    /// exactly what `testDirtyInputIsAlwaysDetected` caught.
+    private static let htmlEntities: [String: String] = [
+            "&mdash;": "—",
+            "&ndash;": "–",
+            "&hellip;": "…",
+            "&rsquo;": "'",
+            "&lsquo;": "'",
+            "&rdquo;": "\"",
+            "&ldquo;": "\"",
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&#8217;": "'",
+            "&#8216;": "'",
+            "&#8220;": "\"",
+            "&#8221;": "\"",
+            "&#8212;": "—",
+            "&#8211;": "–",
+            "&#8230;": "…"
+    ]
+
     private static let specialTokens: [String] = [
         "<|eot_id|>",
         "<|end_of_text|>",
@@ -96,6 +148,56 @@ struct AIResponseCleaner {
     /// Clean an AI response by removing special tokens and fixing encoding
     /// - Parameter response: The raw AI response
     /// - Returns: Cleaned response text
+    /// Whether `text` contains anything the cleaners would change.
+    ///
+    /// Exists because the chat bubble re-cleaned the full message on **every render**, while
+    /// the content had already been cleaned by whichever provider produced it. Measured on a
+    /// Mac, `clean` costs about 2.1 ms at 4K characters and 15 ms at 30K; against the 50 ms
+    /// streaming cadence that reached more than half the main thread on a long answer.
+    ///
+    /// Deleting the view's call outright would also drop a defence: `removingRemoteImages`
+    /// is what stops the markdown renderer fetching a model-emitted image URL, which is an
+    /// exfiltration channel. So the view asks this instead, and pays for a full pass only
+    /// when something really did slip through.
+    ///
+    /// Conservative by construction: it may answer true unnecessarily, but it must never
+    /// answer false when `clean` would change the text, so every branch here corresponds to
+    /// a step in `clean` and reads the same tables those steps use.
+    static func needsCleaning(_ text: String) -> Bool {
+        // removingRemoteImages
+        if text.contains("![") || text.localizedCaseInsensitiveContains("<img") {
+            return true
+        }
+        // removeSpecialTokens
+        if specialTokens.contains(where: { text.contains($0) }) {
+            return true
+        }
+        // fixEncodingIssues — the substitution table, then Unicode normalisation.
+        if mojibakeReplacements.keys.contains(where: { text.contains($0) }) {
+            return true
+        }
+        if htmlEntities.keys.contains(where: { text.contains($0) }) {
+            return true
+        }
+        if text != text.precomposedStringWithCanonicalMapping {
+            return true
+        }
+        // normalizeWhitespace — three or more newlines, and runs of spaces inside a line's
+        // content. Leading indentation is deliberately preserved by the cleaner, so it does
+        // not count here either.
+        if text.contains("\n\n\n") {
+            return true
+        }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            guard let firstNonSpace = line.firstIndex(where: { !$0.isWhitespace }) else { continue }
+            if line[firstNonSpace...].contains("  ") {
+                return true
+            }
+        }
+        // The final trim.
+        return text != text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func clean(_ response: String) -> String {
         var cleaned = response
 
@@ -206,57 +308,12 @@ struct AIResponseCleaner {
 
         // Fix common UTF-8 mojibake patterns
         // These occur when UTF-8 bytes are interpreted as another encoding
-        let mojibakeReplacements: [String: String] = [
-            // Em-dash (—) UTF-8 bytes misinterpreted as Windows-1252
-            "\u{00E2}\u{0080}\u{0094}": "—",  // â€"
-            // En-dash (–) UTF-8 bytes misinterpreted as Windows-1252
-            "\u{00E2}\u{0080}\u{0093}": "–",  // â€"
-            // Ellipsis (…) UTF-8 bytes misinterpreted
-            "\u{00E2}\u{0080}\u{00A6}": "…",  // â€¦
-            // Right single quote (') UTF-8 bytes misinterpreted
-            "\u{00E2}\u{0080}\u{0099}": "'",  // â€™
-            // Left single quote (') UTF-8 bytes misinterpreted
-            "\u{00E2}\u{0080}\u{0098}": "'",  // â€˜
-            // Left double quote (") UTF-8 bytes misinterpreted
-            "\u{00E2}\u{0080}\u{009C}": "\"", // â€œ
-            // Right double quote (") UTF-8 bytes misinterpreted
-            "\u{00E2}\u{0080}\u{009D}": "\"", // â€
-            // Common Latin characters with UTF-8 mojibake
-            "\u{00C3}\u{00A9}": "é",  // Ã©
-            "\u{00C3}\u{00A8}": "è",  // Ã¨
-            "\u{00C3}\u{00A0}": "à",  // Ã
-            "\u{00C3}\u{00B1}": "ñ",  // Ã±
-            "\u{00C3}\u{00A7}": "ç"   // Ã§
-        ]
-
-        for (bad, good) in mojibakeReplacements {
+        for (bad, good) in Self.mojibakeReplacements {
             result = result.replacingOccurrences(of: bad, with: good)
         }
 
         // Decode common HTML entities that might appear in AI responses
-        let htmlEntities: [String: String] = [
-            "&mdash;": "—",
-            "&ndash;": "–",
-            "&hellip;": "…",
-            "&rsquo;": "'",
-            "&lsquo;": "'",
-            "&rdquo;": "\"",
-            "&ldquo;": "\"",
-            "&nbsp;": " ",
-            "&amp;": "&",
-            "&lt;": "<",
-            "&gt;": ">",
-            "&quot;": "\"",
-            "&#8217;": "'",
-            "&#8216;": "'",
-            "&#8220;": "\"",
-            "&#8221;": "\"",
-            "&#8212;": "—",
-            "&#8211;": "–",
-            "&#8230;": "…"
-        ]
-
-        for (entity, char) in htmlEntities {
+        for (entity, char) in Self.htmlEntities {
             result = result.replacingOccurrences(of: entity, with: char)
         }
 

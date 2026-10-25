@@ -588,6 +588,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             : 512 * 1024 * 1024
         MLX.Memory.cacheLimit = cacheLimit
 
+        // A hard ceiling on total MLX allocation. `cacheLimit` only bounds the *retained*
+        // buffer pool; nothing bounded the footprint itself, so a large context window grew
+        // the KV cache until iOS killed the process. Above this, MLX releases buffers rather
+        // than climbing further.
+        MLX.Memory.memoryLimit = MLXMemoryBudget.allocationLimitBytes(
+            physicalMemory: ProcessInfo.processInfo.physicalMemory
+        )
+
         let configuration = ModelConfiguration(
             directory: modelDirectory,
             extraEOSTokens: selectedModel.extraEOSTokens

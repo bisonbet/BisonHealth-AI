@@ -588,8 +588,17 @@ struct EnhancedMessageBubbleView: View, Equatable {
     }
     
     private func buildMarkdownView() -> some View {
-        // Clean the content to fix encoding issues before rendering
-        let cleanedContent = AIResponseCleaner.clean(message.content)
+        // This runs on every render of the bubble, and the content arriving here has already
+        // been cleaned by whichever provider produced it — `cleanConversational` does
+        // everything `clean` does. Re-cleaning cost about 15 ms per pass on a 30K-character
+        // answer, on the main thread, while a reply was streaming in every 50 ms.
+        //
+        // Not removed outright, because this call is also what stops the markdown renderer
+        // fetching a model-emitted image URL. `needsCleaning` is a few substring checks over
+        // already-clean text and only pays for a pass when one is actually needed.
+        let cleanedContent = AIResponseCleaner.needsCleaning(message.content)
+            ? AIResponseCleaner.clean(message.content)
+            : message.content
 
         return StructuredText(markdown: cleanedContent)
             .textual.structuredTextStyle(.gitHub)

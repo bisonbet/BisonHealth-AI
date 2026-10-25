@@ -76,6 +76,70 @@ enum MLXResponseBudget {
         "_This response was cut short because it began repeating itself. Ask “continue” or rephrase for the rest._"
 }
 
+// MARK: - Device Memory Budget
+
+/// How large a context window this device can plausibly hold, and the hard ceiling handed to
+/// MLX so the process cannot grow without limit.
+///
+/// Nothing capped either before. `MLX.Memory.memoryLimit` was never set, and the context
+/// slider went to 65,536 on any device. The KV cache is the dominant cost and it scales
+/// linearly with the window: WS-11 derived roughly 384 KiB per token for MediPhi from its
+/// published config (32 layers, no grouped-query attention, fp16 cache), which puts a 64K
+/// window at about 24 GiB. On an 8 GB iPhone that is an OOM kill, and the app had no
+/// opinion about it.
+///
+/// **The per-token figure is an estimate and has never been measured on a device**, which is
+/// why this type is shaped the way it is:
+///
+/// - It only ever lowers the *maximum selectable* window. The 16,384 default is left alone
+///   because it demonstrably works on real hardware today; an unvalidated estimate is not
+///   grounds for shrinking something known to work. `maximumContextSize` therefore never
+///   returns less than the default.
+/// - The arithmetic is pure and tested, so correcting `assumedKVBytesPerToken` after one
+///   device measurement is a one-line change with the consequences already covered.
+enum MLXMemoryBudget {
+
+    /// WS-11's estimate for the worst case in the catalog — a model without grouped-query
+    /// attention, whose cache is therefore several times larger per token than a GQA model's.
+    /// Applied to every model on purpose: over-estimating shrinks the window, which is the
+    /// safe direction to be wrong in.
+    static let assumedKVBytesPerToken = 384 * 1024
+
+    /// Share of *installed* memory the KV cache may plan to occupy, after the weights.
+    /// iOS kills an app well before it reaches the installed total, and generation needs
+    /// transient room on top of the cache.
+    static let kvShareOfPhysicalMemory = 0.35
+
+    /// The ceiling handed to `MLX.Memory.memoryLimit`: above this MLX releases cached buffers
+    /// rather than letting the footprint keep climbing.
+    static func allocationLimitBytes(physicalMemory: UInt64) -> Int {
+        Int(Double(physicalMemory) * 0.55)
+    }
+
+    /// The largest context window to offer on this device.
+    ///
+    /// - Parameters:
+    ///   - physicalMemory: installed memory, not free memory — matching the existing
+    ///     MedGemma gate, which uses `ProcessInfo.physicalMemory` for the same reason.
+    ///   - modelSizeBytes: the weights, which are resident alongside the cache.
+    ///   - ceiling: the app's own hard maximum.
+    ///   - floor: never return less than this. Defaults to the shipping default window.
+    static func maximumContextSize(
+        physicalMemory: UInt64,
+        modelSizeBytes: Int64,
+        ceiling: Int,
+        floor: Int = MLXModelInfo.defaultContextSize
+    ) -> Int {
+        let forKVCache = Double(physicalMemory) * kvShareOfPhysicalMemory - Double(modelSizeBytes)
+        guard forKVCache > 0 else { return floor }
+
+        let affordableTokens = Int(forKVCache / Double(assumedKVBytesPerToken))
+        // Round down to a whole 4K step so the slider lands on familiar values.
+        let stepped = (affordableTokens / 4096) * 4096
+        return min(ceiling, max(floor, stepped))
+    }
+}
+
 // MARK: - Context Budget
 
 /// How a fixed context window is divided between the parts of a prompt.
@@ -351,9 +415,23 @@ extension MLXModelInfo {
     public static var configuredContextSize: Int {
         let size = UserDefaults.standard.integer(forKey: SettingsKeys.contextSize)
         if size > 0 {
-            return min(max(size, minContextSize), maxContextSize)
+            return min(max(size, minContextSize), deviceMaximumContextSize)
         }
         return defaultContextSize
+    }
+
+    /// `maxContextSize` narrowed to what this device can plausibly hold.
+    ///
+    /// A previously-saved 64K setting is clamped by this too, not just the slider — someone
+    /// who raised it on a Mac and then opened the app on a phone would otherwise keep the
+    /// setting that gets the process killed. See `MLXMemoryBudget` for why this never falls
+    /// below the shipping default.
+    public static var deviceMaximumContextSize: Int {
+        MLXMemoryBudget.maximumContextSize(
+            physicalMemory: ProcessInfo.processInfo.physicalMemory,
+            modelSizeBytes: selectedModel.estimatedSizeBytes,
+            ceiling: maxContextSize
+        )
     }
 
     public static var configuredRepetitionPenalty: Float? {

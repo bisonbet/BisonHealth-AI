@@ -119,6 +119,18 @@ struct OnDeviceLLMSettingsView: View {
             : "a metered connection"
     }
 
+    /// Explains the slider's upper bound when this device cannot take the app's maximum.
+    ///
+    /// The cap exists because the KV cache grows linearly with the window and nothing used
+    /// to limit it — 64K on an 8 GB iPhone is an out-of-memory kill. Saying so beats a
+    /// slider that silently stops short.
+    private var contextSizeFooter: String {
+        let deviceMaximum = MLXModelInfo.deviceMaximumContextSize
+        let base = "Default: 16K. Larger context allows more conversation history but uses more memory."
+        guard deviceMaximum < MLXModelInfo.maxContextSize else { return base }
+        return base + " This device is limited to \(deviceMaximum / 1024)K for \(downloadManager.selectedModelId.isEmpty ? "the selected model" : MLXModelInfo.selectedModel.displayName)."
+    }
+
     // MARK: - Sections
 
     private var enableSection: some View {
@@ -332,11 +344,11 @@ struct OnDeviceLLMSettingsView: View {
                         Slider(value: Binding(
                             get: { Double(contextSize) },
                             set: { contextSize = Int($0) }
-                        ), in: Double(MLXModelInfo.minContextSize)...Double(MLXModelInfo.maxContextSize), step: 1024)
+                        ), in: Double(MLXModelInfo.minContextSize)...Double(MLXModelInfo.deviceMaximumContextSize), step: 1024)
                             .onChange(of: contextSize) { _, newValue in
                                 UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.contextSize)
                             }
-                        Text("Default: 16K. Larger context allows more conversation history but uses more memory.")
+                        Text(contextSizeFooter)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
