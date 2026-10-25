@@ -24,7 +24,6 @@ struct DocumentDetailView: View {
     @State private var showingDeleteAlert = false
     @State private var showingTagEditor = false
     @State private var showingNotesEditor = false
-    @State private var showingImportReview = false
     @State private var showingCloudReextractConfirmation = false
     @State private var newTag = ""
     @State private var editedNotes = ""
@@ -146,37 +145,6 @@ struct DocumentDetailView: View {
                 documentManager: documentManager,
                 isPresented: $showingNotesEditor
             )
-        }
-        .sheet(isPresented: $showingImportReview) {
-            if let review = documentProcessor.pendingImportReview,
-               review.documentId == document.id {
-                BloodTestImportReviewView(
-                    importGroups: Binding(
-                        get: { review.importGroups },
-                        set: { _ in }
-                    ),
-                    autoAcceptedGroups: review.autoAcceptedGroups,
-                    onComplete: { selectedGroups in
-                        Task {
-                            await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
-                            showingImportReview = false
-                        }
-                    },
-                    onCancel: {
-                        // Cancel = discard this review; promote the next queued one.
-                        documentProcessor.discardPendingImportReview(for: review.documentId)
-                        showingImportReview = false
-                    }
-                )
-            }
-        }
-        .onChange(of: documentProcessor.pendingImportReview) { oldValue, newValue in
-            // Show review sheet when pending review is set for this document
-            if let review = newValue, review.documentId == document.id {
-                showingImportReview = true
-            } else if newValue == nil {
-                showingImportReview = false
-            }
         }
         .alert("Delete Document", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
@@ -511,90 +479,6 @@ struct DocumentDetailView: View {
     }
     
     // MARK: - Import Review Handler
-    private func handleImportReviewComplete(review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
-        AppLog.shared.ui("User completed import review for \(selectedGroups.count) groups")
-        
-        // Update the blood test result with user's selections
-        var updatedBloodTest = review.bloodTestResult
-        
-        // Create a map of selected candidates by standard key
-        // Only include non-nil selections (nil means ignore)
-        var selectedCandidatesByKey: [String: BloodTestImportCandidate] = [:]
-        for group in selectedGroups {
-            if let selectedId = group.selectedCandidateId,
-               let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
-                selectedCandidatesByKey[group.standardKey] = selectedCandidate
-                AppLog.shared.ui("User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
-            } else {
-                AppLog.shared.ui("User ignored group '\(group.standardTestName)'")
-            }
-        }
-        
-        // Reconstruct the results list based ONLY on selected candidates
-        var updatedResults: [BloodTestItem] = []
-        var processedKeys: Set<String> = []
-        
-        for (standardKey, selectedCandidate) in selectedCandidatesByKey {
-             if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
-                
-                var notes = selectedCandidate.originalTestName != standardParam.name ? "Original: \(selectedCandidate.originalTestName)" : nil
-                if selectedCandidate.originalTestName.lowercased().contains("calc") {
-                    notes = (notes == nil ? "" : notes! + "\n") + "Calculated"
-                }
-
-                let newItem = BloodTestItem(
-                    name: standardParam.name,
-                    value: selectedCandidate.value,
-                    unit: selectedCandidate.unit ?? standardParam.unit,
-                    referenceRange: selectedCandidate.referenceRange ?? standardParam.referenceRange,
-                    isAbnormal: selectedCandidate.isAbnormal,
-                    category: standardParam.category,
-                    notes: notes,
-                    confidence: selectedCandidate.confidence,
-                    specimen: selectedCandidate.specimen ?? standardParam.defaultSpecimen,
-                    collection: selectedCandidate.collection ?? standardParam.defaultCollection
-                )
-                updatedResults.append(newItem)
-                processedKeys.insert(standardKey)
-            }
-        }
-        
-        updatedBloodTest.results = updatedResults
-
-        // Remove pending review flag; record the audit trail of what was
-        // auto-accepted vs user-reviewed
-        var metadata = updatedBloodTest.metadata ?? [:]
-        metadata.removeValue(forKey: "pending_review")
-        metadata["import_review_completed"] = "true"
-        metadata["reviewed_groups_count"] = String(selectedGroups.count)
-        metadata["imported_items_count"] = String(updatedResults.count)
-        metadata["auto_accepted_keys"] = selectedGroups
-            .filter { $0.isAutoAccepted && $0.selectedCandidateId != nil }
-            .map { $0.standardKey }.joined(separator: ",")
-        metadata["reviewed_keys"] = selectedGroups
-            .filter { !$0.isAutoAccepted && $0.selectedCandidateId != nil }
-            .map { $0.standardKey }.joined(separator: ",")
-        updatedBloodTest.metadata = metadata
-        
-        // Save the updated blood test
-        do {
-            try await healthDataManager.addBloodTest(updatedBloodTest)
-            AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
-        } catch HealthDataError.validationFailed(let reason) {
-            // Same-document/similar-date duplicates are idempotent re-imports
-            // (the automatic path skips them too) — not a review failure.
-            AppLog.shared.ui("Blood test after review skipped: \(reason)", level: .warning)
-        } catch {
-            AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)
-        }
-        
-        // ALWAYS advance the review queue — a stuck slot jams every later
-        // document's review for the rest of the session.
-        await MainActor.run {
-            documentProcessor.finishPendingImportReview()
-        }
-    }
-    
     private func findStandardKey(for testName: String) -> String? {
         // Try to find the standard key for this test name
         let normalized = testName.lowercased()
@@ -626,9 +510,6 @@ struct DocumentDetailView: View {
         return nil
     }
     
-    private var healthDataManager: HealthDataManager {
-        HealthDataManager.shared
-    }
 }
 
 // MARK: - Supporting Views

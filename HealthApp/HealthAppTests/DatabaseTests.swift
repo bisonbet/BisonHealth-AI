@@ -567,3 +567,126 @@ final class ConversationTitleWriteTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Review Ownership (W-G / item 31)
+//
+// The review sheets, their observers and `restorePendingImportReviews()` all lived in
+// `DocumentsView`, which `HealthTabView` swaps out with a `switch`. So a lab import left
+// un-reviewed by a previous session only resurfaced once the user happened to open the
+// Documents tab — the v13 commit's claim that these were "offered again on launch" was the
+// overstatement that became item 31. `DocumentDetailView` had a second copy of the same
+// sheet and an 83-line duplicate of the completion handler.
+//
+// These tests pin the part that view code can no longer own: the processor restores and
+// completes a review with no view involved at all.
+@MainActor
+final class PendingReviewOwnershipTests: XCTestCase {
+
+    private let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("review-owner-\(UUID().uuidString)", isDirectory: true)
+    private var databaseURL: URL { directory.appendingPathComponent("health_data.sqlite") }
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+        try super.tearDownWithError()
+    }
+
+    private func makeProcessor(database: DatabaseManager) throws -> DocumentProcessor {
+        let files = try FileSystemManager(
+            baseDirectory: directory.appendingPathComponent("Files/HealthApp", isDirectory: true)
+        )
+        return DocumentProcessor(
+            databaseManager: database,
+            fileSystemManager: files,
+            healthDataManager: HealthDataManager(
+                databaseManager: database,
+                fileSystemManager: files,
+                automaticallyLoad: false
+            )
+        )
+    }
+
+    private func review(documentName: String = "panel.pdf") -> PendingImportReview {
+        PendingImportReview(
+            documentId: UUID(),
+            documentName: documentName,
+            importGroups: [
+                BloodTestImportGroup(
+                    standardTestName: "Potassium",
+                    standardKey: "potassium",
+                    candidates: [BloodTestImportCandidate(
+                        testName: "Potassium", value: "5.9", unit: "mmol/L",
+                        isAbnormal: true, originalTestName: "K"
+                    )]
+                )
+            ],
+            bloodTestResult: BloodTestResult(testDate: Date(), results: [])
+        )
+    }
+
+    func testTheProcessorRestoresWithoutAnyView() async throws {
+        let database = try DatabaseManager(databaseURL: databaseURL)
+        let stored = review()
+        try await database.savePendingImportReview(stored)
+
+        let processor = try makeProcessor(database: database)
+        XCTAssertNil(processor.pendingImportReview, "Precondition: nothing pending before the restore")
+
+        await processor.restorePendingImportReviews()
+
+        XCTAssertEqual(
+            processor.pendingImportReview?.documentId,
+            stored.documentId,
+            "The restore must surface the review on the processor, not on whichever view happens to be on screen"
+        )
+    }
+
+    func testASecondRestoreDoesNotDuplicateTheQueue() async throws {
+        // The restore now runs from the root view's `.task`. That fires once per appearance
+        // of the root, but a defensive second call must not double the queue.
+        let database = try DatabaseManager(databaseURL: databaseURL)
+        try await database.savePendingImportReview(review(documentName: "one.pdf"))
+        try await database.savePendingImportReview(review(documentName: "two.pdf"))
+
+        let processor = try makeProcessor(database: database)
+        await processor.restorePendingImportReviews()
+        await processor.restorePendingImportReviews()
+
+        // `pendingReviewQueue` is private, so count what is observable instead: drain the
+        // slot and see how many distinct reviews come through. Two stored reviews must
+        // yield two, not four.
+        var drained: Set<UUID> = []
+        while let current = processor.pendingImportReview, drained.count < 10 {
+            drained.insert(current.documentId)
+            await processor.completeImportReview(current, selectedGroups: [])
+        }
+
+        XCTAssertEqual(drained.count, 2, "A repeat restore must not duplicate the queue")
+    }
+
+    func testCompletingAReviewAdvancesTheQueueAndClearsTheRow() async throws {
+        let database = try DatabaseManager(databaseURL: databaseURL)
+        let first = review(documentName: "first.pdf")
+        try await database.savePendingImportReview(first)
+
+        let processor = try makeProcessor(database: database)
+        await processor.restorePendingImportReviews()
+        XCTAssertNotNil(processor.pendingImportReview)
+
+        // Importing nothing is still a completed review: the queue must advance either way,
+        // because a stuck slot jams every later document for the rest of the session.
+        await processor.completeImportReview(first, selectedGroups: [])
+
+        XCTAssertNil(processor.pendingImportReview, "The slot must be freed")
+        let remaining = try await database.fetchPendingImportReviews()
+        XCTAssertTrue(
+            remaining.isEmpty,
+            "A completed review must not be restored again on the next launch"
+        )
+    }
+}

@@ -92,12 +92,34 @@ class DocumentProcessor: ObservableObject {
     /// Promote the next queued review (or clear). Call when the current
     /// review is completed.
     func finishPendingImportReview() {
-        // The user decided on this one, so it no longer needs resurfacing.
-        if let resolved = pendingImportReview?.documentId {
+        // The user decided on this one, so it no longer needs resurfacing. Fire-and-forget
+        // here because this entry point is synchronous; `completeImportReview` uses the
+        // awaiting variant below, which is the path that matters.
+        let resolved = pendingImportReview?.documentId
+        advancePendingImportReview()
+        if let resolved {
             Task { [databaseManager] in
                 try? await databaseManager.deletePendingImportReview(documentId: resolved)
             }
         }
+    }
+
+    /// Finish a review, waiting for the stored copy to be deleted before returning.
+    ///
+    /// The synchronous version above schedules the delete and returns, so a stop right after
+    /// a completed import could leave the row behind and the next launch would offer the
+    /// review again — re-importing values the user had already accepted. Anything that can
+    /// await should.
+    private func finishPendingImportReviewAwaitingDelete() async {
+        if let resolved = pendingImportReview?.documentId {
+            try? await databaseManager.deletePendingImportReview(documentId: resolved)
+        }
+        advancePendingImportReview()
+    }
+
+    /// Promote the next queued review, or clear the slot. Shared by both finish paths so
+    /// the queue behaviour cannot drift between them.
+    private func advancePendingImportReview() {
         if !pendingReviewQueue.isEmpty {
             pendingImportReview = pendingReviewQueue.removeFirst()
         } else {
@@ -290,6 +312,113 @@ class DocumentProcessor: ObservableObject {
             AppLog.shared.documents("Failed to save genetic test review: \(error.localizedDescription)", level: .error)
             return nil
         }
+    }
+
+    /// Apply the user's choices from an import review and advance the queue.
+    ///
+    /// This lived in `DocumentsView` as a private method, which is why the review sheet had
+    /// to live there too — and that is what made a restored review reachable only by opening
+    /// the Documents tab. None of it is view logic: it reads `BloodTestResult`'s standard
+    /// parameters, builds items, writes through `HealthDataManager` and advances this
+    /// processor's own queue. It belongs beside `completeGeneticTestReview`.
+    func completeImportReview(_ review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
+        AppLog.shared.documents("User completed import review for \(selectedGroups.count) groups")
+
+        // Update the blood test result with user's selections
+        var updatedBloodTest = review.bloodTestResult
+
+        // Create a map of selected candidates by standard key
+        // Only include non-nil selections (nil means ignore)
+        var selectedCandidatesByKey: [String: BloodTestImportCandidate] = [:]
+        for group in selectedGroups {
+            if let selectedId = group.selectedCandidateId,
+               let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
+                selectedCandidatesByKey[group.standardKey] = selectedCandidate
+                AppLog.shared.documents("User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
+            } else {
+                AppLog.shared.documents("User ignored group '\(group.standardTestName)'")
+            }
+        }
+
+        // Reconstruct the results list based ONLY on selected candidates
+        var updatedResults: [BloodTestItem] = []
+        var processedKeys: Set<String> = []
+
+        // In the new flow, we can just iterate through the selected candidates map
+        // because we want to discard anything that wasn't selected.
+        // However, we need to map back to BloodTestItem which needs category info.
+        // The candidate doesn't have category, but the StandardizedLabParameters do.
+
+        for (standardKey, selectedCandidate) in selectedCandidatesByKey {
+             if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
+
+                // Check if this was an update to an existing item (preserve ID if possible? not strictly necessary)
+                // or just create new items. Creating new is cleaner here since we are "Importing".
+
+                // Provenance for the stored item: the lab's own wording when it differs
+                // from the standard name, and whether the lab calculated the value rather
+                // than measuring it. Joined rather than force-unwrapped — the original
+                // carried a `notes!` that came along with this method when it moved.
+                var noteParts: [String] = []
+                if selectedCandidate.originalTestName != standardParam.name {
+                    noteParts.append("Original: \(selectedCandidate.originalTestName)")
+                }
+                if selectedCandidate.originalTestName.lowercased().contains("calc") {
+                    noteParts.append("Calculated")
+                }
+                let notes = noteParts.isEmpty ? nil : noteParts.joined(separator: "\n")
+
+                let newItem = BloodTestItem(
+                    name: standardParam.name,
+                    value: selectedCandidate.value,
+                    unit: selectedCandidate.unit ?? standardParam.unit,
+                    referenceRange: selectedCandidate.referenceRange ?? standardParam.referenceRange,
+                    isAbnormal: selectedCandidate.isAbnormal,
+                    category: standardParam.category,
+                    notes: notes,
+                    confidence: selectedCandidate.confidence,
+                    specimen: selectedCandidate.specimen ?? standardParam.defaultSpecimen,
+                    collection: selectedCandidate.collection ?? standardParam.defaultCollection
+                )
+                updatedResults.append(newItem)
+                processedKeys.insert(standardKey)
+            }
+        }
+
+        updatedBloodTest.results = updatedResults
+
+        // Remove pending review flag; record the audit trail of what was
+        // auto-accepted vs user-reviewed
+        var metadata = updatedBloodTest.metadata ?? [:]
+        metadata.removeValue(forKey: "pending_review")
+        metadata["import_review_completed"] = "true"
+        metadata["reviewed_groups_count"] = String(selectedGroups.count)
+        metadata["imported_items_count"] = String(updatedResults.count)
+        metadata["auto_accepted_keys"] = selectedGroups
+            .filter { $0.isAutoAccepted && $0.selectedCandidateId != nil }
+            .map { $0.standardKey }.joined(separator: ",")
+        metadata["reviewed_keys"] = selectedGroups
+            .filter { !$0.isAutoAccepted && $0.selectedCandidateId != nil }
+            .map { $0.standardKey }.joined(separator: ",")
+        updatedBloodTest.metadata = metadata
+
+        // Save the updated blood test
+        do {
+            // The processor's injected manager, not the singleton. The view that used to own
+            // this method had nothing to inject, which is also why it could not be tested.
+            try await healthDataManager.addBloodTest(updatedBloodTest)
+            AppLog.shared.documents("Saved blood test after import review with \(updatedResults.count) results")
+        } catch HealthDataError.validationFailed(let reason) {
+            // Same-document/similar-date duplicates are idempotent re-imports
+            // (the automatic path skips them too) — not a review failure.
+            AppLog.shared.documents("Blood test after review skipped: \(reason)", level: .warning)
+        } catch {
+            AppLog.shared.documents("Failed to save blood test after review: \(error)", level: .error)
+        }
+
+        // ALWAYS advance the review queue — a stuck slot jams every later
+        // document's review for the rest of the session.
+        await finishPendingImportReviewAwaitingDelete()
     }
 
     func completeGeneticTestReview(

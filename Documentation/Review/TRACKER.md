@@ -30,14 +30,23 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    into the "conversation cleared mid-stream" guard. Stored state stays authoritative for
    everything it owns; the in-memory copy contributes only messages the database has not seen.
    **W-G and W-S are unblocked** (they share these files).
-2. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
+2. ~~**W-G**~~ — **done 2026-10-25.** Both review sheets, their observers and
+   `restorePendingImportReviews()` now live on `ContentView`, so a restored review surfaces
+   wherever the user is instead of waiting for them to open Documents. Found while moving it:
+   `DocumentDetailView` held a **second** presenter of the same sheet and an 83-line duplicate
+   of the completion handler — with the root presenting too, that would have been two sheets
+   racing for one review. Both removed; `completeImportReview` now lives on
+   `DocumentProcessor` beside `completeGeneticTestReview`, uses the processor's injected
+   `healthDataManager` rather than the singleton, and the completion path awaits the stored
+   row's deletion so a completed review cannot be re-offered next launch. **W-H is unblocked.**
+3. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
    without a device, so pair it with W-C.
-3. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and
+4. **W-I** — CI, a shared test plan, `ExportOptions.plist`. Submission-blocking and
    unblocks W-R.
-4. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
+5. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
    fail. WS-15 proved nine injected regressions leave the suite green; this is the item that
    makes the suite mean something.
-5. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
+6. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
    white-on-gold only; this is the other half and I had wrongly treated it as done.
 
 ### Serialise these

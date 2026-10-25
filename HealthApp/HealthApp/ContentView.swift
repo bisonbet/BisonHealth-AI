@@ -11,6 +11,25 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSection: AppSection = .health
 
+    /// The review sheets live here, at the root, not in `DocumentsView`.
+    ///
+    /// They used to belong to `DocumentsView`, and `HealthTabView` swaps that view out with
+    /// a `switch` when the user taps another segment. Two consequences, both real:
+    ///
+    /// - A review that arrived while the user was elsewhere set `pendingImportReview` on a
+    ///   view that no longer existed. That is what the `initial: true` observers were added
+    ///   to work around — they let a rebuilt view notice a value that was already set.
+    /// - `restorePendingImportReviews()` ran from a `.task` on the same view, so a lab
+    ///   import left un-reviewed by the previous session only resurfaced once the user
+    ///   happened to open the Documents tab. The v13 commit claimed these were "offered
+    ///   again on launch"; they were not, and that overstatement is what became item 31.
+    ///
+    /// At the root the sheets outlive every tab change, so the observers are a plain
+    /// reaction to new state rather than a workaround for a destroyed view.
+    @StateObject private var documentProcessor = DocumentProcessor.shared
+    @State private var showingImportReview = false
+    @State private var showingGeneticTestReview = false
+
     private var isIPad: Bool {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
@@ -33,6 +52,61 @@ struct ContentView: View {
                 Spacer()
             }
             .ignoresSafeArea(edges: .top)
+        }
+        .sheet(isPresented: $showingImportReview) {
+            if let review = documentProcessor.pendingImportReview {
+                BloodTestImportReviewView(
+                    importGroups: Binding(
+                        get: { review.importGroups },
+                        set: { _ in }
+                    ),
+                    autoAcceptedGroups: review.autoAcceptedGroups,
+                    onComplete: { selectedGroups in
+                        // Close first, then do the work. The sheet is driven by
+                        // `showingImportReview`, and the view's `dismiss()` does not clear
+                        // that binding — so leaving it true across an await (a database
+                        // save) leaves a window in which the observer can re-present the
+                        // sheet the user just dismissed. A tap on Import then looks like it
+                        // did nothing.
+                        showingImportReview = false
+                        Task {
+                            await documentProcessor.completeImportReview(review, selectedGroups: selectedGroups)
+                        }
+                    },
+                    onCancel: {
+                        // Cancel = discard this review; promote the next queued one.
+                        documentProcessor.discardPendingImportReview(for: review.documentId)
+                        showingImportReview = false
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showingGeneticTestReview) {
+            if let review = documentProcessor.pendingGeneticTestReview {
+                GeneticTestImportReviewView(review: review) { acceptedIssueIDs, skippedIssueIDs in
+                    Task {
+                        await documentProcessor.completeGeneticTestReview(
+                            review,
+                            acceptedIssueIDs: acceptedIssueIDs,
+                            skippedIssueIDs: skippedIssueIDs
+                        )
+                        showingGeneticTestReview = false
+                    }
+                }
+            }
+        }
+        .onChange(of: documentProcessor.pendingImportReview, initial: true) { _, newValue in
+            showingImportReview = newValue != nil
+        }
+        .onChange(of: documentProcessor.pendingGeneticTestReview, initial: true) { _, newValue in
+            showingGeneticTestReview = newValue != nil
+        }
+        .task {
+            // Offer back any lab import the previous session left un-reviewed. Before v13
+            // these lived only in memory, so a cancel or a force-quit discarded every
+            // extracted value and only re-processing the document recovered them. Running
+            // it here means the offer arrives wherever the user happens to be.
+            await documentProcessor.restorePendingImportReviews()
         }
     }
 
@@ -563,8 +637,6 @@ struct DocumentsView: View {
     /// All documents awaiting category selection. Without a queue, a
     /// multi-file import only ever processed the first document.
     @State private var pendingCategoryDocuments: [MedicalDocument] = []
-    @State private var showingImportReview = false
-    @State private var showingGeneticTestReview = false
     @State private var activeAutoImportSummary: AutoImportSummary?
     @State private var autoImportBannerDismissTask: Task<Void, Never>?
 
@@ -646,67 +718,6 @@ struct DocumentsView: View {
                 documentProcessor: documentProcessor
             )
         }
-        .sheet(isPresented: $showingImportReview) {
-            if let review = documentProcessor.pendingImportReview {
-                BloodTestImportReviewView(
-                    importGroups: Binding(
-                        get: { review.importGroups },
-                        set: { _ in }
-                    ),
-                    autoAcceptedGroups: review.autoAcceptedGroups,
-                    onComplete: { selectedGroups in
-                        // Close first, then do the work. The sheet is driven by
-                        // `showingImportReview`, and the view's `dismiss()` does not clear
-                        // that binding — so leaving it true across an await (a database
-                        // save) leaves a window in which the `initial: true` observer can
-                        // re-present the sheet the user just dismissed. A tap on Import
-                        // then looks like it did nothing.
-                        showingImportReview = false
-                        Task {
-                            await handleImportReviewComplete(review: review, selectedGroups: selectedGroups)
-                        }
-                    },
-                    onCancel: {
-                        // Cancel = discard this review; promote the next queued one.
-                        documentProcessor.discardPendingImportReview(for: review.documentId)
-                        showingImportReview = false
-                    }
-                )
-            }
-        }
-        .sheet(isPresented: $showingGeneticTestReview) {
-            if let review = documentProcessor.pendingGeneticTestReview {
-                GeneticTestImportReviewView(review: review) { acceptedIssueIDs, skippedIssueIDs in
-                    Task {
-                        await documentProcessor.completeGeneticTestReview(
-                            review,
-                            acceptedIssueIDs: acceptedIssueIDs,
-                            skippedIssueIDs: skippedIssueIDs
-                        )
-                        showingGeneticTestReview = false
-                    }
-                }
-            }
-        }
-        // `initial: true` matters here. `HealthTabView` swaps this view out with a
-        // `switch` when the user taps another segment, so a review that arrives while
-        // the user is elsewhere sets `pendingImportReview` on a view that no longer
-        // exists. Without the initial fire, the rebuilt view never learns the value is
-        // already set: the sheet never appears, the review is never completed, and
-        // `finishPendingImportReview()` is never called — so every later review stays
-        // stuck in `pendingReviewQueue` for the rest of the session and those documents
-        // import nothing.
-        .onChange(of: documentProcessor.pendingImportReview, initial: true) { oldValue, newValue in
-            // Show review sheet when pending review is set
-            if newValue != nil {
-                showingImportReview = true
-            } else {
-                showingImportReview = false
-            }
-        }
-        .onChange(of: documentProcessor.pendingGeneticTestReview, initial: true) { _, newValue in
-            showingGeneticTestReview = newValue != nil
-        }
         .onChange(of: documentProcessor.lastAutoImportSummary, initial: true) { _, newValue in
             guard let summary = newValue else { return }
             activeAutoImportSummary = summary
@@ -730,12 +741,6 @@ struct DocumentsView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: activeAutoImportSummary)
-        .task {
-            // Offer back any lab import the previous session left un-reviewed. Before
-            // v13 these lived only in memory, so a cancel or a force-quit discarded every
-            // extracted value and only re-processing the document recovered them.
-            await documentProcessor.restorePendingImportReviews()
-        }
         .task {
             guard AppTestRuntime.shouldSeedLabReport else { return }
 
@@ -1065,99 +1070,6 @@ struct DocumentsView: View {
             }
 
             selectedPhotos = []
-        }
-    }
-
-    private func handleImportReviewComplete(review: PendingImportReview, selectedGroups: [BloodTestImportGroup]) async {
-        AppLog.shared.ui("User completed import review for \(selectedGroups.count) groups")
-
-        // Update the blood test result with user's selections
-        var updatedBloodTest = review.bloodTestResult
-
-        // Create a map of selected candidates by standard key
-        // Only include non-nil selections (nil means ignore)
-        var selectedCandidatesByKey: [String: BloodTestImportCandidate] = [:]
-        for group in selectedGroups {
-            if let selectedId = group.selectedCandidateId,
-               let selectedCandidate = group.candidates.first(where: { $0.id == selectedId }) {
-                selectedCandidatesByKey[group.standardKey] = selectedCandidate
-                AppLog.shared.ui("User selected '\(selectedCandidate.originalTestName)' = \(selectedCandidate.value) for '\(group.standardTestName)'")
-            } else {
-                AppLog.shared.ui("User ignored group '\(group.standardTestName)'")
-            }
-        }
-
-        // Reconstruct the results list based ONLY on selected candidates
-        var updatedResults: [BloodTestItem] = []
-        var processedKeys: Set<String> = []
-
-        // In the new flow, we can just iterate through the selected candidates map
-        // because we want to discard anything that wasn't selected.
-        // However, we need to map back to BloodTestItem which needs category info.
-        // The candidate doesn't have category, but the StandardizedLabParameters do.
-
-        for (standardKey, selectedCandidate) in selectedCandidatesByKey {
-             if let standardParam = BloodTestResult.standardizedLabParameters[standardKey] {
-
-                // Check if this was an update to an existing item (preserve ID if possible? not strictly necessary)
-                // or just create new items. Creating new is cleaner here since we are "Importing".
-
-                var notes = selectedCandidate.originalTestName != standardParam.name ? "Original: \(selectedCandidate.originalTestName)" : nil
-                if selectedCandidate.originalTestName.lowercased().contains("calc") {
-                    notes = (notes == nil ? "" : notes! + "\n") + "Calculated"
-                }
-
-                let newItem = BloodTestItem(
-                    name: standardParam.name,
-                    value: selectedCandidate.value,
-                    unit: selectedCandidate.unit ?? standardParam.unit,
-                    referenceRange: selectedCandidate.referenceRange ?? standardParam.referenceRange,
-                    isAbnormal: selectedCandidate.isAbnormal,
-                    category: standardParam.category,
-                    notes: notes,
-                    confidence: selectedCandidate.confidence,
-                    specimen: selectedCandidate.specimen ?? standardParam.defaultSpecimen,
-                    collection: selectedCandidate.collection ?? standardParam.defaultCollection
-                )
-                updatedResults.append(newItem)
-                processedKeys.insert(standardKey)
-            }
-        }
-
-        updatedBloodTest.results = updatedResults
-
-        // Remove pending review flag; record the audit trail of what was
-        // auto-accepted vs user-reviewed
-        var metadata = updatedBloodTest.metadata ?? [:]
-        metadata.removeValue(forKey: "pending_review")
-        metadata["import_review_completed"] = "true"
-        metadata["reviewed_groups_count"] = String(selectedGroups.count)
-        metadata["imported_items_count"] = String(updatedResults.count)
-        metadata["auto_accepted_keys"] = selectedGroups
-            .filter { $0.isAutoAccepted && $0.selectedCandidateId != nil }
-            .map { $0.standardKey }.joined(separator: ",")
-        metadata["reviewed_keys"] = selectedGroups
-            .filter { !$0.isAutoAccepted && $0.selectedCandidateId != nil }
-            .map { $0.standardKey }.joined(separator: ",")
-        updatedBloodTest.metadata = metadata
-
-        // Save the updated blood test
-        do {
-            let healthDataManager = HealthDataManager.shared
-            try await healthDataManager.addBloodTest(updatedBloodTest)
-            AppLog.shared.ui("Saved blood test after import review with \(updatedResults.count) results")
-        } catch HealthDataError.validationFailed(let reason) {
-            // Same-document/similar-date duplicates are idempotent re-imports
-            // (the automatic path skips them too) — not a review failure.
-            AppLog.shared.ui("Blood test after review skipped: \(reason)", level: .warning)
-        } catch {
-            AppLog.shared.ui("Failed to save blood test after review: \(error)", level: .error)
-        }
-
-        // ALWAYS advance the review queue — a stuck slot jams every later
-        // document's review for the rest of the session.
-        await MainActor.run {
-            documentProcessor.finishPendingImportReview()
         }
     }
 
