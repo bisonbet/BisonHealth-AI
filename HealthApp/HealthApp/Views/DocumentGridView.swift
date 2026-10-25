@@ -62,7 +62,7 @@ struct DocumentGridItem: View {
                     Button(action: onToggleSelection) {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                             .font(.title3)
-                            .foregroundColor(isSelected ? .white : .secondary)
+                            .foregroundColor(isSelected ? BisonTheme.inkOnGold : .secondary)
                             .background(isSelected ? BisonTheme.gold : Color.white)
                             .clipShape(Circle())
                     }

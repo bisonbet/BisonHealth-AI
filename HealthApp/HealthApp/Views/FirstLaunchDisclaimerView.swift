@@ -89,7 +89,7 @@ struct FirstLaunchDisclaimerView: View {
                     }) {
                         Text("I Understand and Accept")
                             .font(.headline)
-                            .foregroundColor(.white)
+                            .foregroundColor(BisonTheme.inkOnGold)
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(BisonTheme.gold)

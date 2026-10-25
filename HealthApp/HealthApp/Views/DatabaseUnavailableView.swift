@@ -149,7 +149,7 @@ struct DatabaseUnavailableView: View {
             } label: {
                 Text("Share Diagnostic Logs")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundColor(BisonTheme.inkOnGold)
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(BisonTheme.gold)

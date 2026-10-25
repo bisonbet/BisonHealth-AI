@@ -683,3 +683,67 @@ final class ConversationHistoryBudgetTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Doctor Personas
+//
+// The personas told the model it was "board-certified", gave it fabricated years of
+// experience, and instructed it to drop disclaimers and "see a doctor" reminders. That
+// contradicted the one thing `HealthChatRules.core` insists on — flagging urgent symptoms —
+// and claimed credentials no model holds.
+@MainActor
+final class DoctorPersonaTests: XCTestCase {
+
+    private var allPrompts: [String] {
+        Doctor.defaultDoctors.flatMap { [$0.systemPrompt, $0.compactSystemPrompt] }
+    }
+
+    func testNoPersonaClaimsACredential() {
+        let forbidden = ["board-certified", "board certified", "licensed Dentist", "DDS/DMD", "DPT)"]
+        for (index, prompt) in allPrompts.enumerated() {
+            for phrase in forbidden {
+                XCTAssertFalse(
+                    prompt.localizedCaseInsensitiveContains(phrase),
+                    "Prompt \(index) claims a credential the model does not hold: '\(phrase)'"
+                )
+            }
+        }
+    }
+
+    func testNoPersonaClaimsYearsOfExperience() {
+        // "with 20+ years" is invented biography, and it is the kind of thing a reviewer
+        // reads as the app asserting clinical authority.
+        for (index, prompt) in allPrompts.enumerated() {
+            XCTAssertNil(
+                prompt.range(of: #"\d+\+ years"#, options: .regularExpression),
+                "Prompt \(index) invents years of experience"
+            )
+        }
+    }
+
+    func testNoPersonaSuppressesUrgentCareAdvice() {
+        // The exact strings that used to do it. "No disclaimers." on its own told the model
+        // to drop the escalation language the shared rules require.
+        for (index, prompt) in allPrompts.enumerated() {
+            XCTAssertFalse(
+                prompt.contains("No disclaimers."),
+                "Prompt \(index) suppresses disclaimers outright"
+            )
+            XCTAssertFalse(
+                prompt.contains(#"Do not add unsolicited information or "see a doctor" reminders"#),
+                "Prompt \(index) suppresses escalation advice"
+            )
+        }
+    }
+
+    func testEveryCompactPromptStillAsksForUrgentCareToBeFlagged() {
+        // The replacement has to actually say it, in every compact prompt — those are what
+        // the on-device path uses, where the window is smallest and the persona is all the
+        // model gets besides the shared rules.
+        for doctor in Doctor.defaultDoctors {
+            XCTAssertTrue(
+                doctor.compactSystemPrompt.localizedCaseInsensitiveContains("medical attention"),
+                "\(doctor.name)'s compact prompt must still ask for urgent findings to be stated plainly"
+            )
+        }
+    }
+}

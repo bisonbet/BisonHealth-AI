@@ -48,7 +48,7 @@ struct ChatEmptyStateView: View {
                     Text("Start New Conversation")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(BisonTheme.inkOnGold)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
                 .background(BisonTheme.gold)

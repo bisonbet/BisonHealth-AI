@@ -545,6 +545,24 @@ struct EnhancedMessageBubbleView: View, Equatable {
         return BisonTheme.gold
     }
 
+    /// Text colour that actually reads against `messageBackground`.
+    ///
+    /// White on `BisonTheme.gold` measures 2.91:1 in light mode and **1.89:1 in dark** —
+    /// failing WCAG AA (4.5:1) and failing even the large-text threshold (3:1). This is the
+    /// surface where someone reads their own messages back. `BisonTheme.inkOnGold` already
+    /// existed and gives 5.83:1 and 8.97:1.
+    ///
+    /// Red keeps white, which is the conventional pairing. The `.retrying` orange was not
+    /// measured and is left alone deliberately rather than changed on a guess.
+    private var messageForeground: Color {
+        if message.status == .failed || message.isError {
+            return .white
+        } else if message.status == .retrying {
+            return .white
+        }
+        return BisonTheme.inkOnGold
+    }
+
     private func statusColor(for status: MessageStatus) -> Color {
         switch status {
         case .sent: return .green
@@ -615,7 +633,7 @@ struct EnhancedMessageBubbleView: View, Equatable {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(messageBackground)
-                            .foregroundColor(.white)
+                            .foregroundColor(messageForeground)
                             .cornerRadius(18)
                             .textSelection(.enabled) // Enable text selection on iPad
                     }
