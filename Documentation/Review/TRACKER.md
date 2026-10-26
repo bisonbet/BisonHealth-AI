@@ -167,8 +167,8 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    callers are `AppointmentPrepManager` (three consecutive calls), `AIChatManager`'s
    non-streaming fallback and its title generation, `BloodTestMappingService` and
    `MedicalDocumentExtractor`. The run flagged only `extractFromDocument` as deliberately
-   out of scope, so this one reads as an oversight rather than a decision. **Needs its own
-   item.** Smaller, same area: `MLXOnDeviceError.generationInterrupted` is thrown for both
+   out of scope, so this one reads as an oversight rather than a decision. **Promoted to
+   W-T below.** Smaller, same area: `MLXOnDeviceError.generationInterrupted` is thrown for both
    reasons but its text is background-only, so a turn the user cancelled inside the first 40
    characters gets "because the app went to the background" in a visible error alert.
 5. ~~**W-I**~~ — **mostly done 2026-10-25.** Two shared test plans in
@@ -199,16 +199,38 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    unconditionally, so a second pass over an already-migrated row double-encrypts and
    strands the data for good. Not reachable in production, because each step and its version
    bump share one transaction, so v11 only runs at stored version 10. Making it idempotent is
-   a `DatabaseManager` change and needs its own item. No v11 idempotency test was written,
+   a `DatabaseManager` change: **promoted to W-U below.** No v11 idempotency test was written,
    because the honest one would assert data loss.
-7. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
+7. **W-T** — **finish W-E: the other generation paths.** Found 2026-10-26 while verifying
+   PR #51. Only `sendStreamingChatMessage` evaluates `MLXTurnInterruption`; `sendMessage` →
+   `collectResponse` still takes `MLXGPUGate` and holds it for a whole `maxTokens`
+   generation with no boundary check, so a background trip there queues the unload behind
+   the full budget — the exact bug W-E set out to fix, in the path `AppointmentPrepManager`
+   (three consecutive calls), `AIChatManager`'s non-streaming fallback and its title
+   generation, `BloodTestMappingService` and `MedicalDocumentExtractor` all use. W-E's own
+   `extractFromDocument` exclusion stays deliberate: stopping mid-document would return a
+   partial extraction that looks complete. Owns `MLXOnDeviceClient.swift`, so it serialises
+   against anything else touching that file, and only a `generic/platform=iOS` build
+   typechecks it. While there: `MLXOnDeviceError.generationInterrupted` is thrown for both
+   interruption reasons but its text is background-only, so a turn cancelled inside the
+   first 40 characters tells the user the app went to the background.
+8. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
    white-on-gold only; this is the other half and I had wrongly treated it as done.
+9. **W-U** — **make the v11 encryption helpers idempotent.** `encryptDocumentPHIColumns` and
+   `encryptChatTitles` re-encrypt unconditionally, unlike the v14 tags helper, so a second
+   pass double-encrypts and strands the data for good. **Not reachable today** — each step
+   shares a transaction with its version bump, so v11 only runs at stored version 10 — which
+   is why this is last rather than urgent. It is a `DatabaseManager` change, so it cannot be
+   done from a tests-only item; the honest test is the one W-J could not write, because
+   asserting current behaviour means asserting data loss. Owns `DatabaseManager.swift` and
+   `DatabaseTests.swift`, so it serialises against W-K.
 
 ### Serialise these
 
 `project.pbxproj` is touched by **W-A, W-I, W-P, W-R** — one at a time, and hand-editing it
 makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
-`HealthAppTests/DatabaseTests.swift` by W-J (**done**) and **W-K** — W-K may now start.
+`HealthAppTests/DatabaseTests.swift` by W-J (**done**), **W-K** and **W-U** — W-K may now
+start. `MLXOnDeviceClient.swift` by W-E (**done**) and **W-T**.
 Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 on
 2026-10-25.
 

@@ -456,17 +456,32 @@ project.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs lint, tests and a device build. **It executed for the first
-time on 2026-10-26 (PR #51) and diagnosed its own bug**, which is what the toolchain-report
-job exists for. Lint is green against the baseline on `macos-15`. Both build jobs fail
-because **no job runs `xcode-select`**: the image defaults to Xcode 16.4, whose iOS 18.5 SDK
-cannot build this project's iOS 26.0 deployment target, and `mlx-swift-lm` then fails Swift 6
-concurrency checks under it. The image does carry Xcode 26.0.1–26.3, so the fix is one
-`sudo xcode-select -s /Applications/Xcode_26.x.app` step per build job; which 26.x to pin is
-an open decision. Measured on that runner: iOS runtimes 18.5, 18.6, 26.0, 26.1, 26.2 —
-**no 26.5**, so the `OS=26.5` pin in the commands above is local-only and would fail there.
-The device-build job may still need the Metal toolchain, which mlx's `Cmlx` target requires
-and which is a separate download; nothing has reached that point yet.
+`.github/workflows/ci.yml` runs lint, tests and a device build, and it is **green as of
+2026-10-26**. Its first run (PR #51) diagnosed its own bug, which is what the
+toolchain-report job exists for: the image defaults to Xcode 16.4, whose iOS 18.5 SDK cannot
+build this project's iOS 26.0 deployment target, and `mlx-swift-lm` then fails Swift 6
+concurrency checks under it, so both build jobs died inside dependencies without compiling a
+single `HealthApp/` file.
+
+The fix (PR #52) is one workflow-level
+`DEVELOPER_DIR: /Applications/Xcode_26.2.0.app/Contents/Developer`. **Do not remove it** —
+without it the runner falls back to 16.4 and nothing here compiles. 26.2.0 is the newest
+Xcode on the image whose matching simulator runtime is actually installed. That run reported
+**368 tests / 0 failures** from the `Fast` plan and a successful device build, which is the
+first time anything in `MLXOnDeviceLLM/` has compiled in CI — the Metal toolchain that mlx's
+`Cmlx` target needs is present on the runner and was used, so that open question is answered.
+
+Three things to know before trusting a green tick:
+
+- **A full run takes 15–25 minutes**, plus ~4½ minutes queueing for a hosted macOS runner.
+  Nearly all of it is compiling ~30 SwiftPM packages: the cache step keeps the *checkouts*,
+  not the build products, and the device-build job has no cache at all.
+- The runner's iOS runtimes are 18.5, 18.6, 26.0, 26.1 and 26.2 — **no 26.5** — so the
+  `OS=26.5` pin in the commands above is local-only and would fail there. `ci.yml`'s
+  destination deliberately names a device and no OS.
+- **`PreRelease` runs only on a push to `main`**, so the two UI tests reach CI far less often
+  than the unit tests, and a first failure there is likelier to be the runner than the code.
+
 See `Documentation/Review/TRACKER.md` for the full first-run findings.
 
 ### Release
@@ -613,5 +628,5 @@ open HealthApp/HealthApp.xcodeproj
 
 ---
 
-**Last Updated**: 2026-10-25
+**Last Updated**: 2026-10-26
 **License**: MIT
