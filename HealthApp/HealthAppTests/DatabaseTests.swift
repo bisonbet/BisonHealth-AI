@@ -697,6 +697,97 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(recovered?.failureReason, "Processing timed out.")
     }
 
+    func testTheDocumentLibrarysOwnReaderDecodesTheFailureReason() async throws {
+        // `DatabaseManager+Documents` has its *own* `buildMedicalDocument`, and it is the one
+        // the UI goes through: `DocumentManager.loadDocuments()` → `fetchDocuments()` → that
+        // builder. Decoding the column in the medical-document reader alone left the list row
+        // and the detail view with a nil reason after a relaunch — the exact bug v15 exists to
+        // fix. Every fetch in that file shares the builder, so `fetchDocument(id:)` and
+        // `fetchDocuments(with:)` are covered by the same assertion.
+        let reason = "No on-device vision model is downloaded. Go to Settings > On-Device AI and download a Vision model."
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+            try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: reason)
+        }
+
+        let reopened = try DatabaseManager(databaseURL: databaseURL)
+
+        let listed = try await reopened.fetchDocuments()
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(listed.first?.failureReason, reason, "The list path must carry the reason")
+
+        let byId = try await reopened.fetchDocument(id: document.id)
+        XCTAssertEqual(byId?.failureReason, reason)
+
+        let failed = try await reopened.fetchDocuments(with: .failed)
+        XCTAssertEqual(failed.first?.failureReason, reason)
+    }
+
+    func testEditingAFailedDocumentThroughSaveDocumentKeepsItsReason() async throws {
+        // `DocumentManager.updateDocument()` goes to `saveDocument(_:)`, a third full-row
+        // writer with its own column list and its own `mergeDocument` helper. Omitting the
+        // column there meant editing tags or notes on a failed document cleared the
+        // explanation for good.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        try await manager.saveDocument(document)
+        try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
+
+        guard var edited = try await manager.fetchDocument(id: document.id) else {
+            return XCTFail("The document must be readable")
+        }
+        edited.tags = ["oncology"]
+        try await manager.saveDocument(edited)
+
+        let recovered = try await manager.fetchDocument(id: document.id)
+        XCTAssertEqual(recovered?.tags, ["oncology"], "The edit itself must land")
+        XCTAssertEqual(recovered?.failureReason, "Processing timed out.", "And must not clear the reason")
+    }
+
+    func testMergingASaveThatCarriesNoReasonKeepsTheStoredOne() async throws {
+        // `mergeDocument` exists because callers hand in partially populated documents. One
+        // built without a reason must not wipe the row's.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .failed,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: ["lab"]
+        )
+
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        try await manager.saveDocument(document)
+        try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
+
+        // A fresh value for the same id, with no reason on it at all.
+        try await manager.saveDocument(document)
+
+        let recovered = try await manager.fetchDocument(id: document.id)
+        XCTAssertEqual(recovered?.failureReason, "Processing timed out.")
+    }
+
     func testOpeningAFutureVersionIsRefusedRatherThanCrashing() throws {
         do {
             _ = try DatabaseManager(databaseURL: databaseURL)

@@ -58,7 +58,10 @@ extension DatabaseManager {
                 documentProviderType <- mergedDoc.providerType?.rawValue,
                 documentIncludeInAIContext <- mergedDoc.includeInAIContext,
                 documentContextPriority <- mergedDoc.contextPriority,
-                documentLastEditedAt <- mergedDoc.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
+                documentLastEditedAt <- mergedDoc.lastEditedAt.map { Int64($0.timeIntervalSince1970) },
+                // `insert(or: .replace)` rewrites the whole row, so omitting this would clear
+                // a failed document's stored explanation on an unrelated edit.
+                documentFailureReason <- try encryptTextField(mergedDoc.failureReason)
             )
 
             try db.run(insert)
@@ -358,7 +361,7 @@ extension DatabaseManager {
     ///   For example, if `new.extractedText` is nil but `existing.extractedText` has OCR data,
     ///   the merged document will preserve the OCR data.
     private func mergeDocument(new: MedicalDocument, existing: MedicalDocument) -> MedicalDocument {
-        return MedicalDocument(
+        var merged = MedicalDocument(
             id: new.id,  // ID never changes
             fileName: new.fileName,  // Required field, always present
             fileType: new.fileType,  // Required field, always present
@@ -384,6 +387,10 @@ extension DatabaseManager {
             tags: new.tags.isEmpty ? existing.tags : new.tags,
             notes: new.notes ?? existing.notes
         )
+        // Not an init parameter, so it has to be carried across explicitly: a caller that
+        // built its document without one must not clear a reason the row already holds.
+        merged.failureReason = new.failureReason ?? existing.failureReason
+        return merged
     }
 
     private func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
@@ -433,7 +440,7 @@ extension DatabaseManager {
             extractedSections = []
         }
 
-        return MedicalDocument(
+        var document = MedicalDocument(
             id: id,
             fileName: fileName,
             fileType: fileType,
@@ -456,5 +463,11 @@ extension DatabaseManager {
             tags: tags,
             notes: notes
         )
+        // This is the reader the document library goes through — `DocumentManager`
+        // `loadDocuments()` → `fetchDocuments()` → here — so the list row and the detail
+        // view see a persisted reason only if it is decoded here as well (v15).
+        let storedFailureReason = (try? row.get(self.documentFailureReason)) ?? nil
+        document.failureReason = decryptTextField(storedFailureReason)
+        return document
     }
 }
