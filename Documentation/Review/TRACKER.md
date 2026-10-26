@@ -23,10 +23,12 @@ done struck off, so a session can begin without re-deriving anything.
 > cannot compile cannot report a test as passing, and the negative check it skipped is
 > exactly what would have caught this.
 
-### ▶ CI ran for the first time (2026-10-26, PR #51) — and found its own bug
+### ▶ CI is green (2026-10-26, PR #52). Its first run, on PR #51, found its own bug
 
 `.github/workflows/ci.yml` executed for the first time. It diagnosed itself exactly as its
 header comment intended, so **W-I's "the workflow has never executed" is now answered**:
+
+That first run, on PR #51:
 
 | Job | Result |
 |---|---|
@@ -45,22 +47,46 @@ so the suite and the device typecheck both remain unrun.
 
 What the runner actually has, measured rather than assumed:
 
-- **Xcode**: 16.0–16.4 and **26.0.1, 26.1.1, 26.2.0, 26.3.0** installed; 16.4 selected.
+- **Xcode**: 16.0–16.4 and **26.0.1, 26.1.1, 26.2.0, 26.3.0** installed; **16.4 is the image
+  default**, which is the bug, and `ci.yml` now pins 26.2.0 over it.
 - **iOS runtimes**: 18.5, 18.6, **26.0, 26.1, 26.2** — note **no 26.5**, which this file and
   `CLAUDE.md` both name in their local commands. A destination pinned to `OS=26.5` fails here.
   `ci.yml`'s `SIMULATOR` pins no OS, so it is fine as written.
 - **Simulators**: iPhone 17 Pro, 17 Pro Max, Air, 17 all present. The names in `CLAUDE.md`
   are right; only the OS pin is wrong.
 
-**The fix (W-I, one step per build job, before `Resolve dependencies`):**
+**Fixed in PR #52.** One workflow-level
+`DEVELOPER_DIR: /Applications/Xcode_26.2.0.app/Contents/Developer`, rather than a
+`sudo xcode-select` step repeated in each build job: it pins one Xcode for every job and
+every step, needs no sudo, and cannot be half-applied by someone who adds a job later. The
+header of `ci.yml` says why it must not be removed, and the `environment` job now prints both
+the pinned Xcode and the image's default, so this failure stays legible in the next red run.
 
-```yaml
-      - name: Select an Xcode that has the iOS 26 SDK
-        run: sudo xcode-select -s /Applications/Xcode_26.1.1.app
-```
+**26.2.0, not the 26.1.1 this file first guessed.** Of the four 26.x on the image it is the
+newest whose matching simulator runtime is actually installed (26.0, 26.1, 26.2, no 26.3),
+and a newer compiler is what the `CIContext` diagnostic needs — that dependency compiles
+clean under the Xcode 27.x used locally. The runner resolves the path to `Xcode_26.2.app`,
+reporting **Xcode 26.2 / 17C52** against the image default of **16.4 / 16F6**.
 
-Left uncommitted deliberately: **which 26.x to pin is a standing decision** governing every
-future run, and `ci.yml` belongs to W-I rather than to any of the four items in PR #51.
+Run `40256518153`, all four jobs green:
+
+| Job | Result | Wall time |
+|---|---|---|
+| Report the runner's toolchain | ✅ prints 26.2 pinned and 16.4 default | 1m11s |
+| SwiftLint (baseline 5) | ✅ | 12s |
+| Tests (`Fast`, on a pull request) | ✅ **total 368 passed 368 failed 0**, read from the `.xcresult` | ~22m |
+| Device build | ✅ **the first time anything in `MLXOnDeviceLLM/` has compiled in CI** | 10m56s |
+
+Two things that run settles, both worth knowing before trusting a green tick:
+
+- **A full run costs 15–25 minutes**, plus ~4½ minutes queueing for a hosted macOS runner.
+  Nearly all of it is compiling ~30 SwiftPM packages from scratch: the `actions/cache` step
+  caches the *checkouts*, not the build products, and the device-build job has no cache step
+  at all. The same suite is 32 seconds of test time locally against warm DerivedData.
+- **`PreRelease` has still never run on CI.** The plan is chosen by event — `Fast` on a pull
+  request, `PreRelease` on a push to `main` — so the two UI tests reach CI for the first time
+  when #52 merges. A hosted runner is where UI tests are most likely to misbehave, and a red
+  run there is the workflow's problem rather than the code's.
 
 ### Beta-blockers — what stands between you and a tester build
 
@@ -149,11 +175,15 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    `HealthApp/TestPlans/` (**PreRelease** = unit + UI + coverage, the scheme's default so a
    bare `xcodebuild test` still runs everything; **Fast** = unit only, for pull requests),
    `.github/workflows/ci.yml` with lint/test/device-build jobs, and `ExportOptions.plist`.
-   Verified locally: both plans resolve and run the right counts (346 vs 348), the lint gate
-   catches a sixth violation, and the bare invocation still covers 348.
+   Verified locally: both plans resolve and run the right counts (346 vs 348 on 2026-10-25;
+   `Fast` is 368 as of 2026-10-26), the lint gate catches a sixth violation, and the bare
+   invocation still covers everything.
    **Left for the owner: the Apple Distribution identity** — without it no signed export can
-   be produced, so `ExportOptions.plist`'s `method` is unvalidated. **The workflow has never
-   executed**; its first job prints the runner's toolchain so the first run diagnoses itself.
+   be produced, so `ExportOptions.plist`'s `method` is unvalidated. **The workflow now runs
+   green**: its first run diagnosed its own missing toolchain selection, fixed in PR #52 by
+   pinning Xcode 26.2.0 through `DEVELOPER_DIR` (368/368 tests, and MLX compiling in CI for
+   the first time) — see the CI section at the top of this file. `PreRelease`, and so the UI
+   tests, still reach CI for the first time only when a merge pushes to `main`.
    **W-R is unblocked.**
 6. ~~**W-J**~~ — **done 2026-10-25**, so **W-K is unblocked** (it owns the same file; do not
    run them together). A v10 fixture now exists, built the established way — let

@@ -1,9 +1,21 @@
 # CI for BisonHealth AI.
 #
-# ⚠️ NEVER EXECUTED. This file was written without access to GitHub Actions, so the runner
-# image, the Xcode version it carries and the simulator names it provides are all unverified.
-# The first run is expected to need adjustment — which is why the `environment` job prints
-# what the runner actually has instead of leaving a failure to be guessed at.
+# It ran for the first time on 2026-10-26 (PR #51) and diagnosed its own bug, which is what
+# the `environment` job exists for. The bug was the missing toolchain selection, not the
+# diff: `macos-15` selects **Xcode 16.4** by default, whose iOS 18.5 SDK cannot build an
+# `IPHONEOS_DEPLOYMENT_TARGET` of 26.0 — the run warns exactly that — and `mlx-swift-lm`
+# then fails Swift 6 concurrency checks under it (`MLXVLM/MediaProcessing.swift:16`,
+# `private let context = CIContext()`). Both failures were inside checked-out SwiftPM
+# dependencies, so neither build job compiled a single `HealthApp/` file.
+#
+# Hence `DEVELOPER_DIR` below. It pins one Xcode for every job and every step, which is why
+# there is no `sudo xcode-select` repeated per job. **Do not remove it**: without it the
+# runner falls back to 16.4 and nothing in this repository compiles.
+#
+# Why 26.2.0, of the four 26.x the image carries (26.0.1, 26.1.1, 26.2.0, 26.3.0): it is the
+# newest one whose matching simulator runtime is actually installed. The image has iOS 26.0,
+# 26.1 and 26.2 runtimes and no 26.3, and a newer compiler is what the dependency's Sendable
+# diagnostic needs — that code compiles clean under the Xcode 27.x used locally.
 #
 # What each job is for, and why it is not just "run the tests":
 #
@@ -39,7 +51,12 @@ concurrency:
 env:
   PROJECT: HealthApp/HealthApp.xcodeproj
   SCHEME: HealthApp
+  # Deliberately pins no OS. The runner has iOS 26.0, 26.1 and 26.2 and *no* 26.5, so the
+  # `OS=26.5` that CLAUDE.md uses locally would fail here.
   SIMULATOR: platform=iOS Simulator,name=iPhone 17 Pro
+  # The single place this workflow's toolchain is chosen — see the header for why it must
+  # stay. Every job and step inherits it, so no job runs `xcode-select`.
+  DEVELOPER_DIR: /Applications/Xcode_26.2.0.app/Contents/Developer
 
 jobs:
   environment:
@@ -48,8 +65,10 @@ jobs:
     steps:
       - name: Xcode versions available
         run: ls /Applications | grep -i '^Xcode' || echo "no Xcode found"
-      - name: Selected Xcode
+      - name: The Xcode this workflow pins
         run: xcodebuild -version
+      - name: The Xcode the image would have used — the 2026-10-26 failure
+        run: env -u DEVELOPER_DIR xcodebuild -version
       - name: Installed simulator runtimes
         run: xcrun simctl list runtimes
       - name: iPhone simulators available
