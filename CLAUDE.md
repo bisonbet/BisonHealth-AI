@@ -7,7 +7,7 @@
 - **Platform**: iOS 26.0+ (Universal - iPhone & iPad)
 - **Language**: Swift 6 language mode (strict concurrency) with SwiftUI
 - **Architecture**: MVVM with protocol-oriented design
-- **Database**: SQLite with CryptoKit encryption (current version: 14)
+- **Database**: SQLite with CryptoKit encryption (current version: 15)
 - **AI Providers**: On-device MLX, AWS Bedrock (cloud), OpenAI-compatible
 - **Document Processing**: On-device (PDFKit + Vision OCR via `NativeDocumentExtractor`)
 - **Privacy**: Local-first. No iCloud/CloudKit *sync* of records, but see the backup note below — the encrypted database IS in device backups and the key DOES sync via iCloud Keychain, deliberately.
@@ -119,7 +119,7 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 
 ⚠️ **CRITICAL**: Always increment version for schema changes to prevent data loss
 
-**Current Database Version**: 14 (in `DatabaseManager.currentDatabaseVersion`)
+**Current Database Version**: 15 (in `DatabaseManager.currentDatabaseVersion`)
 
 **Safe changes (no migration)**:
 - Adding optional fields with defaults
@@ -135,10 +135,10 @@ xcodebuild -project HealthApp.xcodeproj -scheme HealthApp \
 **Migration workflow**:
 ```swift
 // 1. Increment version
-private static let currentDatabaseVersion = 15  // Was 14
+private static let currentDatabaseVersion = 16  // Was 15
 
 // 2. Add migration case
-case 15:
+case 16:
     try db.run(table.addColumn(newColumn, defaultValue: ""))
     print("   ✓ Added newColumn to table")
 ```
@@ -337,8 +337,8 @@ struct NewDataType: HealthDataProtocol {
 }
 
 // 3. Increment database version & add migration
-private static let currentDatabaseVersion = 15
-case 15:
+private static let currentDatabaseVersion = 16
+case 16:
     try db.run(newDataTypeTable.create { t in
         t.column(id, primaryKey: true)
         t.column(customField)
@@ -456,11 +456,18 @@ project.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs lint, tests and a device build. **It has never executed** —
-it was written without access to GitHub Actions, so the runner image, its Xcode version and
-its simulator names are unverified. The first job in it prints what the runner actually has,
-so the first run diagnoses itself. The device-build job may need the Metal toolchain, which
-mlx's `Cmlx` target requires and which is a separate download.
+`.github/workflows/ci.yml` runs lint, tests and a device build. **It executed for the first
+time on 2026-10-26 (PR #51) and diagnosed its own bug**, which is what the toolchain-report
+job exists for. Lint is green against the baseline on `macos-15`. Both build jobs fail
+because **no job runs `xcode-select`**: the image defaults to Xcode 16.4, whose iOS 18.5 SDK
+cannot build this project's iOS 26.0 deployment target, and `mlx-swift-lm` then fails Swift 6
+concurrency checks under it. The image does carry Xcode 26.0.1–26.3, so the fix is one
+`sudo xcode-select -s /Applications/Xcode_26.x.app` step per build job; which 26.x to pin is
+an open decision. Measured on that runner: iOS runtimes 18.5, 18.6, 26.0, 26.1, 26.2 —
+**no 26.5**, so the `OS=26.5` pin in the commands above is local-only and would fail there.
+The device-build job may still need the Metal toolchain, which mlx's `Cmlx` target requires
+and which is a separate download; nothing has reached that point yet.
+See `Documentation/Review/TRACKER.md` for the full first-run findings.
 
 ### Release
 
@@ -601,10 +608,10 @@ open HealthApp/HealthApp.xcodeproj
 ```
 
 **Current project facts**:
-- Database version: 14
+- Database version: 15
 - iOS 26.0+ deployment target
 
 ---
 
-**Last Updated**: 2026-10-24
+**Last Updated**: 2026-10-25
 **License**: MIT

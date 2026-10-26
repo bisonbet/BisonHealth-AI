@@ -158,6 +158,67 @@ final class DatabaseMigrationTests: XCTestCase {
         (try scalar("SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = '\(name)'") ?? 0) > 0
     }
 
+    private func conversationsHasColumn(_ name: String) throws -> Bool {
+        (try scalar("SELECT COUNT(*) FROM pragma_table_info('chat_conversations') WHERE name = '\(name)'") ?? 0) > 0
+    }
+
+    private func hasTable(_ name: String) throws -> Bool {
+        (try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='\(name)'") ?? 0) > 0
+    }
+
+    private func migrationBackupFiles() throws -> [String] {
+        let prefix = databaseURL.lastPathComponent + ".backup."
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil
+        )
+        return contents.map(\.lastPathComponent).filter { $0.hasPrefix(prefix) }
+    }
+
+    /// Wind a freshly created database all the way back to v10 — the version *before* the
+    /// project's most destructive migration, which rewrites every PHI column in the file
+    /// from plaintext to AES-GCM ciphertext.
+    ///
+    /// Built the way the other fixtures are: let `DatabaseManager` create the real shipping
+    /// schema, then reverse each step. v11 is the hard one, because its columns have to go
+    /// back to *plaintext*, which the app's own API will never write — so those columns are
+    /// set directly, to the values a v10 install really held.
+    private func windBackToVersion10(
+        plaintextFileName: String,
+        plaintextNotes: String,
+        plaintextProviderName: String,
+        plaintextExtractedText: String,
+        plaintextTagsJSON: String,
+        plaintextConversationTitle: String?
+    ) throws {
+        // v15 added failure_reason; v12 dropped the legacy Docling column v10 still had.
+        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
+        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
+        // v13 created it.
+        try execute("DROP TABLE IF EXISTS pending_import_reviews")
+        // v11 added it.
+        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
+
+        // v11 encrypted these text columns, and v14 the tags column.
+        try execute("""
+            UPDATE documents SET
+                file_name = '\(plaintextFileName)',
+                notes = '\(plaintextNotes)',
+                provider_name = '\(plaintextProviderName)',
+                extracted_text = '\(plaintextExtractedText)',
+                tags = '\(plaintextTagsJSON)',
+                extracted_data = CAST('[]' AS BLOB),
+                extracted_sections = CAST('[]' AS BLOB),
+                raw_docling_output = NULL
+        """)
+
+        if let plaintextConversationTitle {
+            try execute("UPDATE chat_conversations SET title = '\(plaintextConversationTitle)'")
+        }
+
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (10, 0)")
+    }
+
     // MARK: Tests
 
     func testUpgradingFromVersion11PreservesDocuments() async throws {
@@ -345,6 +406,387 @@ final class DatabaseMigrationTests: XCTestCase {
         let recovered = try await migrated.fetchMedicalDocument(id: document.id)
 
         XCTAssertEqual(recovered?.tags, ["lab"], "Tags survive a second pass of the migration")
+    }
+
+    // MARK: v10 → current (W-J)
+
+    func testUpgradingFromVersion10EncryptsEveryDocumentPHIColumnAndKeepsItReadable() async throws {
+        // The v11 step is the most destructive migration in the project: it rewrites
+        // file_name, notes, provider_name and extracted_text on every document row, and
+        // every conversation title, in place. Before this test no fixture started below
+        // v11, so that step had never executed in the suite — and WS-15 showed that
+        // no-op'ing it entirely left every test green.
+        let fileName = "lab-report.pdf"
+        let notes = "Fasting sample, drawn at the Ferris clinic"
+        let providerName = "Dr Ferris"
+        let extractedText = "Glucose 95 mg/dL"
+        let tags = ["oncology", "second opinion"]
+        let title = "What does my glucose mean?"
+
+        let document = MedicalDocument(
+            fileName: fileName,
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/lab-report.pdf"),
+            processingStatus: .completed,
+            providerName: providerName,
+            documentCategory: .labReport,
+            extractedText: extractedText,
+            fileSize: 2048,
+            tags: tags,
+            notes: notes
+        )
+        let conversation = ChatConversation(title: title)
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+            try await manager.saveConversation(conversation)
+        }
+
+        try windBackToVersion10(
+            plaintextFileName: fileName,
+            plaintextNotes: notes,
+            plaintextProviderName: providerName,
+            plaintextExtractedText: extractedText,
+            plaintextTagsJSON: #"["oncology","second opinion"]"#,
+            plaintextConversationTitle: title
+        )
+
+        XCTAssertEqual(try storedVersion(), 10, "Precondition: the fixture must look like v10")
+        XCTAssertEqual(
+            try textScalar("SELECT file_name FROM documents LIMIT 1"), fileName,
+            "Precondition: a v10 row holds the file name in plaintext"
+        )
+        XCTAssertEqual(
+            try textScalar("SELECT title FROM chat_conversations LIMIT 1"), title,
+            "Precondition: a v10 row holds the conversation title in plaintext"
+        )
+        XCTAssertFalse(try conversationsHasColumn("included_personal_info_categories"))
+        XCTAssertTrue(try documentsHasColumn("raw_docling_output"))
+        XCTAssertFalse(try documentsHasColumn("failure_reason"))
+
+        // Opening it runs v11 through v15.
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+
+        XCTAssertEqual(
+            try storedVersion(), DatabaseManager.currentDatabaseVersion,
+            "A v10 database must migrate the whole way, not part of it"
+        )
+
+        // The migration actually ran: the stored bytes are no longer the readable strings.
+        // Asserting only that the app reads them back would pass against plaintext.
+        for (column, plaintext) in [
+            ("file_name", fileName),
+            ("notes", notes),
+            ("provider_name", providerName),
+            ("extracted_text", extractedText)
+        ] {
+            XCTAssertNotEqual(
+                try textScalar("SELECT \(column) FROM documents LIMIT 1"), plaintext,
+                "documents.\(column) must not still hold plaintext after v11"
+            )
+        }
+        XCTAssertNotEqual(
+            try textScalar("SELECT title FROM chat_conversations LIMIT 1"), title,
+            "chat_conversations.title must not still hold plaintext after v11"
+        )
+        let storedTags = try textScalar("SELECT tags FROM documents LIMIT 1")
+        XCTAssertFalse(storedTags?.hasPrefix("[") ?? true, "v14 must have encrypted the tags JSON")
+
+        // And every later step ran too.
+        XCTAssertTrue(try conversationsHasColumn("included_personal_info_categories"), "v11 adds it")
+        XCTAssertFalse(try documentsHasColumn("raw_docling_output"), "v12 drops it")
+        XCTAssertTrue(try hasTable("pending_import_reviews"), "v13 creates it")
+        XCTAssertTrue(try documentsHasColumn("failure_reason"), "v15 adds it")
+
+        // The whole point: the user's data is still their data.
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.fileName, fileName)
+        XCTAssertEqual(recovered?.notes, notes)
+        XCTAssertEqual(recovered?.providerName, providerName)
+        XCTAssertEqual(recovered?.extractedText, extractedText)
+        XCTAssertEqual(recovered?.tags, tags)
+
+        let conversations = try await migrated.fetchConversations()
+        XCTAssertEqual(conversations.first?.title, title)
+    }
+
+    func testTheMigrationFromVersion10DeletesItsPlaintextBackup() async throws {
+        // `createBackupBeforeMigration` copies the whole file before the first step, so the
+        // copy holds pre-encryption plaintext PHI. Leaving it next to the database would
+        // undo the v11 encryption pass for anyone reading the container.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .completed,
+            documentCategory: .labReport,
+            extractedText: "Sodium 140",
+            fileSize: 1024,
+            tags: []
+        )
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+        }
+
+        try windBackToVersion10(
+            plaintextFileName: "panel.pdf",
+            plaintextNotes: "",
+            plaintextProviderName: "",
+            plaintextExtractedText: "Sodium 140",
+            plaintextTagsJSON: "[]",
+            plaintextConversationTitle: nil
+        )
+
+        _ = try DatabaseManager(databaseURL: databaseURL)
+
+        XCTAssertEqual(
+            try migrationBackupFiles(), [],
+            "A committed migration must leave no plaintext-PHI snapshot behind"
+        )
+    }
+
+    func testResettingTheDatabaseSweepsLeftoverMigrationBackups() throws {
+        // The other half of the same privacy requirement: a failed migration deliberately
+        // keeps its backup for recovery, so "permanently delete my data" has to erase it.
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        let leftover = databaseURL.appendingPathExtension("backup.1700000000")
+        try Data("plaintext PHI".utf8).write(to: leftover)
+        XCTAssertEqual(try migrationBackupFiles().count, 1, "Precondition: a leftover backup exists")
+
+        try manager.resetDatabase()
+
+        XCTAssertEqual(
+            try migrationBackupFiles(), [],
+            "resetDatabase must erase migration backups, or deletion is a lie"
+        )
+    }
+
+    // MARK: v14 → v15 (W-B)
+
+    func testUpgradingFromVersion14AddsTheFailureReasonColumn() async throws {
+        let document = MedicalDocument(
+            fileName: "scan.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/scan.pdf"),
+            processingStatus: .failed,
+            documentCategory: .labReport,
+            fileSize: 512,
+            tags: []
+        )
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+        }
+
+        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (14, 0)")
+        XCTAssertFalse(try documentsHasColumn("failure_reason"), "Precondition: the fixture must look like v14")
+
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+        XCTAssertTrue(try documentsHasColumn("failure_reason"))
+
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.fileName, "scan.pdf", "Existing documents must survive the upgrade")
+        XCTAssertNil(recovered?.failureReason, "A row that predates the column has no reason, which is true of it")
+    }
+
+    func testTheFailureReasonMigrationIsSafeToRunTwice() async throws {
+        // The column is already there on the second pass, and `ALTER TABLE ADD COLUMN`
+        // throws on a duplicate — which would brick every later launch.
+        do {
+            _ = try DatabaseManager(databaseURL: databaseURL)
+        }
+
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (14, 0)")
+
+        XCTAssertNoThrow(try DatabaseManager(databaseURL: databaseURL))
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+        XCTAssertTrue(try documentsHasColumn("failure_reason"))
+    }
+
+    func testAFailureReasonSurvivesReopeningTheDatabaseAndIsStoredEncrypted() async throws {
+        // The entire point of v15. Before it the reason lived in `DocumentProcessor`'s
+        // memory, so a relaunch left a red badge and no explanation.
+        let reason = "No on-device vision model is downloaded. Go to Settings > On-Device AI and download a Vision model."
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+            try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: reason)
+        }
+
+        // Stored encrypted, like the other PHI text columns: these messages can name the
+        // file, and a file name is patient-identifying. Asserting only that it reads back
+        // would pass on plaintext.
+        let stored = try textScalar("SELECT failure_reason FROM documents LIMIT 1")
+        XCTAssertNotNil(stored)
+        XCTAssertNotEqual(stored, reason, "The reason must not be stored in the clear")
+        XCTAssertFalse(stored?.localizedCaseInsensitiveContains("vision model") ?? true)
+
+        let reopened = try DatabaseManager(databaseURL: databaseURL)
+        let recovered = try await reopened.fetchMedicalDocument(id: document.id)
+
+        XCTAssertEqual(recovered?.processingStatus, .failed)
+        XCTAssertEqual(recovered?.failureReason, reason, "The explanation must outlive the session")
+    }
+
+    func testAStoredFailureReasonIsClearedWhenProcessingSucceeds() async throws {
+        // A stale reason on a document that now processes cleanly is its own bug.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        try await manager.saveMedicalDocument(document)
+        try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
+        let storedReason = try await manager.fetchMedicalDocument(id: document.id)?.failureReason
+        XCTAssertNotNil(storedReason)
+
+        try await manager.updateDocumentStatus(document.id, status: .completed)
+
+        let recovered = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.processingStatus, .completed)
+        XCTAssertNil(recovered?.failureReason, "Success must clear the reason")
+        XCTAssertNil(try textScalar("SELECT failure_reason FROM documents LIMIT 1"))
+    }
+
+    func testAFullRowWriteDoesNotWipeAStoredFailureReason() async throws {
+        // `saveMedicalDocument` uses `insert(or: .replace)`, which rewrites every column, so
+        // an unrelated full-row save of a failed document must carry the reason through.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        try await manager.saveMedicalDocument(document)
+        try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
+
+        guard var reloaded = try await manager.fetchMedicalDocument(id: document.id) else {
+            return XCTFail("The document must be readable")
+        }
+        reloaded.includeInAIContext = true
+        try await manager.updateMedicalDocument(reloaded)
+
+        let recovered = try await manager.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.failureReason, "Processing timed out.")
+    }
+
+    func testTheDocumentLibrarysOwnReaderDecodesTheFailureReason() async throws {
+        // `DatabaseManager+Documents` has its *own* `buildMedicalDocument`, and it is the one
+        // the UI goes through: `DocumentManager.loadDocuments()` → `fetchDocuments()` → that
+        // builder. Decoding the column in the medical-document reader alone left the list row
+        // and the detail view with a nil reason after a relaunch — the exact bug v15 exists to
+        // fix. Every fetch in that file shares the builder, so `fetchDocument(id:)` and
+        // `fetchDocuments(with:)` are covered by the same assertion.
+        let reason = "No on-device vision model is downloaded. Go to Settings > On-Device AI and download a Vision model."
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+            try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: reason)
+        }
+
+        let reopened = try DatabaseManager(databaseURL: databaseURL)
+
+        let listed = try await reopened.fetchDocuments()
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(listed.first?.failureReason, reason, "The list path must carry the reason")
+
+        let byId = try await reopened.fetchDocument(id: document.id)
+        XCTAssertEqual(byId?.failureReason, reason)
+
+        let failed = try await reopened.fetchDocuments(with: .failed)
+        XCTAssertEqual(failed.first?.failureReason, reason)
+    }
+
+    func testEditingAFailedDocumentThroughSaveDocumentKeepsItsReason() async throws {
+        // `DocumentManager.updateDocument()` goes to `saveDocument(_:)`, a third full-row
+        // writer with its own column list and its own `mergeDocument` helper. Omitting the
+        // column there meant editing tags or notes on a failed document cleared the
+        // explanation for good.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .queued,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: []
+        )
+
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        try await manager.saveDocument(document)
+        try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
+
+        guard var edited = try await manager.fetchDocument(id: document.id) else {
+            return XCTFail("The document must be readable")
+        }
+        edited.tags = ["oncology"]
+        try await manager.saveDocument(edited)
+
+        let recovered = try await manager.fetchDocument(id: document.id)
+        XCTAssertEqual(recovered?.tags, ["oncology"], "The edit itself must land")
+        XCTAssertEqual(recovered?.failureReason, "Processing timed out.", "And must not clear the reason")
+    }
+
+    func testMergingASaveThatCarriesNoReasonKeepsTheStoredOne() async throws {
+        // `mergeDocument` exists because callers hand in partially populated documents. One
+        // built without a reason must not wipe the row's.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .failed,
+            documentCategory: .labReport,
+            fileSize: 1024,
+            tags: ["lab"]
+        )
+
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        try await manager.saveDocument(document)
+        try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
+
+        // A fresh value for the same id, with no reason on it at all.
+        try await manager.saveDocument(document)
+
+        let recovered = try await manager.fetchDocument(id: document.id)
+        XCTAssertEqual(recovered?.failureReason, "Processing timed out.")
     }
 
     func testOpeningAFutureVersionIsRefusedRatherThanCrashing() throws {

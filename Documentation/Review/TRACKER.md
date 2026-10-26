@@ -6,12 +6,68 @@ The full sequenced list with file ownership and effort is §4 of
 `findings/WS-17-triage.md`. This is just the front of that queue, with what has since been
 done struck off, so a session can begin without re-deriving anything.
 
+> ✅ **Verified 2026-10-26 on the owner's Mac, at PR #51's head.** The 2026-10-25 agent run
+> (W-A, W-B, W-E, W-J) was done in a Linux container with no Xcode and no SwiftLint, so it
+> compiled nothing and executed no test. Those commands have now been run:
+>
+> | Command | Result |
+> |---|---|
+> | `generic/platform=iOS` device build — the only one that compiles MLX | ✅ **BUILD SUCCEEDED**, 0 errors: W-E's wiring typechecks |
+> | `Fast` plan, iPhone 17 Pro / OS 26.5 | ✅ **368 tests, 0 failures** — after the fix below |
+> | `swiftlint lint` from `HealthApp/` | ✅ **exactly 5**, the baseline, none in the changed lines |
+>
+> ⚠️ **It did not build as pushed.** `DatabaseTests.swift:663` put an `async` call inside an
+> `XCTAssertNotNil` autoclosure — a hard compile error — so the test bundle failed to build
+> and **every test W-B and W-J added had never run, in either plan**. Fixed 2026-10-26 by
+> hoisting the call to a `let`. The lesson stands as the banner first wrote it: a run that
+> cannot compile cannot report a test as passing, and the negative check it skipped is
+> exactly what would have caught this.
+
+### ▶ CI ran for the first time (2026-10-26, PR #51) — and found its own bug
+
+`.github/workflows/ci.yml` executed for the first time. It diagnosed itself exactly as its
+header comment intended, so **W-I's "the workflow has never executed" is now answered**:
+
+| Job | Result |
+|---|---|
+| Report the runner's toolchain | ✅ — and it is the job that found the bug |
+| SwiftLint (baseline 5) | ✅ **green against the baseline**, on `macos-15` with `brew install swiftlint` |
+| Tests | ❌ build failed before any app source compiled |
+| Device build | ❌ same, in a different dependency target |
+
+**The bug is the missing toolchain selection, not the diff.** `macos-15` defaults to **Xcode
+16.4 (16F6)**, whose iOS 18.5 SDK cannot build an `IPHONEOS_DEPLOYMENT_TARGET` of 26.0 — the
+run warns exactly that — and `mlx-swift-lm` then fails Swift 6 concurrency checks under it
+(`MLXVLM/MediaProcessing.swift:16`, `private let context = CIContext()`, `CIContext` not
+`Sendable`). No job runs `xcode-select`, so all three build jobs inherit 16.4. Both failures
+are in checked-out SwiftPM dependencies; **no `HealthApp/` file was compiled in either job**,
+so the suite and the device typecheck both remain unrun.
+
+What the runner actually has, measured rather than assumed:
+
+- **Xcode**: 16.0–16.4 and **26.0.1, 26.1.1, 26.2.0, 26.3.0** installed; 16.4 selected.
+- **iOS runtimes**: 18.5, 18.6, **26.0, 26.1, 26.2** — note **no 26.5**, which this file and
+  `CLAUDE.md` both name in their local commands. A destination pinned to `OS=26.5` fails here.
+  `ci.yml`'s `SIMULATOR` pins no OS, so it is fine as written.
+- **Simulators**: iPhone 17 Pro, 17 Pro Max, Air, 17 all present. The names in `CLAUDE.md`
+  are right; only the OS pin is wrong.
+
+**The fix (W-I, one step per build job, before `Resolve dependencies`):**
+
+```yaml
+      - name: Select an Xcode that has the iOS 26 SDK
+        run: sudo xcode-select -s /Applications/Xcode_26.1.1.app
+```
+
+Left uncommitted deliberately: **which 26.x to pin is a standing decision** governing every
+future run, and `ci.yml` belongs to W-I rather than to any of the four items in PR #51.
+
 ### Beta-blockers — what stands between you and a tester build
 
 | | Item | State |
 |---|---|---|
-| W-A | Icon alpha, `aps-environment`, delete unused icon set | **mostly done** (`9f3ef1c4`). Left: delete the unused `AppIcon-Doctor-Dark.appiconset` — it is referenced **0 times** in `project.pbxproj`, so it is dead weight, not a build input. ~5 minutes. |
-| W-B | Show why a document failed | **mostly done** (`a020a48a`). Left: persist a short reason alongside `.failed`, so it survives a relaunch. ⚠️ **This needs a column, i.e. schema v15 — which collides with W-Q's claim on v15.** WS-17 marked W-B "no migration"; that is wrong if the reason is persisted. Decide which of the two takes v15 before either starts. |
+| W-A | Icon alpha, `aps-environment`, delete unused icon set | **done 2026-10-25.** `AppIcon-Doctor-Dark.appiconset` deleted (16 files; still 0 references in `project.pbxproj`, and the asset catalog's root `Contents.json` lists no children, so nothing was orphaned). `BisonHealthAI_ProIcon_1024.imageset` was left alone — `ContentView.swift:261` uses it. |
+| W-B | Show why a document failed | **done 2026-10-25.** ⚠️ **W-B took schema v15** — W-Q was not in flight, so the collision resolved in W-B's favour. **W-Q is now v16.** `documents.failure_reason` holds the reason, written in the same statement as the status and cleared by any status other than `.failed`. Stored **encrypted** (`encryptTextField`), not filename-free as WS-17 suggested: two of these error strings interpolate the file name, and encrypting the column is cheaper to keep correct than auditing every present and future error case for PHI. Not an `UnreadableField` — a corrupt message is not worth refusing to save a document over. ⚠️ **New finding, not fixed:** the documents table has **two** `buildMedicalDocument` readers (`+Documents.swift` and `+MedicalDocuments.swift`) and **three** full-row writers, all with hand-maintained column lists. Codex caught v15 being wired into only one of each — the UI reads through the *other* one, so the first cut of W-B did nothing after a relaunch. All five sites now carry the column, but the next column added will hit the same trap. |
 | W-C | One device archive + three owner-only checks | **done 2026-10-25 by the owner** (archive built; background mid-reply, one Bedrock call, keychain restore on a real upgrade all run). ⚠️ **The outcomes were not reported to this session** — see "What W-C settled" below. |
 | W-D | TestFlight tester notes | **done 2026-10-25 by the owner.** |
 
@@ -64,8 +120,31 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    `HealthDataView`'s own stack branch were all unreachable. **Whether iPad should get a real
    two-column layout is a design question about `HealthTabView`** and is a decision for the
    owner, not a flag to flip (see below).
-4. **W-E** — cancel generation on background before unloading. WS-17 would not promote it
-   without a device, so pair it with W-C.
+4. ~~**W-E**~~ — **done 2026-10-25.** `isSuspendedForBackground` is now genuinely consulted:
+   the streaming token loop evaluates `MLXTurnInterruption` at every chunk and breaks at a
+   token boundary, so `suspendForBackground()`'s `acquire()` waits one token instead of up to
+   the full 4,096-token budget. The gate is still taken rather than skipped — tearing down
+   with GPU work in flight is what the gate exists to prevent, so the fix is to make the
+   generation stop, not to stop waiting for it. `MLXGPUGate` is unchanged, so no
+   `acquire()` call site had its control flow altered. A kept partial reply gets a notice and
+   `finishReason: "interrupted"`; one too short to be an answer throws
+   `MLXOnDeviceError.generationInterrupted`, which drops the empty assistant placeholder and
+   leaves the user's message retryable (existing handling in `AIChatManager`). The decision
+   rule is a plain value type with unit tests. **The wiring typechecks** as of 2026-10-26 —
+   the `generic/platform=iOS` build succeeds — but it still *executes* in no test, because
+   the simulator stubs the generate body out. Severity stays unconfirmed: the owner's
+   background-mid-reply result was never reported back.
+   ⚠️ **New finding, not fixed (2026-10-26): W-E covers one of the generation paths, not
+   all of them.** Only `sendStreamingChatMessage` evaluates `MLXTurnInterruption`.
+   `sendMessage` → `collectResponse` still takes `MLXGPUGate` and holds it for a whole
+   `maxTokens` generation with no boundary check — the original bug's exact shape — and its
+   callers are `AppointmentPrepManager` (three consecutive calls), `AIChatManager`'s
+   non-streaming fallback and its title generation, `BloodTestMappingService` and
+   `MedicalDocumentExtractor`. The run flagged only `extractFromDocument` as deliberately
+   out of scope, so this one reads as an oversight rather than a decision. **Needs its own
+   item.** Smaller, same area: `MLXOnDeviceError.generationInterrupted` is thrown for both
+   reasons but its text is background-only, so a turn the user cancelled inside the first 40
+   characters gets "because the app went to the background" in a visible error alert.
 5. ~~**W-I**~~ — **mostly done 2026-10-25.** Two shared test plans in
    `HealthApp/TestPlans/` (**PreRelease** = unit + UI + coverage, the scheme's default so a
    bare `xcodebuild test` still runs everything; **Fast** = unit only, for pull requests),
@@ -76,9 +155,22 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    be produced, so `ExportOptions.plist`'s `method` is unvalidated. **The workflow has never
    executed**; its first job prints the runner's toolchain so the first run diagnoses itself.
    **W-R is unblocked.**
-6. **W-J then W-K** — migration tests from a v10 fixture, then delete the tests that cannot
-   fail. WS-15 proved nine injected regressions leave the suite green; this is the item that
-   makes the suite mean something.
+6. ~~**W-J**~~ — **done 2026-10-25**, so **W-K is unblocked** (it owns the same file; do not
+   run them together). A v10 fixture now exists, built the established way — let
+   `DatabaseManager` create the real schema, then wind it back, including the hard part: the
+   v11 columns written back as genuine plaintext, which the app's API will never produce.
+   It asserts the v11 step *ran* (the stored bytes are no longer the readable strings) **and**
+   that the app reads the originals back; asserting only the second half would pass against
+   plaintext. Also covered: the whole chain reaching `currentDatabaseVersion` (asserted
+   against the constant, never a literal), every later step's schema change, migration-backup
+   deletion after a committed migration, and `resetDatabase()` sweeping a leftover backup.
+   ⚠️ **New finding, not fixed here (tests only):** `encryptDocumentPHIColumns` and
+   `encryptChatTitles` are **not idempotent** — unlike the v14 tags helper they re-encrypt
+   unconditionally, so a second pass over an already-migrated row double-encrypts and
+   strands the data for good. Not reachable in production, because each step and its version
+   bump share one transaction, so v11 only runs at stored version 10. Making it idempotent is
+   a `DatabaseManager` change and needs its own item. No v11 idempotency test was written,
+   because the honest one would assert data loss.
 7. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
    white-on-gold only; this is the other half and I had wrongly treated it as done.
 
@@ -86,14 +178,18 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
 
 `project.pbxproj` is touched by **W-A, W-I, W-P, W-R** — one at a time, and hand-editing it
 makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
-`HealthAppTests/DatabaseTests.swift` by W-J and W-K. Only **one** migration is outstanding
-(W-Q → v15) — see the W-B warning above before that stays true.
+`HealthAppTests/DatabaseTests.swift` by W-J (**done**) and **W-K** — W-K may now start.
+Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 on
+2026-10-25.
 
 ### Standing verification facts for this repo
 
-- 329 tests, 0 failures. Read the count from the `.xcresult`, never stdout.
+- **368 tests, 0 failures** in the `Fast` plan, measured 2026-10-26 at PR #51's head.
+  Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted
+  since it stood at 348.
 - SwiftLint baseline **5**, and it must run from `HealthApp/`.
-- Schema **v14**. `DatabaseMigrationTests` is the harness; add an idempotency case per version.
+- Schema **v15** (W-B). `DatabaseMigrationTests` is the harness; add an idempotency case per
+  version. The fixtures now start at **v10**, so the v11 encryption pass is covered.
 - **Nothing in `MLXOnDeviceLLM/` has ever executed.** The simulator stubs out the load,
   generate and transfer bodies, so items 27, 28, 29 and 37 are typechecked and unit-tested
   but unrun. Typecheck with `-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`;
@@ -146,11 +242,14 @@ description and its recovery suggestion, and both the detail view and the list r
 On a fresh install that now reads "No on-device vision model is downloaded… Go to Settings >
 On-Device AI and download a Vision model" instead of a bare red badge. Session-scoped by
 design — the status persists but `processingErrors` does not, so the detail view carries an
-actionable fallback after a relaunch; making the reason durable needs a column (→ v15).
+actionable fallback after a relaunch. **The reason is now durable too** (v15, W-B,
+2026-10-25), so that fallback is reached only by a row that failed before the column existed.
 Remaining: WS-01-01 + WS-03-02 (a stale title snapshot
-clobbers live state, one work item), WS-06-03, WS-11-02 + WS-03-03 (background mid-reply;
-`isSuspendedForBackground` is read only to make suspend/resume idempotent, never to stop
-generation), WS-04-05 (`makeClientConfig` passes no timeout).
+clobbers live state, one work item), WS-06-03, WS-04-05 (`makeClientConfig` passes no
+timeout). **WS-11-02 + WS-03-03 are addressed in source** by W-E — the token loop now reads
+`isSuspendedForBackground` and stops at a token boundary — and that compiles for a device as
+of 2026-10-26, but it is still unverified at runtime, which needs one. It also covers only
+the streaming path; see W-E above.
 
 **Also corrected:** item 40 closed WS-10-01 only — gold *as foreground* at 2.7:1 across ~25
 sites (WS-10-02) is still open, and I had treated it as done. WS-13-07's evidence was false

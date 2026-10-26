@@ -208,6 +208,81 @@ struct MLXContextBudget: Equatable {
     }
 }
 
+// MARK: - Turn Interruption
+
+/// Whether an in-flight on-device turn should stop now, and what to do with the text it has
+/// produced so far.
+///
+/// Backgrounding is the case that matters. A suspended app holding ~2.4GB of model weights is
+/// the first thing the OS reclaims, so `MLXOnDeviceClient.suspendForBackground()` gives the
+/// model back — but it has to take ``MLXGPUGate`` to tear down safely, and a running reply
+/// holds that gate for its whole generation. Stopping at the next token boundary is what
+/// bounds that wait: without it the unload queues behind up to the full `maxTokens` budget.
+///
+/// Deliberately a plain value type with no dependencies, for the same reason as
+/// ``MLXContextBudget``: MLX is compiled out of the simulator, so this rule is the only part
+/// of the cancellation path a simulator test run can check.
+struct MLXTurnInterruption: Equatable {
+
+    /// Why the turn stopped. Both stop the same way; they read differently in the log.
+    enum Reason: Equatable {
+        /// The app went to the background and the model is being unloaded.
+        case backgrounded
+        /// The surrounding task was cancelled.
+        case cancelled
+    }
+
+    /// What the caller does with the partial reply.
+    enum Disposition: Equatable {
+        /// Enough of an answer to be worth showing, with a notice that it was cut short.
+        case keepPartial
+        /// Too little to be an answer — fail the turn instead, which drops the empty
+        /// assistant placeholder and leaves the user's message retryable.
+        case discard
+    }
+
+    let reason: Reason
+    let disposition: Disposition
+
+    /// Below this, a partial reply is preamble rather than an answer ("Based on your
+    /// records," is 22 characters) and showing it reads as a bug.
+    static let minimumUsefulCharacterCount = 40
+
+    /// Appended to a kept partial reply, matching the other two truncation notices. Both
+    /// cuts are surfaced rather than silently applied, for the same reason the repetition
+    /// one is: the user is otherwise left reading a half-finished answer.
+    var notice: String {
+        switch reason {
+        case .backgrounded:
+            return "_This response stopped early because the app went to the background. Ask “continue” to continue from here._"
+        case .cancelled:
+            return "_This response was stopped before it finished. Ask “continue” to continue from here._"
+        }
+    }
+
+    /// The decision made at every token boundary. `nil` means carry on generating.
+    static func evaluate(
+        isSuspendedForBackground: Bool,
+        isTaskCancelled: Bool,
+        accumulatedContent: String
+    ) -> MLXTurnInterruption? {
+        let reason: Reason
+        if isSuspendedForBackground {
+            reason = .backgrounded
+        } else if isTaskCancelled {
+            reason = .cancelled
+        } else {
+            return nil
+        }
+
+        let usable = accumulatedContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MLXTurnInterruption(
+            reason: reason,
+            disposition: usable.count >= minimumUsefulCharacterCount ? .keepPartial : .discard
+        )
+    }
+}
+
 // MARK: - Model Info
 
 /// Represents an MLX on-device model available for download

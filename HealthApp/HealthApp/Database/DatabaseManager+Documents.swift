@@ -58,7 +58,10 @@ extension DatabaseManager {
                 documentProviderType <- mergedDoc.providerType?.rawValue,
                 documentIncludeInAIContext <- mergedDoc.includeInAIContext,
                 documentContextPriority <- mergedDoc.contextPriority,
-                documentLastEditedAt <- mergedDoc.lastEditedAt.map { Int64($0.timeIntervalSince1970) }
+                documentLastEditedAt <- mergedDoc.lastEditedAt.map { Int64($0.timeIntervalSince1970) },
+                // `insert(or: .replace)` rewrites the whole row, so omitting this would clear
+                // a failed document's stored explanation on an unrelated edit.
+                documentFailureReason <- try encryptTextField(mergedDoc.failureReason)
             )
 
             try db.run(insert)
@@ -112,15 +115,27 @@ extension DatabaseManager {
     }
     
     // MARK: - Update Document Status
-    func updateDocumentStatus(_ documentId: UUID, status: ProcessingStatus) async throws {
+    /// Set a document's processing status, and the reason when that status is `.failed`.
+    ///
+    /// The reason is written in the same statement as the status so the two cannot disagree,
+    /// and any status other than `.failed` clears it — a stale explanation on a document
+    /// that now processes cleanly is its own bug. Encrypted at rest like the table's other
+    /// PHI text columns, because these messages can name the file.
+    func updateDocumentStatus(
+        _ documentId: UUID,
+        status: ProcessingStatus,
+        failureReason: String? = nil
+    ) async throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
         
         let query = documentsTable.filter(self.documentId == documentId.uuidString)
         let processedAt = status == .completed ? Int64(Date().timeIntervalSince1970) : nil
+        let storedReason = status == .failed ? try encryptTextField(failureReason) : nil
         
         let update = query.update(
             documentProcessingStatus <- status.rawValue,
-            documentProcessedAt <- processedAt
+            documentProcessedAt <- processedAt,
+            documentFailureReason <- storedReason
         )
         
         let rowsUpdated = try db.run(update)
@@ -346,7 +361,7 @@ extension DatabaseManager {
     ///   For example, if `new.extractedText` is nil but `existing.extractedText` has OCR data,
     ///   the merged document will preserve the OCR data.
     private func mergeDocument(new: MedicalDocument, existing: MedicalDocument) -> MedicalDocument {
-        return MedicalDocument(
+        var merged = MedicalDocument(
             id: new.id,  // ID never changes
             fileName: new.fileName,  // Required field, always present
             fileType: new.fileType,  // Required field, always present
@@ -372,6 +387,10 @@ extension DatabaseManager {
             tags: new.tags.isEmpty ? existing.tags : new.tags,
             notes: new.notes ?? existing.notes
         )
+        // Not an init parameter, so it has to be carried across explicitly: a caller that
+        // built its document without one must not clear a reason the row already holds.
+        merged.failureReason = new.failureReason ?? existing.failureReason
+        return merged
     }
 
     private func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
@@ -421,7 +440,7 @@ extension DatabaseManager {
             extractedSections = []
         }
 
-        return MedicalDocument(
+        var document = MedicalDocument(
             id: id,
             fileName: fileName,
             fileType: fileType,
@@ -444,5 +463,11 @@ extension DatabaseManager {
             tags: tags,
             notes: notes
         )
+        // This is the reader the document library goes through — `DocumentManager`
+        // `loadDocuments()` → `fetchDocuments()` → here — so the list row and the detail
+        // view see a persisted reason only if it is decoded here as well (v15).
+        let storedFailureReason = (try? row.get(self.documentFailureReason)) ?? nil
+        document.failureReason = decryptTextField(storedFailureReason)
+        return document
     }
 }

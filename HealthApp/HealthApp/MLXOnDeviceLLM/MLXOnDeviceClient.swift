@@ -128,6 +128,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     private var currentModelInfo: MLXModelInfo?
     private var isModelLoaded = false
+    /// Read at every token boundary of a streaming reply (see ``MLXTurnInterruption``) as
+    /// well as by suspend/resume, so a background trip stops the generation rather than
+    /// queueing an unload behind it.
     private var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
 
@@ -334,6 +337,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         // Stream the response — just the raw user message; ChatSession handles the rest
         var accumulatedContent = ""
         var stoppedForRepetition = false
+        var interruption: MLXTurnInterruption?
         var completionInfo: GenerateCompletionInfo?
         var lastProgressEmit = Date.distantPast
 
@@ -353,6 +357,23 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                 case .chunk(let chunk):
                     accumulatedContent += chunk
                     charactersSinceRepetitionCheck += chunk.count
+
+                    // `suspendForBackground()` unloads the model, and to do that safely it
+                    // has to take the gate this reply holds until it returns. Stopping here
+                    // is what bounds that wait to one token rather than the whole
+                    // `maxTokens` budget.
+                    if let stop = MLXTurnInterruption.evaluate(
+                        isSuspendedForBackground: isSuspendedForBackground,
+                        isTaskCancelled: Task.isCancelled,
+                        accumulatedContent: accumulatedContent
+                    ) {
+                        interruption = stop
+                        AppLog.shared.mlx(
+                            "[MLXClient] Stopped a response at a token boundary: \(stop.reason), \(stop.disposition)",
+                            level: .warning
+                        )
+                        break responseStream
+                    }
 
                     if charactersSinceRepetitionCheck >= Self.repetitionCheckCharacterInterval {
                         charactersSinceRepetitionCheck = 0
@@ -401,6 +422,20 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             AppLog.shared.mlx("[MLXClient] Streaming ended with error but got partial content: \(error.localizedDescription)", level: .warning)
         }
 
+        if let interruption {
+            // Same reasoning as the catch above: a turn stopped before its end-of-turn
+            // token may carry a partial KV cache, so drop the session and let the next
+            // request rebuild from persisted history.
+            self.chatSession = nil
+            chatSessionSignature = nil
+
+            if interruption.disposition == .discard {
+                // Too little to be an answer. Failing the turn is what drops the empty
+                // assistant placeholder and leaves the user's message retryable.
+                throw MLXOnDeviceError.generationInterrupted
+            }
+        }
+
         // The in-stream scan is throttled, so run it once more here to catch a pattern that
         // formed after the last check. This is also what records the truncation for the
         // finish reason and the notice appended below.
@@ -423,6 +458,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         let reachedLengthLimit: Bool
         if stoppedForRepetition {
             finishReason = "repetition"
+            reachedLengthLimit = false
+        } else if interruption != nil {
+            finishReason = "interrupted"
             reachedLengthLimit = false
         } else if let completionInfo {
             switch completionInfo.stopReason {
@@ -447,6 +485,8 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         let finalContent: String
         if stoppedForRepetition {
             finalContent = cleanedContent + "\n\n" + MLXResponseBudget.repetitionNotice
+        } else if let interruption {
+            finalContent = cleanedContent + "\n\n" + interruption.notice
         } else if reachedLengthLimit {
             finalContent = cleanedContent + "\n\n" + MLXResponseBudget.lengthLimitNotice
         } else {
@@ -664,13 +704,17 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
     func suspendForBackground() async {
         guard !isSuspendedForBackground else { return }
+        // Set before taking the gate: a running reply reads this at every token boundary
+        // (`MLXTurnInterruption`) and stops, which is what lets the acquire below return
+        // in one token instead of waiting out the whole `maxTokens` budget.
         isSuspendedForBackground = true
         AppLog.shared.mlx("[MLXClient] Suspended for background")
 
         // A backgrounded app holding ~2.4GB is the first thing the OS reclaims,
         // and it takes the whole process with it. Give the model back entirely;
-        // it reloads in ~3s on return. Take the gate first — tearing down while
-        // work is in flight is exactly what strands a live command buffer.
+        // it reloads in ~3s on return. The gate is still taken rather than skipped —
+        // tearing down while work is in flight is exactly what strands a live command
+        // buffer, so the fix is to make the generation stop, not to stop waiting for it.
         #if !targetEnvironment(simulator)
         await MLXGPUGate.shared.acquire()
         defer { MLXGPUGate.shared.release() }

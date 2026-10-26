@@ -30,11 +30,10 @@ struct DocumentListView: View {
 }
 
 struct DocumentRowView: View {
-    /// Session-scoped: `DocumentProcessor` keeps the captured error in memory, so this is
-    /// nil after a relaunch and the row simply shows the badge, as it did before. The detail
-    /// view carries the actionable fallback.
+    /// The in-memory reason while the session lasts, then the stored one (v15), so a row
+    /// that failed before the last relaunch still explains itself.
     private var failureReason: String? {
-        DocumentProcessor.shared.failureReason(for: document.id)
+        DocumentProcessor.shared.failureReason(for: document)
     }
 
     let document: MedicalDocument
