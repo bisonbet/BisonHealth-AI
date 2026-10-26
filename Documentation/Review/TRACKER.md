@@ -6,11 +6,22 @@ The full sequenced list with file ownership and effort is §4 of
 `findings/WS-17-triage.md`. This is just the front of that queue, with what has since been
 done struck off, so a session can begin without re-deriving anything.
 
-> ⚠️ **The 2026-10-25 agent run (W-A, W-B, W-E, W-J) was done in a Linux container with no
-> Xcode and no SwiftLint.** Nothing in that run was compiled, no test in it was executed, and
-> the lint baseline was not re-checked. Every claim below from that run is a claim about the
-> source, not about a build. **Run the protocol's four commands — plus the
-> `generic/platform=iOS` device build for W-E — before trusting any of it.**
+> ✅ **Verified 2026-10-26 on the owner's Mac, at PR #51's head.** The 2026-10-25 agent run
+> (W-A, W-B, W-E, W-J) was done in a Linux container with no Xcode and no SwiftLint, so it
+> compiled nothing and executed no test. Those commands have now been run:
+>
+> | Command | Result |
+> |---|---|
+> | `generic/platform=iOS` device build — the only one that compiles MLX | ✅ **BUILD SUCCEEDED**, 0 errors: W-E's wiring typechecks |
+> | `Fast` plan, iPhone 17 Pro / OS 26.5 | ✅ **368 tests, 0 failures** — after the fix below |
+> | `swiftlint lint` from `HealthApp/` | ✅ **exactly 5**, the baseline, none in the changed lines |
+>
+> ⚠️ **It did not build as pushed.** `DatabaseTests.swift:663` put an `async` call inside an
+> `XCTAssertNotNil` autoclosure — a hard compile error — so the test bundle failed to build
+> and **every test W-B and W-J added had never run, in either plan**. Fixed 2026-10-26 by
+> hoisting the call to a `let`. The lesson stands as the banner first wrote it: a run that
+> cannot compile cannot report a test as passing, and the negative check it skipped is
+> exactly what would have caught this.
 
 ### ▶ CI ran for the first time (2026-10-26, PR #51) — and found its own bug
 
@@ -119,10 +130,21 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    `finishReason: "interrupted"`; one too short to be an answer throws
    `MLXOnDeviceError.generationInterrupted`, which drops the empty assistant placeholder and
    leaves the user's message retryable (existing handling in `AIChatManager`). The decision
-   rule is a plain value type with unit tests; **the MLX wiring itself is unverified — it
-   compiles into no simulator build and no test reaches it.** The device-build typecheck
-   could not be run in this environment either (see the note at the top). Severity stays
-   unconfirmed: the owner's background-mid-reply result was never reported back.
+   rule is a plain value type with unit tests. **The wiring typechecks** as of 2026-10-26 —
+   the `generic/platform=iOS` build succeeds — but it still *executes* in no test, because
+   the simulator stubs the generate body out. Severity stays unconfirmed: the owner's
+   background-mid-reply result was never reported back.
+   ⚠️ **New finding, not fixed (2026-10-26): W-E covers one of the generation paths, not
+   all of them.** Only `sendStreamingChatMessage` evaluates `MLXTurnInterruption`.
+   `sendMessage` → `collectResponse` still takes `MLXGPUGate` and holds it for a whole
+   `maxTokens` generation with no boundary check — the original bug's exact shape — and its
+   callers are `AppointmentPrepManager` (three consecutive calls), `AIChatManager`'s
+   non-streaming fallback and its title generation, `BloodTestMappingService` and
+   `MedicalDocumentExtractor`. The run flagged only `extractFromDocument` as deliberately
+   out of scope, so this one reads as an oversight rather than a decision. **Needs its own
+   item.** Smaller, same area: `MLXOnDeviceError.generationInterrupted` is thrown for both
+   reasons but its text is background-only, so a turn the user cancelled inside the first 40
+   characters gets "because the app went to the background" in a visible error alert.
 5. ~~**W-I**~~ — **mostly done 2026-10-25.** Two shared test plans in
    `HealthApp/TestPlans/` (**PreRelease** = unit + UI + coverage, the scheme's default so a
    bare `xcodebuild test` still runs everything; **Fast** = unit only, for pull requests),
@@ -162,7 +184,9 @@ Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 o
 
 ### Standing verification facts for this repo
 
-- 329 tests, 0 failures. Read the count from the `.xcresult`, never stdout.
+- **368 tests, 0 failures** in the `Fast` plan, measured 2026-10-26 at PR #51's head.
+  Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted
+  since it stood at 348.
 - SwiftLint baseline **5**, and it must run from `HealthApp/`.
 - Schema **v15** (W-B). `DatabaseMigrationTests` is the harness; add an idempotency case per
   version. The fixtures now start at **v10**, so the v11 encryption pass is covered.
@@ -223,8 +247,9 @@ actionable fallback after a relaunch. **The reason is now durable too** (v15, W-
 Remaining: WS-01-01 + WS-03-02 (a stale title snapshot
 clobbers live state, one work item), WS-06-03, WS-04-05 (`makeClientConfig` passes no
 timeout). **WS-11-02 + WS-03-03 are addressed in source** by W-E — the token loop now reads
-`isSuspendedForBackground` and stops at a token boundary — but unverified at runtime, which
-needs a device.
+`isSuspendedForBackground` and stops at a token boundary — and that compiles for a device as
+of 2026-10-26, but it is still unverified at runtime, which needs one. It also covers only
+the streaming path; see W-E above.
 
 **Also corrected:** item 40 closed WS-10-01 only — gold *as foreground* at 2.7:1 across ~25
 sites (WS-10-02) is still open, and I had treated it as done. WS-13-07's evidence was false

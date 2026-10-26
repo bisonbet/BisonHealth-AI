@@ -660,7 +660,8 @@ final class DatabaseMigrationTests: XCTestCase {
         let manager = try DatabaseManager(databaseURL: databaseURL)
         try await manager.saveMedicalDocument(document)
         try await manager.updateDocumentStatus(document.id, status: .failed, failureReason: "Processing timed out.")
-        XCTAssertNotNil(try await manager.fetchMedicalDocument(id: document.id)?.failureReason)
+        let storedReason = try await manager.fetchMedicalDocument(id: document.id)?.failureReason
+        XCTAssertNotNil(storedReason)
 
         try await manager.updateDocumentStatus(document.id, status: .completed)
 

@@ -12,12 +12,14 @@ The ordering and file-ownership map these come from is §4 of
 
 All four were implemented in one branch. **None of them was compiled or tested**: the agent
 ran in a Linux container with no Xcode and no SwiftLint, so the protocol's verification
-commands were not executable. Treat each as source-reviewed only, and run them before
-trusting any of it. Per-item notes are in `../TRACKER.md`.
+commands were not executable. **They were run on the owner's Mac on 2026-10-26:** device
+build ✅, `Fast` plan ✅ 368 tests / 0 failures, SwiftLint ✅ 5 — but only after fixing a
+compile error in `DatabaseTests.swift:663` that had kept the whole test bundle from building,
+so none of the tests below had ever run. Per-item notes are in `../TRACKER.md`.
 
 | Brief | Item | Effort | Outcome |
 |---|---|---|---|
-| `HANDOFF-W-E-background-cancel.md` | W-E | M | Implemented. `MLXTurnInterruption` + token-loop check; `MLXGPUGate` unchanged. Runtime behaviour unverified by design — no simulator compiles it, no test reaches it. |
+| `HANDOFF-W-E-background-cancel.md` | W-E | M | Implemented. `MLXTurnInterruption` + token-loop check; `MLXGPUGate` unchanged. Typechecks for a device (2026-10-26); runtime behaviour still unverified — no simulator compiles it, no test reaches it. **Covers only the streaming path**, see `../TRACKER.md`. |
 | `HANDOFF-W-J-migration-tests.md` | W-J | L | Implemented. v10 fixture, backup-deletion coverage. **Found that the v11 encryption helpers are not idempotent** — reported, not fixed (tests-only item). **W-K may now start.** |
 | `HANDOFF-W-B-persist-failure-reason.md` | W-B rest | M | Implemented. **Took schema v15; W-Q is now v16.** Reason stored encrypted. |
 | `HANDOFF-W-A-icon-cleanup.md` | W-A rest | S | Done. Directory deleted, no orphaned references. |
