@@ -456,11 +456,18 @@ project.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs lint, tests and a device build. **It has never executed** —
-it was written without access to GitHub Actions, so the runner image, its Xcode version and
-its simulator names are unverified. The first job in it prints what the runner actually has,
-so the first run diagnoses itself. The device-build job may need the Metal toolchain, which
-mlx's `Cmlx` target requires and which is a separate download.
+`.github/workflows/ci.yml` runs lint, tests and a device build. **It executed for the first
+time on 2026-10-26 (PR #51) and diagnosed its own bug**, which is what the toolchain-report
+job exists for. Lint is green against the baseline on `macos-15`. Both build jobs fail
+because **no job runs `xcode-select`**: the image defaults to Xcode 16.4, whose iOS 18.5 SDK
+cannot build this project's iOS 26.0 deployment target, and `mlx-swift-lm` then fails Swift 6
+concurrency checks under it. The image does carry Xcode 26.0.1–26.3, so the fix is one
+`sudo xcode-select -s /Applications/Xcode_26.x.app` step per build job; which 26.x to pin is
+an open decision. Measured on that runner: iOS runtimes 18.5, 18.6, 26.0, 26.1, 26.2 —
+**no 26.5**, so the `OS=26.5` pin in the commands above is local-only and would fail there.
+The device-build job may still need the Metal toolchain, which mlx's `Cmlx` target requires
+and which is a separate download; nothing has reached that point yet.
+See `Documentation/Review/TRACKER.md` for the full first-run findings.
 
 ### Release
 

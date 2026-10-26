@@ -12,6 +12,45 @@ done struck off, so a session can begin without re-deriving anything.
 > source, not about a build. **Run the protocol's four commands — plus the
 > `generic/platform=iOS` device build for W-E — before trusting any of it.**
 
+### ▶ CI ran for the first time (2026-10-26, PR #51) — and found its own bug
+
+`.github/workflows/ci.yml` executed for the first time. It diagnosed itself exactly as its
+header comment intended, so **W-I's "the workflow has never executed" is now answered**:
+
+| Job | Result |
+|---|---|
+| Report the runner's toolchain | ✅ — and it is the job that found the bug |
+| SwiftLint (baseline 5) | ✅ **green against the baseline**, on `macos-15` with `brew install swiftlint` |
+| Tests | ❌ build failed before any app source compiled |
+| Device build | ❌ same, in a different dependency target |
+
+**The bug is the missing toolchain selection, not the diff.** `macos-15` defaults to **Xcode
+16.4 (16F6)**, whose iOS 18.5 SDK cannot build an `IPHONEOS_DEPLOYMENT_TARGET` of 26.0 — the
+run warns exactly that — and `mlx-swift-lm` then fails Swift 6 concurrency checks under it
+(`MLXVLM/MediaProcessing.swift:16`, `private let context = CIContext()`, `CIContext` not
+`Sendable`). No job runs `xcode-select`, so all three build jobs inherit 16.4. Both failures
+are in checked-out SwiftPM dependencies; **no `HealthApp/` file was compiled in either job**,
+so the suite and the device typecheck both remain unrun.
+
+What the runner actually has, measured rather than assumed:
+
+- **Xcode**: 16.0–16.4 and **26.0.1, 26.1.1, 26.2.0, 26.3.0** installed; 16.4 selected.
+- **iOS runtimes**: 18.5, 18.6, **26.0, 26.1, 26.2** — note **no 26.5**, which this file and
+  `CLAUDE.md` both name in their local commands. A destination pinned to `OS=26.5` fails here.
+  `ci.yml`'s `SIMULATOR` pins no OS, so it is fine as written.
+- **Simulators**: iPhone 17 Pro, 17 Pro Max, Air, 17 all present. The names in `CLAUDE.md`
+  are right; only the OS pin is wrong.
+
+**The fix (W-I, one step per build job, before `Resolve dependencies`):**
+
+```yaml
+      - name: Select an Xcode that has the iOS 26 SDK
+        run: sudo xcode-select -s /Applications/Xcode_26.1.1.app
+```
+
+Left uncommitted deliberately: **which 26.x to pin is a standing decision** governing every
+future run, and `ci.yml` belongs to W-I rather than to any of the four items in PR #51.
+
 ### Beta-blockers — what stands between you and a tester build
 
 | | Item | State |
