@@ -149,19 +149,27 @@ struct DataKeyResolver {
 
         if let storeID, let key = try keychain.encryptionKey(forStore: storeID) {
             log.database("Using encryption key for data store \(storeID.prefix(8)) (fingerprint: \(Self.fingerprint(key)))")
+            if isReconciliationPending {
+                // Values no key opened at binding: see whether their key has arrived since.
+                let others = try keychain.legacyEncryptionKeys().map(\.key).filter { !Self.sameKey($0, key) }
+                let keys = [key] + Self.distinct(others) { $0 }
+                if reconcile(collectSamples(candidates: keys), selected: 0, keys: keys) {
+                    clearReconciliationPending()
+                }
+            }
             return key
         }
 
         // No ID yet (an upgrade from a build that kept no ID), or an ID whose key has not
         // reached this device. Decide by what the stored data can be opened with.
-        let candidates = try Self.distinct(keychain.legacyEncryptionKeys())
+        let candidates = try Self.distinct(keychain.legacyEncryptionKeys(), by: \.key)
         let samples = collectSamples(candidates: candidates.map(\.key))
 
         guard !samples.isEmpty else {
             // Nothing is encrypted yet, so any key is correct. A new one, rather than a
             // legacy key that may belong to another device.
             let key = SymmetricKey(size: .bits256)
-            try bind(key, to: storeID ?? UUID().uuidString)
+            try bind(key, to: storeID ?? UUID().uuidString, reconciliationPending: false)
             log.database("Created a new encryption key (fingerprint: \(Self.fingerprint(key)))", level: .warning)
             return key
         }
@@ -182,48 +190,70 @@ struct DataKeyResolver {
         }
 
         let key = candidates[best].key
-        let foreign = samples.filter { $0.opener != nil && $0.opener != best }
-        log.database("Selected \(candidates[best].source) key (fingerprint: \(Self.fingerprint(key))): opens \(scores[best]) of \(samples.count) encrypted value(s); \(foreign.count) sealed with another key")
+        log.database("Selected \(candidates[best].source) key (fingerprint: \(Self.fingerprint(key))): opens \(scores[best]) of \(samples.count) encrypted value(s)")
 
+        // Filed under the store ID whatever happens next: the legacy slot it came from may
+        // be overwritten by another device, and everything written from now on uses it.
+        let complete = reconcile(samples, selected: best, keys: candidates.map(\.key))
+        try bind(key, to: storeID ?? UUID().uuidString, reconciliationPending: !complete)
+        return key
+    }
+
+    /// Re-encrypts with the selected key every value another key opens.
+    /// - Returns: whether nothing is left to do. False when a re-encryption failed, or when
+    ///   some value opens with no key here (its key may still be syncing).
+    private func reconcile(_ samples: [Sample], selected: Int, keys: [SymmetricKey]) -> Bool {
+        let foreign = samples.filter { $0.opener != nil && $0.opener != selected }
         if !foreign.isEmpty {
             do {
                 let personalInfoKeys = Set(samples.filter { Self.isPersonalInfo($0.location) }.compactMap(\.opener))
                 try reencrypt(
                     foreign,
-                    to: key,
-                    candidates: candidates.map(\.key),
+                    to: keys[selected],
+                    candidates: keys,
                     restoreOriginalPersonalInfo: personalInfoKeys.count > 1
                 )
             } catch {
-                // Leave the store unbound so the next launch tries again. The selected key
-                // still opens most of the data, so the app can run meanwhile.
                 log.error("Re-encrypting values sealed with another key failed: \(error.localizedDescription)", error: error, category: .database)
-                return key
+                return false
             }
         }
 
-        // Binding ends the search: a bound store never samples its data again. While some
-        // values open with no key here, their key may still be syncing, so leave the store
-        // unbound and look again next launch rather than strand them.
         let unopened = samples.count { $0.opener == nil }
-        guard unopened == 0 else {
-            log.database("\(unopened) encrypted value(s) open with no available key; leaving the data store unbound until they do", level: .warning)
-            return key
+        if unopened > 0 {
+            log.database("\(unopened) encrypted value(s) open with no available key; will look again next launch", level: .warning)
         }
-
-        try bind(key, to: storeID ?? UUID().uuidString)
-        return key
+        return unopened == 0
     }
 
     /// Files the key under the store ID, then records the ID. In that order: an ID written
     /// first and a Keychain write that then failed would point at a key that is not there.
-    private func bind(_ key: SymmetricKey, to storeID: String) throws {
-        try keychain.storeEncryptionKey(key, forStore: storeID)
+    /// A pending reconciliation is marked before either, so a bound store cannot lose it.
+    private func bind(_ key: SymmetricKey, to storeID: String, reconciliationPending: Bool) throws {
         try FileManager.default.createDirectory(
             at: identityURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        if reconciliationPending {
+            try Data().write(to: reconciliationPendingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        try keychain.storeEncryptionKey(key, forStore: storeID)
         try Data(storeID.utf8).write(to: identityURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        if !reconciliationPending {
+            clearReconciliationPending()
+        }
+    }
+
+    /// Present while some stored value opened with no available key. A bound store only
+    /// samples its data again while this exists.
+    private var reconciliationPendingURL: URL { identityURL.appendingPathExtension("pending") }
+
+    private var isReconciliationPending: Bool {
+        FileManager.default.fileExists(atPath: reconciliationPendingURL.path)
+    }
+
+    private func clearReconciliationPending() {
+        try? FileManager.default.removeItem(at: reconciliationPendingURL)
     }
 
     private func readStoreID() -> String? {
@@ -410,14 +440,18 @@ struct DataKeyResolver {
             || data.dropFirst(4).starts(with: Array("ftyp".utf8))
     }
 
-    private static func distinct(_ keys: [LegacyEncryptionKey]) -> [LegacyEncryptionKey] {
-        var seen: [Data] = []
-        return keys.filter { candidate in
-            let bytes = candidate.key.withUnsafeBytes { Data($0) }
-            guard !seen.contains(bytes) else { return false }
-            seen.append(bytes)
+    /// The items in order, without any whose key an earlier item already holds.
+    private static func distinct<T>(_ items: [T], by key: (T) -> SymmetricKey) -> [T] {
+        var seen: [SymmetricKey] = []
+        return items.filter { item in
+            guard !seen.contains(where: { sameKey($0, key(item)) }) else { return false }
+            seen.append(key(item))
             return true
         }
+    }
+
+    private static func sameKey(_ lhs: SymmetricKey, _ rhs: SymmetricKey) -> Bool {
+        lhs.withUnsafeBytes { Data($0) } == rhs.withUnsafeBytes { Data($0) }
     }
 
     static func fingerprint(_ key: SymmetricKey) -> String {

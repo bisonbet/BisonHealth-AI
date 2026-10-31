@@ -220,12 +220,13 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertNil(keychain.storeKeys[storeID])
     }
 
-    /// A mixed-key store where only one of the keys has reached this device. The rest of the
-    /// data must not be given up on: binding would stop every later launch from looking.
-    func testStoreStaysUnboundUntilEveryValueOpens() throws {
+    /// A mixed-key store where only one of the keys has reached this device, and that key is
+    /// in the shared slot, which another device can overwrite. The key must be filed under
+    /// the store at once, and the values it cannot open must still be looked for later.
+    func testStoreKeepsItsKeyAndKeepsLookingForValuesNoKeyOpens() throws {
         let own = SymmetricKey(size: .bits256)
         let late = SymmetricKey(size: .bits256)
-        keychain.deviceOnly = own
+        keychain.sharedSynchronizable = own
 
         let db = try makeDatabase()
         for index in 0..<2 {
@@ -235,15 +236,16 @@ final class DataKeyResolverTests: XCTestCase {
 
         let first = try makeResolver().resolve()
         XCTAssertEqual(first.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
-        XCTAssertTrue(keychain.storeKeys.isEmpty, "A value no key opens keeps the store unbound")
+        XCTAssertEqual(keychain.storeKeys.count, 1, "Filed under the store before the shared slot can change")
 
-        // The missing key syncs.
+        // Another device overwrites the shared slot, with the key the stranded value needs.
         keychain.sharedSynchronizable = late
         let second = try makeResolver().resolve()
 
         XCTAssertEqual(second.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
         XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "lab-late")), with: own), "late lab")
-        XCTAssertEqual(keychain.storeKeys.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: identityURL.appendingPathExtension("pending").path),
+                       "Nothing is left to look for")
     }
 
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
