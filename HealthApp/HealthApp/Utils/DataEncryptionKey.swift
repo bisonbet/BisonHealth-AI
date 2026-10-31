@@ -102,11 +102,21 @@ struct DataKeyResolver {
         ("pending_import_reviews", "payload")
     ]
 
-    /// Columns encrypted since the first schema. Only these can hold a value that proves
-    /// the data needs a key nobody has: every other column held plaintext before the
-    /// migration that encrypted it (v11, v14, v15), and plaintext can look like Base64 or,
-    /// in a BLOB, like anything at all.
-    private static let alwaysEncryptedTables: Set<String> = ["health_data", "chat_messages", "appointment_preps"]
+    /// The schema version from which a column holds only ciphertext. Below it the column
+    /// can hold legacy plaintext, which can look like Base64 or, in a BLOB, like anything
+    /// at all, so a value no key opens proves nothing there. At or above it, such a value
+    /// is data sealed with a key that is not here. Columns not listed were encrypted from
+    /// the moment they existed (`pending_import_reviews` in v13, `failure_reason` in v15).
+    private static let ciphertextOnlySinceVersion: [String: Int] = [
+        "chat_conversations.title": 11,
+        "documents.file_name": 11,
+        "documents.notes": 11,
+        "documents.provider_name": 11,
+        "documents.extracted_text": 11,
+        "documents.extracted_data": 11,
+        "documents.extracted_sections": 11,
+        "documents.tags": 14
+    ]
 
     static func forDefaultStore() -> DataKeyResolver {
         let fileManager = FileManager.default
@@ -239,7 +249,10 @@ struct DataKeyResolver {
                 log.database("Could not open \(databaseURL.lastPathComponent) to check its encryption key", level: .warning)
                 continue
             }
+            // No version table means a schema older than any encryption migration.
+            let schemaVersion = Int((try? db.scalar("SELECT MAX(version) FROM database_version") as? Int64) ?? 0)
             for (table, column) in Self.encryptedColumns {
+                let holdsOnlyCiphertext = schemaVersion >= Self.ciphertextOnlySinceVersion["\(table).\(column)", default: 0]
                 let recordType = table == "health_data" ? ", type" : ""
                 // A missing table or column means an older schema; there is nothing to check.
                 guard let rows = try? db.prepare("SELECT rowid, \(column)\(recordType) FROM \(table) WHERE \(column) IS NOT NULL") else {
@@ -254,7 +267,7 @@ struct DataKeyResolver {
                     )
                     let opener = Self.opener(of: sealed, among: candidates)
                     // A value no key opens counts only where it cannot be legacy plaintext.
-                    if opener != nil || Self.alwaysEncryptedTables.contains(table) && sealed.count >= Self.minimumSealedLength {
+                    if opener != nil || holdsOnlyCiphertext && sealed.count >= Self.minimumSealedLength {
                         samples.append(Sample(location: location, opener: opener))
                     }
                 }

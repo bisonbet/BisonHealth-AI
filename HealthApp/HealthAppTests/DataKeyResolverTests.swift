@@ -200,6 +200,26 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertEqual(keychain.storeKeys.count, 1)
     }
 
+    /// A restore whose per-store key has not synced yet, holding only empty conversations.
+    /// From v11 their titles are always ciphertext, so they prove a key is missing: minting
+    /// one would strand them and file a wrong key under the restored store's ID.
+    func testRestoredStoreWithOnlyEncryptedTitlesWaitsForItsKey() throws {
+        let db = try makeDatabase()
+        try db.execute("CREATE TABLE database_version (version INTEGER PRIMARY KEY, created_at INTEGER)")
+        try db.run("INSERT INTO database_version (version, created_at) VALUES (?, 0)", DatabaseManager.currentDatabaseVersion)
+        try db.run("INSERT INTO chat_conversations (id, title) VALUES ('c', ?)",
+                   try seal("New Conversation", with: SymmetricKey(size: .bits256)).base64EncodedString())
+        let storeID = UUID().uuidString
+        try Data(storeID.utf8).write(to: identityURL)
+
+        XCTAssertThrowsError(try makeResolver().resolve()) { error in
+            guard case DataKeyError.noKeyOpensExistingData = error else {
+                return XCTFail("Unexpected error \(error)")
+            }
+        }
+        XCTAssertNil(keychain.storeKeys[storeID])
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()
