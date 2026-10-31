@@ -138,8 +138,8 @@ class DatabaseManager: ObservableObject {
     init(databaseURL: URL? = nil) throws {
         self.canResetDatabase = true
 
-        // Generate or retrieve encryption key
-        self.encryptionKey = try Self.getOrCreateEncryptionKey()
+        // Shared with FileSystemManager; see DataKeyResolver for how it is chosen.
+        self.encryptionKey = try DataEncryptionKey.current()
         
         // Set up database URL
         let resolvedDatabaseURL: URL
@@ -301,7 +301,7 @@ class DatabaseManager: ObservableObject {
     /// but the real path and key are recovered where possible: `resetDatabase()` is the only
     /// way out of a database that will not open, and it needs both to rebuild one.
     private init(unavailable error: Error) {
-        let recoveredEncryptionKey = try? Self.getOrCreateEncryptionKey()
+        let recoveredEncryptionKey = try? DataEncryptionKey.current()
         let recoveredDatabaseURL = Self.resolveDefaultDatabaseURL()
 
         self.encryptionKey = recoveredEncryptionKey ?? SymmetricKey(size: .bits256)
@@ -1010,48 +1010,6 @@ class DatabaseManager: ObservableObject {
         try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
     }
 
-    // MARK: - Encryption Key Management
-    private static func getOrCreateEncryptionKey() throws -> SymmetricKey {
-        let keychain = Keychain()
-        let log = AppLog.shared
-
-        if let existingKey = try keychain.getEncryptionKey() {
-            // Verify key integrity
-            let keyData = existingKey.withUnsafeBytes { Data($0) }
-            if keyData.count != 32 { // 256 bits = 32 bytes
-                log.database("Encryption key has invalid size (\(keyData.count) bytes, expected 32). This may cause data loss!", level: .error)
-                throw DatabaseError.encryptionFailed
-            }
-
-            // Log key fingerprint for debugging (first 8 chars only for security)
-            let hash = SHA256.hash(data: keyData)
-            let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
-            log.database("Using existing encryption key (fingerprint: \(fingerprint)...)")
-
-            return existingKey
-        } else {
-            // Check if database already exists - if so, warn about potential data loss
-            if let databaseURL = applicationSupportDatabaseURL(),
-               FileManager.default.fileExists(atPath: databaseURL.path) {
-                log.database("CRITICAL: Database exists but encryption key is missing! Creating new key will make existing data unreadable!", level: .critical)
-                log.database("Attempting to scan database for recoverable data...", level: .error)
-                // Don't throw - let the recovery scanner handle it
-            }
-
-            log.database("Creating new encryption key (no existing key found)", level: .warning)
-            let newKey = SymmetricKey(size: .bits256)
-            try keychain.storeEncryptionKey(newKey)
-
-            // Store key fingerprint for future validation
-            let keyData = newKey.withUnsafeBytes { Data($0) }
-            let hash = SHA256.hash(data: keyData)
-            let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
-            log.database("New encryption key created (fingerprint: \(fingerprint)...)")
-
-            return newKey
-        }
-    }
-    
     // MARK: - Encryption/Decryption
     internal func encryptData<T: Codable>(_ data: T) throws -> Data {
         let jsonData = try JSONEncoder().encode(data)

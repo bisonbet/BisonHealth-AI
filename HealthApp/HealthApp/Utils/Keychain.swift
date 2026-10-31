@@ -66,12 +66,15 @@ class Keychain: KeychainStoring {
     // MARK: - Encryption Key Management
     //
     // The database key is the one secret that has to survive a device restore. The
-    // encrypted database *is* included in device backups while the key, stored
-    // `ThisDeviceOnly`, was not — so restoring to a new device produced a database
-    // nothing could read, and the caller's response to a missing key is to mint a new
-    // one over it. The key is therefore stored synchronizable, which means it travels
-    // through the user's iCloud Keychain. That is a deliberate trade and the privacy
-    // policy states it.
+    // encrypted database *is* included in device backups, so the key is stored
+    // synchronizable and travels through the user's iCloud Keychain. That is a deliberate
+    // trade and the privacy policy states it.
+    //
+    // Each key is filed under its data store's ID (see `DataKeyResolver`). The builds
+    // from 2026-10-23 used one synchronizable account for every device, and iCloud
+    // Keychain then delivered one device's key to another. That account and the older
+    // device-only one are now only ever read, never written or deleted: either may be
+    // the sole copy of the key some existing data needs.
     //
     // Everything else this class holds (API keys, model preferences) stays device-only.
 
@@ -79,63 +82,15 @@ class Keychain: KeychainStoring {
     /// `AfterFirstUnlock` still requires the device to have been unlocked once since boot.
     private static var encryptionKeyAccessibility: CFString { kSecAttrAccessibleAfterFirstUnlock }
 
-    func storeEncryptionKey(_ key: SymmetricKey) throws {
-        let keyData = key.withUnsafeBytes { Data($0) }
-        try write(
-            data: keyData,
-            account: encryptionKeyAccount,
-            accessibility: Self.encryptionKeyAccessibility,
-            synchronizable: true
-        )
+    private func encryptionKeyAccount(forStore storeID: String) -> String {
+        "\(encryptionKeyAccount).\(storeID)"
     }
 
-    func getEncryptionKey() throws -> SymmetricKey? {
-        // Look in the synchronizable namespace first — that is where new keys live.
-        if let keyData = try readEncryptionKeyData(synchronizable: true) {
-            return SymmetricKey(data: keyData)
-        }
-
-        // Then the device-only namespace, where every key written by an earlier build
-        // lives. These are separate namespaces: a query that does not name
-        // `kSecAttrSynchronizable` matches only non-synchronizable items, so skipping
-        // this lookup would make an ordinary upgrade look like a missing key — and a
-        // missing key is what makes the caller overwrite an existing database.
-        guard let legacyKeyData = try readEncryptionKeyData(synchronizable: false) else {
-            return nil
-        }
-
-        migrateLegacyKeyToSynchronizable(legacyKeyData)
-        return SymmetricKey(data: legacyKeyData)
-    }
-
-    /// Copies a device-only key into the synchronizable namespace so it can survive a
-    /// restore. Best-effort by design: if any step fails the device-only copy is left
-    /// exactly where it is, because losing it is unrecoverable and failing to sync it is
-    /// merely the situation we were already in.
-    private func migrateLegacyKeyToSynchronizable(_ keyData: Data) {
-        do {
-            try write(
-                data: keyData,
-                account: encryptionKeyAccount,
-                accessibility: Self.encryptionKeyAccessibility,
-                synchronizable: true
-            )
-            // Only remove the old copy once the new one reads back identically.
-            guard let verified = try readEncryptionKeyData(synchronizable: true), verified == keyData else {
-                return
-            }
-            try deleteEncryptionKey(synchronizable: false)
-        } catch {
-            // Deliberately swallowed: the app still has a working key either way.
-            return
-        }
-    }
-
-    private func readEncryptionKeyData(synchronizable: Bool) throws -> Data? {
+    private func readKeyData(account: String, synchronizable: Bool) throws -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: encryptionKeyAccount,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: synchronizable,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -158,26 +113,11 @@ class Keychain: KeychainStoring {
         return keyData
     }
 
-    /// Removes the key from BOTH namespaces. A reset that cleared only one would leave a
-    /// key behind that a later launch would match against a freshly created database.
-    func deleteEncryptionKey() throws {
-        try deleteEncryptionKey(synchronizable: true)
-        try deleteEncryptionKey(synchronizable: false)
-    }
-
-    private func deleteEncryptionKey(synchronizable: Bool) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: encryptionKeyAccount,
-            kSecAttrSynchronizable as String: synchronizable
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
-
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.deleteFailed(status)
-        }
+    /// Rejects anything that is not a 256-bit key rather than handing it to AES-GCM.
+    private func validatedKey(_ keyData: Data?) throws -> SymmetricKey? {
+        guard let keyData else { return nil }
+        guard keyData.count == 32 else { throw KeychainError.invalidData }
+        return SymmetricKey(data: keyData)
     }
 
     // MARK: - Generic Keychain Operations
@@ -239,6 +179,35 @@ class Keychain: KeychainStoring {
         }
         
         return string
+    }
+}
+
+// MARK: - Data Key Storage
+extension Keychain: EncryptionKeyStoring {
+    func encryptionKey(forStore storeID: String) throws -> SymmetricKey? {
+        try validatedKey(readKeyData(account: encryptionKeyAccount(forStore: storeID), synchronizable: true))
+    }
+
+    func storeEncryptionKey(_ key: SymmetricKey, forStore storeID: String) throws {
+        try write(
+            data: key.withUnsafeBytes { Data($0) },
+            account: encryptionKeyAccount(forStore: storeID),
+            accessibility: Self.encryptionKeyAccessibility,
+            synchronizable: true
+        )
+    }
+
+    /// These are separate namespaces: a query that does not name `kSecAttrSynchronizable`
+    /// matches only non-synchronizable items.
+    func legacyEncryptionKeys() throws -> [LegacyEncryptionKey] {
+        var keys: [LegacyEncryptionKey] = []
+        if let key = try validatedKey(readKeyData(account: encryptionKeyAccount, synchronizable: false)) {
+            keys.append(LegacyEncryptionKey(key: key, source: .deviceOnly))
+        }
+        if let key = try validatedKey(readKeyData(account: encryptionKeyAccount, synchronizable: true)) {
+            keys.append(LegacyEncryptionKey(key: key, source: .sharedSynchronizable))
+        }
+        return keys
     }
 }
 

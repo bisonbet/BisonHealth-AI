@@ -61,13 +61,8 @@ class FileSystemManager: ObservableObject {
         self.exportsDirectory = self.baseDirectory.appendingPathComponent("Exports")
         self.logsDirectory = self.baseDirectory.appendingPathComponent("Logs")
         
-        // Get encryption key from keychain
-        let keychain = Keychain()
-        self.encryptionKey = try keychain.getEncryptionKey() ?? {
-            let newKey = SymmetricKey(size: .bits256)
-            try keychain.storeEncryptionKey(newKey)
-            return newKey
-        }()
+        // The same key as the database; see DataKeyResolver.
+        self.encryptionKey = try DataEncryptionKey.current()
         
         // Create directory structure
         try createDirectoryStructure()
