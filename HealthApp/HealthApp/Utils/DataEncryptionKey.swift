@@ -102,6 +102,12 @@ struct DataKeyResolver {
         ("pending_import_reviews", "payload")
     ]
 
+    /// Columns encrypted since the first schema. Only these can hold a value that proves
+    /// the data needs a key nobody has: every other column held plaintext before the
+    /// migration that encrypted it (v11, v14, v15), and plaintext can look like Base64 or,
+    /// in a BLOB, like anything at all.
+    private static let alwaysEncryptedTables: Set<String> = ["health_data", "chat_messages", "appointment_preps"]
+
     static func forDefaultStore() -> DataKeyResolver {
         let fileManager = FileManager.default
         let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -171,8 +177,13 @@ struct DataKeyResolver {
 
         if !foreign.isEmpty {
             do {
-                let hasOwnPersonalInfo = samples.contains { Self.isPersonalInfo($0.location) && $0.opener == best }
-                try reencrypt(foreign, to: key, candidates: candidates.map(\.key), dropPersonalInfo: hasOwnPersonalInfo)
+                let personalInfoKeys = Set(samples.filter { Self.isPersonalInfo($0.location) }.compactMap(\.opener))
+                try reencrypt(
+                    foreign,
+                    to: key,
+                    candidates: candidates.map(\.key),
+                    restoreOriginalPersonalInfo: personalInfoKeys.count > 1
+                )
             } catch {
                 // Leave the store unbound so the next launch tries again. The selected key
                 // still opens most of the data, so the app can run meanwhile.
@@ -241,7 +252,11 @@ struct DataKeyResolver {
                         database: databaseURL, table: table, column: column, rowID: rowID,
                         isText: isText, recordType: row.count > 2 ? row[2] as? String : nil
                     )
-                    samples.append(Sample(location: location, opener: Self.opener(of: sealed, among: candidates)))
+                    let opener = Self.opener(of: sealed, among: candidates)
+                    // A value no key opens counts only where it cannot be legacy plaintext.
+                    if opener != nil || Self.alwaysEncryptedTables.contains(table) && sealed.count >= Self.minimumSealedLength {
+                        samples.append(Sample(location: location, opener: opener))
+                    }
                 }
             }
         }
@@ -263,12 +278,13 @@ struct DataKeyResolver {
 
     // MARK: Re-encryption
 
-    /// - Parameter dropPersonalInfo: The selected key already opens a personal info record.
+    /// - Parameter restoreOriginalPersonalInfo: Personal info records exist under more than
+    ///   one key, so the app made a second one while the first would not decrypt.
     private func reencrypt(
         _ samples: [Sample],
         to key: SymmetricKey,
         candidates: [SymmetricKey],
-        dropPersonalInfo: Bool
+        restoreOriginalPersonalInfo: Bool
     ) throws {
         let cells = Dictionary(grouping: samples.compactMap { sample -> (URL, Sample)? in
             if case .cell(let database, _, _, _, _, _) = sample.location { return (database, sample) }
@@ -284,21 +300,26 @@ struct DataKeyResolver {
                     guard case .cell(_, let table, let column, let rowID, let isText, _) = sample.location,
                           let opener = sample.opener else { continue }
 
-                    // Personal info is one record. A second one sealed with the other key was
-                    // created because the real one would not decrypt, and holds only what
-                    // Apple Health re-supplies on the next sync. Restoring it would put it in
-                    // front of the user's own record, which is older.
-                    if dropPersonalInfo && Self.isPersonalInfo(sample.location) {
-                        try db.run("DELETE FROM health_data WHERE rowid = ?", rowID)
-                        log.database("Removed a personal info record created while the wrong key was in use", level: .warning)
-                        continue
-                    }
-
                     let stored = try db.scalar("SELECT \(column) FROM \(table) WHERE rowid = ?", rowID)
                     guard let (sealed, _) = Self.sealedBytes(stored) else { continue }
                     let resealed = try Self.reseal(sealed, from: candidates[opener], to: key)
                     let value: Binding = isText ? resealed.base64EncodedString() : Blob(bytes: [UInt8](resealed))
                     try db.run("UPDATE \(table) SET \(column) = ? WHERE rowid = ?", value, rowID)
+                }
+
+                // Personal info is read as one record: the most recently updated. The app
+                // creates a fresh one when none decrypts, so the stand-in is newer than the
+                // user's own and would hide it. Which key won says nothing about which record
+                // is the user's, so nothing is deleted: the earliest-created record is moved
+                // to the front, and the stand-in stays in the table behind it.
+                if restoreOriginalPersonalInfo {
+                    try db.run("""
+                        UPDATE health_data
+                        SET updated_at = (SELECT MAX(updated_at) FROM health_data WHERE type = 'personal_info') + 1
+                        WHERE rowid = (SELECT rowid FROM health_data WHERE type = 'personal_info'
+                                       ORDER BY created_at ASC, rowid ASC LIMIT 1)
+                        """)
+                    log.database("Restored the original personal info record ahead of one created while the wrong key was in use", level: .warning)
                 }
             }
             log.database("Re-encrypted \(entries.count) value(s) in \(databaseURL.lastPathComponent) with the selected key")
@@ -357,9 +378,14 @@ struct DataKeyResolver {
         return combined
     }
 
-    /// PDF and JPEG headers: files written before files were encrypted.
+    /// Headers of the formats the app imports (PDF, JPEG, PNG, DOCX as ZIP, HEIC as an ISO
+    /// media file): files written before files were encrypted.
     private static func isKnownPlaintext(_ data: Data) -> Bool {
-        data.starts(with: [0x25, 0x50, 0x44, 0x46]) || data.starts(with: [0xFF, 0xD8, 0xFF])
+        data.starts(with: [0x25, 0x50, 0x44, 0x46])
+            || data.starts(with: [0xFF, 0xD8, 0xFF])
+            || data.starts(with: [0x89, 0x50, 0x4E, 0x47])
+            || data.starts(with: [0x50, 0x4B, 0x03, 0x04])
+            || data.dropFirst(4).starts(with: Array("ftyp".utf8))
     }
 
     private static func distinct(_ keys: [LegacyEncryptionKey]) -> [LegacyEncryptionKey] {

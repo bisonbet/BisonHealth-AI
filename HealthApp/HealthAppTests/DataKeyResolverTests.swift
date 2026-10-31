@@ -66,15 +66,22 @@ final class DataKeyResolverTests: XCTestCase {
     private func makeDatabase() throws -> Connection {
         let db = try Connection(databaseURL.path)
         try db.execute("""
-            CREATE TABLE health_data (id TEXT PRIMARY KEY, type TEXT, encrypted_data BLOB, updated_at INTEGER);
-            CREATE TABLE documents (id TEXT PRIMARY KEY, file_name TEXT, tags TEXT);
+            CREATE TABLE health_data (id TEXT PRIMARY KEY, type TEXT, encrypted_data BLOB, created_at INTEGER, updated_at INTEGER);
+            CREATE TABLE documents (id TEXT PRIMARY KEY, file_name TEXT, tags TEXT, extracted_data BLOB);
+            CREATE TABLE chat_conversations (id TEXT PRIMARY KEY, title TEXT);
             """)
         return db
     }
 
-    private func insertHealthData(_ db: Connection, id: String, type: String, sealed: Data) throws {
-        try db.run("INSERT INTO health_data (id, type, encrypted_data, updated_at) VALUES (?, ?, ?, 0)",
-                   id, type, Blob(bytes: [UInt8](sealed)))
+    /// `time` is both created and updated: a later record was made later.
+    private func insertHealthData(_ db: Connection, id: String, type: String, sealed: Data, time: Int64 = 0) throws {
+        try db.run("INSERT INTO health_data (id, type, encrypted_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                   id, type, Blob(bytes: [UInt8](sealed)), time, time)
+    }
+
+    /// The id of the personal info record the app reads: the most recently updated.
+    private func visiblePersonalInfo(_ db: Connection) throws -> String? {
+        try db.scalar("SELECT id FROM health_data WHERE type = 'personal_info' ORDER BY updated_at DESC LIMIT 1") as? String
     }
 
     private func storedBlob(_ db: Connection, id: String) throws -> Data? {
@@ -124,13 +131,13 @@ final class DataKeyResolverTests: XCTestCase {
         keychain.sharedSynchronizable = foreign
 
         let db = try makeDatabase()
-        try insertHealthData(db, id: "profile", type: "personal_info", sealed: seal("own profile", with: own))
+        try insertHealthData(db, id: "profile", type: "personal_info", sealed: seal("own profile", with: own), time: 100)
         for index in 0..<3 {
             try insertHealthData(db, id: "lab\(index)", type: "blood_test", sealed: seal("lab \(index)", with: own))
         }
         // Written during the broken session.
-        try insertHealthData(db, id: "profile-dup", type: "personal_info", sealed: seal("health sync only", with: foreign))
-        try insertHealthData(db, id: "lab-new", type: "blood_test", sealed: seal("new lab", with: foreign))
+        try insertHealthData(db, id: "profile-dup", type: "personal_info", sealed: seal("health sync only", with: foreign), time: 200)
+        try insertHealthData(db, id: "lab-new", type: "blood_test", sealed: seal("new lab", with: foreign), time: 200)
         try db.run("INSERT INTO documents (id, file_name, tags) VALUES ('d', ?, ?)",
                    try seal("report.pdf", with: own).base64EncodedString(),
                    try seal("[\"lipids\"]", with: foreign).base64EncodedString())
@@ -143,8 +150,10 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "lab-new")), with: own), "new lab")
         XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "lab0")), with: own), "lab 0")
         XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "profile")), with: own), "own profile")
-        XCTAssertNil(try storedBlob(db, id: "profile-dup"),
-                     "The stand-in profile would otherwise sort ahead of the user's own record")
+        XCTAssertEqual(try visiblePersonalInfo(db), "profile",
+                       "The stand-in profile would otherwise sort ahead of the user's own record")
+        XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "profile-dup")), with: own), "health sync only",
+                       "Nothing is deleted")
 
         let tags = try XCTUnwrap(try db.scalar("SELECT tags FROM documents WHERE id = 'd'") as? String)
         XCTAssertEqual(open(try XCTUnwrap(Data(base64Encoded: tags)), with: own), "[\"lipids\"]")
@@ -154,6 +163,41 @@ final class DataKeyResolverTests: XCTestCase {
         let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path)
             .filter { $0.hasPrefix("health_data.sqlite.backup.rekey-") }
         XCTAssertEqual(backups.count, 1)
+    }
+
+    /// More values were written during the broken session than before it, so the foreign
+    /// key wins. The user's original profile must still be kept, and be the one shown.
+    func testOriginalProfileSurvivesWhenTheForeignKeyWins() throws {
+        let own = SymmetricKey(size: .bits256)
+        let foreign = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        keychain.sharedSynchronizable = foreign
+
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "profile", type: "personal_info", sealed: seal("own profile", with: own), time: 100)
+        try insertHealthData(db, id: "profile-dup", type: "personal_info", sealed: seal("health sync only", with: foreign), time: 200)
+        for index in 0..<3 {
+            try insertHealthData(db, id: "new\(index)", type: "blood_test", sealed: seal("new \(index)", with: foreign), time: 200)
+        }
+
+        let key = try makeResolver().resolve()
+
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, foreign.withUnsafeBytes { Data($0) })
+        XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "profile")), with: foreign), "own profile")
+        XCTAssertEqual(try visiblePersonalInfo(db), "profile")
+    }
+
+    /// Before v11, titles and extracted data were stored in the clear. "Test" is valid
+    /// Base64, and a plaintext BLOB can be any bytes, but neither proves a key is missing:
+    /// the v11 migration still has to run on them.
+    func testLegacyPlaintextDoesNotCountAsUnreadableData() throws {
+        let db = try makeDatabase()
+        try db.run("INSERT INTO chat_conversations (id, title) VALUES ('c', 'Test')")
+        try db.run("INSERT INTO documents (id, file_name, extracted_data) VALUES ('d', 'Quest lab results', ?)",
+                   Blob(bytes: [UInt8]("{\"results\":[{\"name\":\"LDL\",\"value\":120}]}".utf8)))
+
+        XCTAssertNoThrow(try makeResolver().resolve())
+        XCTAssertEqual(keychain.storeKeys.count, 1)
     }
 
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
