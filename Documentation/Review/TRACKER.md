@@ -123,7 +123,16 @@ Fix: `Utils/DataEncryptionKey.swift`. Keys are filed per data-store UUID, chosen
 decryption of the stored data, and values sealed with another candidate key are re-encrypted
 after a `VACUUM INTO` backup. The resolver never mints a key over data it cannot open, and never
 writes or deletes the legacy accounts. Unit tests in `DataKeyResolverTests` reproduce the iPhone's
-state. **Ran 2026-10-31:** `DataKeyResolverTests` + `DatabaseTests` + `DatabaseMigrationTests` +
+state. **Found while testing W-V (2026-10-31): `resetDatabase()` built a stale schema.** It used a
+second copy of the table definitions, `createTables()`. That copy lacked
+`documents.failure_reason` (v15), the `pending_import_reviews` table (v13) and three indexes,
+yet stamped the rebuilt database v15, so no migration ever added them. Every document import
+after a reset failed with "Failed to encrypt data", the misleading wrapper `saveDocument` puts
+on any error. This is the W-B duplicate-definition trap again. Fixed: `init` and reset now share
+`createTables()`, and `repairSchemaCreatedByReset` adds the column to databases the old reset
+already stamped. Both regression tests were seen failing against the old code.
+
+**Ran 2026-10-31:** `DataKeyResolverTests` + `DatabaseTests` + `DatabaseMigrationTests` +
 `FileSystemTests` on iPhone 17 Pro / 26.5 — **42 tests, 0 failures**, all six resolver tests
 confirmed in the `.xcresult`. **Still to do:** install on the iPhone and confirm the documents,
 records and conversations come back. The

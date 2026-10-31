@@ -186,114 +186,8 @@ class DatabaseManager: ObservableObject {
         // Enable foreign key constraints
         try db?.execute("PRAGMA foreign_keys = ON")
         
-        // Create tables
-        if let db = db {
-            // Create health_data table
-            try db.run(healthDataTable.create(ifNotExists: true) { t in
-                t.column(healthDataId, primaryKey: true)
-                t.column(healthDataType)
-                t.column(healthDataEncryptedData)
-                t.column(healthDataCreatedAt)
-                t.column(healthDataUpdatedAt)
-                t.column(healthDataMetadata)
-            })
-            
-            // Create documents table
-            try db.run(documentsTable.create(ifNotExists: true) { t in
-                t.column(documentId, primaryKey: true)
-                t.column(documentFileName)
-                t.column(documentFileType)
-                t.column(documentFilePath)
-                t.column(documentThumbnailPath)
-                t.column(documentProcessingStatus)
-                t.column(documentImportedAt)
-                t.column(documentProcessedAt)
-                t.column(documentFileSize)
-                t.column(documentTags)
-                t.column(documentNotes)
-                t.column(documentExtractedData)
-                // Medical document fields (v4)
-                t.column(documentDate)
-                t.column(documentProviderName)
-                t.column(documentProviderType)
-                t.column(documentCategory, defaultValue: "other")
-                t.column(documentExtractedText)
-                t.column(documentExtractedSections)
-                t.column(documentIncludeInAIContext, defaultValue: false)
-                t.column(documentContextPriority, defaultValue: 3)
-                t.column(documentLastEditedAt)
-                t.column(documentFailureReason)
-            })
-            
-            // Create chat_conversations table
-            try db.run(chatConversationsTable.create(ifNotExists: true) { t in
-                t.column(conversationId, primaryKey: true)
-                t.column(conversationTitle)
-                t.column(conversationCreatedAt)
-                t.column(conversationUpdatedAt)
-                t.column(conversationIncludedDataTypes)
-                t.column(conversationIncludedPersonalInfo)
-                t.column(conversationIsArchived, defaultValue: false)
-                t.column(conversationTags)
-            })
-            
-            // Create chat_messages table
-            try db.run(chatMessagesTable.create(ifNotExists: true) { t in
-                t.column(messageId, primaryKey: true)
-                t.column(messageConversationId)
-                t.column(messageContent)
-                t.column(messageRole)
-                t.column(messageTimestamp)
-                t.column(messageMetadata)
-                t.column(messageIsError, defaultValue: false)
-                t.column(messageTokens)
-                t.column(messageProcessingTime)
-                t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
-            })
-
-            // Create appointment_preps table
-            try db.run(appointmentPrepsTable.create(ifNotExists: true) { t in
-                t.column(prepId, primaryKey: true)
-                t.column(prepEncryptedData)
-                t.column(prepStatus, defaultValue: "draft")
-                t.column(prepCreatedAt)
-                t.column(prepUpdatedAt)
-            })
-
-            // Create pending_import_reviews table (v13)
-            try db.run(pendingReviewsTable.create(ifNotExists: true) { t in
-                t.column(pendingReviewDocumentId, primaryKey: true)
-                t.column(pendingReviewPayload)
-                t.column(pendingReviewCreatedAt)
-            })
-
-            // Create database_version table
-            try db.run(databaseVersionTable.create(ifNotExists: true) { t in
-                t.column(versionNumber, primaryKey: true)
-                t.column(versionCreatedAt)
-            })
-
-            // Create app_settings table
-            try createAppSettingsTable()
-
-            // Handle database migrations
-            try performDatabaseMigration(db: db)
-
-            // Create indexes
-            try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_type ON health_data(type)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_created ON health_data(created_at)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(document_date)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
-
-        }
+        // Same schema path as resetDatabase(), so the two can never drift apart.
+        try createTables()
     }
 
     /// Builds a manager that owns no connection, recording why the database could not be
@@ -912,6 +806,12 @@ class DatabaseManager: ObservableObject {
         AppLog.shared.database("Database reset completed")
     }
 
+    /// The one definition of the current schema, used by both a first open and a reset.
+    ///
+    /// There used to be a second copy here for `resetDatabase()`. It fell behind: it lacked
+    /// `documents.failure_reason` and the `pending_import_reviews` table, yet stamped the
+    /// rebuilt database with the current version, so no migration ever added them and
+    /// every document save after a reset failed.
     private func createTables() throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
 
@@ -924,7 +824,7 @@ class DatabaseManager: ObservableObject {
             t.column(healthDataUpdatedAt)
             t.column(healthDataMetadata)
         })
-
+        
         // Create documents table
         try db.run(documentsTable.create(ifNotExists: true) { t in
             t.column(documentId, primaryKey: true)
@@ -949,8 +849,9 @@ class DatabaseManager: ObservableObject {
             t.column(documentIncludeInAIContext, defaultValue: false)
             t.column(documentContextPriority, defaultValue: 3)
             t.column(documentLastEditedAt)
+            t.column(documentFailureReason)
         })
-
+        
         // Create chat_conversations table
         try db.run(chatConversationsTable.create(ifNotExists: true) { t in
             t.column(conversationId, primaryKey: true)
@@ -962,7 +863,7 @@ class DatabaseManager: ObservableObject {
             t.column(conversationIsArchived, defaultValue: false)
             t.column(conversationTags)
         })
-
+        
         // Create chat_messages table
         try db.run(chatMessagesTable.create(ifNotExists: true) { t in
             t.column(messageId, primaryKey: true)
@@ -986,6 +887,13 @@ class DatabaseManager: ObservableObject {
             t.column(prepUpdatedAt)
         })
 
+        // Create pending_import_reviews table (v13)
+        try db.run(pendingReviewsTable.create(ifNotExists: true) { t in
+            t.column(pendingReviewDocumentId, primaryKey: true)
+            t.column(pendingReviewPayload)
+            t.column(pendingReviewCreatedAt)
+        })
+
         // Create database_version table
         try db.run(databaseVersionTable.create(ifNotExists: true) { t in
             t.column(versionNumber, primaryKey: true)
@@ -1004,10 +912,29 @@ class DatabaseManager: ObservableObject {
         try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(document_date)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
+
+        try repairSchemaCreatedByReset(db: db)
+    }
+
+    /// Adds what the old reset path left out of a database it stamped current. Not a
+    /// migration: these databases already claim the current version, so no version step
+    /// will ever reach them. The missing table is handled by `createTables`'
+    /// `ifNotExists`; only the column needs adding.
+    private func repairSchemaCreatedByReset(db: Connection) throws {
+        let hasFailureReason = try db.scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = 'failure_reason'"
+        ) as? Int64 ?? 0
+        if hasFailureReason == 0 {
+            try db.run(documentsTable.addColumn(documentFailureReason))
+            AppLog.shared.database("Repaired schema: added documents.failure_reason, missing since a database reset", level: .warning)
+        }
     }
 
     // MARK: - Encryption/Decryption
