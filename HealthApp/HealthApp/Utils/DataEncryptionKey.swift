@@ -202,6 +202,15 @@ struct DataKeyResolver {
             }
         }
 
+        // Binding ends the search: a bound store never samples its data again. While some
+        // values open with no key here, their key may still be syncing, so leave the store
+        // unbound and look again next launch rather than strand them.
+        let unopened = samples.count { $0.opener == nil }
+        guard unopened == 0 else {
+            log.database("\(unopened) encrypted value(s) open with no available key; leaving the data store unbound until they do", level: .warning)
+            return key
+        }
+
         try bind(key, to: storeID ?? UUID().uuidString)
         return key
     }

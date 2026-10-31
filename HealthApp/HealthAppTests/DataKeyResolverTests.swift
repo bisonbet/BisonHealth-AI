@@ -220,6 +220,32 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertNil(keychain.storeKeys[storeID])
     }
 
+    /// A mixed-key store where only one of the keys has reached this device. The rest of the
+    /// data must not be given up on: binding would stop every later launch from looking.
+    func testStoreStaysUnboundUntilEveryValueOpens() throws {
+        let own = SymmetricKey(size: .bits256)
+        let late = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+
+        let db = try makeDatabase()
+        for index in 0..<2 {
+            try insertHealthData(db, id: "lab\(index)", type: "blood_test", sealed: seal("lab \(index)", with: own))
+        }
+        try insertHealthData(db, id: "lab-late", type: "blood_test", sealed: seal("late lab", with: late))
+
+        let first = try makeResolver().resolve()
+        XCTAssertEqual(first.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
+        XCTAssertTrue(keychain.storeKeys.isEmpty, "A value no key opens keeps the store unbound")
+
+        // The missing key syncs.
+        keychain.sharedSynchronizable = late
+        let second = try makeResolver().resolve()
+
+        XCTAssertEqual(second.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
+        XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "lab-late")), with: own), "late lab")
+        XCTAssertEqual(keychain.storeKeys.count, 1)
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()
