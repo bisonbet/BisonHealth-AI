@@ -311,16 +311,7 @@ extension DatabaseManager {
     // MARK: - Document Statistics
     func getDocumentCount() async throws -> Int {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        let table = documentsTable
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    continuation.resume(returning: try db.scalar(table.count))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        return try db.scalar(documentsTable.count)
     }
     
     func getDocumentCount(for status: ProcessingStatus) async throws -> Int {
