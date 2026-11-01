@@ -156,15 +156,7 @@ struct DataKeyResolver {
         if let storeID, let key = try keychain.encryptionKey(forStore: storeID) {
             log.database("Using encryption key for data store \(storeID.prefix(8)) (fingerprint: \(Self.fingerprint(key)))")
             if isReconciliationPending {
-                // Values no key opened at binding: see whether their key has arrived since.
-                // The key is already filed, so an unreadable Keychain or store only postpones
-                // this: the marker stays and the next launch tries again.
-                let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
-                let keys = Self.distinct([key] + legacy) { $0 }
-                if let samples = try? collectSamples(candidates: keys),
-                   reconcile(samples, selected: 0, keys: keys) {
-                    clearReconciliationPending()
-                }
+                retryReconciliation(boundKey: key)
             }
             return key
         }
@@ -242,6 +234,37 @@ struct DataKeyResolver {
         return unopened == 0
     }
 
+    /// Launches on which a bound store looks again for values no key opened, before it
+    /// gives up. A key still syncing arrives within a few launches; one that has not by then
+    /// is not coming, and looking costs launch time.
+    private static let maximumReconciliationAttempts = 5
+
+    /// Values no key opened at binding: see whether their key has arrived since. The key is
+    /// already filed, so a failure here only postpones the work to the next launch.
+    private func retryReconciliation(boundKey key: SymmetricKey) {
+        let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
+        let keys = Self.distinct([key] + legacy) { $0 }
+
+        // The database alone shows whether anything has changed: every document file has a
+        // row sealed with the same key. Files, which can be large, are read only when there
+        // is work to do: values another key now opens, or none left that no key opens.
+        if let rows = try? collectSamples(candidates: keys, includingFiles: false),
+           rows.contains(where: { $0.opener != nil && $0.opener != 0 }) || !rows.contains(where: { $0.opener == nil }),
+           let samples = try? collectSamples(candidates: keys),
+           reconcile(samples, selected: 0, keys: keys) {
+            clearReconciliationPending()
+            return
+        }
+
+        let attempt = reconciliationAttempts + 1
+        guard attempt < Self.maximumReconciliationAttempts else {
+            log.database("Gave up after \(attempt) launches looking for the key to values no available key opens", level: .critical)
+            clearReconciliationPending()
+            return
+        }
+        try? Data(String(attempt).utf8).write(to: reconciliationPendingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
     /// Files the key under the store ID, then records the ID. In that order: an ID written
     /// first and a Keychain write that then failed would point at a key that is not there.
     /// A pending reconciliation is marked before either, so a bound store cannot lose it.
@@ -261,8 +284,12 @@ struct DataKeyResolver {
     }
 
     /// Present while some stored value opened with no available key. A bound store only
-    /// samples its data again while this exists.
+    /// samples its data again while this exists. Holds how many launches have looked since.
     private var reconciliationPendingURL: URL { identityURL.appendingPathExtension("pending") }
+
+    private var reconciliationAttempts: Int {
+        (try? Data(contentsOf: reconciliationPendingURL)).flatMap { String(bytes: $0, encoding: .utf8) }.flatMap { Int($0) } ?? 0
+    }
 
     private var isReconciliationPending: Bool {
         FileManager.default.fileExists(atPath: reconciliationPendingURL.path)
@@ -312,7 +339,7 @@ struct DataKeyResolver {
     ///
     /// Fails rather than skips when the store cannot be read: an unreadable store would
     /// otherwise look empty, and an empty store is the one case that mints a key.
-    private func collectSamples(candidates: [SymmetricKey]) throws -> [Sample] {
+    private func collectSamples(candidates: [SymmetricKey], includingFiles: Bool = true) throws -> [Sample] {
         var samples: [Sample] = []
 
         do {
@@ -345,7 +372,7 @@ struct DataKeyResolver {
                 }
             }
 
-            for directory in fileDirectories where FileManager.default.fileExists(atPath: directory.path) {
+            for directory in includingFiles ? fileDirectories : [] where FileManager.default.fileExists(atPath: directory.path) {
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey])
                 for url in files {
                     guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }

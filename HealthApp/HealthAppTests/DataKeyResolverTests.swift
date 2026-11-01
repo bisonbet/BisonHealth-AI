@@ -337,6 +337,50 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertEqual(try visiblePersonalInfo(db), "profile")
     }
 
+    private var pendingMarkerExists: Bool {
+        FileManager.default.fileExists(atPath: identityURL.appendingPathExtension("pending").path)
+    }
+
+    /// A key that never arrives must not cost a full scan on every launch for ever.
+    func testStopsLookingForAMissingKeyAfterAFewLaunches() throws {
+        let own = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        try insertHealthData(db, id: "gone", type: "blood_test", sealed: seal("lost", with: SymmetricKey(size: .bits256)))
+
+        _ = try makeResolver().resolve()
+        XCTAssertTrue(pendingMarkerExists)
+
+        for _ in 0..<4 { _ = try makeResolver().resolve() }
+        XCTAssertTrue(pendingMarkerExists, "Still looking after four more launches")
+
+        _ = try makeResolver().resolve()
+        XCTAssertFalse(pendingMarkerExists, "Gave up on the fifth")
+    }
+
+    /// Once the database has nothing left that no key opens, the files are checked too, so a
+    /// document left sealed with another key (a file rewrite that failed) is still recovered.
+    func testPendingStoreRecoversFilesOnceTheDatabaseIsSettled() throws {
+        let own = SymmetricKey(size: .bits256)
+        let foreign = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        try insertHealthData(db, id: "gone", type: "blood_test", sealed: seal("lost", with: SymmetricKey(size: .bits256)))
+        _ = try makeResolver().resolve()
+
+        try db.run("DELETE FROM health_data WHERE id = 'gone'")
+        keychain.sharedSynchronizable = foreign
+        let fileURL = filesURL.appendingPathComponent("doc.pdf")
+        try seal("pdf bytes", with: foreign).write(to: fileURL)
+
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(open(try Data(contentsOf: fileURL), with: own), "pdf bytes")
+        XCTAssertFalse(pendingMarkerExists)
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()
