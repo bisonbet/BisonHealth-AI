@@ -48,13 +48,16 @@ enum DataEncryptionKey {
 
 // MARK: - Key Storage
 
-/// A data key from before keys were filed under a data store ID.
+/// A candidate key other than the store's own: one from before keys were filed under a
+/// data store ID, or the key of a store this one replaced.
 struct LegacyEncryptionKey {
     enum Source {
         /// Device-only. Written by builds before 2026-10-23, and so made on this device.
         case deviceOnly
         /// The single synchronizable slot from 2026-10-23. May belong to another device.
         case sharedSynchronizable
+        /// The per-store key of a store this one replaced while that key was not here.
+        case replacedStore
     }
 
     let key: SymmetricKey
@@ -188,7 +191,11 @@ struct DataKeyResolver {
         // and so its Keychain account, with the device the backup came from; a key written
         // under that ID would sync back and replace the one that device's data needs. The old
         // ID is kept with any unfinished recovery, so its key is still tried if it arrives.
-        let candidates = try Self.distinct(keychain.legacyEncryptionKeys(), by: \.key)
+        let replaced = isReconciliationPending ? replacedStoreKeys(pendingReconciliation) : []
+        let candidates = try Self.distinct(
+            keychain.legacyEncryptionKeys() + replaced.map { LegacyEncryptionKey(key: $0, source: .replacedStore) },
+            by: \.key
+        )
         let samples = try collectSamples(candidates: candidates.map(\.key))
 
         guard samples.contains(where: \.isEvidence) else {
@@ -203,10 +210,11 @@ struct DataKeyResolver {
             if let opener = sample.opener { scores[opener] += 1 }
         }
 
-        // Most data opened wins. On a tie, the device-only key: it was made on this device.
+        // Most data opened wins. On a tie, not the shared slot: it may hold another device's
+        // key, where the others were made for this data.
         guard let best = candidates.indices.max(by: { lhs, rhs in
             if scores[lhs] != scores[rhs] { return scores[lhs] < scores[rhs] }
-            return candidates[lhs].source == .sharedSynchronizable && candidates[rhs].source == .deviceOnly
+            return candidates[lhs].source == .sharedSynchronizable && candidates[rhs].source != .sharedSynchronizable
         }), scores[best] > 0 else {
             // Never mint a key over data that exists: that is what destroys it.
             log.database("\(samples.count) encrypted value(s) exist and none of \(candidates.count) available key(s) opens them", level: .critical)
@@ -286,10 +294,7 @@ struct DataKeyResolver {
     private func retryReconciliation(boundKey key: SymmetricKey) {
         var state = pendingReconciliation
         let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
-        // The key of a store this one replaced, once it has synced, may open what nothing
-        // else here does.
-        let previous = state.previousStoreIDs.compactMap { (try? keychain.encryptionKey(forStore: $0)) ?? nil }
-        let keys = Self.distinct([key] + legacy + previous) { $0 }
+        let keys = Self.distinct([key] + legacy + replacedStoreKeys(state)) { $0 }
         let fingerprints = keys.map(Self.fingerprint)
         let keysChanged = fingerprints != state.keyFingerprints
 
@@ -371,6 +376,12 @@ struct DataKeyResolver {
     private var pendingReconciliation: PendingReconciliation {
         (try? Data(contentsOf: reconciliationPendingURL))
             .flatMap { try? JSONDecoder().decode(PendingReconciliation.self, from: $0) } ?? PendingReconciliation()
+    }
+
+    /// The keys of stores this one replaced that have reached this device. Once synced, one
+    /// may open what nothing else here does.
+    private func replacedStoreKeys(_ state: PendingReconciliation) -> [SymmetricKey] {
+        state.previousStoreIDs.compactMap { (try? keychain.encryptionKey(forStore: $0)) ?? nil }
     }
 
     private func savePendingReconciliation(_ state: PendingReconciliation) throws {

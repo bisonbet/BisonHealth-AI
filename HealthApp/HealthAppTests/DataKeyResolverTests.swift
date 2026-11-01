@@ -590,6 +590,23 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertEqual(open(try Data(contentsOf: fileURL), with: legacy), "pdf bytes")
     }
 
+    /// Restored again before the current store's key syncs, but the key of a store it
+    /// replaced earlier is here and opens everything: that is enough to open the data.
+    func testReplacedStoresKeyIsACandidateWhileTheCurrentKeyIsMissing() throws {
+        let replacedKey = SymmetricKey(size: .bits256)
+        let replacedID = UUID().uuidString
+        keychain.storeKeys[replacedID] = replacedKey
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: replacedKey))
+        try Data(UUID().uuidString.utf8).write(to: identityURL)
+        try JSONSerialization.data(withJSONObject: ["attempts": 0, "keyFingerprints": [], "previousStoreIDs": [replacedID]])
+            .write(to: identityURL.appendingPathExtension("pending"))
+
+        let key = try makeResolver().resolve()
+
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, replacedKey.withUnsafeBytes { Data($0) })
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()
