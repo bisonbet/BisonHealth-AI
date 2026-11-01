@@ -131,7 +131,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     /// Read at every token boundary of a streaming reply (see ``MLXTurnInterruption``) as
     /// well as by suspend/resume, so a background trip stops the generation rather than
     /// queueing an unload behind it.
-    private var isSuspendedForBackground = false
+    private(set) var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
 
     /// A dense lab page can carry 25+ results; the JSON for that runs ~1000

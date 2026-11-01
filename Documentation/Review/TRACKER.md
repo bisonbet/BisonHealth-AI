@@ -242,6 +242,13 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    page with fewer results, and each page's hold is bounded at 1,536 tokens.
    `MLXOnDeviceError.generationInterrupted` now carries its `Reason`, so a cancelled turn no
    longer says the app went to the background (unit-tested in `ModelTests`).
+   **Follow-ups from review of #54:** an interruption is never swallowed into a partial result
+   (blood-test chunk mapping, `MedicalDocumentExtractor`, title generation all rethrow it);
+   `sendMessage` refuses before reloading the model while suspended; and a document stopped by
+   a background trip is **parked without consuming a retry** and re-queued by
+   `DocumentProcessor.resumeDeferredAfterForeground()` once the models resume, instead of
+   burning all three attempts in six seconds and ending failed. Pause folds parked documents
+   back into the queue. The rule is unit-tested; the parking itself needs a device.
 8. ~~**W-N**~~ — **done 2026-10-31.** New `BisonTheme.goldText`: light `(0.56, 0.37, 0.05)`,
    4.75:1 on `sidebarBackground` (the darkest light background) and over 5:1 on the rest;
    dark keeps `gold`, already 7.4:1 or better. All 79 foreground uses of `gold`, including

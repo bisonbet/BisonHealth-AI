@@ -338,6 +338,22 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(cancelled.recoverySuggestion?.contains("foreground") ?? true)
     }
 
+    func testOnlyABackgroundStopDefersADocumentInsteadOfSpendingARetry() {
+        // A background trip used to burn all three attempts in the first six seconds and
+        // mark the document failed. Only that stop is deferred: a cancellation is the
+        // user's decision, and any other error is a real failure that should use retries.
+        XCTAssertTrue(DocumentProcessor.shouldDeferUntilForeground(
+            MLXOnDeviceError.generationInterrupted(.backgrounded)
+        ))
+        XCTAssertFalse(DocumentProcessor.shouldDeferUntilForeground(
+            MLXOnDeviceError.generationInterrupted(.cancelled)
+        ))
+        XCTAssertFalse(DocumentProcessor.shouldDeferUntilForeground(
+            MLXOnDeviceError.generationFailed("boom")
+        ))
+        XCTAssertFalse(DocumentProcessor.shouldDeferUntilForeground(URLError(.timedOut)))
+    }
+
     func testTheNoticeNamesBackgroundingOnlyWhenThatIsWhyTheTurnStopped() {
         let backgrounded = MLXTurnInterruption(reason: .backgrounded, disposition: .keepPartial)
         let cancelled = MLXTurnInterruption(reason: .cancelled, disposition: .keepPartial)

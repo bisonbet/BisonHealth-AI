@@ -42,6 +42,9 @@ class DocumentProcessor: ObservableObject {
     /// Delayed auto-retry re-queues, keyed by document id, so pause/clear/delete
     /// can cancel them — otherwise a 2–8s timer restarts processing after a pause.
     private var retryTasks: [UUID: Task<Void, Never>] = [:]
+    /// Documents whose on-device run was stopped because the app went to the background.
+    /// Parked here rather than retried, and re-queued by ``resumeDeferredAfterForeground()``.
+    private var deferredUntilForeground: [ProcessingQueueItem] = []
     /// Drain-loop ownership token: a loop started before a pause must not wipe
     /// the registry/flag of a loop started after it.
     private var processingLoopGeneration = 0
@@ -263,6 +266,7 @@ class DocumentProcessor: ObservableObject {
         
         // Remove from queue
         processingQueue.removeAll { $0.document.id == documentId }
+        deferredUntilForeground.removeAll { $0.document.id == documentId }
         
         // Update document status back to pending
         try? await databaseManager.updateDocumentStatus(documentId, status: .pending)
@@ -535,7 +539,47 @@ class DocumentProcessor: ObservableObject {
             task.cancel()
         }
         retryTasks.removeAll()
+        // A parked document rejoins the paused queue, so returning to the foreground does
+        // not quietly restart processing the user just paused.
+        processingQueue.append(contentsOf: deferredUntilForeground)
+        deferredUntilForeground.removeAll()
         isProcessing = false
+    }
+
+    // MARK: - Background Deferral
+
+    /// Only a background stop is deferred. A cancelled run is the user's decision and is
+    /// handled as cancellation; every other error is a real failure and uses the retries.
+    nonisolated static func shouldDeferUntilForeground(_ error: Error) -> Bool {
+        if case MLXOnDeviceError.generationInterrupted(.backgrounded) = error { return true }
+        return false
+    }
+
+    private func deferUntilForeground(_ item: ProcessingQueueItem) async {
+        // The resume may already have run while this run was unwinding. Parking then would
+        // leave the document waiting for the *next* background trip, so re-queue it now.
+        guard settingsManager.isOnDeviceLLMSuspendedForBackground else {
+            AppLog.shared.documents("On-device run was interrupted but the app is already back — re-queueing", level: .warning)
+            await addToQueue(item.document, priority: item.priority, retryCount: item.retryCount)
+            return
+        }
+        AppLog.shared.documents("On-device run stopped for background — deferring document until the app returns", level: .warning)
+        var parked = item
+        parked.status = .queued
+        deferredUntilForeground.append(parked)
+        try? await databaseManager.updateDocumentStatus(item.document.id, status: .queued)
+    }
+
+    /// Re-queue documents parked by a background trip. Called once the on-device models have
+    /// resumed, so the re-run does not stop again at its first token.
+    func resumeDeferredAfterForeground() async {
+        guard !deferredUntilForeground.isEmpty else { return }
+        let parked = deferredUntilForeground
+        deferredUntilForeground.removeAll()
+        AppLog.shared.documents("Resuming \(parked.count) document(s) deferred by a background trip")
+        for item in parked {
+            await addToQueue(item.document, priority: item.priority, retryCount: item.retryCount)
+        }
     }
     
     /// Why this document's processing failed, phrased for the person looking at it.
@@ -573,7 +617,8 @@ class DocumentProcessor: ObservableObject {
         // Cancel all processing
         pauseProcessing()
         
-        // Reset all queued documents to pending
+        // Reset all queued documents to pending (pauseProcessing has already folded the
+        // background-deferred ones into the queue)
         for queueItem in processingQueue {
             try? await databaseManager.updateDocumentStatus(queueItem.document.id, status: .pending)
         }
@@ -836,6 +881,14 @@ class DocumentProcessor: ObservableObject {
             if Task.isCancelled || error is CancellationError {
                 AppLog.shared.documents("Processing cancelled for document — restoring pending status", level: .warning)
                 try? await databaseManager.updateDocumentStatus(currentItem.document.id, status: .pending)
+                return
+            }
+
+            // Backgrounding is not a failure of this document. The 2 s / 4 s backoff below
+            // would spend all three attempts in the first six seconds of a background trip
+            // and mark it failed, so park it without consuming an attempt instead.
+            if Self.shouldDeferUntilForeground(error) {
+                await deferUntilForeground(currentItem)
                 return
             }
             

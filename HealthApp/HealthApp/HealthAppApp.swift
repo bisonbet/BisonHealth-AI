@@ -329,6 +329,8 @@ class AppState: ObservableObject {
             MLXModelDownloadManager.shared.resumeAfterForeground()
             Task {
                 await settingsManager.resumeOnDeviceLLMAfterForeground()
+                // After the resume, so a re-run does not stop again at its first token.
+                await DocumentProcessor.shared.resumeDeferredAfterForeground()
             }
         case .inactive:
             break

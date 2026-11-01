@@ -674,6 +674,12 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    /// Whether either on-device client is still suspended for a background trip.
+    var isOnDeviceLLMSuspendedForBackground: Bool {
+        (mlxOnDeviceClient?.isSuspendedForBackground ?? false)
+            || (mlxOnDeviceExtractionClient?.isSuspendedForBackground ?? false)
+    }
+
     func resumeOnDeviceLLMAfterForeground() async {
         if let mlxOnDeviceClient {
             await mlxOnDeviceClient.resumeAfterForeground()
