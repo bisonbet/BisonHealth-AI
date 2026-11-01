@@ -213,6 +213,7 @@ class DocumentProcessor: ObservableObject {
         // Dedupe: never queue the same document twice — a second insert would
         // overwrite processingTasks[document.id] and strand the first task.
         guard !processingQueue.contains(where: { $0.document.id == document.id }),
+              !deferredUntilForeground.contains(where: { $0.document.id == document.id }),
               processingTasks[document.id] == nil else {
             AppLog.shared.documents("Document already queued or processing — ignoring duplicate queue add", level: .warning)
             return
@@ -229,12 +230,7 @@ class DocumentProcessor: ObservableObject {
         // retries forever, silently, and sits on "Pending".
         queueItem.retryCount = retryCount
         
-        // Insert based on priority
-        let insertIndex = processingQueue.firstIndex { item in
-            item.priority.rawValue < priority.rawValue
-        } ?? processingQueue.count
-        
-        processingQueue.insert(queueItem, at: insertIndex)
+        let insertIndex = insertByPriority(queueItem)
         AppLog.shared.documents("Document added to queue at position \(insertIndex), total queue size: \(processingQueue.count)")
         
         // Update document status to queued
@@ -522,9 +518,21 @@ class DocumentProcessor: ObservableObject {
     /// must run one at a time — concurrent runs tear down each other's model
     /// container and buffer pool mid-generation. Cloud providers can overlap.
     private var currentConcurrencyLimit: Int {
+        usesOnDeviceExtraction ? 1 : maxConcurrentProcessing
+    }
+
+    /// Whether document extraction runs on the shared on-device MLX runtime.
+    private var usesOnDeviceExtraction: Bool {
         settingsManager.modelPreferences.extractionProvider == .onDeviceLLM
-            ? 1
-            : maxConcurrentProcessing
+    }
+
+    /// Insert keeping `processingQueue` ordered by priority, behind items of equal priority.
+    @discardableResult
+    private func insertByPriority(_ item: ProcessingQueueItem) -> Int {
+        let index = processingQueue.firstIndex { $0.priority.rawValue < item.priority.rawValue }
+            ?? processingQueue.count
+        processingQueue.insert(item, at: index)
+        return index
     }
     
     func pauseProcessing() {
@@ -541,7 +549,7 @@ class DocumentProcessor: ObservableObject {
         retryTasks.removeAll()
         // A parked document rejoins the paused queue, so returning to the foreground does
         // not quietly restart processing the user just paused.
-        processingQueue.append(contentsOf: deferredUntilForeground)
+        deferredUntilForeground.forEach { insertByPriority($0) }
         deferredUntilForeground.removeAll()
         isProcessing = false
     }
@@ -556,14 +564,20 @@ class DocumentProcessor: ObservableObject {
     }
 
     private func deferUntilForeground(_ item: ProcessingQueueItem) async {
+        // Called from inside this item's own task, whose registry entry stays until the batch
+        // ends. Left in place, it makes either re-queue below — this one, or the one in
+        // `resumeDeferredAfterForeground()` — look like a duplicate, and the document is dropped.
+        processingTasks.removeValue(forKey: item.document.id)
+
         // The resume may already have run while this run was unwinding. Parking then would
         // leave the document waiting for the *next* background trip, so re-queue it now.
+        // No attempt is spent either way: the document did not fail.
         guard settingsManager.isOnDeviceLLMSuspendedForBackground else {
             AppLog.shared.documents("On-device run was interrupted but the app is already back — re-queueing", level: .warning)
             await addToQueue(item.document, priority: item.priority, retryCount: item.retryCount)
             return
         }
-        AppLog.shared.documents("On-device run stopped for background — deferring document until the app returns", level: .warning)
+        AppLog.shared.documents("On-device AI is suspended for background — deferring document until the app returns", level: .warning)
         var parked = item
         parked.status = .queued
         deferredUntilForeground.append(parked)
@@ -630,6 +644,14 @@ class DocumentProcessor: ObservableObject {
     private func processQueueItem(_ queueItem: ProcessingQueueItem) async {
         var currentItem = queueItem
         currentItem.startedAt = Date()
+
+        // Starting an on-device run while suspended would decrypt and OCR the document only
+        // to stop at the model, then do it all again after the resume.
+        if usesOnDeviceExtraction && settingsManager.isOnDeviceLLMSuspendedForBackground {
+            await deferUntilForeground(currentItem)
+            return
+        }
+        let backgroundTripsAtStart = settingsManager.onDeviceLLMBackgroundSuspensionCount
         
         AppLog.shared.documents("Processing document '\(currentItem.document.fileName)' (attempt \(currentItem.retryCount + 1)/\(maxRetryAttempts))")
 
@@ -660,6 +682,17 @@ class DocumentProcessor: ObservableObject {
             // internally — re-check here so a delete/pause during those passes
             // cannot proceed to any database write.
             try Task.checkCancellation()
+
+            // Background checkpoint, for the same reason. The vision pass swallows page errors
+            // so one bad page cannot fail a document, and that includes a page refused because
+            // the app was in the background. A trip during the run means pages may be missing:
+            // discard the result and run again, which the catch below does without spending
+            // an attempt.
+            if usesOnDeviceExtraction,
+               settingsManager.onDeviceLLMBackgroundSuspensionCount != backgroundTripsAtStart {
+                AppLog.shared.documents("App went to the background during on-device extraction — discarding this run", level: .warning)
+                throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+            }
 
             // Extract medical document information (sections, metadata, etc.)
             AppLog.shared.documents("Starting medical document extraction (sections, metadata)")
@@ -884,9 +917,10 @@ class DocumentProcessor: ObservableObject {
                 return
             }
 
-            // Backgrounding is not a failure of this document. The 2 s / 4 s backoff below
-            // would spend all three attempts in the first six seconds of a background trip
-            // and mark it failed, so park it without consuming an attempt instead.
+            // Backgrounding is not a failure of this document, whether the background
+            // checkpoint above threw it or an interruptible on-device call did. The retries
+            // below would spend an attempt on every trip, so park or re-queue it without
+            // consuming one instead.
             if Self.shouldDeferUntilForeground(error) {
                 await deferUntilForeground(currentItem)
                 return
@@ -1832,7 +1866,7 @@ class DocumentProcessor: ObservableObject {
         }
         #endif
 
-        if settingsManager.modelPreferences.extractionProvider == .onDeviceLLM,
+        if usesOnDeviceExtraction,
            !settingsManager.canUseOnDeviceExtractionProvider() {
             throw MLXOnDeviceError.visionModelNotDownloaded
         }
@@ -1943,8 +1977,9 @@ class DocumentProcessor: ObservableObject {
     }
     
     private func sendProcessingCompletionNotification() async {
-        // Only announce completion once the queue has actually drained.
-        guard processingQueue.isEmpty else { return }
+        // Only announce completion once the queue has actually drained, and not while
+        // documents are parked for a background trip — which is when this is seen.
+        guard processingQueue.isEmpty, deferredUntilForeground.isEmpty else { return }
         
         let content = UNMutableNotificationContent()
         content.title = "Processing Complete"

@@ -325,6 +325,41 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
     }
 
+    func testADocumentQueuedWhileOnDeviceAIIsSuspendedIsParkedAndRunsOnResume() async throws {
+        // A background trip must neither fail an on-device import nor run it in the
+        // background: the document waits, keeps its attempts, and runs once the app is back.
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        harness.settingsManager.modelPreferences.extractionProvider = .onDeviceLLM
+
+        let document = makeDocument(named: "panel.pdf", category: .labReport)
+        try await harness.databaseManager.saveMedicalDocument(document)
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        // Cancels the retry the resumed run schedules (the fixture file does not exist).
+        defer { processor.pauseProcessing() }
+
+        await harness.settingsManager.suspendOnDeviceLLMForBackground()
+        await processor.addToQueue(document)
+
+        let parked = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(parked?.processingStatus, .queued, "Parked, not processed or failed")
+        XCTAssertFalse(processor.isProcessing, "Nothing runs while on-device AI is suspended")
+
+        // A second add while parked is a duplicate, not a second copy to resume.
+        await processor.addToQueue(document)
+
+        await harness.settingsManager.resumeOnDeviceLLMAfterForeground()
+        await processor.resumeDeferredAfterForeground()
+
+        let resumed = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        XCTAssertNotEqual(resumed?.processingStatus, .queued, "Resuming must actually run the parked document")
+    }
+
     func testDeletingGeneticTestRemovesTheDatabaseRecordAndSourceFile() async throws {
         let harness = try makeRegressionHarness()
         defer { try? FileManager.default.removeItem(at: harness.rootURL) }

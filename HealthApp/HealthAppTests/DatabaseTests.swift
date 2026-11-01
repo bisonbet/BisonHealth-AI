@@ -531,6 +531,7 @@ final class DatabaseMigrationTests: XCTestCase {
             providerName: "Dr Ferris",
             documentCategory: .labReport,
             extractedText: "Sodium 140",
+            extractedSections: [DocumentSection(sectionType: "Results", content: "Sodium 140 mmol/L")],
             fileSize: 1024,
             tags: ["lab"],
             notes: "Second draw"
@@ -561,6 +562,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(recovered?.providerName, "Dr Ferris")
         XCTAssertEqual(recovered?.extractedText, "Sodium 140")
         XCTAssertEqual(recovered?.tags, ["lab"])
+        // A BLOB column, so this covers the data-field helper as well as the text ones.
+        XCTAssertEqual(recovered?.extractedSections.first?.content, "Sodium 140 mmol/L")
 
         let conversations = try await migrated.fetchConversations()
         XCTAssertEqual(conversations.first?.title, "About my sodium")

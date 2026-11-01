@@ -131,7 +131,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     /// Read at every token boundary of a streaming reply (see ``MLXTurnInterruption``) as
     /// well as by suspend/resume, so a background trip stops the generation rather than
     /// queueing an unload behind it.
-    private(set) var isSuspendedForBackground = false
+    private var isSuspendedForBackground = false
     private var chatSessionSignature: ChatSessionSignature?
 
     /// A dense lab page can carry 25+ results; the JSON for that runs ~1000
@@ -729,6 +729,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #endif
     }
 
+    /// For a client created while the app is already in the background. Nothing is loaded
+    /// yet, so there is nothing to unload — only the flag needs setting, so that its first
+    /// request refuses instead of loading a model in the background.
+    func markSuspendedForBackground() {
+        isSuspendedForBackground = true
+    }
+
     func resumeAfterForeground() async {
         guard isSuspendedForBackground else { return }
         isSuspendedForBackground = false
@@ -952,6 +959,12 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
         guard supportsVisionExtraction else {
             throw MLXOnDeviceError.generationFailed("Selected on-device model does not support image input")
         }
+        // Pages are not interrupted mid-generation (see `collectResponse`), but none starts
+        // while suspended: after `suspendForBackground()` unloads the model, the next page
+        // would otherwise load it again in the background.
+        if isSuspendedForBackground {
+            throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+        }
         try await loadModel()
 
         var mergedLabValues: [[String: Any]] = []
@@ -967,6 +980,11 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
             // follows it must be atomic with respect to every other MLX user,
             // and releasing between pages keeps chat responsive.
             await MLXGPUGate.shared.acquire()
+
+            if isSuspendedForBackground {
+                MLXGPUGate.shared.release()
+                throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+            }
 
             // The model can be unloaded between pages (background suspend,
             // provider change), so re-check rather than trusting the load above.

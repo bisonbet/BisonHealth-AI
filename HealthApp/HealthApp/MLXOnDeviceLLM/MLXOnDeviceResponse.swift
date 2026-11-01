@@ -53,6 +53,13 @@ enum MLXOnDeviceError: LocalizedError {
     /// cancelled that "the app went to the background" is simply false.
     case generationInterrupted(MLXTurnInterruption.Reason)
 
+    /// A stopped run rather than a failed one. Catch sites that fall back to a partial or
+    /// heuristic result on failure rethrow these, so a stop is never saved as an answer.
+    var isGenerationInterruption: Bool {
+        if case .generationInterrupted = self { return true }
+        return false
+    }
+
     var errorDescription: String? {
         switch self {
         case .modelNotLoaded:

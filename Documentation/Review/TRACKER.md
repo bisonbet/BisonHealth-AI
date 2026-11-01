@@ -243,12 +243,28 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    `MLXOnDeviceError.generationInterrupted` now carries its `Reason`, so a cancelled turn no
    longer says the app went to the background (unit-tested in `ModelTests`).
    **Follow-ups from review of #54:** an interruption is never swallowed into a partial result
-   (blood-test chunk mapping, `MedicalDocumentExtractor`, title generation all rethrow it);
-   `sendMessage` refuses before reloading the model while suspended; and a document stopped by
-   a background trip is **parked without consuming a retry** and re-queued by
-   `DocumentProcessor.resumeDeferredAfterForeground()` once the models resume, instead of
-   burning all three attempts in six seconds and ending failed. Pause folds parked documents
-   back into the queue. The rule is unit-tested; the parking itself needs a device.
+   (blood-test chunk mapping, `MedicalDocumentExtractor`, title generation all rethrow it), and
+   `sendMessage` refuses before reloading the model while suspended.
+   ⚠️ **Corrected 2026-11-01:** the first cut of background deferral (`72a2ed1a`) **could not
+   fire for an import**. For the on-device provider the text LLM pass and the
+   `MedicalDocumentExtractor` enhancement are both skipped, so the only MLX work is the vision
+   pass — non-interruptible, with every page error swallowed — and no interruption ever reached
+   `DocumentProcessor`. Its stated scenario (three retries burned in six seconds) did not happen
+   on that path either. What did: after a suspend, each new page reloaded the VLM in the
+   background. Fixed by:
+   - `extractFromDocument` refusing to start a page while suspended;
+   - `DocumentProcessor` parking an on-device document **before** it starts if AI is suspended,
+     and a checkpoint beside the cancellation one that discards a run during which a background
+     trip happened (`SettingsManager.onDeviceLLMBackgroundSuspensionCount`) — the catch then parks
+     or re-queues it without spending an attempt;
+   - `SettingsManager` owning the suspended state and suspending both clients **concurrently**
+     (in sequence, the extraction client's flag went up only after the extraction generation
+     holding the shared gate had finished), and a client created mid-trip starting suspended;
+   - the re-queue no longer colliding with the item's own `processingTasks` entry (it was
+     dropped as a duplicate and left at `.processing`).
+   `testADocumentQueuedWhileOnDeviceAIIsSuspendedIsParkedAndRunsOnResume` covers park and
+   resume, and was **seen failing** with the park disabled. Still needs a device: a real trip
+   mid-vision-pass.
 8. ~~**W-N**~~ — **done 2026-10-31.** New `BisonTheme.goldText`: light `(0.56, 0.37, 0.05)`,
    4.75:1 on `sidebarBackground` (the darkest light background) and over 5:1 on the rest;
    dark keeps `gold`, already 7.4:1 or better. All 79 foreground uses of `gold`, including
@@ -286,7 +302,7 @@ Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 o
 
 ### Standing verification facts for this repo
 
-- **402 tests, 0 failures** in the `Fast` plan, measured 2026-10-31 on `fix/pre-testing-batch`
+- **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-testing-batch`
   (368 on 2026-10-26).
   Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted
   since it stood at 348.
