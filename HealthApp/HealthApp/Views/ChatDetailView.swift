@@ -197,7 +197,7 @@ struct ChatDetailView: View {
                 }
             }
             .font(.caption)
-            .foregroundColor(BisonTheme.gold)
+            .foregroundColor(BisonTheme.goldText)
 
             Button(action: {
                 showingDoctorSelector = true
@@ -208,7 +208,7 @@ struct ChatDetailView: View {
                 }
             }
             .font(.caption)
-            .foregroundColor(BisonTheme.gold)
+            .foregroundColor(BisonTheme.goldText)
             .padding(.leading, 8)
             
             Spacer()
@@ -361,7 +361,7 @@ struct ContextIndicatorView: View {
             HStack(spacing: 8) {
                 Image(systemName: "heart.text.square")
                     .font(.caption)
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
 
                 Text("Sharing:")
                     .font(.caption)
@@ -374,14 +374,14 @@ struct ContextIndicatorView: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(BisonTheme.gold.opacity(0.1))
-                            .foregroundColor(BisonTheme.gold)
+                            .foregroundColor(BisonTheme.goldText)
                             .cornerRadius(4)
                     }
 
                     if includedTypes.count > 4 {
                         Text("+\(includedTypes.count - 4)")
                             .font(.caption2)
-                            .foregroundColor(BisonTheme.gold)
+                            .foregroundColor(BisonTheme.goldText)
                     }
                 }
             }
@@ -392,7 +392,7 @@ struct ContextIndicatorView: View {
                 onEditContext()
             }
             .font(.caption)
-            .foregroundColor(BisonTheme.gold)
+            .foregroundColor(BisonTheme.goldText)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -755,7 +755,7 @@ struct EnhancedMessageInputView: View {
                     Button(action: onContextTap) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.title3)
-                            .foregroundColor(BisonTheme.gold)
+                            .foregroundColor(BisonTheme.goldText)
                     }
                     .buttonStyle(.borderless)
                 }
@@ -793,7 +793,7 @@ struct EnhancedMessageInputView: View {
                 }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(canSend ? BisonTheme.gold : .secondary)
+                        .foregroundColor(canSend ? BisonTheme.goldText : .secondary)
                 }
                 .accessibilityIdentifier("chat.sendButton")
                 .disabled(!canSend)
@@ -1005,7 +1005,7 @@ struct ConversationExportView: View {
                     ForEach(ExportFormat.allCases, id: \.self) { format in
                         HStack {
                             Image(systemName: format.icon)
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                                 .frame(width: 30)
 
                             VStack(alignment: .leading, spacing: 4) {
@@ -1020,7 +1020,7 @@ struct ConversationExportView: View {
 
                             if selectedFormat == format {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(BisonTheme.gold)
+                                    .foregroundColor(BisonTheme.goldText)
                             }
                         }
                         .contentShape(Rectangle())

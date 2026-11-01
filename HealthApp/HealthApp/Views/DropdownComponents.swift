@@ -88,7 +88,7 @@ struct SearchableDropdownWithAddNew: View {
                                         Spacer()
                                         if selectedValue == item {
                                             Image(systemName: "checkmark")
-                                                .foregroundColor(BisonTheme.gold)
+                                                .foregroundColor(BisonTheme.goldText)
                                         }
                                     }
                                     .padding(.horizontal, 12)
@@ -107,9 +107,9 @@ struct SearchableDropdownWithAddNew: View {
                             }) {
                                 HStack {
                                     Image(systemName: "plus.circle")
-                                        .foregroundColor(BisonTheme.gold)
+                                        .foregroundColor(BisonTheme.goldText)
                                     Text("Add New \(title)")
-                                        .foregroundColor(BisonTheme.gold)
+                                        .foregroundColor(BisonTheme.goldText)
                                     Spacer()
                                 }
                                 .padding(.horizontal, 12)
@@ -202,7 +202,7 @@ struct UnitDropdown: View {
                                     Spacer()
                                     if selectedUnit == unit {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(BisonTheme.gold)
+                                            .foregroundColor(BisonTheme.goldText)
                                     }
                                 }
                                 .padding(.horizontal, 12)

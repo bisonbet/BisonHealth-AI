@@ -43,7 +43,7 @@ struct ContentView: View {
                     compactTabShell
                 }
             }
-            .tint(BisonTheme.gold)
+            .tint(BisonTheme.goldText)
             .withErrorHandling() // Add global error handling
 
             // Global offline indicator
@@ -276,7 +276,7 @@ private struct AppSidebar: View {
 
                 Text("AI")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(BisonTheme.gold)
+                    .foregroundStyle(BisonTheme.goldText)
             }
         }
         .padding(.horizontal, 4)

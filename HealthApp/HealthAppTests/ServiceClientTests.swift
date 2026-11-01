@@ -402,6 +402,27 @@ final class ServiceClientTests: XCTestCase {
         XCTAssertEqual(environmentKeys.map { ProcessInfo.processInfo.environment[$0] }, environmentBefore)
     }
 
+    func testBedrockClientConfigHonoursTheTimeoutAndDoesNotResendHealthData() async throws {
+        // W-L. The SDK defaults were a 60 s idle timeout, which the configured timeout never
+        // reached, and three attempts, each re-sending the full health payload.
+        let bedrockConfig = AWSBedrockConfig(
+            region: "us-east-1",
+            accessKeyId: "AKIAEXAMPLEEXAMPLE00",
+            secretAccessKey: "example-secret",
+            sessionToken: nil,
+            model: .claudeSonnet45,
+            temperature: 0.1,
+            maxTokens: 50,
+            timeout: 240
+        )
+
+        let clientConfig = try await BedrockClient.makeClientConfig(for: bedrockConfig)
+
+        XCTAssertEqual(clientConfig.httpClientConfiguration.socketTimeout, 240)
+        XCTAssertEqual(clientConfig.maxAttempts, 1)
+        XCTAssertEqual(clientConfig.retryStrategyOptions.maxRetriesBase, 0, "One attempt means no retries")
+    }
+
     func testBedrockConfigurationRequiresExplicitCredentials() {
         let config = AWSBedrockConfig(
             region: "us-east-1",

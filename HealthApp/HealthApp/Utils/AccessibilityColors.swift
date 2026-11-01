@@ -21,11 +21,34 @@ struct BisonTheme {
         )
     }
 
+    /// `gold`'s dark-appearance value, shared by every gold token that uses it.
+    private static let brightGold = Color(red: 0.93, green: 0.70, blue: 0.28)
+
     static var gold: Color {
         Color.adaptive(
             light: Color(red: 0.78, green: 0.55, blue: 0.16),
-            dark: Color(red: 0.93, green: 0.70, blue: 0.28)
+            dark: brightGold
         )
+    }
+
+    /// Gold for text and symbols drawn *on* the app's backgrounds. `gold` itself is a fill
+    /// colour: as a foreground it is 2.5–2.9:1 on the light backgrounds, which fails WCAG AA.
+    /// The light value is 4.75:1 on `sidebarBackground`, the darkest of them, and over 5:1 on
+    /// the rest; dark mode keeps `gold`, which is already 7.4:1 or better on every dark
+    /// background. Use `gold` for fills, strokes and tints, and this for foregrounds.
+    static var goldText: Color {
+        Color.adaptive(
+            light: Color(red: 0.56, green: 0.37, blue: 0.05),
+            dark: brightGold
+        )
+    }
+
+    /// Gold for foregrounds on a surface that is dark in *both* appearances, such as the
+    /// splash screen. `goldText` follows the system appearance, so in light mode it picks
+    /// the dark brown — 3.4:1 on the splash's fixed near-black. This is `gold`'s dark value,
+    /// 9.9:1 there, regardless of appearance.
+    static var goldOnDarkSurface: Color {
+        brightGold
     }
 
     static var sage: Color {

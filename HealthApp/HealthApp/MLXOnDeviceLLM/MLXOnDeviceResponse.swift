@@ -49,7 +49,16 @@ enum MLXOnDeviceError: LocalizedError {
     case modelDownloadIncomplete
     case visionModelNotDownloaded
     case modelUnavailableOnDevice
-    case generationInterrupted
+    /// Carries why, because the two reasons need different words: telling a user who
+    /// cancelled that "the app went to the background" is simply false.
+    case generationInterrupted(MLXTurnInterruption.Reason)
+
+    /// A stopped run rather than a failed one. Catch sites that fall back to a partial or
+    /// heuristic result on failure rethrow these, so a stop is never saved as an answer.
+    var isGenerationInterruption: Bool {
+        if case .generationInterrupted = self { return true }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
@@ -69,8 +78,10 @@ enum MLXOnDeviceError: LocalizedError {
             return "No on-device vision model is downloaded. Download a vision-capable model before using on-device document extraction."
         case .modelUnavailableOnDevice:
             return "This model is only available on a Mac with at least 24 GB of installed physical memory."
-        case .generationInterrupted:
+        case .generationInterrupted(.backgrounded):
             return "The response stopped because the app went to the background."
+        case .generationInterrupted(.cancelled):
+            return "The response was stopped before it finished."
         }
     }
 
@@ -88,8 +99,10 @@ enum MLXOnDeviceError: LocalizedError {
             return "Try sending your message again."
         case .simulatorNotSupported:
             return "Deploy the app to a physical iPhone or iPad to use on-device AI."
-        case .generationInterrupted:
-            return "Send your message again now that the app is in the foreground."
+        case .generationInterrupted(.backgrounded):
+            return "Try again now that the app is in the foreground."
+        case .generationInterrupted(.cancelled):
+            return "Try again to get a complete response."
         }
     }
 }

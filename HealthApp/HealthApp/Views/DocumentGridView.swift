@@ -181,7 +181,7 @@ struct DocumentGridItem: View {
                 VStack(spacing: 8) {
                     Image(systemName: document.fileType.icon)
                         .font(.system(size: 32))
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                     
                     Text(document.fileType.displayName)
                         .font(.caption)

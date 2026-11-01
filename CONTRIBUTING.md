@@ -53,18 +53,23 @@ Thank you for your interest in contributing to BisonHealth AI! This document pro
 
 3. **Open in Xcode:**
    ```bash
-   open BisonHealthAI.xcodeproj
+   open HealthApp/HealthApp.xcodeproj
    ```
 
 4. **Make your changes** following the guidelines below
 
 5. **Test your changes:**
    ```bash
+   cd HealthApp
+
    # Run unit tests
-   xcodebuild test -scheme BisonHealthAI -destination 'platform=iOS Simulator,name=iPhone 15'
-   
-   # Run UI tests
-   xcodebuild test -scheme BisonHealthAIUITests -destination 'platform=iOS Simulator,name=iPhone 15'
+   xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -testPlan Fast -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+
+   # Run unit and UI tests (the scheme's default PreRelease plan)
+   xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+
+   # Lint (must run from HealthApp/; the baseline is 5 violations)
+   swiftlint lint --quiet
    ```
 
 ## 🎯 Coding Standards

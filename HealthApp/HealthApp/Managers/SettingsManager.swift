@@ -532,7 +532,10 @@ class SettingsManager: ObservableObject {
 
     func getMLXOnDeviceClient() -> MLXOnDeviceClient {
         if mlxOnDeviceClient == nil {
-            mlxOnDeviceClient = MLXOnDeviceClient()
+            let client = MLXOnDeviceClient()
+            // Created during a background trip: start suspended, like the clients that existed.
+            if isOnDeviceLLMSuspendedForBackground { client.markSuspendedForBackground() }
+            mlxOnDeviceClient = client
         }
         return mlxOnDeviceClient!
     }
@@ -549,9 +552,11 @@ class SettingsManager: ObservableObject {
         }
 
         if mlxOnDeviceExtractionClient == nil {
-            mlxOnDeviceExtractionClient = MLXOnDeviceClient {
+            let client = MLXOnDeviceClient {
                 MLXModelDownloadManager.shared.selectedExtractionModel ?? extractionModel
             }
+            if isOnDeviceLLMSuspendedForBackground { client.markSuspendedForBackground() }
+            mlxOnDeviceExtractionClient = client
         }
         return mlxOnDeviceExtractionClient!
     }
@@ -663,18 +668,35 @@ class SettingsManager: ObservableObject {
 
     // MARK: - App Lifecycle
 
+    /// Owned here rather than read off the clients, because a client created while the app
+    /// is in the background did not exist to be suspended (see `getMLXOnDeviceClient()`).
+    private(set) var isOnDeviceLLMSuspendedForBackground = false
+
+    /// Bumped on every background trip. `DocumentProcessor` compares it across a run to tell
+    /// whether the run may have had pages skipped by a suspend.
+    private(set) var onDeviceLLMBackgroundSuspensionCount = 0
+
     func suspendOnDeviceLLMForBackground() async {
+        isOnDeviceLLMSuspendedForBackground = true
+        onDeviceLLMBackgroundSuspensionCount += 1
+
         // The extraction client holds its own model — usually the largest one
         // loaded — so it has to be suspended too, not just the chat client.
-        if let mlxOnDeviceClient {
-            await mlxOnDeviceClient.suspendForBackground()
-        }
-        if let mlxOnDeviceExtractionClient {
-            await mlxOnDeviceExtractionClient.suspendForBackground()
+        //
+        // Concurrently, not one after the other: both share `MLXGPUGate`, and each sets its
+        // stop flag before waiting for it. In sequence, the extraction client's flag went up
+        // only after the chat client had the gate, which meant only after the extraction
+        // generation holding it had run to the end.
+        let clients = [mlxOnDeviceClient, mlxOnDeviceExtractionClient].compactMap { $0 }
+        await withTaskGroup(of: Void.self) { group in
+            for client in clients {
+                group.addTask { await client.suspendForBackground() }
+            }
         }
     }
 
     func resumeOnDeviceLLMAfterForeground() async {
+        isOnDeviceLLMSuspendedForBackground = false
         if let mlxOnDeviceClient {
             await mlxOnDeviceClient.resumeAfterForeground()
         }

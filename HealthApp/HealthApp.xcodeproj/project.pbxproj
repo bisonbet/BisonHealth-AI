@@ -1311,8 +1311,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/bisonbet/textual";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = revision;
+				revision = 5b06b811c0f5313b6b84bbef98c635a630638c38;
 			};
 		};
 		A1000011294A0000000000002 /* XCRemoteSwiftPackageReference "SQLite" */ = {

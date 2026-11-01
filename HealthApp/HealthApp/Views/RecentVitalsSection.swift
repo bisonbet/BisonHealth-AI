@@ -222,7 +222,7 @@ struct VitalReadingRow: View {
 
                     Text(reading.source.displayName)
                         .font(.caption)
-                        .foregroundColor(reading.source == .appleHealth ? BisonTheme.gold : .green)
+                        .foregroundColor(reading.source == .appleHealth ? BisonTheme.goldText : .green)
                 }
             }
 
@@ -281,7 +281,7 @@ struct BloodPressureReadingRow: View {
 
                     Text(reading.source.displayName)
                         .font(.caption)
-                        .foregroundColor(reading.source == .appleHealth ? BisonTheme.gold : .green)
+                        .foregroundColor(reading.source == .appleHealth ? BisonTheme.goldText : .green)
                 }
             }
 
@@ -350,7 +350,7 @@ struct SleepDataRow: View {
 
                     Text(sleep.source.displayName)
                         .font(.caption)
-                        .foregroundColor(sleep.source == .appleHealth ? BisonTheme.gold : .green)
+                        .foregroundColor(sleep.source == .appleHealth ? BisonTheme.goldText : .green)
                 }
             }
 

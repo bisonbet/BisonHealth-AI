@@ -382,6 +382,10 @@ class BloodTestMappingService: ObservableObject {
             let aiResponse = try await aiClient.sendMessage(prompt, context: "")
             let response = aiResponse.content
             return parseExtractedLabValues(from: response)
+        } catch let error as MLXOnDeviceError where error.isGenerationInterruption {
+            // Not a failed chunk: the run was stopped. Returning [] here would save the
+            // import without this chunk's values and nothing would say so.
+            throw error
         } catch {
             AppLog.shared.healthData("Failed to extract from chunk \(chunkIndex + 1): \(error)", level: .error)
             // If chunk processing fails, return empty array rather than failing entirely

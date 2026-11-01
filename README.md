@@ -287,11 +287,16 @@ HealthApp/
 ### Testing
 
 ```bash
-# Run unit tests
-xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+cd HealthApp
 
-# Run UI tests
-xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+# Run unit and UI tests (the scheme's default PreRelease plan)
+xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+
+# Run unit tests only
+xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -testPlan Fast -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+
+# Run UI tests only
+xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -only-testing:HealthAppUITests -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
 Note: The canonical simulator target is `iPhone 17 Pro`. If it is not installed locally, use another installed simulator temporarily.

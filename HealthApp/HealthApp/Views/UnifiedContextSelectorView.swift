@@ -88,7 +88,7 @@ struct UnifiedContextSelectorView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
 
                     Text("Select health data to share with AI")
                         .font(.subheadline)
@@ -186,7 +186,7 @@ struct UnifiedContextSelectorView: View {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.personalInfo.icon)
                         .font(.title3)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .frame(width: 30)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -241,7 +241,7 @@ struct UnifiedContextSelectorView: View {
                 // Category icon
                 Image(systemName: category.icon)
                     .font(.subheadline)
-                    .foregroundColor(isSelected ? BisonTheme.gold : .secondary)
+                    .foregroundColor(isSelected ? BisonTheme.goldText : .secondary)
                     .frame(width: 24)
 
                 // Category info
@@ -266,7 +266,7 @@ struct UnifiedContextSelectorView: View {
 
                 // Checkmark
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(isSelected ? BisonTheme.gold : .secondary)
+                    .foregroundColor(isSelected ? BisonTheme.goldText : .secondary)
                     .font(.body)
             }
             .contentShape(Rectangle())
@@ -285,7 +285,7 @@ struct UnifiedContextSelectorView: View {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.bloodTest.icon)
                         .font(.title3)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .frame(width: 30)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -346,7 +346,7 @@ struct UnifiedContextSelectorView: View {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.geneticProfile.icon)
                         .font(.title3)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .frame(width: 30)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -391,7 +391,7 @@ struct UnifiedContextSelectorView: View {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.imagingReport.icon)
                         .font(.title3)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .frame(width: 30)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -437,7 +437,7 @@ struct UnifiedContextSelectorView: View {
                 HStack(spacing: 12) {
                     Image(systemName: HealthDataType.healthCheckup.icon)
                         .font(.title3)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .frame(width: 30)
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -481,7 +481,7 @@ struct BloodTestSelectionRow: View {
             Button(action: onToggle) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.title3)
-                    .foregroundColor(isSelected ? BisonTheme.gold : .secondary)
+                    .foregroundColor(isSelected ? BisonTheme.goldText : .secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isSelected ? "Deselect blood test from \(bloodTest.testDate.formatted(date: .abbreviated, time: .omitted))" : "Select blood test from \(bloodTest.testDate.formatted(date: .abbreviated, time: .omitted))")
@@ -536,7 +536,7 @@ struct DocumentSelectionRow: View {
             Button(action: onToggle) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.title3)
-                    .foregroundColor(isSelected ? BisonTheme.gold : .secondary)
+                    .foregroundColor(isSelected ? BisonTheme.goldText : .secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isSelected ? "Deselect \(document.fileName)" : "Select \(document.fileName)")

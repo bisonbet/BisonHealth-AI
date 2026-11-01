@@ -76,6 +76,10 @@ class MedicalDocumentExtractor {
                 // URLSession reports a cancelled request this way rather than as
                 // CancellationError, so a cloud enhancement pass needs both.
                 throw CancellationError()
+            } catch let error as MLXOnDeviceError where error.isGenerationInterruption {
+                // An on-device run stopped by backgrounding or cancellation did not fail;
+                // falling back here would commit basic extraction as the finished result.
+                throw error
             } catch {
                 AppLog.shared.documents("AI enhancement failed, falling back to basic extraction: \(error.localizedDescription)", level: .warning)
                 // Fall through to basic extraction
@@ -510,6 +514,8 @@ class MedicalDocumentExtractor {
                 if merged.documentCategory == .other, chunkInfo.documentCategory != .other {
                     merged.documentCategory = chunkInfo.documentCategory
                 }
+            } catch let error as MLXOnDeviceError where error.isGenerationInterruption {
+                throw error
             } catch {
                 AppLog.shared.documents("AI enhancement failed for a chunk, continuing with partial results: \(error.localizedDescription)", level: .warning)
             }

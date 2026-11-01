@@ -80,7 +80,7 @@ struct SplashScreenView: View {
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .tracking(2.5)
                         .textCase(.uppercase)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldOnDarkSurface)
                         .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
                 }
                 .opacity(isVisible ? 1.0 : 0.0)

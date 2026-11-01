@@ -190,13 +190,7 @@ final class DatabaseMigrationTests: XCTestCase {
         plaintextTagsJSON: String,
         plaintextConversationTitle: String?
     ) throws {
-        // v15 added failure_reason; v12 dropped the legacy Docling column v10 still had.
-        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
-        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
-        // v13 created it.
-        try execute("DROP TABLE IF EXISTS pending_import_reviews")
-        // v11 added it.
-        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
+        try windBackSchemaToVersion10()
 
         // v11 encrypted these text columns, and v14 the tags column.
         try execute("""
@@ -214,6 +208,19 @@ final class DatabaseMigrationTests: XCTestCase {
         if let plaintextConversationTitle {
             try execute("UPDATE chat_conversations SET title = '\(plaintextConversationTitle)'")
         }
+    }
+
+    /// Undo every schema change after v10 and stamp the file v10, leaving the stored values
+    /// as they are. The one place each later migration is reversed: a new version adds its
+    /// undo step here, and both v10 fixtures pick it up.
+    private func windBackSchemaToVersion10() throws {
+        // v15 added failure_reason; v12 dropped the legacy Docling column v10 still had.
+        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
+        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
+        // v13 created it.
+        try execute("DROP TABLE IF EXISTS pending_import_reviews")
+        // v11 added it.
+        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
 
         try execute("DELETE FROM database_version")
         try execute("INSERT INTO database_version (version, created_at) VALUES (10, 0)")
@@ -509,6 +516,57 @@ final class DatabaseMigrationTests: XCTestCase {
 
         let conversations = try await migrated.fetchConversations()
         XCTAssertEqual(conversations.first?.title, title)
+    }
+
+    func testTheVersion11EncryptionPassIsSafeToRunTwice() async throws {
+        // W-U. Before it, the v11 helpers re-encrypted unconditionally, so replaying v11 over
+        // a database it had already encrypted sealed each value a second time and the app
+        // read every one back as unreadable. Here the rows are already ciphertext — written
+        // through the app's own API — and only the schema is wound back to v10.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .completed,
+            providerName: "Dr Ferris",
+            documentCategory: .labReport,
+            extractedText: "Sodium 140",
+            extractedSections: [DocumentSection(sectionType: "Results", content: "Sodium 140 mmol/L")],
+            fileSize: 1024,
+            tags: ["lab"],
+            notes: "Second draw"
+        )
+        let conversation = ChatConversation(title: "About my sodium")
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+            try await manager.saveConversation(conversation)
+        }
+
+        let fileNameBefore = try textScalar("SELECT file_name FROM documents LIMIT 1")
+        XCTAssertNotEqual(fileNameBefore, "panel.pdf", "Precondition: the row is already encrypted")
+
+        try windBackSchemaToVersion10()
+
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+        XCTAssertEqual(
+            try textScalar("SELECT file_name FROM documents LIMIT 1"), fileNameBefore,
+            "An already-encrypted value must be written back unchanged, not sealed again"
+        )
+
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.fileName, "panel.pdf")
+        XCTAssertEqual(recovered?.notes, "Second draw")
+        XCTAssertEqual(recovered?.providerName, "Dr Ferris")
+        XCTAssertEqual(recovered?.extractedText, "Sodium 140")
+        XCTAssertEqual(recovered?.tags, ["lab"])
+        // A BLOB column, so this covers the data-field helper as well as the text ones.
+        XCTAssertEqual(recovered?.extractedSections.first?.content, "Sodium 140 mmol/L")
+
+        let conversations = try await migrated.fetchConversations()
+        XCTAssertEqual(conversations.first?.title, "About my sodium")
     }
 
     func testTheMigrationFromVersion10DeletesItsPlaintextBackup() async throws {

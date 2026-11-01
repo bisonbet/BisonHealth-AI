@@ -205,6 +205,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         await MLXGPUGate.shared.acquire()
         defer { MLXGPUGate.shared.release() }
 
+        // Checked before loading: `suspendForBackground()` has just given the model back,
+        // and reloading ~2.4 GB in the background only to stop at the first token is the
+        // memory pressure the suspend exists to avoid.
+        if isSuspendedForBackground {
+            throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+        }
+
         try await ensureModelLoadedLocked()
 
         let instructions = buildInstructions(systemPrompt: nil, healthContext: context)
@@ -432,7 +439,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             if interruption.disposition == .discard {
                 // Too little to be an answer. Failing the turn is what drops the empty
                 // assistant placeholder and leaves the user's message retryable.
-                throw MLXOnDeviceError.generationInterrupted
+                throw MLXOnDeviceError.generationInterrupted(interruption.reason)
             }
         }
 
@@ -722,6 +729,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         #endif
     }
 
+    /// For a client created while the app is already in the background. Nothing is loaded
+    /// yet, so there is nothing to unload — only the flag needs setting, so that its first
+    /// request refuses instead of loading a model in the background.
+    func markSuspendedForBackground() {
+        isSuspendedForBackground = true
+    }
+
     func resumeAfterForeground() async {
         guard isSuspendedForBackground else { return }
         isSuspendedForBackground = false
@@ -836,10 +850,21 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     /// non-`Sendable` session across an isolation boundary. `streamResponse` is
     /// synchronous — it only hands `Sendable` state to its own internal task —
     /// so accumulating its chunks here is the isolation-safe equivalent.
+    ///
+    /// When `interruptible`, a background trip or a cancelled task stops the generation at
+    /// the next token boundary, for the same reason as the streaming path: the caller holds
+    /// ``MLXGPUGate``, and `suspendForBackground()` cannot unload the model until it lets go.
+    /// Unlike the streaming path, an interrupted one-shot reply is never kept — its callers
+    /// (appointment prep, title generation, JSON mapping) would take a truncated answer for
+    /// a complete one — so it always throws.
+    ///
+    /// Document extraction passes `false`: a page cut short parses as a page with fewer
+    /// results, and each page's hold is already bounded by `visionExtractionMaxTokens`.
     private func collectResponse(
         from session: ChatSession,
         to prompt: String,
-        image: UserInput.Image? = nil
+        image: UserInput.Image? = nil,
+        interruptible: Bool = true
     ) async throws -> String {
         var output = ""
         var charactersSinceRepetitionCheck = 0
@@ -847,6 +872,18 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         for try await chunk in session.streamResponse(to: prompt, image: image) {
             output += chunk
             charactersSinceRepetitionCheck += chunk.count
+
+            if interruptible, let stop = MLXTurnInterruption.evaluate(
+                isSuspendedForBackground: isSuspendedForBackground,
+                isTaskCancelled: Task.isCancelled,
+                accumulatedContent: output
+            ) {
+                AppLog.shared.mlx(
+                    "[MLXClient] Stopped an isolated response at a token boundary: \(stop.reason)",
+                    level: .warning
+                )
+                throw MLXOnDeviceError.generationInterrupted(stop.reason)
+            }
 
             // Amortized for the same reason as the main streaming path: the scan is linear
             // in the accumulated text, so running it per chunk would be quadratic.
@@ -922,6 +959,12 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
         guard supportsVisionExtraction else {
             throw MLXOnDeviceError.generationFailed("Selected on-device model does not support image input")
         }
+        // Pages are not interrupted mid-generation (see `collectResponse`), but none starts
+        // while suspended: after `suspendForBackground()` unloads the model, the next page
+        // would otherwise load it again in the background.
+        if isSuspendedForBackground {
+            throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+        }
         try await loadModel()
 
         var mergedLabValues: [[String: Any]] = []
@@ -937,6 +980,11 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
             // follows it must be atomic with respect to every other MLX user,
             // and releasing between pages keeps chat responsive.
             await MLXGPUGate.shared.acquire()
+
+            if isSuspendedForBackground {
+                MLXGPUGate.shared.release()
+                throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+            }
 
             // The model can be unloaded between pages (background suspend,
             // provider change), so re-check rather than trusting the load above.
@@ -957,7 +1005,8 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
                 let response = try await collectResponse(
                     from: session,
                     to: pagePrompt,
-                    image: .ciImage(ciImage)
+                    image: .ciImage(ciImage),
+                    interruptible: false
                 )
                 let parsedCount = mergePageJSON(
                     response,

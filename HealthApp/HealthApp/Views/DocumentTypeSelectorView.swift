@@ -35,7 +35,7 @@ struct DocumentTypeSelectorView: View {
                         } label: {
                             HStack {
                                 Image(systemName: category.icon)
-                                    .foregroundColor(BisonTheme.gold)
+                                    .foregroundColor(BisonTheme.goldText)
                                     .frame(width: 24)
                                 
                                 Text(category.displayName)
@@ -45,7 +45,7 @@ struct DocumentTypeSelectorView: View {
                                 
                                 if tempSelection == category {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(BisonTheme.gold)
+                                        .foregroundColor(BisonTheme.goldText)
                                         .fontWeight(.semibold)
                                 }
                             }

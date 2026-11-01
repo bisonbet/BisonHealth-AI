@@ -461,6 +461,10 @@ class AIChatManager: ObservableObject {
             }
 
             return title
+        } catch let error as MLXOnDeviceError where error.isGenerationInterruption {
+            // Leave the title as "New Conversation" so the next exchange tries again,
+            // rather than saving a heuristic title that is never replaced.
+            throw error
         } catch {
             // On-device models may fail on short prompts — fall back to heuristic
             AppLog.shared.ai("LLM title generation failed: \(error.localizedDescription), using heuristic", level: .warning)

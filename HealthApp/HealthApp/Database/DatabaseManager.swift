@@ -610,6 +610,11 @@ class DatabaseManager: ObservableObject {
     /// v11 helper: encrypt the documents table's PHI text columns in place.
     /// Rows are read fully before any write (SELECT-while-UPDATE is undefined;
     /// same pattern as the genetic URL migration).
+    ///
+    /// Idempotent, like the v14 tags helper: a value that already opens with the current
+    /// key is written back unchanged, so a second pass cannot double-encrypt it and strand
+    /// it behind two layers. Not reachable today — v11 shares a transaction with its version
+    /// bump — but a migration that destroys data when replayed is one refactor from doing so.
     private func encryptDocumentPHIColumns(db: Connection) throws {
         let legacyRawDoclingOutput = Expression<Data?>("raw_docling_output")
 
@@ -646,19 +651,20 @@ class DatabaseManager: ObservableObject {
 
         for doc in pending {
             try db.run(documentsTable.filter(documentId == doc.id).update(
-                documentFileName <- try encryptString(doc.fileName ?? "").base64EncodedString(),
-                documentNotes <- try encryptTextField(doc.notes),
-                documentProviderName <- try encryptTextField(doc.providerName),
-                documentExtractedText <- try encryptTextField(doc.extractedText),
-                documentExtractedData <- try encryptDataField(doc.extractedData),
-                legacyRawDoclingOutput <- try encryptDataField(doc.rawDoclingOutput),
-                documentExtractedSections <- try encryptDataField(doc.extractedSections)
+                documentFileName <- try encryptRequiredTextIfPlaintext(doc.fileName ?? ""),
+                documentNotes <- try encryptTextFieldIfPlaintext(doc.notes),
+                documentProviderName <- try encryptTextFieldIfPlaintext(doc.providerName),
+                documentExtractedText <- try encryptTextFieldIfPlaintext(doc.extractedText),
+                documentExtractedData <- try encryptDataFieldIfPlaintext(doc.extractedData),
+                legacyRawDoclingOutput <- try encryptDataFieldIfPlaintext(doc.rawDoclingOutput),
+                documentExtractedSections <- try encryptDataFieldIfPlaintext(doc.extractedSections)
             ))
         }
         AppLog.shared.database("Encrypted PHI columns for \(pending.count) documents")
     }
 
-    /// v11 helper: encrypt chat conversation titles in place.
+    /// v11 helper: encrypt chat conversation titles in place. Idempotent for the same
+    /// reason as ``encryptDocumentPHIColumns(db:)``.
     private func encryptChatTitles(db: Connection) throws {
         var pending: [(id: String, title: String)] = []
         let iterator = try db.prepareRowIterator(
@@ -672,10 +678,32 @@ class DatabaseManager: ObservableObject {
             try db.run(
                 chatConversationsTable
                     .filter(conversationId == conv.id)
-                    .update(conversationTitle <- try encryptString(conv.title).base64EncodedString())
+                    .update(conversationTitle <- try encryptRequiredTextIfPlaintext(conv.title))
             )
         }
         AppLog.shared.database("Encrypted titles for \(pending.count) conversations")
+    }
+
+    // MARK: - Idempotent encryption (v11 helpers)
+    //
+    // "Already encrypted" means "opens with the current key". AES-GCM authenticates, so a
+    // plaintext value cannot pass that test by accident, which a prefix or Base64 heuristic
+    // could not promise for free text such as a note or a title.
+
+    private func encryptTextFieldIfPlaintext(_ stored: String?) throws -> String? {
+        if decryptTextField(stored) != nil { return stored }
+        return try encryptTextField(stored)
+    }
+
+    /// For the NOT NULL columns, which encrypt an empty string rather than storing nil.
+    private func encryptRequiredTextIfPlaintext(_ stored: String) throws -> String {
+        if decryptTextField(stored) != nil { return stored }
+        return try encryptString(stored).base64EncodedString()
+    }
+
+    private func encryptDataFieldIfPlaintext(_ stored: Data?) throws -> Data? {
+        if decryptDataField(stored) != nil { return stored }
+        return try encryptDataField(stored)
     }
 
     private func normalizeGeneticReferenceURLs(db: Connection) throws {

@@ -24,7 +24,7 @@ struct ImagingReportsSection: View {
                         HStack {
                             Text("More")
                                 .font(.subheadline)
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                             Spacer()
                             Text("\(imagingReports.count) total")
                                 .font(.caption)
