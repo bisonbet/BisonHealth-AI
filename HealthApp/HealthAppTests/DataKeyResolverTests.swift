@@ -484,6 +484,48 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertTrue(pendingMarkerExists, "The row still needs its key")
     }
 
+    /// A restored store whose rows all open with a legacy key, but whose document file needs
+    /// the store's own key, not yet synced. Moving to a new ID must not lose the old one: when
+    /// its key arrives, the file is recovered with it.
+    func testReplacedStoresKeyStillRecoversItsFilesWhenItArrives() throws {
+        let legacy = SymmetricKey(size: .bits256)
+        let storeKey = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = legacy
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: legacy))
+        let fileURL = filesURL.appendingPathComponent("doc.pdf")
+        try seal("pdf bytes", with: storeKey).write(to: fileURL)
+        let oldID = UUID().uuidString
+        try Data(oldID.utf8).write(to: identityURL)
+
+        let key = try makeResolver().resolve()
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, legacy.withUnsafeBytes { Data($0) })
+
+        keychain.storeKeys[oldID] = storeKey
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(open(try Data(contentsOf: fileURL), with: legacy), "pdf bytes")
+        XCTAssertFalse(pendingMarkerExists)
+    }
+
+    /// The same when nothing in the database is encrypted and only the file is left.
+    func testNewKeyForAReplacedStoreStillRecoversItsFiles() throws {
+        let storeKey = SymmetricKey(size: .bits256)
+        let fileURL = filesURL.appendingPathComponent("doc.pdf")
+        try seal("pdf bytes", with: storeKey).write(to: fileURL)
+        let oldID = UUID().uuidString
+        try Data(oldID.utf8).write(to: identityURL)
+
+        let key = try makeResolver().resolve()
+        XCTAssertTrue(pendingMarkerExists)
+
+        keychain.storeKeys[oldID] = storeKey
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(open(try Data(contentsOf: fileURL), with: key), "pdf bytes")
+        XCTAssertFalse(pendingMarkerExists)
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()

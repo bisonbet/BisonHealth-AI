@@ -186,14 +186,16 @@ struct DataKeyResolver {
         //
         // Whatever is chosen is filed under a NEW store ID. A restored device shares its ID,
         // and so its Keychain account, with the device the backup came from; a key written
-        // under that ID would sync back and replace the one that device's data needs.
+        // under that ID would sync back and replace the one that device's data needs. The old
+        // ID is kept with any unfinished recovery, so its key is still tried if it arrives.
         let candidates = try Self.distinct(keychain.legacyEncryptionKeys(), by: \.key)
         let samples = try collectSamples(candidates: candidates.map(\.key))
 
         guard samples.contains(where: \.isEvidence) else {
             // Nothing is encrypted yet, so any key is correct. A new one, rather than a
-            // legacy key that may belong to another device.
-            return try bindNewStore()
+            // legacy key that may belong to another device. Files no key opens may still
+            // need the old store's key, so they leave recovery pending.
+            return try bindNewStore(reconciliationPending: !samples.isEmpty, previousStoreID: storeID)
         }
 
         var scores = Array(repeating: 0, count: candidates.count)
@@ -226,7 +228,7 @@ struct DataKeyResolver {
         // Filed, with recovery marked pending, BEFORE any value is rewritten with it: the
         // legacy slot it came from may be overwritten by another device, and a crash midway
         // through would otherwise leave rewritten data whose only key is in that slot.
-        try bind(key, to: UUID().uuidString, reconciliationPending: true)
+        try bind(key, to: UUID().uuidString, reconciliationPending: true, previousStoreID: storeID)
         if reconcile(samples, selected: best, keys: candidates.map(\.key)) {
             clearReconciliationPending()
         }
@@ -234,9 +236,9 @@ struct DataKeyResolver {
     }
 
     /// A new key for a store with nothing encrypted in it, filed under a new store ID.
-    func bindNewStore() throws -> SymmetricKey {
+    func bindNewStore(reconciliationPending: Bool = false, previousStoreID: String? = nil) throws -> SymmetricKey {
         let key = SymmetricKey(size: .bits256)
-        try bind(key, to: UUID().uuidString, reconciliationPending: false)
+        try bind(key, to: UUID().uuidString, reconciliationPending: reconciliationPending, previousStoreID: previousStoreID)
         log.database("Created a new encryption key (fingerprint: \(Self.fingerprint(key)))", level: .warning)
         return key
     }
@@ -274,9 +276,12 @@ struct DataKeyResolver {
     /// Values no key opened at binding: see whether their key has arrived since. The key is
     /// already filed, so a failure here only postpones the work to the next launch.
     private func retryReconciliation(boundKey key: SymmetricKey) {
-        let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
-        let keys = Self.distinct([key] + legacy) { $0 }
         var state = pendingReconciliation
+        let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
+        // The key of a store this one replaced, once it has synced, may open what nothing
+        // else here does.
+        let previous = state.previousStoreIDs.compactMap { (try? keychain.encryptionKey(forStore: $0)) ?? nil }
+        let keys = Self.distinct([key] + legacy + previous) { $0 }
         let fingerprints = keys.map(Self.fingerprint)
         let keysChanged = fingerprints != state.keyFingerprints
 
@@ -308,13 +313,15 @@ struct DataKeyResolver {
     /// Files the key under the store ID, then records the ID. In that order: an ID written
     /// first and a Keychain write that then failed would point at a key that is not there.
     /// A pending reconciliation is marked before either, so a bound store cannot lose it.
-    private func bind(_ key: SymmetricKey, to storeID: String, reconciliationPending: Bool) throws {
+    /// - Parameter previousStoreID: The ID this store had, whose key is not here. Recorded
+    ///   with a pending recovery so that later launches still try that key.
+    private func bind(_ key: SymmetricKey, to storeID: String, reconciliationPending: Bool, previousStoreID: String? = nil) throws {
         try FileManager.default.createDirectory(
             at: identityURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         if reconciliationPending {
-            try savePendingReconciliation(PendingReconciliation())
+            try savePendingReconciliation(PendingReconciliation(previousStoreIDs: previousStoreID.map { [$0] } ?? []))
         }
         try keychain.storeEncryptionKey(key, forStore: storeID)
         try Data(storeID.utf8).write(to: identityURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -333,6 +340,8 @@ struct DataKeyResolver {
         var attempts = 0
         /// Fingerprints of the keys the last launch had, to notice one arriving.
         var keyFingerprints: [String] = []
+        /// Store IDs this store replaced while their keys were not here.
+        var previousStoreIDs: [String] = []
     }
 
     private var pendingReconciliation: PendingReconciliation {
