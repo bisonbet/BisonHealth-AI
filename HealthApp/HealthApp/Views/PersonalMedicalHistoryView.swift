@@ -46,10 +46,8 @@ struct PersonalMedicalHistoryView: View {
         .navigationTitle("Personal Medical History")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: addCondition) {
-                    Image(systemName: "plus")
-                }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Add Condition", systemImage: "plus", action: addCondition)
             }
         }
         .sheet(isPresented: $showingNewConditionEditor) {
@@ -57,15 +55,15 @@ struct PersonalMedicalHistoryView: View {
                 MedicalConditionEditorView(condition: $newCondition)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Cancel") {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel", systemImage: "xmark") {
                                 showingNewConditionEditor = false
                                 newCondition = MedicalCondition(name: "")
                             }
                         }
 
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Save") {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Save", systemImage: "checkmark") {
                                 if !newCondition.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     conditions.append(newCondition)
                                 }

@@ -65,8 +65,8 @@ struct BloodTestImportReviewView: View {
             .navigationTitle("Review Lab Results")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         // Discard the pending review so the queue can advance;
                         // the sheet is not swipe-dismissable (see below).
                         onCancel?()
@@ -75,7 +75,9 @@ struct BloodTestImportReviewView: View {
                     .accessibilityIdentifier("importReviewCancelButton")
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                // Text on purpose: the count is the point of this button ("Import 3 of 5"), and
+                // an icon would drop it. A text item stays in a horizontal bar on iPhone Duo.
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Import \(selectedGroupCount) of \(totalGroupCount)") {
                         acceptSelected()
                     }

@@ -40,12 +40,8 @@ struct ChatDetailView: View {
         .navigationBarTitleDisplayMode(isIPad ? .inline : .large)
         .toolbar {
             if chatManager.currentConversation != nil {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Menu {
-                        menuContent
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
+                OverflowToolbarMenu {
+                    menuContent
                 }
             }
         }
@@ -871,15 +867,15 @@ struct ConversationSettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
                     .disabled(isSaving)
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") {
                         saveConversationTitle()
                     }
                     .disabled(isSaving || conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1064,8 +1060,8 @@ struct ConversationExportView: View {
             .navigationTitle("Export Conversation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
                 }

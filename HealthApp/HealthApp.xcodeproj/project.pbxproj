@@ -128,6 +128,7 @@
 		B6A100010000000000000001 /* GeneticTestResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A100020000000000000001 /* GeneticTestResult.swift */; };
 		B6A100030000000000000001 /* GeneticTestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A100040000000000000001 /* GeneticTestParser.swift */; };
 		BF8F558604B84B078BBE009C /* HealthTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 275199199BA546A495E29D56 /* HealthTabView.swift */; };
+		9F479CA744FA4B28BFFA1957 /* OverflowToolbarMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D545F6BFFA1A41EB9B299A10 /* OverflowToolbarMenu.swift */; };
 		CONV01002EA12E9900999004 /* ConversationExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CONV02002EA12E9900999004 /* ConversationExporter.swift */; };
 		CONVCTXB2F127A8B00UTILS2 /* ConversationContextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CONVCTXB2F127A8B00UTILS1 /* ConversationContextBuilder.swift */; };
 		D0C0A1002F20000100TEST01 /* DoctorPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A1012F20000100TEST01 /* DoctorPromptTests.swift */; };
@@ -236,6 +237,7 @@
 		14FFBD3A2E77894700FD9B75 /* Views/TestTypePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TestTypePickerView.swift; sourceTree = "<group>"; };
 		1E116E0E8FDE1B6568C46022 /* ErrorHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorHandler.swift; sourceTree = "<group>"; };
 		275199199BA546A495E29D56 /* HealthTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTabView.swift; sourceTree = "<group>"; };
+		D545F6BFFA1A41EB9B299A10 /* OverflowToolbarMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverflowToolbarMenu.swift; sourceTree = "<group>"; };
 		303242343446444138303338 /* AccessibilityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityManager.swift; sourceTree = "<group>"; };
 		303741434636463836313336 /* AccessibilityModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityModifiers.swift; sourceTree = "<group>"; };
 		304643454332314443313245 /* AccessibilityColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityColors.swift; sourceTree = "<group>"; };
@@ -320,7 +322,6 @@
 		DBUNAVAIL001 /* DatabaseUnavailableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseUnavailableView.swift; sourceTree = "<group>"; };
 		HIPAA003 /* DatabaseManager+AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+AppSettings.swift"; sourceTree = "<group>"; };
 		HYNQM0CARCBRUUTW45H5JKDS /* ChatIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIntegrationTests.swift; sourceTree = "<group>"; };
-		I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
 		IMGREPORTS002 /* ImagingReportsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagingReportsSection.swift; sourceTree = "<group>"; };
 		INFOPLIST0000000000PLIST1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		LABREPORTPARSER002 /* LabReportParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabReportParser.swift; sourceTree = "<group>"; };
@@ -491,6 +492,7 @@
 				FF73574BCD254FCF859CBF45 /* UnifiedContextSelectorView.swift */,
 				1427C64D2E66847000EBEFB0 /* ChatDetailView.swift */,
 				275199199BA546A495E29D56 /* HealthTabView.swift */,
+				D545F6BFFA1A41EB9B299A10 /* OverflowToolbarMenu.swift */,
 				D1B0F5A9091E4756B1BDC186 /* AppointmentPrepDetailView.swift */,
 				8343B72AAA6D41B498FD626C /* AppointmentPrepEditorView.swift */,
 				4F0912AB20254C2AAFE0757B /* AppointmentPrepView.swift */,
@@ -507,7 +509,6 @@
 				GENETICVIEW002 /* GeneticTestsSection.swift */,
 				0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */,
 				H5PWLI2D3XV5YLOY2MXETNVX /* ConnectionStatusBanner.swift */,
-				I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */,
 				NT56JAU0ZHTBNAFIAX8HH65W /* DataExportView.swift */,
 				TJTGVRTFG26S85KEDN8GRKOC /* DocumentCameraView.swift */,
 				Y1VVTRRYHBLDM8AGNTEPTN2P /* DocumentListView.swift */,
@@ -846,6 +847,7 @@
 				DE3A7759C41E4B42AC2DC054 /* DatabaseManager+AppointmentPrep.swift in Sources */,
 				1427C6542E66847000EBEFB0 /* ChatDetailView.swift in Sources */,
 				BF8F558604B84B078BBE009C /* HealthTabView.swift in Sources */,
+				9F479CA744FA4B28BFFA1957 /* OverflowToolbarMenu.swift in Sources */,
 				9C2A40F19198422C98F0738E /* AppointmentPrepDetailView.swift in Sources */,
 				DC28D103417A4697BE968864 /* AppointmentPrepEditorView.swift in Sources */,
 				DBE9C2DCCDBA4472A86B7E6F /* AppointmentPrepView.swift in Sources */,
@@ -899,7 +901,6 @@
 				GENETICVIEW001 /* GeneticTestsSection.swift in Sources */,
 				UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */,
 				9M14C5BR853LDAOI13LJFEVC /* ConnectionStatusBanner.swift in Sources */,
-				XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */,
 				9O0FCK49MYM13GKA79G6AKO3 /* DataExportView.swift in Sources */,
 				14FFBD372E7787FA00FD9B75 /* Utils/BloodTestDataManager.swift in Sources */,
 				1414D77B2F049E6F00EA287A /* HealthContextJSON.swift in Sources */,
@@ -1133,7 +1134,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1175,7 +1176,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (

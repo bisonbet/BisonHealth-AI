@@ -39,10 +39,8 @@ struct SupplementsListView: View {
         .navigationTitle("Supplements")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingSupplementSelector = true }) {
-                    Image(systemName: "plus")
-                }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Add Supplement", systemImage: "plus") { showingSupplementSelector = true }
             }
         }
         .sheet(isPresented: $showingSupplementSelector) {

@@ -425,6 +425,18 @@ final class ModelTests: XCTestCase {
         )
     }
     
+    func testTheDocumentGridUsesAnEvenColumnCountOnlyAcrossAFold() {
+        // Unfolded: the adaptive column decides, so no fixed count.
+        XCTAssertNil(DocumentGridView.evenColumnCount(forWidth: 900, dividedByFold: false))
+
+        // 900 pt fits five 150 pt tiles; across a fold that rounds down to four.
+        XCTAssertEqual(DocumentGridView.evenColumnCount(forWidth: 900, dividedByFold: true), 4)
+        // An already even fit is kept.
+        XCTAssertEqual(DocumentGridView.evenColumnCount(forWidth: 720, dividedByFold: true), 4)
+        // Never fewer than one column per side of the fold.
+        XCTAssertEqual(DocumentGridView.evenColumnCount(forWidth: 200, dividedByFold: true), 2)
+    }
+
     func testMedGemma27BIsHiddenWhileDisabledForBeta() throws {
         try XCTSkipIf(
             PlatformCapabilities.isMedGemma27BEnabled,

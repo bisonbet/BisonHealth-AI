@@ -111,7 +111,7 @@ struct SettingsView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarTrailing) {
+        ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button("Reset Server Settings") {
                     resetType = .servers
@@ -137,7 +137,7 @@ struct SettingsView: View {
                     showingResetAlert = true
                 }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Label("Reset", systemImage: "arrow.clockwise")
             }
         }
 

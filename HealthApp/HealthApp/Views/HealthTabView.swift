@@ -1,9 +1,13 @@
 import SwiftUI
 
 // MARK: - Health Tab (merged Records + Documents)
-/// Combines the health record and document management into one tab. A single
-/// navigation bar owns a segmented scope switch in its title (principal)
-/// position; each child renders content-only so there is exactly one nav bar.
+/// Combines the health record and document management into one tab. One navigation bar,
+/// owned here; each child renders content only.
+///
+/// The Records/Documents switch is pinned above the content, not in the bar's principal
+/// slot. On iPhone Duo bars move to the side of the display, and a custom view in a toolbar
+/// is never presented there, so the tab's main control ended up stranded in a leftover
+/// horizontal strip. Above the content it stays put in every pose, next to what it changes.
 struct HealthTabView: View {
     enum Segment: String, CaseIterable, Identifiable {
         case records = "Records"
@@ -16,11 +20,15 @@ struct HealthTabView: View {
     var body: some View {
         NavigationStack {
             content
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        segmentSwitcher
-                    }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    segmentSwitcher
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(BisonTheme.appBackground)
                 }
+                // Each segment titles itself ("Health Data", "Documents").
+                .toolbarTitleDisplayMode(.inline)
         }
     }
 

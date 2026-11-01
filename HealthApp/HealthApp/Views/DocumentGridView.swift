@@ -18,17 +18,45 @@ struct DocumentGridView: View {
     /// get wrong: Split View, Slide Over, portrait, landscape and a phone all work from the
     /// same rule, and the tile fills whatever column it is given.
     private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: Self.minimumTileWidth, maximum: Self.maximumTileWidth), spacing: 16)]
+        if let foldColumnCount {
+            return Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: foldColumnCount)
+        }
+        return [GridItem(.adaptive(minimum: Self.minimumTileWidth, maximum: Self.maximumTileWidth), spacing: Self.spacing)]
+    }
+
+    /// An even column count while a partly folded iPhone Duo divides the grid, else nil.
+    ///
+    /// Apple asks grids to prefer an even number of columns then, so content splits cleanly
+    /// at the fold instead of leaving a tile straddling it. The adaptive column cannot be
+    /// told to round to even, so in that state the grid switches to fixed columns.
+    @State private var foldColumnCount: Int?
+    private nonisolated static let spacing: CGFloat = 16
+    /// `.padding()` on the grid: the system's 16 pt on each side.
+    private nonisolated static let horizontalPadding: CGFloat = 32
+
+    nonisolated static func evenColumnCount(forWidth width: CGFloat, dividedByFold: Bool) -> Int? {
+        guard dividedByFold else { return nil }
+        let usable = width - horizontalPadding
+        let fitting = Int((usable + spacing) / (minimumTileWidth + spacing))
+        return max(2, fitting - fitting % 2)
+    }
+
+    private nonisolated static func isDividedByFold(_ proxy: GeometryProxy) -> Bool {
+        if #available(iOS 27.1, *) {
+            // Only active regions are returned by default: a fully open device has none.
+            return !proxy.reservedRegions(kind: .division).isEmpty
+        }
+        return false
     }
 
     /// Below this a tile cannot show a readable filename; above it the thumbnails get
     /// gratuitously large on a 13-inch landscape.
-    static let minimumTileWidth: CGFloat = 150
+    nonisolated static let minimumTileWidth: CGFloat = 150
     static let maximumTileWidth: CGFloat = 220
     
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
+            LazyVGrid(columns: columns, spacing: Self.spacing) {
                 ForEach(documents) { document in
                     DocumentGridItem(
                         document: document,
@@ -46,6 +74,11 @@ struct DocumentGridView: View {
                 }
             }
             .padding()
+        }
+        .onGeometryChange(for: Int?.self) { proxy in
+            Self.evenColumnCount(forWidth: proxy.size.width, dividedByFold: Self.isDividedByFold(proxy))
+        } action: { count in
+            foldColumnCount = count
         }
     }
 }

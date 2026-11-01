@@ -14,14 +14,11 @@ final class AccessibilityTests: XCTestCase {
     
     // MARK: - Device Helper Tests
     
-    func testMinimumTouchTarget() {
-        let minTarget = DeviceAccessibilityHelper.minimumTouchTarget
-        XCTAssertGreaterThanOrEqual(minTarget, 44.0) // Apple's minimum
-    }
-    
-    func testRecommendedPadding() {
-        let padding = DeviceAccessibilityHelper.recommendedPadding
-        XCTAssertGreaterThanOrEqual(padding, 8.0)
+    func testMinimumTouchTargetFollowsSizeClassNotDevice() {
+        XCTAssertEqual(DeviceAccessibilityHelper.minimumTouchTarget(for: .compact), 44) // Apple's minimum
+        XCTAssertEqual(DeviceAccessibilityHelper.minimumTouchTarget(for: nil), 44)
+        // iPhone Duo's inner display is regular width on a phone, and gets the larger size.
+        XCTAssertEqual(DeviceAccessibilityHelper.minimumTouchTarget(for: .regular), 48)
     }
     
     // MARK: - Accessibility Colors Tests

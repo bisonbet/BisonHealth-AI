@@ -239,17 +239,13 @@ struct GeneticTestRecordView: View {
         .navigationTitle("Genetic Test")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button("Edit Test Information", systemImage: "pencil") {
-                        beginTestEditing()
-                    }
-                    Divider()
-                    Button("Delete Genetic Test", systemImage: "trash", role: .destructive) {
-                        showingDeleteConfirmation = true
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+            OverflowToolbarMenu {
+                Button("Edit Test Information", systemImage: "pencil") {
+                    beginTestEditing()
+                }
+                Divider()
+                Button("Delete Genetic Test", systemImage: "trash", role: .destructive) {
+                    showingDeleteConfirmation = true
                 }
             }
         }
@@ -683,11 +679,11 @@ struct GeneticTestEditorView: View {
             .navigationTitle("Edit Genetic Test")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") {
                         save()
                     }
                     .fontWeight(.semibold)
@@ -855,11 +851,11 @@ struct GeneticTestItemEditorView: View {
                 applyCatalogSelection(value)
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") { save() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") { save() }
                         .fontWeight(.semibold)
                 }
             }
@@ -1045,13 +1041,13 @@ struct GeneticTestImportReviewView: View {
             .navigationTitle("Review Genetic Test")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save Review") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save Review", systemImage: "checkmark") {
                         let acceptedIssueIDs = allIssueIDs.subtracting(skippedIssueIDs)
                         onComplete(acceptedIssueIDs, skippedIssueIDs)
                         dismiss()

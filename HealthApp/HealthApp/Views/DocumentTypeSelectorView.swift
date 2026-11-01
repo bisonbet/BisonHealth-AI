@@ -57,7 +57,7 @@ struct DocumentTypeSelectorView: View {
             .navigationTitle("Document Type")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Skip") {
                         // Use current selection (defaults to .other) when skipping
                         onConfirm(tempSelection)
@@ -65,8 +65,8 @@ struct DocumentTypeSelectorView: View {
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", systemImage: "checkmark") {
                         onConfirm(tempSelection)
                         dismiss()
                     }

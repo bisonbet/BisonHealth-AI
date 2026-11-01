@@ -40,18 +40,9 @@ enum PlatformCapabilities {
         isMac && physicalMemoryBytes >= medGemmaMinimumMemoryBytes
     }
 
-    // `UIDevice` and `VNDocumentCameraViewController` are main-actor isolated, so the
-    // capabilities derived from them are too. Every caller is SwiftUI view code.
-    @MainActor
-    static var isIPadInterface: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
-    }
-
-    @MainActor
-    static var supportsHardwareOptimizedInteractions: Bool {
-        isIPadInterface || isIPadAppOnMac
-    }
-
+    // `VNDocumentCameraViewController` is main-actor isolated, so the capability derived
+    // from it is too. Every caller is SwiftUI view code. Layout decisions use size class, not
+    // device type: iPhone Duo's inner display is regular width on a phone.
     @MainActor
     static var supportsDocumentScanning: Bool {
         !isIPadAppOnMac && VNDocumentCameraViewController.isSupported
