@@ -566,6 +566,30 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertEqual(open(try Data(contentsOf: fileURL), with: own), "pdf bytes")
     }
 
+    /// Replaced twice before the first store's key arrives: both old IDs must still be tried.
+    func testEarlierReplacedStoreIDsSurviveAnotherReplacement() throws {
+        let legacy = SymmetricKey(size: .bits256)
+        let firstStoreKey = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = legacy
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: legacy))
+        let fileURL = filesURL.appendingPathComponent("doc.pdf")
+        try seal("pdf bytes", with: firstStoreKey).write(to: fileURL)
+        let firstID = UUID().uuidString
+        try Data(firstID.utf8).write(to: identityURL)
+
+        _ = try makeResolver().resolve()
+        // Restored again before the second store's key syncs.
+        let secondID = try String(contentsOf: identityURL, encoding: .utf8)
+        keychain.storeKeys[secondID] = nil
+        _ = try makeResolver().resolve()
+
+        keychain.storeKeys[firstID] = firstStoreKey
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(open(try Data(contentsOf: fileURL), with: legacy), "pdf bytes")
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()

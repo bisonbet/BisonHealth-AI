@@ -339,7 +339,13 @@ struct DataKeyResolver {
             withIntermediateDirectories: true
         )
         if reconciliationPending {
-            try savePendingReconciliation(PendingReconciliation(previousStoreIDs: previousStoreID.map { [$0] } ?? []))
+            // Added to any IDs an earlier, unfinished recovery already holds: a store can be
+            // replaced again before the last one's key arrives, and each may still be needed.
+            var previousStoreIDs = isReconciliationPending ? pendingReconciliation.previousStoreIDs : []
+            if let previousStoreID, !previousStoreIDs.contains(previousStoreID) {
+                previousStoreIDs.append(previousStoreID)
+            }
+            try savePendingReconciliation(PendingReconciliation(previousStoreIDs: previousStoreIDs))
         }
         try keychain.storeEncryptionKey(key, forStore: storeID)
         try Data(storeID.utf8).write(to: identityURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
