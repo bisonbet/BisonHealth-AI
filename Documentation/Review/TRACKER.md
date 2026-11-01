@@ -245,7 +245,8 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
 8. ~~**W-N**~~ — **done 2026-10-31.** New `BisonTheme.goldText`: light `(0.56, 0.37, 0.05)`,
    4.75:1 on `sidebarBackground` (the darkest light background) and over 5:1 on the rest;
    dark keeps `gold`, already 7.4:1 or better. All 79 foreground uses of `gold`, including
-   ternaries, now use it. **Not changed:** fills, strokes, tints, and the `color:`/`accent:`
+   ternaries, now use it — except the splash screen, which is dark in both appearances and uses a
+   fixed `goldOnDarkSurface` (`goldText` in light mode would be 3.4:1 there; Codex caught it). **Not changed:** fills, strokes, tints, and the `color:`/`accent:`
    parameters of `Card`, `StatBox`, `StorageRowView`, `FilterOptionRow`, `PrepSectionCard` and
    `VitalCategoryView` — mostly icons and tinted fills, where 3:1 applies; worth a look in the
    visual pass. Not yet seen on screen.

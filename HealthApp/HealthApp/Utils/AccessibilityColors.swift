@@ -40,6 +40,14 @@ struct BisonTheme {
         )
     }
 
+    /// Gold for foregrounds on a surface that is dark in *both* appearances, such as the
+    /// splash screen. `goldText` follows the system appearance, so in light mode it picks
+    /// the dark brown — 3.4:1 on the splash's fixed near-black. This is `gold`'s dark value,
+    /// 9.9:1 there, regardless of appearance.
+    static var goldOnDarkSurface: Color {
+        Color(red: 0.93, green: 0.70, blue: 0.28)
+    }
+
     static var sage: Color {
         Color.adaptive(
             light: Color(red: 0.23, green: 0.47, blue: 0.39),
