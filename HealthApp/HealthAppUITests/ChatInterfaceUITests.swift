@@ -1,32 +1,14 @@
 import XCTest
 
-final class ChatInterfaceUITests: XCTestCase {
-    
-    var app: XCUIApplication!
-    
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = [
-            "--ui-testing",
-            "--reset-test-data",
-            "--skip-disclaimer",
-            "--scripted-ai-provider",
-            "--disable-healthkit-sync",
-            "--disable-mlx-preload"
-        ]
-        if name.contains("testScriptedDoctorReplyAppearsAfterSendingMessage") {
-            app.launchArguments += [
-                "--seed-lab-report"
-            ]
+final class ChatInterfaceUITests: HealthAppUITestCase {
+
+    override var launchArguments: [String] {
+        guard name.contains("testScriptedDoctorReplyAppearsAfterSendingMessage") else {
+            return super.launchArguments
         }
-        app.launch()
+        return super.launchArguments + ["--seed-lab-report"]
     }
-    
-    override func tearDownWithError() throws {
-        app = nil
-    }
-    
+
     // MARK: - Basic Chat Interface Tests
     
     func testChatTabExists() throws {
@@ -38,7 +20,7 @@ final class ChatInterfaceUITests: XCTestCase {
     }
     
     func testEmptyStateDisplayed() throws {
-        navigateToChatTab()
+        navigateToChat()
         
         let emptyStateTitle = app.staticTexts["Bison Health AI"]
         XCTAssertTrue(emptyStateTitle.exists, "Empty state title should be displayed")
@@ -48,7 +30,7 @@ final class ChatInterfaceUITests: XCTestCase {
     }
     
     func testStartNewConversation() throws {
-        navigateToChatTab()
+        navigateToChat()
         
         let startButton = app.buttons["Start New Conversation"]
         startButton.tap()
@@ -126,7 +108,7 @@ final class ChatInterfaceUITests: XCTestCase {
             throw XCTSkip("This test is only for iPad")
         }
         
-        navigateToChatTab()
+        navigateToChat()
         
         // Check for sidebar
         let conversationsTitle = app.staticTexts["Conversations"]
@@ -142,7 +124,7 @@ final class ChatInterfaceUITests: XCTestCase {
             throw XCTSkip("This test is only for iPad")
         }
         
-        navigateToChatTab()
+        navigateToChat()
         
         // Test Cmd+N for new conversation
         app.typeKey("n", modifierFlags: .command)
@@ -168,7 +150,7 @@ final class ChatInterfaceUITests: XCTestCase {
     // MARK: - Conversation Management Tests
     
     func testConversationsList() throws {
-        navigateToChatTab()
+        navigateToChat()
         
         if UIDevice.current.userInterfaceIdiom == .pad {
             // On iPad, conversations are in sidebar
@@ -187,7 +169,7 @@ final class ChatInterfaceUITests: XCTestCase {
     }
     
     func testConversationSearch() throws {
-        navigateToChatTab()
+        navigateToChat()
         
         if UIDevice.current.userInterfaceIdiom == .pad {
             // Search in sidebar
@@ -301,7 +283,7 @@ final class ChatInterfaceUITests: XCTestCase {
             throw XCTSkip("This test is only for iPad")
         }
         
-        navigateToChatTab()
+        navigateToChat()
         
         // Test portrait
         XCUIDevice.shared.orientation = .portrait
@@ -320,21 +302,9 @@ final class ChatInterfaceUITests: XCTestCase {
     }
     
     // MARK: - Helper Methods
-    
-    private func navigateToChatTab() {
-        let chatTab = app.tabBars.buttons["AI Chat"]
-        if chatTab.waitForExistence(timeout: 5) {
-            chatTab.tap()
-            return
-        }
 
-        let chatSidebarButton = app.buttons["AI Chat"]
-        XCTAssertTrue(chatSidebarButton.waitForExistence(timeout: 5), "AI Chat navigation should be visible")
-        chatSidebarButton.tap()
-    }
-    
     private func startNewConversationAndWait() {
-        navigateToChatTab()
+        navigateToChat()
         
         if UIDevice.current.userInterfaceIdiom == .pad {
             // On iPad, use the + button in sidebar

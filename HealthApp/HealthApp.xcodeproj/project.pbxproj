@@ -109,6 +109,7 @@
 		D7A1E5C0294A0000000000001 /* DataEncryptionKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A1E5C1294A0000000000001 /* DataEncryptionKey.swift */; };
 		A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000073294A0000000000003 /* ServerConfigurationConstants.swift */; };
 		A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000075294A0000000000001 /* HealthDataManagerTests.swift */; };
+		A10000PPBD0000000000000001 /* PrivatePasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000PPBD0000000000000002 /* PrivatePasteboard.swift */; };
 		A10000LOGE0000000000000001 /* LogExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000LOGE0000000000000002 /* LogExporter.swift */; };
 		A10000X6PP0AIOVJSYPSP3LJFU /* BloodTestImportReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */; };
 		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
@@ -158,9 +159,15 @@
 		SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUP004002EA12E9900999002 /* SupplementEditorView.swift */; };
 		SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUP006002EA12E9900999003 /* SupplementSelectorView.swift */; };
 		UIEVFK9VPU7LZN0L7R90WQXY /* TermsOfServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68TBOYDGRQT6IRB18T17XXF7 /* TermsOfServiceView.swift */; };
+		UITESTBUILD001 /* AccessibilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE001 /* AccessibilityUITests.swift */; };
+		UITESTBUILD002 /* BloodTestEntryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE002 /* BloodTestEntryUITests.swift */; };
+		UITESTBUILD003 /* ChatInterfaceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE003 /* ChatInterfaceUITests.swift */; };
+		UITESTBUILD004 /* DocumentManagementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE004 /* DocumentManagementUITests.swift */; };
+		UITESTBUILD005 /* HealthAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE005 /* HealthAppUITests.swift */; };
+		UITESTBUILD006 /* PersonalInfoEditorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE006 /* PersonalInfoEditorUITests.swift */; };
+		UITESTBUILD008 /* HealthAppUITestCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE008 /* HealthAppUITestCase.swift */; };
 		UITESTBUILD007 /* RegressionSmokeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE007 /* RegressionSmokeUITests.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
-		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -277,6 +284,7 @@
 		A1000073294A0000000000003 /* ServerConfigurationConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigurationConstants.swift; sourceTree = "<group>"; };
 		A1000075294A0000000000001 /* HealthDataManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManagerTests.swift; sourceTree = "<group>"; };
 		A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestValueValidator.swift; sourceTree = "<group>"; };
+		A10000PPBD0000000000000002 /* PrivatePasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivatePasteboard.swift; sourceTree = "<group>"; };
 		A10000LOGE0000000000000002 /* LogExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogExporter.swift; sourceTree = "<group>"; };
 		A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestImportReviewView.swift; sourceTree = "<group>"; };
 		A2MLX0052F26000100MLX001 /* MLXOnDeviceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceModels.swift; sourceTree = "<group>"; };
@@ -333,6 +341,7 @@
 		UITESTFILE004 /* DocumentManagementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManagementUITests.swift; sourceTree = "<group>"; };
 		UITESTFILE005 /* HealthAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthAppUITests.swift; sourceTree = "<group>"; };
 		UITESTFILE006 /* PersonalInfoEditorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalInfoEditorUITests.swift; sourceTree = "<group>"; };
+		UITESTFILE008 /* HealthAppUITestCase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthAppUITestCase.swift; sourceTree = "<group>"; };
 		UITESTFILE007 /* RegressionSmokeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegressionSmokeUITests.swift; sourceTree = "<group>"; };
 		UITESTPROD001 /* HealthAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HealthAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		VPH2F91KGGJDF3RNUODWYPQS /* DocumentsEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsEmptyStateView.swift; sourceTree = "<group>"; };
@@ -568,6 +577,7 @@
 				142348192EA07B3300059087 /* Networking */,
 				A1000055294A0000000000001 /* FileSystemManager.swift */,
 				A10000LOGE0000000000000002 /* LogExporter.swift */,
+				A10000PPBD0000000000000002 /* PrivatePasteboard.swift */,
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
 				A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */,
@@ -644,6 +654,7 @@
 				UITESTFILE004 /* DocumentManagementUITests.swift */,
 				UITESTFILE005 /* HealthAppUITests.swift */,
 				UITESTFILE006 /* PersonalInfoEditorUITests.swift */,
+				UITESTFILE008 /* HealthAppUITestCase.swift */,
 				UITESTFILE007 /* RegressionSmokeUITests.swift */,
 			);
 			path = HealthAppUITests;
@@ -853,6 +864,7 @@
 				14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
 				A10000LOGE0000000000000001 /* LogExporter.swift in Sources */,
+				A10000PPBD0000000000000001 /* PrivatePasteboard.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
 				14ADE5B52EF0CFE000BB7C6C /* VitalEntryView.swift in Sources */,
@@ -948,6 +960,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				UITESTBUILD001 /* AccessibilityUITests.swift in Sources */,
+				UITESTBUILD002 /* BloodTestEntryUITests.swift in Sources */,
+				UITESTBUILD003 /* ChatInterfaceUITests.swift in Sources */,
+				UITESTBUILD004 /* DocumentManagementUITests.swift in Sources */,
+				UITESTBUILD005 /* HealthAppUITests.swift in Sources */,
+				UITESTBUILD006 /* PersonalInfoEditorUITests.swift in Sources */,
+				UITESTBUILD008 /* HealthAppUITestCase.swift in Sources */,
 				UITESTBUILD007 /* RegressionSmokeUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -747,3 +747,231 @@ private final class MockAWSCredentialsStorage: AWSCredentialsStorage {
         storedCredentials = nil
     }
 }
+
+// MARK: - Stubbed Network (WS-15-09)
+
+/// Answers every request made through a session configured with it. Nothing reaches a
+/// network: each test installs the response it wants, and `tearDown` clears it.
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+    enum Reply {
+        case http(status: Int, headers: [String: String] = [:], body: Data = Data())
+        case failure(URLError.Code)
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var reply: Reply?
+    nonisolated(unsafe) private static var recorded: [URLRequest] = []
+
+    static func install(_ reply: Reply) {
+        lock.withLock {
+            self.reply = reply
+            recorded = []
+        }
+    }
+
+    static func reset() {
+        lock.withLock {
+            reply = nil
+            recorded = []
+        }
+    }
+
+    static var requests: [URLRequest] { lock.withLock { recorded } }
+
+    static func session() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let reply = Self.lock.withLock { () -> Reply? in
+            Self.recorded.append(request)
+            return Self.reply
+        }
+        guard let url = request.url, let reply else {
+            client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable))
+            return
+        }
+        switch reply {
+        case .failure(let code):
+            client?.urlProtocol(self, didFailWithError: URLError(code))
+        case .http(let status, let headers, let body):
+            guard let response = HTTPURLResponse(
+                url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers
+            ) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: body)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+@MainActor
+final class OpenAICompatibleClientNetworkTests: XCTestCase {
+
+    override func tearDown() {
+        StubURLProtocol.reset()
+        super.tearDown()
+    }
+
+    private func makeClient(apiKey: String? = "test-api-key") -> OpenAICompatibleClient {
+        OpenAICompatibleClient(
+            baseURL: "https://llm.example.test",
+            apiKey: apiKey,
+            defaultModel: "test-model",
+            session: StubURLProtocol.session()
+        )
+    }
+
+    private func sse(_ lines: [String]) -> Data {
+        Data(lines.map { $0 + "\n\n" }.joined().utf8)
+    }
+
+    func testAnAuthFailureIsReportedAsAKeyProblemAndSendsTheKey() async throws {
+        StubURLProtocol.install(.http(status: 401, headers: ["x-request-id": "req-123"]))
+        let client = makeClient()
+
+        do {
+            _ = try await client.sendMessage("hi", context: "", conversationHistory: [])
+            XCTFail("A 401 must throw")
+        } catch let error as OpenAICompatibleError {
+            guard case .requestFailed(let failure) = error else {
+                return XCTFail("Expected requestFailed, got \(error)")
+            }
+            XCTAssertEqual(failure.statusCode, 401)
+            XCTAssertEqual(failure.requestIdentifier, "req-123")
+            XCTAssertEqual(error.recoverySuggestion, "Check your API key in settings")
+        }
+
+        XCTAssertNotNil(client.lastError, "The failure must reach the settings screen's status")
+        let request = try XCTUnwrap(StubURLProtocol.requests.first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-api-key")
+        XCTAssertEqual(request.url?.path, "/v1/chat/completions")
+    }
+
+    func testNoAuthorizationHeaderIsSentWithoutAKey() async throws {
+        StubURLProtocol.install(.http(status: 200, body: Data(#"{"choices":[{"message":{"content":"ok"}}]}"#.utf8)))
+
+        _ = try await makeClient(apiKey: nil).sendMessage("hi", context: "", conversationHistory: [])
+
+        XCTAssertNil(StubURLProtocol.requests.first?.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testAServerErrorSuggestsTryingLater() async {
+        StubURLProtocol.install(.http(status: 503))
+
+        do {
+            _ = try await makeClient().sendMessage("hi", context: "", conversationHistory: [])
+            XCTFail("A 503 must throw")
+        } catch {
+            XCTAssertEqual((error as? OpenAICompatibleError)?.recoverySuggestion, "Server error - try again later")
+        }
+    }
+
+    func testAReplyIsReturnedWithItsModelAndUsage() async throws {
+        let body = #"{"model":"served-model","choices":[{"message":{"role":"assistant","content":"Your sodium is in range."}}],"usage":{"total_tokens":42}}"#
+        StubURLProtocol.install(.http(status: 200, body: Data(body.utf8)))
+
+        let response = try await makeClient().sendMessage("hi", context: "", conversationHistory: [])
+
+        XCTAssertEqual(response.content, "Your sodium is in range.")
+        XCTAssertEqual((response as? OpenAICompatibleChatResponse)?.model, "served-model")
+        XCTAssertEqual(response.tokenCount, 42)
+    }
+
+    func testAnEmptyChoiceListIsAnErrorNotABlankReply() async {
+        StubURLProtocol.install(.http(status: 200, body: Data(#"{"choices":[]}"#.utf8)))
+
+        do {
+            _ = try await makeClient().sendMessage("hi", context: "", conversationHistory: [])
+            XCTFail("An empty completion must not become a blank assistant message")
+        } catch {
+            XCTAssertNotNil(error as? OpenAICompatibleError)
+        }
+    }
+
+    func testATimeoutPropagatesAsTheNetworkError() async {
+        StubURLProtocol.install(.failure(.timedOut))
+        let client = makeClient()
+
+        do {
+            _ = try await client.sendMessage("hi", context: "", conversationHistory: [])
+            XCTFail("A timeout must throw")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
+        XCTAssertNotNil(client.lastError)
+    }
+
+    func testAStreamAccumulatesDeltasSkipsBadChunksAndStopsAtDone() async throws {
+        StubURLProtocol.install(.http(status: 200, headers: ["Content-Type": "text/event-stream"], body: sse([
+            #"data: {"model":"stream-model","choices":[{"delta":{"content":"Potassium "}}]}"#,
+            ": keep-alive comment",
+            "data: {not json",
+            #"data:{"choices":[{"delta":{"content":"5.9 — high"}}]}"#,
+            "data: [DONE]",
+            #"data: {"choices":[{"delta":{"content":" (after done)"}}]}"#
+        ])))
+        var updates: [String] = []
+        var completed: OpenAICompatibleChatResponse?
+
+        try await makeClient().sendStreamingChatMessage(
+            "hi",
+            onUpdate: { updates.append($0) },
+            onComplete: { completed = $0 }
+        )
+
+        XCTAssertEqual(updates, ["Potassium ", "Potassium 5.9 — high"], "Multi-byte text must survive decoding")
+        XCTAssertEqual(completed?.content, "Potassium 5.9 — high")
+        XCTAssertEqual(completed?.model, "stream-model")
+        let request = try XCTUnwrap(StubURLProtocol.requests.first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
+    }
+
+    func testAStreamThatSendsNothingIsAnError() async {
+        StubURLProtocol.install(.http(status: 200, body: sse(["data: [DONE]"])))
+        var completed = false
+
+        do {
+            try await makeClient().sendStreamingChatMessage("hi", onUpdate: { _ in }, onComplete: { _ in completed = true })
+            XCTFail("An empty stream must not complete with a blank reply")
+        } catch {
+            XCTAssertNotNil(error as? OpenAICompatibleError)
+        }
+        XCTAssertFalse(completed)
+    }
+
+    func testAStreamingHTTPErrorDeliversNoText() async {
+        StubURLProtocol.install(.http(status: 429, body: Data("data: {\"choices\":[{\"delta\":{\"content\":\"leak\"}}]}\n\n".utf8)))
+        var updates: [String] = []
+
+        do {
+            try await makeClient().sendStreamingChatMessage("hi", onUpdate: { updates.append($0) }, onComplete: { _ in })
+            XCTFail("A 429 must throw")
+        } catch {
+            guard case .requestFailed(let failure)? = error as? OpenAICompatibleError else {
+                return XCTFail("Expected requestFailed, got \(error)")
+            }
+            XCTAssertEqual(failure.statusCode, 429)
+        }
+        XCTAssertTrue(updates.isEmpty, "An error body must never be shown as a reply")
+    }
+
+    func testModelListingReadsTheServersModels() async throws {
+        StubURLProtocol.install(.http(status: 200, body: Data(#"{"data":[{"id":"llama-3"},{"id":"qwen"}]}"#.utf8)))
+
+        let models = try await makeClient().listModels()
+
+        XCTAssertEqual(Set(models), ["llama-3", "qwen"])
+        XCTAssertEqual(StubURLProtocol.requests.first?.url?.path, "/v1/models")
+    }
+}

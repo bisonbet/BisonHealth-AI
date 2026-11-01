@@ -1,23 +1,12 @@
 import XCTest
 
-final class BloodTestEntryUITests: XCTestCase {
-    var app: XCUIApplication!
-    
+final class BloodTestEntryUITests: HealthAppUITestCase {
+
     override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
-        
-        // Navigate to Health Data tab and open Blood Test Entry
-        app.tabBars.buttons["Health Data"].tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap() // Menu button
-        app.buttons["Blood Test"].tap()
+        try super.setUpWithError()
+        openAddHealthDataMenuItem("Add Lab Results")
     }
-    
-    override func tearDownWithError() throws {
-        app = nil
-    }
-    
+
     // MARK: - Basic Navigation Tests
     
     func testBloodTestEntryOpens() throws {

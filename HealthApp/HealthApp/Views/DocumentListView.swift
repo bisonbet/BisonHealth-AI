@@ -93,7 +93,7 @@ struct DocumentRowView: View {
                     
                     Spacer()
                     
-                    Text(RelativeDateTimeFormatter().localizedString(for: document.importedAt, relativeTo: Date()))
+                    Text(document.importedAt.formatted(.relative(presentation: .named)))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

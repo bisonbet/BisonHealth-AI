@@ -145,7 +145,7 @@ struct ConversationSidebarRowView: View {
                     
                     Spacer()
                     
-                    Text(RelativeDateTimeFormatter().localizedString(for: conversation.updatedAt, relativeTo: Date()))
+                    Text(conversation.updatedAt.formatted(.relative(presentation: .named)))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

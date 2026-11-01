@@ -1,29 +1,16 @@
 import XCTest
 
-final class DocumentManagementUITests: XCTestCase {
-    var app: XCUIApplication!
-    
+final class DocumentManagementUITests: HealthAppUITestCase {
+
+    override var launchArguments: [String] {
+        super.launchArguments + ["--seed-lab-report"]
+    }
+
     override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = [
-            "--ui-testing",
-            "--reset-test-data",
-            "--skip-disclaimer",
-            "--seed-lab-report",
-            "--scripted-ai-provider",
-            "--disable-healthkit-sync",
-            "--disable-mlx-preload"
-        ]
-        app.launch()
-        
+        try super.setUpWithError()
         navigateToDocuments()
     }
-    
-    override func tearDownWithError() throws {
-        app = nil
-    }
-    
+
     // MARK: - Basic Navigation Tests
     
     func testDocumentsTabOpens() throws {
@@ -499,31 +486,4 @@ final class DocumentManagementUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Documents"].exists)
     }
 
-    private func navigateToDocuments() {
-        let healthTab = app.tabBars.buttons["Health"]
-        if healthTab.waitForExistence(timeout: 5) {
-            healthTab.tap()
-        } else {
-            let healthSidebarButton = app.buttons["Health"]
-            if healthSidebarButton.waitForExistence(timeout: 5) {
-                healthSidebarButton.tap()
-            }
-        }
-
-        let documentsSegment = app.buttons["Documents"]
-        XCTAssertTrue(documentsSegment.waitForExistence(timeout: 5), "Documents segment should be visible in the Health tab")
-        documentsSegment.tap()
-    }
-
-    private func navigateToChat() {
-        let chatTab = app.tabBars.buttons["AI Chat"]
-        if chatTab.waitForExistence(timeout: 5) {
-            chatTab.tap()
-            return
-        }
-
-        let chatSidebarButton = app.buttons["AI Chat"]
-        XCTAssertTrue(chatSidebarButton.waitForExistence(timeout: 5), "AI Chat navigation should be visible")
-        chatSidebarButton.tap()
-    }
 }

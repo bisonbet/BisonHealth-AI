@@ -165,7 +165,7 @@ struct OnDeviceLLMSettingsView: View {
 
     @ViewBuilder
     private var macModelAvailabilitySection: some View {
-        if PlatformCapabilities.isRunningOnMac {
+        if PlatformCapabilities.isRunningOnMac && PlatformCapabilities.isMedGemma27BEnabled {
             Section {
                 Label(
                     "MedGemma 27B Chat is available on Macs with at least 24 GB of installed physical memory. It downloads about 16.02 GB across three weight shards and uses additional memory while generating.",
@@ -209,7 +209,11 @@ struct OnDeviceLLMSettingsView: View {
         } header: {
             Text("AI Models")
         } footer: {
-            Text("MediPhi is optimized for medical Q&A. MedGemma 27B is a text-only medical model for Mac chat. Qwen 3.5 Vision supports text and image understanding.")
+            Text(
+                PlatformCapabilities.supportsMedGemma27BChat
+                    ? "MediPhi is optimized for medical Q&A. MedGemma 27B is a text-only medical model for Mac chat. Qwen 3.5 Vision supports text and image understanding."
+                    : "MediPhi is optimized for medical Q&A. Qwen 3.5 Vision supports text and image understanding."
+            )
         }
     }
 

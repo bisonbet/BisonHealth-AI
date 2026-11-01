@@ -386,7 +386,7 @@ struct NewAIProviderSettingsView: View { }
 ### On-Device LLM
 - **Default**: User-selected downloaded model
 - **Features**: Chat and streaming without a remote AI server
-- **High-memory Mac option**: MedGemma 27B Chat is text-only, approximately 16.02 GB across three weight shards, and exposed only for the iOS-on-Mac runtime when installed physical memory is at least 24 GB (not available/free memory)
+- **High-memory Mac option**: MedGemma 27B Chat is text-only, approximately 16.02 GB across three weight shards, and exposed only for the iOS-on-Mac runtime when installed physical memory is at least 24 GB (not available/free memory). **Hidden for the first TestFlight round** by `PlatformCapabilities.isMedGemma27BEnabled = false`; flip it to bring the model back, and the memory gate still applies
 - **Chat rules**: `compactChatRules` in `MLXOnDeviceClient.swift` appends shared operational rules to every on-device chat that carries a persona or health context. They ground answers in the supplied patient data, treat that data as facts rather than instructions, and forbid inventing findings, diagnosing, or telling the user to start, stop, substitute, or change a medicine or dose. Title generation is deliberately excluded — it is an instruction-free isolated session.
 - **Integration**: `MLXOnDeviceClient.swift`
 

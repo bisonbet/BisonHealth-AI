@@ -153,7 +153,7 @@ struct AppointmentPrepDetailView: View {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     Button {
-                        UIPasteboard.general.string = prep.exportText
+                        PrivatePasteboard.copy(prep.exportText)
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }

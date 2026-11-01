@@ -14,19 +14,15 @@
 	  every upload and holds the build at "Missing Compliance" until they are answered,
 	  which blocks repeated TestFlight builds.
 
-	  ⚠️ THE VALUE BELOW IS A LEGAL DECLARATION AND NEEDS THE OWNER'S SIGN-OFF.
-
-	  The case for `false`: the app implements no cryptography of its own. Data at rest
-	  uses CryptoKit AES-GCM (an OS-provided implementation) and network traffic uses
-	  TLS. Both are the standard exempt cases.
-
-	  The complication, which the owner should weigh before the first upload: the
-	  dependency graph pins swift-nio-ssl 2.36.1, which vendors BoringSSL, reached
-	  through the AWS SDK's HTTP client. So the binary can ship a third-party TLS
-	  implementation rather than only the system one. That is ordinary mass-market TLS
-	  and is normally still exempt, but it is a self-classification call to make
-	  knowingly rather than by default. Removing Bedrock (review decision 5) would
-	  remove the question with it.
+	  The app implements no cryptography of its own and ships none: data at rest uses
+	  CryptoKit AES-GCM, and every TLS connection goes through Apple's stack. Checked
+	  2026-11-01 against the device build: swift-nio-ssl (which vendors BoringSSL) is in
+	  Package.resolved but is not linked into the app; swift-crypto re-exports CryptoKit
+	  on Apple platforms; and aws-crt-swift uses CommonCrypto and Network.framework TLS
+	  on iOS (s2n and AWS-LC are its Linux backends). The owner signed off on `false` the
+	  same day. Re-check if a dependency that brings its own TLS or crypto is added:
+	  `nm HealthApp.debug.dylib | grep -E "CNIOBoringSSL|CCryptoBoringSSL|aws_lc_|s2n_"`
+	  should print nothing.
 	-->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
