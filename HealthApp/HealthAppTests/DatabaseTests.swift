@@ -511,6 +511,59 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(conversations.first?.title, title)
     }
 
+    func testTheVersion11EncryptionPassIsSafeToRunTwice() async throws {
+        // W-U. Before it, the v11 helpers re-encrypted unconditionally, so replaying v11 over
+        // a database it had already encrypted sealed each value a second time and the app
+        // read every one back as unreadable. Here the rows are already ciphertext — written
+        // through the app's own API — and only the schema is wound back to v10.
+        let document = MedicalDocument(
+            fileName: "panel.pdf",
+            fileType: .pdf,
+            filePath: URL(fileURLWithPath: "/tmp/panel.pdf"),
+            processingStatus: .completed,
+            providerName: "Dr Ferris",
+            documentCategory: .labReport,
+            extractedText: "Sodium 140",
+            fileSize: 1024,
+            tags: ["lab"],
+            notes: "Second draw"
+        )
+        let conversation = ChatConversation(title: "About my sodium")
+
+        do {
+            let manager = try DatabaseManager(databaseURL: databaseURL)
+            try await manager.saveMedicalDocument(document)
+            try await manager.saveConversation(conversation)
+        }
+
+        let fileNameBefore = try textScalar("SELECT file_name FROM documents LIMIT 1")
+        XCTAssertNotEqual(fileNameBefore, "panel.pdf", "Precondition: the row is already encrypted")
+
+        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
+        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
+        try execute("DROP TABLE IF EXISTS pending_import_reviews")
+        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (10, 0)")
+
+        let migrated = try DatabaseManager(databaseURL: databaseURL)
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+        XCTAssertEqual(
+            try textScalar("SELECT file_name FROM documents LIMIT 1"), fileNameBefore,
+            "An already-encrypted value must be written back unchanged, not sealed again"
+        )
+
+        let recovered = try await migrated.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(recovered?.fileName, "panel.pdf")
+        XCTAssertEqual(recovered?.notes, "Second draw")
+        XCTAssertEqual(recovered?.providerName, "Dr Ferris")
+        XCTAssertEqual(recovered?.extractedText, "Sodium 140")
+        XCTAssertEqual(recovered?.tags, ["lab"])
+
+        let conversations = try await migrated.fetchConversations()
+        XCTAssertEqual(conversations.first?.title, "About my sodium")
+    }
+
     func testTheMigrationFromVersion10DeletesItsPlaintextBackup() async throws {
         // `createBackupBeforeMigration` copies the whole file before the first step, so the
         // copy holds pre-encryption plaintext PHI. Leaving it next to the database would

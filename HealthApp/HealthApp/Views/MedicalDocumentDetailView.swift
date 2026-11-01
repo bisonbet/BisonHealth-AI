@@ -196,7 +196,7 @@ struct MedicalDocumentDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: viewModel.document.documentCategory.icon)
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                             Text(viewModel.document.documentCategory.displayName)
                                 .foregroundColor(.primary)
                             Spacer()
@@ -248,7 +248,7 @@ struct MedicalDocumentDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: viewModel.document.providerType?.icon ?? "building.2")
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                             Text(viewModel.document.providerType?.displayName ?? "Select Type")
                                 .foregroundColor(viewModel.document.providerType != nil ? .primary : .secondary)
                             Spacer()
@@ -305,7 +305,7 @@ struct MedicalDocumentDetailView: View {
 
                             Text("\(viewModel.document.contextPriority) / 5")
                                 .font(.caption)
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                                 .fontWeight(.medium)
                         }
 

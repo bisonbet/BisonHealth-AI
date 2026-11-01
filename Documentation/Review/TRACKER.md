@@ -232,42 +232,54 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
    bump share one transaction, so v11 only runs at stored version 10. Making it idempotent is
    a `DatabaseManager` change: **promoted to W-U below.** No v11 idempotency test was written,
    because the honest one would assert data loss.
-7. **W-T** — **finish W-E: the other generation paths.** Found 2026-10-26 while verifying
-   PR #51. Only `sendStreamingChatMessage` evaluates `MLXTurnInterruption`; `sendMessage` →
-   `collectResponse` still takes `MLXGPUGate` and holds it for a whole `maxTokens`
-   generation with no boundary check, so a background trip there queues the unload behind
-   the full budget — the exact bug W-E set out to fix, in the path `AppointmentPrepManager`
-   (three consecutive calls), `AIChatManager`'s non-streaming fallback and its title
-   generation, `BloodTestMappingService` and `MedicalDocumentExtractor` all use. W-E's own
-   `extractFromDocument` exclusion stays deliberate: stopping mid-document would return a
-   partial extraction that looks complete. Owns `MLXOnDeviceClient.swift`, so it serialises
-   against anything else touching that file, and only a `generic/platform=iOS` build
-   typechecks it. While there: `MLXOnDeviceError.generationInterrupted` is thrown for both
-   interruption reasons but its text is background-only, so a turn cancelled inside the
-   first 40 characters tells the user the app went to the background.
-8. **W-N** — the ~25 `foregroundColor(BisonTheme.gold)` sites at 2.7:1. Item 40 fixed
-   white-on-gold only; this is the other half and I had wrongly treated it as done.
-9. **W-U** — **make the v11 encryption helpers idempotent.** `encryptDocumentPHIColumns` and
-   `encryptChatTitles` re-encrypt unconditionally, unlike the v14 tags helper, so a second
-   pass double-encrypts and strands the data for good. **Not reachable today** — each step
-   shares a transaction with its version bump, so v11 only runs at stored version 10 — which
-   is why this is last rather than urgent. It is a `DatabaseManager` change, so it cannot be
-   done from a tests-only item; the honest test is the one W-J could not write, because
-   asserting current behaviour means asserting data loss. Owns `DatabaseManager.swift` and
-   `DatabaseTests.swift`, so it serialises against W-K.
+7. ~~**W-T**~~ — **done 2026-10-31, typechecked by the device build, never executed.**
+   `collectResponse` now evaluates `MLXTurnInterruption` at every chunk, so `sendMessage`
+   (appointment prep, title generation, the non-streaming fallback, blood-test mapping,
+   medical extraction) and `testConnection` stop at a token boundary when backgrounded or
+   cancelled. Unlike the streaming path, a one-shot reply is never kept partial: its callers
+   would take a truncated JSON or title for a complete one, so it always throws.
+   `extractFromDocument` passes `interruptible: false`, deliberately — a cut page parses as a
+   page with fewer results, and each page's hold is bounded at 1,536 tokens.
+   `MLXOnDeviceError.generationInterrupted` now carries its `Reason`, so a cancelled turn no
+   longer says the app went to the background (unit-tested in `ModelTests`).
+8. ~~**W-N**~~ — **done 2026-10-31.** New `BisonTheme.goldText`: light `(0.56, 0.37, 0.05)`,
+   4.75:1 on `sidebarBackground` (the darkest light background) and over 5:1 on the rest;
+   dark keeps `gold`, already 7.4:1 or better. All 79 foreground uses of `gold`, including
+   ternaries, now use it. **Not changed:** fills, strokes, tints, and the `color:`/`accent:`
+   parameters of `Card`, `StatBox`, `StorageRowView`, `FilterOptionRow`, `PrepSectionCard` and
+   `VitalCategoryView` — mostly icons and tinted fills, where 3:1 applies; worth a look in the
+   visual pass. Not yet seen on screen.
+9. ~~**W-U**~~ — **done 2026-10-31.** The v11 helpers skip any value that already opens with the
+   current key (AES-GCM authenticates, so plaintext cannot pass by accident).
+   `testTheVersion11EncryptionPassIsSafeToRunTwice` replays v11 over already-encrypted rows;
+   it was **seen failing against the old code** before the fix went back in.
+10. ~~**W-L**~~ — **done 2026-10-31, unverified against a real Bedrock account.** `makeClientConfig`
+    passes `socketTimeout: config.timeout` (the SDK default was a 60 s idle timeout that
+    `InvokeModel` hits on any long reply) and `maxAttempts: 1` (was three attempts, each
+    re-sending the PHI payload). Cost: a throttled request is no longer retried for the user.
+11. ~~**W-O**~~ — **done 2026-10-31.** README, CONTRIBUTING and AGENTS commands now `cd HealthApp`
+    and name the project, scheme and test plans; `.claude/claude.md` is tracked as `CLAUDE.md`.
+12. ~~**W-P**~~ — **done 2026-10-31.** `textual` is pinned to revision `5b06b811`, the one every
+    build so far used. The fork has no tags, and its `main` has since moved to `ad589638` —
+    exactly the silent drift the pin prevents.
+
+**Still open from the WS-17 queue:** W-K (test hygiene), W-Q (legacy file rename, **v16**),
+W-S (in-session disclaimer, ASC declarations, public privacy URL — needed before external
+TestFlight), W-R (113 orphaned UI tests, backlog), W-M (item 32, needs the app).
 
 ### Serialise these
 
 `project.pbxproj` is touched by **W-A, W-I, W-P, W-R** — one at a time, and hand-editing it
 makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
 `HealthAppTests/DatabaseTests.swift` by W-J (**done**), **W-K** and **W-U** — W-K may now
-start. `MLXOnDeviceClient.swift` by W-E (**done**) and **W-T**.
+start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
 Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 on
 2026-10-25.
 
 ### Standing verification facts for this repo
 
-- **368 tests, 0 failures** in the `Fast` plan, measured 2026-10-26 at PR #51's head.
+- **402 tests, 0 failures** in the `Fast` plan, measured 2026-10-31 on `fix/pre-testing-batch`
+  (368 on 2026-10-26).
   Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted
   since it stood at 348.
 - SwiftLint baseline **5**, and it must run from `HealthApp/`.

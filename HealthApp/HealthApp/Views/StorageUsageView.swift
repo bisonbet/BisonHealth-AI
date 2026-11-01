@@ -107,7 +107,7 @@ struct StorageUsageView: View {
                     Button("Optimize Storage") {
                         optimizeStorage()
                     }
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
 
                     Button("Clear Diagnostic Logs") {
                         showingClearDiagnosticsConfirmation = true

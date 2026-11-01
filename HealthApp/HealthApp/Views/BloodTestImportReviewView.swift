@@ -334,7 +334,7 @@ struct BloodTestImportReviewView: View {
         return HStack(spacing: 12) {
             // Selection indicator
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isSelected ? BisonTheme.gold : .gray)
+                .foregroundColor(isSelected ? BisonTheme.goldText : .gray)
                 .font(.title3)
             
             VStack(alignment: .leading, spacing: 4) {

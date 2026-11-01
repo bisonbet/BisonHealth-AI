@@ -1,6 +1,7 @@
 import Foundation
 import AWSBedrockRuntime
 import AWSClientRuntime
+import ClientRuntime
 import SmithyIdentity
 
 // MARK: - AWS Bedrock Models for Health App
@@ -181,6 +182,16 @@ class BedrockClient: ObservableObject, AIProviderInterface {
     /// Builds a client configuration with credentials supplied directly to the SDK.
     /// This keeps credentials out of process-wide environment variables while preserving
     /// the optional session-token path supported by AWS's credential identity type.
+    ///
+    /// Two SDK defaults are overridden, both because every request here carries health data:
+    ///
+    /// - **`socketTimeout` is `config.timeout`.** The SDK's default is a 60 s idle timeout,
+    ///   and `InvokeModel` sends no bytes until generation finishes, so a long appointment
+    ///   prep or extraction reply timed out at 60 s while the 300 s setting did nothing.
+    /// - **`maxAttempts` is 1.** The SDK treats that timeout as transient and retries it,
+    ///   up to three attempts in all, each re-sending the whole PHI payload and each billed.
+    ///   A failed request now fails once, visibly, and the user decides whether to resend.
+    ///   The cost is that a throttled request is no longer retried for them.
     static func makeClientConfig(
         for config: AWSBedrockConfig
     ) async throws -> BedrockRuntimeClient.BedrockRuntimeClientConfig {
@@ -193,7 +204,9 @@ class BedrockClient: ObservableObject, AIProviderInterface {
 
         return try await BedrockRuntimeClient.BedrockRuntimeClientConfig(
             awsCredentialIdentityResolver: resolver,
-            region: config.region
+            maxAttempts: 1,
+            region: config.region,
+            httpClientConfiguration: HttpClientConfiguration(socketTimeout: config.timeout)
         )
     }
 

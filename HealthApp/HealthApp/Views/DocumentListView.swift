@@ -48,7 +48,7 @@ struct DocumentRowView: View {
             if isEditing {
                 Button(action: onToggleSelection) {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(isSelected ? BisonTheme.gold : .secondary)
+                        .foregroundColor(isSelected ? BisonTheme.goldText : .secondary)
                         .font(.title3)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -162,7 +162,7 @@ struct DocumentThumbnailView: View {
             } else {
                 Image(systemName: document.fileType.icon)
                     .font(.title2)
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
             }
         }
         .frame(width: 50, height: 50)

@@ -110,7 +110,7 @@ private struct PrepRow: View {
         HStack(spacing: 12) {
             Image(systemName: "stethoscope")
                 .font(.title3)
-                .foregroundStyle(BisonTheme.gold)
+                .foregroundStyle(BisonTheme.goldText)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 3) {

@@ -69,7 +69,7 @@ struct DocumentsEmptyStateView: View {
             VStack(spacing: 16) {
                 Image(systemName: "doc.badge.plus")
                     .font(.system(size: 60))
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
                 
                 VStack(spacing: 8) {
                     Text("No Documents")

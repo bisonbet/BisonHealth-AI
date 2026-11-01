@@ -104,12 +104,12 @@ struct DocumentFilterView: View {
                     Button("Clear All Filters") {
                         documentManager.clearAllFilters()
                     }
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
                     
                     Button("Select All Visible") {
                         documentManager.selectAllDocuments()
                     }
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
                 }
             }
             .navigationTitle("Filter & Sort")
@@ -162,7 +162,7 @@ struct FilterOptionRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .font(.caption)
                 }
             }
@@ -187,7 +187,7 @@ struct SortOptionRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                         .font(.caption)
                 }
             }

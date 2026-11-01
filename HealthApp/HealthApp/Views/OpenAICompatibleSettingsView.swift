@@ -162,7 +162,7 @@ struct OpenAICompatibleSettingsView: View {
                                         Image(systemName: selectedModel == model ? "checkmark.circle.fill" : "circle")
                                             .foregroundColor(selectedModel == model ? .accentColor : .secondary)
                                         Image(systemName: "cpu")
-                                            .foregroundColor(BisonTheme.gold)
+                                            .foregroundColor(BisonTheme.goldText)
                                         Text(model)
                                             .font(.system(.body, design: .monospaced))
                                             .foregroundColor(.primary)

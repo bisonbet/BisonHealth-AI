@@ -24,7 +24,7 @@ struct GeneticTestsSection: View {
                         HStack {
                             Text("More")
                                 .font(.subheadline)
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                             Spacer()
                             Text("\(geneticTests.count) total")
                                 .font(.caption)
@@ -295,7 +295,7 @@ struct GeneticTestRecordView: View {
             HStack(alignment: .top) {
                 Image(systemName: HealthDataType.geneticProfile.icon)
                     .font(.system(size: 28))
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(currentDocument.fileName)

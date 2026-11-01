@@ -194,7 +194,7 @@ struct InfoRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(BisonTheme.gold)
+                .foregroundColor(BisonTheme.goldText)
                 .frame(width: 20)
             
             VStack(alignment: .leading, spacing: 2) {
@@ -217,7 +217,7 @@ struct InfoRowHeader: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(BisonTheme.gold)
+                .foregroundColor(BisonTheme.goldText)
                 .frame(width: 20)
 
             Text(label)
@@ -294,7 +294,7 @@ struct MedicalInfoStatusRow: View {
     var body: some View {
         HStack {
             Image(systemName: "heart.text.square")
-                .foregroundColor(BisonTheme.gold)
+                .foregroundColor(BisonTheme.goldText)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {

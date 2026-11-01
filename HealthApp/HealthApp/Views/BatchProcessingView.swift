@@ -66,7 +66,7 @@ struct BatchProcessingView: View {
         VStack(spacing: 8) {
             Image(systemName: "gearshape.2")
                 .font(.system(size: 40))
-                .foregroundColor(BisonTheme.gold)
+                .foregroundColor(BisonTheme.goldText)
             
             Text("Batch Processing")
                 .font(.title2)
@@ -272,7 +272,7 @@ struct BatchDocumentRow: View {
                 } else {
                     Image(systemName: document.fileType.icon)
                         .font(.title3)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                 }
             }
             .frame(width: 40, height: 40)

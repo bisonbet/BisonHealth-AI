@@ -57,7 +57,7 @@ struct ConversationSidebarView: View {
                             searchText = ""
                         }
                         .font(.caption)
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -177,13 +177,13 @@ struct ConversationSidebarRowView: View {
                             ForEach(Array(conversation.includedHealthDataTypes).prefix(3), id: \.self) { dataType in
                                 Image(systemName: dataType.icon)
                                     .font(.caption2)
-                                    .foregroundColor(BisonTheme.gold)
+                                    .foregroundColor(BisonTheme.goldText)
                             }
                             
                             if conversation.includedHealthDataTypes.count > 3 {
                                 Text("+\(conversation.includedHealthDataTypes.count - 3)")
                                     .font(.caption2)
-                                    .foregroundColor(BisonTheme.gold)
+                                    .foregroundColor(BisonTheme.goldText)
                             }
                         }
                     }

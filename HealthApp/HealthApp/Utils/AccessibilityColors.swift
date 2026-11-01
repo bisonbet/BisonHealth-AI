@@ -28,6 +28,18 @@ struct BisonTheme {
         )
     }
 
+    /// Gold for text and symbols drawn *on* the app's backgrounds. `gold` itself is a fill
+    /// colour: as a foreground it is 2.5–2.9:1 on the light backgrounds, which fails WCAG AA.
+    /// The light value is 4.75:1 on `sidebarBackground`, the darkest of them, and over 5:1 on
+    /// the rest; dark mode keeps `gold`, which is already 7.4:1 or better on every dark
+    /// background. Use `gold` for fills, strokes and tints, and this for foregrounds.
+    static var goldText: Color {
+        Color.adaptive(
+            light: Color(red: 0.56, green: 0.37, blue: 0.05),
+            dark: Color(red: 0.93, green: 0.70, blue: 0.28)
+        )
+    }
+
     static var sage: Color {
         Color.adaptive(
             light: Color(red: 0.23, green: 0.47, blue: 0.39),

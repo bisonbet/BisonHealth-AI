@@ -168,7 +168,7 @@ struct DatabaseUnavailableView: View {
             } label: {
                 Text(didCopyDetails ? "Copied" : "Copy Details")
                     .fontWeight(.medium)
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
             }
             .accessibilityLabel(didCopyDetails ? "Details copied" : "Copy details")
             .accessibilityHint("Copies the technical error text to the clipboard")

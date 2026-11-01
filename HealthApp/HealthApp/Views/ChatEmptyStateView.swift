@@ -76,7 +76,7 @@ struct FeatureHighlight: View {
         HStack(spacing: 16) {
             Image(systemName: icon)
                 .font(.title2)
-                .foregroundColor(BisonTheme.gold)
+                .foregroundColor(BisonTheme.goldText)
                 .frame(width: 32)
             
             VStack(alignment: .leading, spacing: 4) {

@@ -193,7 +193,7 @@ struct DocumentDetailView: View {
                     } else {
                         Image(systemName: document.fileType.icon)
                             .font(.system(size: 40))
-                            .foregroundColor(BisonTheme.gold)
+                            .foregroundColor(BisonTheme.goldText)
                             .frame(width: 80, height: 80)
                             .background(Color(.systemGray6))
                             .cornerRadius(8)
@@ -216,7 +216,7 @@ struct DocumentDetailView: View {
                     Spacer()
                     
                     Image(systemName: "eye")
-                        .foregroundColor(BisonTheme.gold)
+                        .foregroundColor(BisonTheme.goldText)
                 }
                 .padding()
                 .background(Color(.systemGray6))
@@ -349,7 +349,7 @@ struct DocumentDetailView: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(BisonTheme.gold.opacity(0.2))
-                            .foregroundColor(BisonTheme.gold)
+                            .foregroundColor(BisonTheme.goldText)
                             .cornerRadius(8)
                     }
                 }
@@ -552,7 +552,7 @@ struct ExtractedDataRow: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(BisonTheme.gold.opacity(0.2))
-                    .foregroundColor(BisonTheme.gold)
+                    .foregroundColor(BisonTheme.goldText)
                     .cornerRadius(4)
             }
             

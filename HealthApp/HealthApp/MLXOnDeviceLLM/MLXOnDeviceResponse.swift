@@ -49,7 +49,9 @@ enum MLXOnDeviceError: LocalizedError {
     case modelDownloadIncomplete
     case visionModelNotDownloaded
     case modelUnavailableOnDevice
-    case generationInterrupted
+    /// Carries why, because the two reasons need different words: telling a user who
+    /// cancelled that "the app went to the background" is simply false.
+    case generationInterrupted(MLXTurnInterruption.Reason)
 
     var errorDescription: String? {
         switch self {
@@ -69,8 +71,10 @@ enum MLXOnDeviceError: LocalizedError {
             return "No on-device vision model is downloaded. Download a vision-capable model before using on-device document extraction."
         case .modelUnavailableOnDevice:
             return "This model is only available on a Mac with at least 24 GB of installed physical memory."
-        case .generationInterrupted:
+        case .generationInterrupted(.backgrounded):
             return "The response stopped because the app went to the background."
+        case .generationInterrupted(.cancelled):
+            return "The response was stopped before it finished."
         }
     }
 
@@ -88,8 +92,10 @@ enum MLXOnDeviceError: LocalizedError {
             return "Try sending your message again."
         case .simulatorNotSupported:
             return "Deploy the app to a physical iPhone or iPad to use on-device AI."
-        case .generationInterrupted:
+        case .generationInterrupted(.backgrounded):
             return "Send your message again now that the app is in the foreground."
+        case .generationInterrupted(.cancelled):
+            return "Send your message again to get a complete response."
         }
     }
 }

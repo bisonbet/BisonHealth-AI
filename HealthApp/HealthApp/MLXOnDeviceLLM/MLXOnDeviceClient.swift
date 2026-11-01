@@ -432,7 +432,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             if interruption.disposition == .discard {
                 // Too little to be an answer. Failing the turn is what drops the empty
                 // assistant placeholder and leaves the user's message retryable.
-                throw MLXOnDeviceError.generationInterrupted
+                throw MLXOnDeviceError.generationInterrupted(interruption.reason)
             }
         }
 
@@ -836,10 +836,21 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     /// non-`Sendable` session across an isolation boundary. `streamResponse` is
     /// synchronous — it only hands `Sendable` state to its own internal task —
     /// so accumulating its chunks here is the isolation-safe equivalent.
+    ///
+    /// When `interruptible`, a background trip or a cancelled task stops the generation at
+    /// the next token boundary, for the same reason as the streaming path: the caller holds
+    /// ``MLXGPUGate``, and `suspendForBackground()` cannot unload the model until it lets go.
+    /// Unlike the streaming path, an interrupted one-shot reply is never kept — its callers
+    /// (appointment prep, title generation, JSON mapping) would take a truncated answer for
+    /// a complete one — so it always throws.
+    ///
+    /// Document extraction passes `false`: a page cut short parses as a page with fewer
+    /// results, and each page's hold is already bounded by `visionExtractionMaxTokens`.
     private func collectResponse(
         from session: ChatSession,
         to prompt: String,
-        image: UserInput.Image? = nil
+        image: UserInput.Image? = nil,
+        interruptible: Bool = true
     ) async throws -> String {
         var output = ""
         var charactersSinceRepetitionCheck = 0
@@ -847,6 +858,18 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         for try await chunk in session.streamResponse(to: prompt, image: image) {
             output += chunk
             charactersSinceRepetitionCheck += chunk.count
+
+            if interruptible, let stop = MLXTurnInterruption.evaluate(
+                isSuspendedForBackground: isSuspendedForBackground,
+                isTaskCancelled: Task.isCancelled,
+                accumulatedContent: output
+            ) {
+                AppLog.shared.mlx(
+                    "[MLXClient] Stopped an isolated response at a token boundary: \(stop.reason)",
+                    level: .warning
+                )
+                throw MLXOnDeviceError.generationInterrupted(stop.reason)
+            }
 
             // Amortized for the same reason as the main streaming path: the scan is linear
             // in the accumulated text, so running it per chunk would be quadratic.
@@ -957,7 +980,8 @@ extension MLXOnDeviceClient: VisionDocumentExtractor {
                 let response = try await collectResponse(
                     from: session,
                     to: pagePrompt,
-                    image: .ciImage(ciImage)
+                    image: .ciImage(ciImage),
+                    interruptible: false
                 )
                 let parsedCount = mergePageJSON(
                     response,

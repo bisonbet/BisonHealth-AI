@@ -63,7 +63,7 @@ struct FirstLaunchDisclaimerView: View {
                                     .fontWeight(.medium)
                                 Image(systemName: "chevron.right")
                             }
-                            .foregroundColor(BisonTheme.gold)
+                            .foregroundColor(BisonTheme.goldText)
                         }
                         
                         Text("By using this app, you acknowledge that you have read, understood, and agree to this notice, the Privacy Policy, and the Terms of Service.")
@@ -262,7 +262,7 @@ struct DetailedDisclaimerView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundColor(BisonTheme.gold)
+                .foregroundColor(BisonTheme.goldText)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 4) {

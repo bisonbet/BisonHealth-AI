@@ -329,6 +329,15 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(interruption?.reason, .backgrounded)
     }
 
+    func testTheInterruptionErrorNamesBackgroundingOnlyWhenThatIsWhyTheTurnStopped() {
+        let backgrounded = MLXOnDeviceError.generationInterrupted(.backgrounded)
+        let cancelled = MLXOnDeviceError.generationInterrupted(.cancelled)
+
+        XCTAssertTrue(backgrounded.errorDescription?.contains("background") ?? false)
+        XCTAssertFalse(cancelled.errorDescription?.contains("background") ?? true, "A cancelled turn was not backgrounded")
+        XCTAssertFalse(cancelled.recoverySuggestion?.contains("foreground") ?? true)
+    }
+
     func testTheNoticeNamesBackgroundingOnlyWhenThatIsWhyTheTurnStopped() {
         let backgrounded = MLXTurnInterruption(reason: .backgrounded, disposition: .keepPartial)
         let cancelled = MLXTurnInterruption(reason: .cancelled, disposition: .keepPartial)

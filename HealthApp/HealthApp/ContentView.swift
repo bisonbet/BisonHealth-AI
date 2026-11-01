@@ -276,7 +276,7 @@ private struct AppSidebar: View {
 
                 Text("AI")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(BisonTheme.gold)
+                    .foregroundStyle(BisonTheme.goldText)
             }
         }
         .padding(.horizontal, 4)

@@ -80,7 +80,7 @@ struct SupplementSelectorView: View {
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
-                                .foregroundColor(BisonTheme.gold)
+                                .foregroundColor(BisonTheme.goldText)
                             Text("Add Custom Supplement")
                                 .foregroundColor(.primary)
                         }

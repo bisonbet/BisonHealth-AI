@@ -15,8 +15,10 @@
 
 ## Build, Test, and Development Commands
 - Open in Xcode: `open HealthApp/HealthApp.xcodeproj`
-- Build (CLI, Simulator default): `xcodebuild -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- Unit/UI tests (Simulator): `xcodebuild test -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'`
+- Build (CLI, Simulator default): `cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- Unit + UI tests (the scheme's default `PreRelease` plan): `cd HealthApp && xcodebuild test -project HealthApp.xcodeproj -scheme HealthApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'`
+- Unit tests only: add `-testPlan Fast` to the command above. Read the test count from the `.xcresult`, not stdout.
+- MLX code needs a device build to typecheck: `cd HealthApp && xcodebuild -project HealthApp.xcodeproj -scheme HealthApp -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
 - Legacy web-app (optional, reference only): `cd legacy/web-app && npm i && npm run dev` (unsupported)
 
 Note: Our default Simulator target is `iPhone 17 Pro`. If that runtime isn't installed locally, either install it via Xcode > Settings > Platforms or temporarily substitute another available device (e.g., `iPhone 17`, `iPhone Air`).
@@ -58,7 +60,7 @@ Note: Our default Simulator target is `iPhone 17 Pro`. If that runtime isn't ins
 
 - Use the build and test commands above to verify iOS changes from the command line.
 - Prefer the default Simulator destination unless you have confirmed another installed simulator is a better fit for the change.
-- SwiftLint may be used for style/static checks when installed: `cd HealthApp && swiftlint lint`.
+- SwiftLint may be used for style/static checks when installed: `cd HealthApp && swiftlint lint --quiet` (it must run from `HealthApp/`, where `.swiftlint.yml` lives; the baseline is 5 violations).
 - Configure AI providers from Settings when testing against external services.
 
 ## Definition of Done
