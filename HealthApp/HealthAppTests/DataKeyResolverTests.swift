@@ -274,6 +274,21 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertEqual(key.withUnsafeBytes { Data($0) }, storeKey.withUnsafeBytes { Data($0) })
     }
 
+    /// A restored store whose key has not synced and whose database cannot be read. It
+    /// must not look empty: an empty store is the one case that mints a key.
+    func testUnreadableStoreThrowsInsteadOfLookingEmpty() throws {
+        try Data(repeating: 0xAB, count: 4096).write(to: databaseURL)
+        let storeID = UUID().uuidString
+        try Data(storeID.utf8).write(to: identityURL)
+
+        XCTAssertThrowsError(try makeResolver().resolve()) { error in
+            guard case DataKeyError.dataStoreUnreadable = error else {
+                return XCTFail("Unexpected error \(error)")
+            }
+        }
+        XCTAssertTrue(keychain.storeKeys.isEmpty)
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()

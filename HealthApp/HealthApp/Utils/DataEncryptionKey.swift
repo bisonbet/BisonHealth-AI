@@ -59,9 +59,13 @@ protocol EncryptionKeyStoring {
 enum DataKeyError: LocalizedError {
     /// Encrypted data exists and none of the keys on this device can open it.
     case noKeyOpensExistingData
+    /// The stored data could not be read to tell which key it needs.
+    case dataStoreUnreadable
 
     var errorDescription: String? {
         switch self {
+        case .dataStoreUnreadable:
+            return "Your health data could not be read to check its encryption key. Restart your device, then reopen the app."
         case .noKeyOpensExistingData:
             return "The encryption key for your health data is not available on this device. If you restored from a backup, make sure iCloud Keychain is on and has finished syncing, then reopen the app."
         }
@@ -153,7 +157,10 @@ struct DataKeyResolver {
                 // Values no key opened at binding: see whether their key has arrived since.
                 let others = try keychain.legacyEncryptionKeys().map(\.key).filter { !Self.sameKey($0, key) }
                 let keys = [key] + Self.distinct(others) { $0 }
-                if reconcile(collectSamples(candidates: keys), selected: 0, keys: keys) {
+                // The key is already filed, so an unreadable store only postpones this:
+                // the marker stays and the next launch tries again.
+                if let samples = try? collectSamples(candidates: keys),
+                   reconcile(samples, selected: 0, keys: keys) {
                     clearReconciliationPending()
                 }
             }
@@ -163,7 +170,7 @@ struct DataKeyResolver {
         // No ID yet (an upgrade from a build that kept no ID), or an ID whose key has not
         // reached this device. Decide by what the stored data can be opened with.
         let candidates = try Self.distinct(keychain.legacyEncryptionKeys(), by: \.key)
-        let samples = collectSamples(candidates: candidates.map(\.key))
+        let samples = try collectSamples(candidates: candidates.map(\.key))
 
         guard !samples.isEmpty else {
             // Nothing is encrypted yet, so any key is correct. A new one, rather than a
@@ -289,52 +296,75 @@ struct DataKeyResolver {
         let opener: Int?
     }
 
-    private func collectSamples(candidates: [SymmetricKey]) -> [Sample] {
+    /// Every encrypted value in the store, and which candidate opens it.
+    ///
+    /// Fails rather than skips when the store cannot be read: an unreadable store would
+    /// otherwise look empty, and an empty store is the one case that mints a key.
+    private func collectSamples(candidates: [SymmetricKey]) throws -> [Sample] {
         var samples: [Sample] = []
 
-        for databaseURL in databaseURLs where FileManager.default.fileExists(atPath: databaseURL.path) {
-            guard let db = try? Connection(databaseURL.path, readonly: true) else {
-                log.database("Could not open \(databaseURL.lastPathComponent) to check its encryption key", level: .warning)
-                continue
-            }
-            // No version table means a schema older than any encryption migration.
-            let schemaVersion = Int((try? db.scalar("SELECT MAX(version) FROM database_version") as? Int64) ?? 0)
-            for (table, column) in Self.encryptedColumns {
-                let holdsOnlyCiphertext = schemaVersion >= Self.ciphertextOnlySinceVersion["\(table).\(column)", default: 0]
-                let recordType = table == "health_data" ? ", type" : ""
+        do {
+            for databaseURL in databaseURLs where FileManager.default.fileExists(atPath: databaseURL.path) {
+                let db = try Connection(databaseURL.path, readonly: true)
+                let columns = try Self.columnsByTable(db)
+                // No version table means a schema older than any encryption migration.
+                let schemaVersion = columns["database_version"] == nil
+                    ? 0
+                    : Int((try db.scalar("SELECT MAX(version) FROM database_version") as? Int64) ?? 0)
+
                 // A missing table or column means an older schema; there is nothing to check.
-                guard let rows = try? db.prepare("SELECT rowid, \(column)\(recordType) FROM \(table) WHERE \(column) IS NOT NULL") else {
-                    continue
-                }
-                for row in rows {
-                    guard let rowID = row[0] as? Int64,
-                          let (sealed, isText) = Self.sealedBytes(row[1]) else { continue }
-                    let location = Location.cell(
-                        database: databaseURL, table: table, column: column, rowID: rowID,
-                        isText: isText, recordType: row.count > 2 ? row[2] as? String : nil
-                    )
-                    let opener = Self.opener(of: sealed, among: candidates)
-                    // A value no key opens counts only where it cannot be legacy plaintext.
-                    if opener != nil || holdsOnlyCiphertext && sealed.count >= Self.minimumSealedLength {
-                        samples.append(Sample(location: location, opener: opener))
+                for (table, column) in Self.encryptedColumns where columns[table]?.contains(column) == true {
+                    let holdsOnlyCiphertext = schemaVersion >= Self.ciphertextOnlySinceVersion["\(table).\(column)", default: 0]
+                    let recordType = table == "health_data" ? ", type" : ""
+                    let rows = try db.prepare("SELECT rowid, \(column)\(recordType) FROM \(table) WHERE \(column) IS NOT NULL")
+                    while let row = try rows.failableNext() {
+                        guard let rowID = row[0] as? Int64,
+                              let (sealed, isText) = Self.sealedBytes(row[1]) else { continue }
+                        let location = Location.cell(
+                            database: databaseURL, table: table, column: column, rowID: rowID,
+                            isText: isText, recordType: row.count > 2 ? row[2] as? String : nil
+                        )
+                        let opener = Self.opener(of: sealed, among: candidates)
+                        // A value no key opens counts only where it cannot be legacy plaintext.
+                        if opener != nil || holdsOnlyCiphertext && sealed.count >= Self.minimumSealedLength {
+                            samples.append(Sample(location: location, opener: opener))
+                        }
                     }
                 }
             }
-        }
 
-        for directory in fileDirectories {
-            let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-            for url in files {
-                guard let sealed = try? Data(contentsOf: url) else { continue }
-                // Plain files left by earlier versions open with no key and do not count.
-                let opener = Self.opener(of: sealed, among: candidates)
-                if opener != nil || sealed.count >= Self.minimumSealedLength && !Self.isKnownPlaintext(sealed) {
-                    samples.append(Sample(location: .file(url), opener: opener))
+            for directory in fileDirectories where FileManager.default.fileExists(atPath: directory.path) {
+                let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey])
+                for url in files {
+                    guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+                    let sealed = try Data(contentsOf: url)
+                    // Plain files left by earlier versions open with no key and do not count.
+                    let opener = Self.opener(of: sealed, among: candidates)
+                    if opener != nil || sealed.count >= Self.minimumSealedLength && !Self.isKnownPlaintext(sealed) {
+                        samples.append(Sample(location: .file(url), opener: opener))
+                    }
                 }
             }
+        } catch {
+            log.error("Could not read the data store to check its encryption key: \(error.localizedDescription)", error: error, category: .database)
+            throw DataKeyError.dataStoreUnreadable
         }
 
         return samples
+    }
+
+    /// Each table's column names. A table that is not there is simply absent.
+    private static func columnsByTable(_ db: Connection) throws -> [String: Set<String>] {
+        var columns: [String: Set<String>] = [:]
+        let rows = try db.prepare("""
+            SELECT m.name, p.name FROM sqlite_master AS m, pragma_table_info(m.name) AS p
+            WHERE m.type = 'table'
+            """)
+        while let row = try rows.failableNext() {
+            guard let table = row[0] as? String, let column = row[1] as? String else { continue }
+            columns[table, default: []].insert(column)
+        }
+        return columns
     }
 
     // MARK: Re-encryption
