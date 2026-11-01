@@ -2029,6 +2029,9 @@ class DocumentProcessor: ObservableObject {
         }
         if renamed > 0 {
             AppLog.shared.documents("Renamed \(renamed) document file(s) stored under the old name scheme")
+            // Anything loaded before this ran holds the old paths, and an edit to a cached copy
+            // writes the whole row back — path included. No object: every listener reloads.
+            NotificationCenter.default.post(name: .medicalDocumentDidChange, object: nil)
         }
     }
 

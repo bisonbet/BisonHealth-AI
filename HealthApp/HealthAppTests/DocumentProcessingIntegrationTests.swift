@@ -396,7 +396,11 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
             healthDataManager: harness.healthDataManager,
             settingsManager: harness.settingsManager
         )
+        // Caches loaded before the pass hold the old paths and would write them back on edit,
+        // so the pass must tell every document listener to reload.
+        let reloadAnnounced = expectation(forNotification: .medicalDocumentDidChange, object: nil)
         await processor.renameLegacyDocumentFiles()
+        await fulfillment(of: [reloadAnnounced], timeout: 1)
 
         for (index, document) in documents.enumerated() {
             let fetched = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
