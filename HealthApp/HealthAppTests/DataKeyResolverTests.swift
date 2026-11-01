@@ -289,6 +289,54 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertTrue(keychain.storeKeys.isEmpty)
     }
 
+    /// A pre-encryption document in a format with no recognised header (GIF here) opens with
+    /// no key, but proves nothing: it must neither block resolution nor leave it pending.
+    func testLegacyPlaintextFileOfAnyTypeDoesNotCount() throws {
+        let own = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        try Data("GIF89a".utf8 + [UInt8](repeating: 0x2C, count: 64)).write(to: filesURL.appendingPathComponent("scan.gif"))
+
+        let key = try makeResolver().resolve()
+
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: identityURL.appendingPathExtension("pending").path))
+    }
+
+    /// An ID file that exists but cannot be read must not be taken for "no ID" and replaced.
+    func testUnreadableIdentityFileThrowsInsteadOfStartingOver() throws {
+        try FileManager.default.createDirectory(at: identityURL, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(try makeResolver().resolve()) { error in
+            guard case DataKeyError.dataStoreUnreadable = error else {
+                return XCTFail("Unexpected error \(error)")
+            }
+        }
+        XCTAssertTrue(keychain.storeKeys.isEmpty)
+    }
+
+    /// The oldest profile is sealed with a key that is not here. Promoting it would make the
+    /// app read a profile it cannot open, so the oldest one that opens is restored instead.
+    func testProfileRestoreSkipsAProfileNoKeyOpens() throws {
+        let own = SymmetricKey(size: .bits256)
+        let foreign = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        keychain.sharedSynchronizable = foreign
+
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "lost", type: "personal_info", sealed: seal("unreachable", with: SymmetricKey(size: .bits256)), time: 50)
+        try insertHealthData(db, id: "profile", type: "personal_info", sealed: seal("own profile", with: own), time: 100)
+        try insertHealthData(db, id: "profile-dup", type: "personal_info", sealed: seal("stand-in", with: foreign), time: 200)
+        for index in 0..<2 {
+            try insertHealthData(db, id: "lab\(index)", type: "blood_test", sealed: seal("lab \(index)", with: own))
+        }
+
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(try visiblePersonalInfo(db), "profile")
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()

@@ -23,13 +23,15 @@ import CryptoKit
 /// here, so they cannot end up holding different keys.
 @MainActor
 enum DataEncryptionKey {
-    private static var cached: SymmetricKey?
+    /// A failure is kept too: `DatabaseManager` and `FileSystemManager` each ask, and a
+    /// store that could not be resolved once will not resolve on a second scan this launch.
+    private static var resolved: Swift.Result<SymmetricKey, Error>?
 
     static func current() throws -> SymmetricKey {
-        if let cached { return cached }
-        let key = try DataKeyResolver.forDefaultStore().resolve()
-        cached = key
-        return key
+        if let resolved { return try resolved.get() }
+        let result = Swift.Result { try DataKeyResolver.forDefaultStore().resolve() }
+        resolved = result
+        return try result.get()
     }
 }
 
@@ -149,16 +151,16 @@ struct DataKeyResolver {
     // MARK: Resolution
 
     func resolve() throws -> SymmetricKey {
-        let storeID = readStoreID()
+        let storeID = try readStoreID()
 
         if let storeID, let key = try keychain.encryptionKey(forStore: storeID) {
             log.database("Using encryption key for data store \(storeID.prefix(8)) (fingerprint: \(Self.fingerprint(key)))")
             if isReconciliationPending {
                 // Values no key opened at binding: see whether their key has arrived since.
-                let others = try keychain.legacyEncryptionKeys().map(\.key).filter { !Self.sameKey($0, key) }
-                let keys = [key] + Self.distinct(others) { $0 }
-                // The key is already filed, so an unreadable store only postpones this:
-                // the marker stays and the next launch tries again.
+                // The key is already filed, so an unreadable Keychain or store only postpones
+                // this: the marker stays and the next launch tries again.
+                let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
+                let keys = Self.distinct([key] + legacy) { $0 }
                 if let samples = try? collectSamples(candidates: keys),
                    reconcile(samples, selected: 0, keys: keys) {
                     clearReconciliationPending()
@@ -222,13 +224,11 @@ struct DataKeyResolver {
         let foreign = samples.filter { $0.opener != nil && $0.opener != selected }
         if !foreign.isEmpty {
             do {
-                let personalInfoKeys = Set(samples.filter { Self.isPersonalInfo($0.location) }.compactMap(\.opener))
-                try reencrypt(
-                    foreign,
-                    to: keys[selected],
-                    candidates: keys,
-                    restoreOriginalPersonalInfo: personalInfoKeys.count > 1
-                )
+                // Personal info under more than one key means the app made a stand-in while
+                // the original would not decrypt. Only rows a key here opens can be restored.
+                let personalInfo = samples.filter { Self.isPersonalInfo($0.location) && $0.opener != nil }
+                let restorable = Set(personalInfo.compactMap(\.opener)).count > 1 ? personalInfo : []
+                try reencrypt(foreign, to: keys[selected], candidates: keys, restoringPersonalInfoFrom: restorable)
             } catch {
                 log.error("Re-encrypting values sealed with another key failed: \(error.localizedDescription)", error: error, category: .database)
                 return false
@@ -272,10 +272,22 @@ struct DataKeyResolver {
         try? FileManager.default.removeItem(at: reconciliationPendingURL)
     }
 
-    private func readStoreID() -> String? {
-        guard let data = try? Data(contentsOf: identityURL),
-              let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+    /// The store's ID, or nil when no ID has been recorded. An ID file that exists but
+    /// cannot be read throws: taken as "no ID", it would be overwritten with a new one and
+    /// the store's own key would never be looked up again.
+    private func readStoreID() throws -> String? {
+        guard FileManager.default.fileExists(atPath: identityURL.path) else { return nil }
+        let data: Data
+        do {
+            data = try Data(contentsOf: identityURL)
+        } catch {
+            log.error("Could not read the data store ID: \(error.localizedDescription)", error: error, category: .database)
+            throw DataKeyError.dataStoreUnreadable
+        }
+        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               UUID(uuidString: text) != nil else {
+            // Not an ID this code wrote; there is no account name to recover from it.
+            log.database("Ignoring a malformed data store ID file", level: .warning)
             return nil
         }
         return text
@@ -337,10 +349,10 @@ struct DataKeyResolver {
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey])
                 for url in files {
                     guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
-                    let sealed = try Data(contentsOf: url)
-                    // Plain files left by earlier versions open with no key and do not count.
-                    let opener = Self.opener(of: sealed, among: candidates)
-                    if opener != nil || sealed.count >= Self.minimumSealedLength && !Self.isKnownPlaintext(sealed) {
+                    // A file counts only when some key opens it. Legacy plaintext documents can
+                    // be any image type the importer accepts, so a file no key opens proves
+                    // nothing; its `documents` row, encrypted since v11, is the evidence.
+                    if let opener = Self.opener(of: try Data(contentsOf: url), among: candidates) {
                         samples.append(Sample(location: .file(url), opener: opener))
                     }
                 }
@@ -369,13 +381,13 @@ struct DataKeyResolver {
 
     // MARK: Re-encryption
 
-    /// - Parameter restoreOriginalPersonalInfo: Personal info records exist under more than
-    ///   one key, so the app made a second one while the first would not decrypt.
+    /// - Parameter restoringPersonalInfoFrom: Personal info records, all openable, among which
+    ///   the original is to be put back in front. Empty when there is nothing to restore.
     private func reencrypt(
         _ samples: [Sample],
         to key: SymmetricKey,
         candidates: [SymmetricKey],
-        restoreOriginalPersonalInfo: Bool
+        restoringPersonalInfoFrom personalInfo: [Sample]
     ) throws {
         let cells = Dictionary(grouping: samples.compactMap { sample -> (URL, Sample)? in
             if case .cell(let database, _, _, _, _, _) = sample.location { return (database, sample) }
@@ -403,11 +415,18 @@ struct DataKeyResolver {
                 // user's own and would hide it. Which key won says nothing about which record
                 // is the user's, so nothing is deleted: the earliest-created record is moved
                 // to the front, and the stand-in stays in the table behind it.
-                if restoreOriginalPersonalInfo {
+                // Only openable rows are candidates: promoting one no key opens would make the
+                // app read an undecryptable profile and create yet another stand-in.
+                let rowIDs = personalInfo.compactMap { sample -> Int64? in
+                    guard case .cell(databaseURL, _, _, let rowID, _, _) = sample.location else { return nil }
+                    return rowID
+                }
+                if !rowIDs.isEmpty {
+                    let candidateRows = rowIDs.map(String.init).joined(separator: ",")
                     try db.run("""
                         UPDATE health_data
                         SET updated_at = (SELECT MAX(updated_at) FROM health_data WHERE type = 'personal_info') + 1
-                        WHERE rowid = (SELECT rowid FROM health_data WHERE type = 'personal_info'
+                        WHERE rowid = (SELECT rowid FROM health_data WHERE rowid IN (\(candidateRows))
                                        ORDER BY created_at ASC, rowid ASC LIMIT 1)
                         """)
                     log.database("Restored the original personal info record ahead of one created while the wrong key was in use", level: .warning)
@@ -467,16 +486,6 @@ struct DataKeyResolver {
             throw DatabaseError.encryptionFailed
         }
         return combined
-    }
-
-    /// Headers of the formats the app imports (PDF, JPEG, PNG, DOCX as ZIP, HEIC as an ISO
-    /// media file): files written before files were encrypted.
-    private static func isKnownPlaintext(_ data: Data) -> Bool {
-        data.starts(with: [0x25, 0x50, 0x44, 0x46])
-            || data.starts(with: [0xFF, 0xD8, 0xFF])
-            || data.starts(with: [0x89, 0x50, 0x4E, 0x47])
-            || data.starts(with: [0x50, 0x4B, 0x03, 0x04])
-            || data.dropFirst(4).starts(with: Array("ftyp".utf8))
     }
 
     /// The items in order, without any whose key an earlier item already holds.

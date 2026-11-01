@@ -526,7 +526,11 @@ find HealthApp/HealthAppTests HealthApp/HealthAppUITests -type f -name '*.swift'
   chooses the key by what opens the stored data, re-encrypting anything sealed with another
   candidate. The two legacy accounts are only read, never written or deleted. Both
   `DatabaseManager` and `FileSystemManager` take their key from `DataEncryptionKey.current()`;
-  a new encrypted column must be added to `DataKeyResolver.encryptedColumns`.
+  a new encrypted column must be added to `DataKeyResolver.encryptedColumns`. If a
+  migration encrypts a column that already held plaintext, also add it to
+  `ciphertextOnlySinceVersion` with that migration's version: otherwise old plaintext that
+  happens to be valid Base64 counts as data sealed with a missing key, and can lock the
+  user out.
 - **Network**: TLS 1.2+ only
 
 ### .gitignore Protection

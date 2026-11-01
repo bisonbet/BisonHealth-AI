@@ -199,15 +199,19 @@ extension Keychain: EncryptionKeyStoring {
 
     /// These are separate namespaces: a query that does not name `kSecAttrSynchronizable`
     /// matches only non-synchronizable items.
+    ///
+    /// A slot holding something other than a 256-bit key is skipped, not thrown: it can open
+    /// nothing, and failing here would block the other slot's key from opening the data.
     func legacyEncryptionKeys() throws -> [LegacyEncryptionKey] {
-        var keys: [LegacyEncryptionKey] = []
-        if let key = try validatedKey(readKeyData(account: encryptionKeyAccount, synchronizable: false)) {
-            keys.append(LegacyEncryptionKey(key: key, source: .deviceOnly))
+        let slots: [(synchronizable: Bool, source: LegacyEncryptionKey.Source)] = [
+            (false, .deviceOnly),
+            (true, .sharedSynchronizable)
+        ]
+        return try slots.compactMap { slot in
+            guard let keyData = try readKeyData(account: encryptionKeyAccount, synchronizable: slot.synchronizable),
+                  keyData.count == 32 else { return nil }
+            return LegacyEncryptionKey(key: SymmetricKey(data: keyData), source: slot.source)
         }
-        if let key = try validatedKey(readKeyData(account: encryptionKeyAccount, synchronizable: true)) {
-            keys.append(LegacyEncryptionKey(key: key, source: .sharedSynchronizable))
-        }
-        return keys
     }
 }
 
