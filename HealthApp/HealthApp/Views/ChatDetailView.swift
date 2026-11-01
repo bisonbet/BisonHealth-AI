@@ -166,6 +166,9 @@ struct ChatDetailView: View {
 
         // Message input with keyboard shortcuts
         messageInputView
+
+        // Visible for the whole conversation, not only on the empty state (WS-13-09)
+        AIDisclaimerFooter()
     }
     
     private var emptyStateView: some View {

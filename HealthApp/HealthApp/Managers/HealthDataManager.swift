@@ -67,7 +67,7 @@ class HealthDataManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.refreshGeneticTestDocuments()
+                await self?.refreshDocumentCollections()
             }
         }
 
@@ -175,6 +175,11 @@ class HealthDataManager: ObservableObject {
             throw error
         }
 
+        try await loadDocumentCollections()
+    }
+
+    /// The three collections backed by `MedicalDocument` rows rather than `health_data`.
+    private func loadDocumentCollections() async throws {
         // Genetic profiles are stored with their source MedicalDocument so
         // the report, provenance, and any pending review issues stay together.
         geneticTestDocuments = try await databaseManager.fetchMedicalDocuments(category: .geneticTest)
@@ -434,6 +439,17 @@ class HealthDataManager: ObservableObject {
             case .imagingReport, .healthCheckup:
                 break
             }
+        }
+    }
+
+    /// Reload every document-backed collection after a document row changes. A change can
+    /// touch any of them — the launch-time rename rewrites the file path of imaging reports and
+    /// checkups too — and a stale cached copy is written back whole when the user edits it.
+    func refreshDocumentCollections() async {
+        do {
+            try await loadDocumentCollections()
+        } catch {
+            AppLog.shared.healthData("Failed to refresh document-backed records: \(error.localizedDescription)", level: .warning)
         }
     }
 

@@ -4,20 +4,34 @@ import XCTest
 @MainActor
 final class AIChatManagerReliabilityTests: XCTestCase {
     private var chatManager: AIChatManager!
-    private var originalModelPreferences: ModelPreferences!
+    private var container: TestContainer?
+    private var settingsManager: SettingsManager?
 
     override func setUp() async throws {
         try await super.setUp()
-        originalModelPreferences = SettingsManager.shared.modelPreferences
+        let container = try TestContainer()
+        self.container = container
+        let databaseManager = try container.makeDatabaseManager()
+        let settingsManager = try makeIsolatedSettingsManager()
+        self.settingsManager = settingsManager
         chatManager = AIChatManager(
-            healthDataManager: HealthDataManager.shared,
-            databaseManager: DatabaseManager.shared
+            healthDataManager: HealthDataManager(
+                databaseManager: databaseManager,
+                fileSystemManager: try container.makeFileSystemManager(),
+                automaticallyLoad: false
+            ),
+            databaseManager: databaseManager,
+            settingsManager: settingsManager,
+            // Its unawaited load would read the container tearDown deletes; no test here needs it.
+            automaticallyLoadConversations: false
         )
     }
 
     override func tearDown() async throws {
-        SettingsManager.shared.modelPreferences = originalModelPreferences
         chatManager = nil
+        settingsManager = nil
+        container?.remove()
+        container = nil
         try await super.tearDown()
     }
 
@@ -41,9 +55,7 @@ final class AIChatManagerReliabilityTests: XCTestCase {
     }
 
     func testOnDeviceConversationTitleUsesHeuristicPath() async throws {
-        var prefs = SettingsManager.shared.modelPreferences
-        prefs.aiProvider = .onDeviceLLM
-        SettingsManager.shared.modelPreferences = prefs
+        try XCTUnwrap(settingsManager).modelPreferences.aiProvider = .onDeviceLLM
 
         let conversation = ChatConversation(
             title: "New Conversation",

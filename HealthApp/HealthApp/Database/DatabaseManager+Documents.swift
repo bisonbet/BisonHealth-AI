@@ -248,6 +248,26 @@ extension DatabaseManager {
         }
     }
     
+    // MARK: - Document File Paths
+
+    /// Every document's id, file path and thumbnail path, without decrypting anything else.
+    func fetchDocumentStoragePaths() async throws -> [(id: UUID, filePath: URL, thumbnailPath: URL?)] {
+        guard let db = db else { throw DatabaseError.connectionFailed }
+        // `prepareRowIterator`, not `prepare`: the latter's sequence traps on a step error
+        // instead of throwing, and this runs from a launch task that nothing else awaits.
+        var paths: [(id: UUID, filePath: URL, thumbnailPath: URL?)] = []
+        let iterator = try db.prepareRowIterator(
+            documentsTable.select(documentId, documentFilePath, documentThumbnailPath)
+        )
+        while let row = try iterator.failableNext() {
+            guard let id = UUID(uuidString: try row.get(documentId)),
+                  let url = URL(string: try row.get(documentFilePath)) else { continue }
+            let thumbnail = try row.get(documentThumbnailPath).flatMap(URL.init(string:))
+            paths.append((id, url, thumbnail))
+        }
+        return paths
+    }
+
     // MARK: - Fetch Documents by Status
     func fetchDocuments(with status: ProcessingStatus) async throws -> [MedicalDocument] {
         guard let db = db else { throw DatabaseError.connectionFailed }

@@ -5,11 +5,6 @@ import SQLite3
 @MainActor
 final class DatabaseTests: XCTestCase {
 
-    func testDatabaseManagerInitializes() throws {
-        let databaseManager = try DatabaseManager()
-        XCTAssertNotNil(databaseManager)
-    }
-
     func testPersonalHealthInfoRoundTripsThroughJSON() throws {
         let original = PersonalHealthInfo(
             name: "Test User",

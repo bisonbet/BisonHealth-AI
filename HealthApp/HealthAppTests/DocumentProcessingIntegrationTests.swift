@@ -5,27 +5,31 @@ import UIKit
 @MainActor
 final class DocumentProcessingIntegrationTests: XCTestCase {
 
-    func testProcessingQueueItemSortsByPriority() {
-        let low = ProcessingQueueItem(
-            document: makeDocument(named: "low.pdf"),
-            priority: .low,
-            addedAt: Date()
-        )
-        let urgent = ProcessingQueueItem(
-            document: makeDocument(named: "urgent.pdf"),
-            priority: .urgent,
-            addedAt: Date()
-        )
-        let normal = ProcessingQueueItem(
-            document: makeDocument(named: "normal.pdf"),
-            priority: .normal,
-            addedAt: Date()
+    func testTheProcessingQueueRunsHigherPriorityFirstAndKeepsArrivalOrderWithinOne() throws {
+        // Drives the processor's own insertion rule. The test this replaces sorted an array
+        // itself and so could not fail from a processor regression.
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
         )
 
-        let sorted: [ProcessingQueueItem] = [low, urgent, normal]
-            .sorted { $0.priority.rawValue > $1.priority.rawValue }
+        for (name, priority) in [("low", ProcessingPriority.low), ("normal-1", .normal),
+                                 ("urgent", .urgent), ("normal-2", .normal)] {
+            processor.insertByPriority(ProcessingQueueItem(
+                document: makeDocument(named: "\(name).pdf"),
+                priority: priority,
+                addedAt: Date()
+            ))
+        }
 
-        XCTAssertEqual(sorted.map { $0.priority }, [.urgent, .normal, .low])
+        XCTAssertEqual(
+            processor.processingQueue.map(\.document.fileName),
+            ["urgent.pdf", "normal-1.pdf", "normal-2.pdf", "low.pdf"]
+        )
     }
 
     func testMedicalDocumentCategoryMetadataForLabReports() {
@@ -360,6 +364,68 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertNotEqual(resumed?.processingStatus, .queued, "Resuming must actually run the parked document")
     }
 
+    func testLegacyNamedFilesAreRenamedAndTheirStoredPathsRewritten() async throws {
+        // W-Q. One row records the file where it is; the other records a path from an older
+        // container, as a restore or reinstall leaves it, so the file must be found by name.
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        var legacyNames: [UUID: String] = [:]
+        var documents: [MedicalDocument] = []
+        for (index, recordsStalePath) in [false, true].enumerated() {
+            let stored = try harness.fileSystemManager.storeDocument(
+                data: Data("report \(index)".utf8), fileName: "panel.pdf", fileType: .pdf
+            )
+            let prefix = UUID().uuidString
+            let legacyName = "\(prefix)_Quest_Lipid_Panel_\(index).pdf"
+            let legacyURL = stored.deletingLastPathComponent().appendingPathComponent(legacyName)
+            try FileManager.default.moveItem(at: stored, to: legacyURL)
+
+            let recorded = recordsStalePath
+                ? URL(fileURLWithPath: "/private/var/old-container/Documents/HealthApp/Imported/\(legacyName)")
+                : legacyURL
+            var document = makeDocument(named: "panel-\(index).pdf", filePath: recorded)
+            // Thumbnails were named after the document's file, so they carry the same words.
+            document.thumbnailPath = try await harness.fileSystemManager.generateThumbnail(
+                for: legacyURL, documentType: .docx
+            )
+            XCTAssertTrue(
+                document.thumbnailPath?.lastPathComponent.contains("Quest_Lipid_Panel") ?? false,
+                "Precondition: the legacy thumbnail name carries the document's words"
+            )
+            try await harness.databaseManager.saveMedicalDocument(document)
+            legacyNames[document.id] = prefix
+            documents.append(document)
+        }
+
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        // Caches loaded before the pass hold the old paths and would write them back on edit,
+        // so the pass must tell every document listener to reload.
+        let reloadAnnounced = expectation(forNotification: .medicalDocumentDidChange, object: nil)
+        await processor.renameLegacyDocumentFiles()
+        await fulfillment(of: [reloadAnnounced], timeout: 1)
+
+        for (index, document) in documents.enumerated() {
+            let fetched = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+            let reloaded = try XCTUnwrap(fetched)
+            let prefix = try XCTUnwrap(legacyNames[document.id])
+            XCTAssertEqual(reloaded.filePath.lastPathComponent, "\(prefix).pdf")
+            XCTAssertEqual(
+                try harness.fileSystemManager.retrieveDocument(from: reloaded.filePath),
+                Data("report \(index)".utf8),
+                "Row \(index) must still open its own file"
+            )
+            let thumbnail = try XCTUnwrap(reloaded.thumbnailPath)
+            XCTAssertEqual(thumbnail.lastPathComponent, "\(prefix)_thumb.jpg")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: thumbnail.path))
+        }
+    }
+
     func testDeletingGeneticTestRemovesTheDatabaseRecordAndSourceFile() async throws {
         let harness = try makeRegressionHarness()
         defer { try? FileManager.default.removeItem(at: harness.rootURL) }
@@ -592,15 +658,6 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertEqual(decoded.metadata["source"], "test")
     }
 
-    func testMedicalDocumentCapturesCurrentDocumentState() {
-        let document = makeDocument(named: "blood-lab.pdf", category: .labReport)
-
-        XCTAssertEqual(document.fileName, "blood-lab.pdf")
-        XCTAssertEqual(document.fileType, .pdf)
-        XCTAssertEqual(document.processingStatus, .pending)
-        XCTAssertEqual(document.documentCategory, .labReport)
-    }
-
     func testFakeLabPDFImportAndExtractionProducesBloodTestOrReview() async throws {
         let harness = try makeRegressionHarness()
         defer { try? FileManager.default.removeItem(at: harness.rootURL) }
@@ -693,7 +750,7 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager()
+        let settingsManager = try makeIsolatedSettingsManager()
         let scriptedProvider = ScriptedAIProvider()
         scriptedProvider.reset()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)

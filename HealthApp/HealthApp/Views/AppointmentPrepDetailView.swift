@@ -46,6 +46,7 @@ struct AppointmentPrepDetailView: View {
                         content: $prep.relevantInfo,
                         isEditing: isEditing
                     )
+                    AIDisclaimerFooter()
                 } else {
                     ContentUnavailableView(
                         "No report yet",

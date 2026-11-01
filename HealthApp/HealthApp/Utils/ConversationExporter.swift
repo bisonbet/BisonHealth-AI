@@ -110,6 +110,8 @@ class ConversationExporter: ObservableObject {
             // Add metadata footer
             markdown += "\n\n---\n\n"
             markdown += "*Exported from BisonHealth AI*\n"
+            // The replies leave the app here, so the disclaimer goes with them (WS-13-09).
+            markdown += "*\(AIDisclaimer.text)*\n"
             markdown += "*Total Messages: \(totalMessages)*\n"
             markdown += "*Export Date: \(formatDate(Date()))*\n"
 
@@ -282,6 +284,20 @@ class ConversationExporter: ObservableObject {
                 height: footerSize.height
             )
             footerText.draw(in: footerRect, withAttributes: footerAttributes)
+
+            // The replies leave the app here, so the disclaimer goes with them (WS-13-09).
+            let disclaimerAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: UIColor.darkGray
+            ]
+            let disclaimerSize = AIDisclaimer.text.size(withAttributes: disclaimerAttributes)
+            let disclaimerRect = CGRect(
+                x: (pageRect.width - disclaimerSize.width) / 2,
+                y: footerRect.maxY + 6,
+                width: disclaimerSize.width,
+                height: disclaimerSize.height
+            )
+            AIDisclaimer.text.draw(in: disclaimerRect, withAttributes: disclaimerAttributes)
         }
 
         guard let pdfPage = PDFPage(image: image) else {

@@ -19,11 +19,6 @@ final class NetworkingTests: XCTestCase {
         XCTAssertTrue(manager.isMonitoring, "NetworkManager should start monitoring automatically")
     }
 
-    func testNetworkStatusPublisher() async {
-        let manager = NetworkManager.shared
-        XCTAssertNotNil(manager.currentStatus)
-    }
-
     // MARK: - NetworkError Tests
 
     func testNetworkErrorFromURLError() {
@@ -78,29 +73,6 @@ final class NetworkingTests: XCTestCase {
         HealthAppApp.removeLegacyPendingOperations(from: defaults)
 
         XCTAssertNil(defaults.object(forKey: HealthAppApp.legacyPendingOperationsKey))
-    }
-
-    func testOfflinePathDoesNotRetainChatContentOrHealthContext() {
-        let suiteName = "NetworkingTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Unable to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let syntheticChatContent = "synthetic chat message"
-        let syntheticHealthContext = "synthetic health context"
-        let syntheticQueueData = Data("\(syntheticChatContent)\n\(syntheticHealthContext)".utf8)
-        defaults.set(syntheticQueueData, forKey: HealthAppApp.legacyPendingOperationsKey)
-
-        HealthAppApp.removeLegacyPendingOperations(from: defaults)
-
-        let persistedData = defaults.data(forKey: HealthAppApp.legacyPendingOperationsKey)
-        XCTAssertNil(persistedData)
-        XCTAssertFalse(defaults.dictionaryRepresentation().values.contains { value in
-            guard let data = value as? Data else { return false }
-            return data == syntheticQueueData
-        })
     }
 
     // MARK: - Error Extension Tests

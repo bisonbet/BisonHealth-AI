@@ -91,7 +91,7 @@ final class AIChatManagerTests: XCTestCase {
         )
 
         XCTAssertTrue(result.includesHealthContext)
-        XCTAssertGreaterThanOrEqual(result.conversationHistory.count, 0)
+        XCTAssertEqual(result.conversationHistory.count, 2, "Two short turns fit; neither is trimmed")
         XCTAssertGreaterThan(result.estimatedTokens, 0)
     }
 
@@ -247,7 +247,7 @@ final class AIChatManagerTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager()
+        let settingsManager = try makeIsolatedSettingsManager()
         let scriptedProvider = ScriptedAIProvider()
         scriptedProvider.reset()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)

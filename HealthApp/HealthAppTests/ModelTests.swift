@@ -18,20 +18,6 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(personalInfo.type, .personalInfo)
     }
     
-    func testPersonalHealthInfoMutation() {
-        var personalInfo = PersonalHealthInfo()
-        XCTAssertNil(personalInfo.name)
-        
-        personalInfo.name = "John Doe"
-        XCTAssertEqual(personalInfo.name, "John Doe")
-        
-        personalInfo.dateOfBirth = Date()
-        personalInfo.gender = .male
-        personalInfo.bloodType = .oPositive
-        XCTAssertEqual(personalInfo.gender, .male)
-        XCTAssertEqual(personalInfo.bloodType, .oPositive)
-    }
-    
     // MARK: - BloodTestResult Tests
     func testBloodTestResultInitialization() {
         let testItem = BloodTestItem(
@@ -544,20 +530,6 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(personalInfoJSON?["name"] as? String, "John Doe")
         XCTAssertEqual(personalInfoJSON?["gender"] as? String, "male")
         XCTAssertEqual(personalInfoJSON?["blood_type"] as? String, "o_positive")
-    }
-
-    func testJSONTokenEfficiency() throws {
-        // Create context with some data
-        let personalInfo = PersonalHealthInfo(name: "Test", gender: .male)
-        let context = ChatContext(personalInfo: personalInfo, selectedDataTypes: [.personalInfo])
-
-        let jsonTokens = context.estimatedTokenCountJSON
-        let textTokens = context.estimatedTokenCount
-
-        // JSON should generally be more efficient (though not guaranteed for all cases)
-        // At minimum, both should be > 0
-        XCTAssertGreaterThan(jsonTokens, 0)
-        XCTAssertGreaterThan(textTokens, 0)
     }
 
     func testJSONParseable() throws {

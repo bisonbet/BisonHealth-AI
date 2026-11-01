@@ -7,7 +7,7 @@ struct SplashScreenView: View {
     var body: some View {
         ZStack {
             // Base background
-            Color(red: 0.07, green: 0.07, blue: 0.07)
+            BisonTheme.splashBackground
                 .ignoresSafeArea()
 
             // Hero image with cinematic gradient overlay
@@ -23,11 +23,11 @@ struct SplashScreenView: View {
                     // Top and Bottom gradient overlays for contrast and smooth blending
                     LinearGradient(
                         colors: [
-                            Color(red: 0.07, green: 0.07, blue: 0.07).opacity(0.85),
-                            Color(red: 0.07, green: 0.07, blue: 0.07).opacity(0.2),
+                            BisonTheme.splashBackground.opacity(0.85),
+                            BisonTheme.splashBackground.opacity(0.2),
                             Color.clear,
-                            Color(red: 0.07, green: 0.07, blue: 0.07).opacity(0.6),
-                            Color(red: 0.07, green: 0.07, blue: 0.07).opacity(0.95)
+                            BisonTheme.splashBackground.opacity(0.6),
+                            BisonTheme.splashBackground.opacity(0.95)
                         ],
                         startPoint: .top,
                         endPoint: .bottom

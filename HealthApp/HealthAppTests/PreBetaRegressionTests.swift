@@ -36,7 +36,7 @@ final class PreBetaRegressionTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager()
+        let settingsManager = try makeIsolatedSettingsManager()
         let scriptedProvider = ScriptedAIProvider()
         scriptedProvider.reset()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)
