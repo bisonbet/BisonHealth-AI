@@ -11,7 +11,11 @@ private final class InMemoryKeyStore: EncryptionKeyStoring {
 
     func encryptionKey(forStore storeID: String) throws -> SymmetricKey? { storeKeys[storeID] }
 
+    /// Called as each key is filed, to observe what the store held at that moment.
+    var onStore: (() -> Void)?
+
     func storeEncryptionKey(_ key: SymmetricKey, forStore storeID: String) throws {
+        onStore?()
         storeKeys[storeID] = key
     }
 
@@ -378,6 +382,82 @@ final class DataKeyResolverTests: XCTestCase {
         _ = try makeResolver().resolve()
 
         XCTAssertEqual(open(try Data(contentsOf: fileURL), with: own), "pdf bytes")
+        XCTAssertFalse(pendingMarkerExists)
+    }
+
+    /// A restored device shares its store ID, and so its Keychain account, with the device
+    /// the backup came from. Whatever it picks must go under a new ID, never that one.
+    func testRestoredStoreWithoutItsKeyNeverWritesUnderItsID() throws {
+        let storeID = UUID().uuidString
+        try Data(storeID.utf8).write(to: identityURL)
+
+        _ = try makeResolver().resolve()
+
+        XCTAssertNil(keychain.storeKeys[storeID], "The original device's account is left alone")
+        XCTAssertEqual(keychain.storeKeys.count, 1)
+        let newID = try String(contentsOf: identityURL, encoding: .utf8)
+        XCTAssertNotEqual(newID, storeID)
+    }
+
+    /// The same when a legacy key opens all of a restored store's data.
+    func testRestoredStoreAdoptingALegacyKeyFilesItUnderANewID() throws {
+        let own = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        let storeID = UUID().uuidString
+        try Data(storeID.utf8).write(to: identityURL)
+
+        let key = try makeResolver().resolve()
+
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
+        XCTAssertNil(keychain.storeKeys[storeID])
+        XCTAssertEqual(keychain.storeKeys.count, 1)
+    }
+
+    /// A file in no recognised format that no key opens may be plaintext or may be sealed with
+    /// a key still to come: it keeps recovery pending, but proves nothing about which key.
+    func testUnrecognisedFileKeepsRecoveryPendingWithoutBlockingResolution() throws {
+        let own = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        try seal("pdf bytes", with: SymmetricKey(size: .bits256)).write(to: filesURL.appendingPathComponent("doc.pdf"))
+
+        let key = try makeResolver().resolve()
+
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
+        XCTAssertTrue(pendingMarkerExists)
+    }
+
+    func testUnrecognisedFileAloneIsNotEvidenceOfAMissingKey() throws {
+        try seal("pdf bytes", with: SymmetricKey(size: .bits256)).write(to: filesURL.appendingPathComponent("doc.pdf"))
+
+        XCTAssertNoThrow(try makeResolver().resolve())
+        XCTAssertEqual(keychain.storeKeys.count, 1)
+    }
+
+    /// The key must be filed before any value is rewritten with it, so a crash midway cannot
+    /// leave rewritten data whose only key is in the overwritable shared slot.
+    func testSelectedKeyIsFiledBeforeAnyValueIsRewritten() throws {
+        let own = SymmetricKey(size: .bits256)
+        let foreign = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        keychain.sharedSynchronizable = foreign
+        let db = try makeDatabase()
+        for index in 0..<2 {
+            try insertHealthData(db, id: "lab\(index)", type: "blood_test", sealed: seal("lab \(index)", with: own))
+        }
+        try insertHealthData(db, id: "new", type: "blood_test", sealed: seal("new lab", with: foreign))
+
+        var stillForeignWhenFiled: Bool?
+        keychain.onStore = { [unowned self] in
+            stillForeignWhenFiled = (try? self.storedBlob(db, id: "new")).flatMap { $0 }.flatMap { self.open($0, with: foreign) } != nil
+        }
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(stillForeignWhenFiled, true)
+        XCTAssertEqual(open(try XCTUnwrap(storedBlob(db, id: "new")), with: own), "new lab")
         XCTAssertFalse(pendingMarkerExists)
     }
 

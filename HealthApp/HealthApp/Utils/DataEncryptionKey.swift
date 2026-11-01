@@ -33,6 +33,17 @@ enum DataEncryptionKey {
         resolved = result
         return try result.get()
     }
+
+    /// The key to rebuild an erased database with. The resolved key when there is one;
+    /// otherwise, when resolution failed (a store too damaged to inspect, say), a new key
+    /// filed under a new store ID. The data it would have protected is being discarded, and
+    /// no existing Keychain account is written, so nothing another device relies on changes.
+    static func keyForErasedStore() throws -> SymmetricKey {
+        if case .success(let key) = resolved { return key }
+        let key = try DataKeyResolver.forDefaultStore().bindNewStore()
+        resolved = .success(key)
+        return key
+    }
 }
 
 // MARK: - Key Storage
@@ -70,6 +81,15 @@ enum DataKeyError: LocalizedError {
             return "Your health data could not be read to check its encryption key. Restart your device, then reopen the app."
         case .noKeyOpensExistingData:
             return "The encryption key for your health data is not available on this device. If you restored from a backup, make sure iCloud Keychain is on and has finished syncing, then reopen the app."
+        }
+    }
+
+    /// Whether erasing the store is the way past this error. Not for a missing key: the data
+    /// is intact and opens once the key syncs, so erasing would destroy what waiting saves.
+    var isRecoverableByErasingData: Bool {
+        switch self {
+        case .dataStoreUnreadable: return true
+        case .noKeyOpensExistingData: return false
         }
     }
 }
@@ -163,16 +183,17 @@ struct DataKeyResolver {
 
         // No ID yet (an upgrade from a build that kept no ID), or an ID whose key has not
         // reached this device. Decide by what the stored data can be opened with.
+        //
+        // Whatever is chosen is filed under a NEW store ID. A restored device shares its ID,
+        // and so its Keychain account, with the device the backup came from; a key written
+        // under that ID would sync back and replace the one that device's data needs.
         let candidates = try Self.distinct(keychain.legacyEncryptionKeys(), by: \.key)
         let samples = try collectSamples(candidates: candidates.map(\.key))
 
-        guard !samples.isEmpty else {
+        guard samples.contains(where: \.isEvidence) else {
             // Nothing is encrypted yet, so any key is correct. A new one, rather than a
             // legacy key that may belong to another device.
-            let key = SymmetricKey(size: .bits256)
-            try bind(key, to: storeID ?? UUID().uuidString, reconciliationPending: false)
-            log.database("Created a new encryption key (fingerprint: \(Self.fingerprint(key)))", level: .warning)
-            return key
+            return try bindNewStore()
         }
 
         var scores = Array(repeating: 0, count: candidates.count)
@@ -193,7 +214,7 @@ struct DataKeyResolver {
         // A store with an ID was bound once, so its own key exists, if only in iCloud Keychain
         // not yet synced here. Values no legacy key opens may need exactly that key, and
         // binding a legacy one under the ID would overwrite its only copy. Wait for it.
-        let unopened = samples.count { $0.opener == nil }
+        let unopened = samples.count { $0.opener == nil && $0.isEvidence }
         if storeID != nil && unopened > 0 {
             log.database("Data store key has not reached this device and \(unopened) encrypted value(s) need a key other than the legacy ones; waiting for it", level: .critical)
             throw DataKeyError.noKeyOpensExistingData
@@ -202,10 +223,21 @@ struct DataKeyResolver {
         let key = candidates[best].key
         log.database("Selected \(candidates[best].source) key (fingerprint: \(Self.fingerprint(key))): opens \(scores[best]) of \(samples.count) encrypted value(s)")
 
-        // Filed under the store ID whatever happens next: the legacy slot it came from may
-        // be overwritten by another device, and everything written from now on uses it.
-        let complete = reconcile(samples, selected: best, keys: candidates.map(\.key))
-        try bind(key, to: storeID ?? UUID().uuidString, reconciliationPending: !complete)
+        // Filed, with recovery marked pending, BEFORE any value is rewritten with it: the
+        // legacy slot it came from may be overwritten by another device, and a crash midway
+        // through would otherwise leave rewritten data whose only key is in that slot.
+        try bind(key, to: UUID().uuidString, reconciliationPending: true)
+        if reconcile(samples, selected: best, keys: candidates.map(\.key)) {
+            clearReconciliationPending()
+        }
+        return key
+    }
+
+    /// A new key for a store with nothing encrypted in it, filed under a new store ID.
+    func bindNewStore() throws -> SymmetricKey {
+        let key = SymmetricKey(size: .bits256)
+        try bind(key, to: UUID().uuidString, reconciliationPending: false)
+        log.database("Created a new encryption key (fingerprint: \(Self.fingerprint(key)))", level: .warning)
         return key
     }
 
@@ -333,6 +365,15 @@ struct DataKeyResolver {
         /// Index of the candidate key that opens it, or nil when none does (legacy
         /// plaintext, or a value sealed with a key that is not here).
         let opener: Int?
+
+        /// Whether it can prove which key the store needs. A file no key opens cannot: it
+        /// may be legacy plaintext in a format with no recognised header. It still keeps
+        /// recovery pending, since it may equally be sealed with a key that has not arrived.
+        var isEvidence: Bool {
+            if opener != nil { return true }
+            if case .cell = location { return true }
+            return false
+        }
     }
 
     /// Every encrypted value in the store, and which candidate opens it.
@@ -376,10 +417,12 @@ struct DataKeyResolver {
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey])
                 for url in files {
                     guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
-                    // A file counts only when some key opens it. Legacy plaintext documents can
-                    // be any image type the importer accepts, so a file no key opens proves
-                    // nothing; its `documents` row, encrypted since v11, is the evidence.
-                    if let opener = Self.opener(of: try Data(contentsOf: url), among: candidates) {
+                    // Plain files left by earlier versions open with no key and do not count. One
+                    // in a format not recognised here is kept, but only as unfinished recovery:
+                    // see `Sample.isEvidence`.
+                    let sealed = try Data(contentsOf: url)
+                    let opener = Self.opener(of: sealed, among: candidates)
+                    if opener != nil || sealed.count >= Self.minimumSealedLength && !Self.isKnownPlaintext(sealed) {
                         samples.append(Sample(location: .file(url), opener: opener))
                     }
                 }
@@ -513,6 +556,21 @@ struct DataKeyResolver {
             throw DatabaseError.encryptionFailed
         }
         return combined
+    }
+
+    /// Headers of the formats the app imports, for files written before files were
+    /// encrypted: PDF, JPEG, PNG, GIF, TIFF, BMP, WebP, DOCX (ZIP) and HEIC (ISO media).
+    private static func isKnownPlaintext(_ data: Data) -> Bool {
+        data.starts(with: [0x25, 0x50, 0x44, 0x46])
+            || data.starts(with: [0xFF, 0xD8, 0xFF])
+            || data.starts(with: [0x89, 0x50, 0x4E, 0x47])
+            || data.starts(with: Array("GIF8".utf8))
+            || data.starts(with: [0x49, 0x49, 0x2A, 0x00])
+            || data.starts(with: [0x4D, 0x4D, 0x00, 0x2A])
+            || data.starts(with: Array("BM".utf8))
+            || data.starts(with: Array("RIFF".utf8)) && data.dropFirst(8).starts(with: Array("WEBP".utf8))
+            || data.starts(with: [0x50, 0x4B, 0x03, 0x04])
+            || data.dropFirst(4).starts(with: Array("ftyp".utf8))
     }
 
     /// The items in order, without any whose key an earlier item already holds.

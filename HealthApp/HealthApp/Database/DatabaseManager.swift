@@ -20,7 +20,8 @@ class DatabaseManager: ObservableObject {
         }
     }()
     internal var db: Connection?
-    private let encryptionKey: SymmetricKey
+    /// Replaced only by `resetDatabase()`, when a store whose key could not be resolved is rebuilt.
+    private var encryptionKey: SymmetricKey
     private let databaseURL: URL
     internal let appLog = AppLog.shared
 
@@ -28,8 +29,9 @@ class DatabaseManager: ObservableObject {
     /// query fails with `DatabaseError.connectionFailed` instead of reading placeholder state.
     private(set) var initializationError: Error?
 
-    /// Whether `resetDatabase()` has a real path and key to rebuild with. False only when a
-    /// degraded instance could recover neither, in which case erasing would target nothing.
+    /// Whether `resetDatabase()` has a real path to rebuild at. False only when a degraded
+    /// instance could not recover one, in which case erasing would target nothing. The key
+    /// is not required: a reset that has none files a new one (`keyForErasedStore`).
     let canResetDatabase: Bool
     
     // Key fingerprint for detecting key changes
@@ -193,14 +195,14 @@ class DatabaseManager: ObservableObject {
     /// Builds a manager that owns no connection, recording why the database could not be
     /// opened. With `db` nil every query throws before anything reads the other properties,
     /// but the real path and key are recovered where possible: `resetDatabase()` is the only
-    /// way out of a database that will not open, and it needs both to rebuild one.
+    /// way out of a database that will not open, and it needs the path to rebuild one.
     private init(unavailable error: Error) {
         let recoveredEncryptionKey = try? DataEncryptionKey.current()
         let recoveredDatabaseURL = Self.resolveDefaultDatabaseURL()
 
         self.encryptionKey = recoveredEncryptionKey ?? SymmetricKey(size: .bits256)
         self.databaseURL = recoveredDatabaseURL ?? URL(fileURLWithPath: "/dev/null")
-        self.canResetDatabase = recoveredEncryptionKey != nil && recoveredDatabaseURL != nil
+        self.canResetDatabase = recoveredDatabaseURL != nil
         self.db = nil
         self.initializationError = error
     }
@@ -768,6 +770,10 @@ class DatabaseManager: ObservableObject {
     /// the user's only way forward, and `DatabaseUnavailableView` offers it there.
     func resetDatabase() throws {
         guard canResetDatabase else { throw DatabaseError.connectionFailed }
+
+        // When the key could not be resolved (a store too damaged to inspect), this is where
+        // the rebuilt store gets one. Before anything is deleted, so a failure here erases nothing.
+        self.encryptionKey = try DataEncryptionKey.keyForErasedStore()
 
         // Close current connection
         self.db = nil
