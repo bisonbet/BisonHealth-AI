@@ -107,7 +107,38 @@ answer rather than as passes:
 |---|---|---|
 | Background mid-reply | **W-E.** WS-17 would not promote WS-11-02 + WS-03-03 without a device: `isSuspendedForBackground` is read only to make suspend/resume idempotent, and the unload queues behind the running generation. If this crashed or hung, W-E is a confirmed P1; if it was clean, W-E drops down the list. | awaiting the owner's result |
 | One real Bedrock call | **Item 17 / decision 5.** The model id was corrected from a dotted `claude-sonnet-4.5-…` to `claude-sonnet-4-5-20250929-v1:0`. If Bedrock answered, that fix is confirmed and Bedrock stays in scope. | awaiting the owner's result |
-| Keychain restore on a real upgrade | **Item 8 / decision 3.** The database key became a synchronizable Keychain item so a restore can read its own data. A device-only key still opening its database after the change was the one thing never verified. | awaiting the owner's result |
+| Keychain restore on a real upgrade | **Item 8 / decision 3.** The database key became a synchronizable Keychain item so a restore can read its own data. A device-only key still opening its database after the change was the one thing never verified. | ❌ **FAILED 2026-10-25 on the owner's iPhone** — see W-V |
+
+**W-V (P0, fixed in source 2026-10-31, not yet run on a device).** The upgrade check failed, and
+not for the reason it was written to catch. Builds from 2026-10-23 kept the key in **one**
+synchronizable account per Apple ID, and `getEncryptionKey` looked there before the device-only
+one. Another device running the new build had already put its own key there, and iCloud
+Keychain delivered it to the iPhone. Evidence from the iPhone's log export: "Using existing
+encryption key", no "Creating new key" line, then every record, conversation and document
+failing with `CryptoKitError` 3 (authentication failure). Records written afterwards opened
+fine: the HealthKit sync's new personal_info record did, and so did the v14 migration's newly
+encrypted tags. So the app was using a valid key that belonged to a different data store. The
+device-only key was never read or deleted, because the synced slot answered first.
+Fix: `Utils/DataEncryptionKey.swift`. Keys are filed per data-store UUID, chosen by trial
+decryption of the stored data, and values sealed with another candidate key are re-encrypted
+after a `VACUUM INTO` backup. The resolver never mints a key over data it cannot open, and never
+writes or deletes the legacy accounts. Unit tests in `DataKeyResolverTests` reproduce the iPhone's
+state. **Found while testing W-V (2026-10-31): `resetDatabase()` built a stale schema.** It used a
+second copy of the table definitions, `createTables()`. That copy lacked
+`documents.failure_reason` (v15), the `pending_import_reviews` table (v13) and three indexes,
+yet stamped the rebuilt database v15, so no migration ever added them. Every document import
+after a reset failed with "Failed to encrypt data", the misleading wrapper `saveDocument` puts
+on any error. This is the W-B duplicate-definition trap again. Fixed: `init` and reset now share
+`createTables()`, and `repairSchemaCreatedByReset` adds the column to databases the old reset
+already stamped. Both regression tests were seen failing against the old code.
+
+**Ran 2026-10-31:** `DataKeyResolverTests` + `DatabaseTests` + `DatabaseMigrationTests` +
+`FileSystemTests` on iPhone 17 Pro / 26.5 — **42 tests, 0 failures**, all six resolver tests
+confirmed in the `.xcresult`. **Still to do:** install on the iPhone and confirm the documents,
+records and conversations come back. The
+**other** device's own data may have been hit by the 2026-10-23 build's last-writer-wins on the
+shared slot. If no key opens it, the resolver refuses and `DatabaseUnavailableView` appears,
+which offers no reset in that state.
 
 Two decisions were also meant to be settled during this run: **measure the 384 KiB/token KV
 constant** (it is still an estimate, and `MLXMemoryBudget`'s floor exists only because of

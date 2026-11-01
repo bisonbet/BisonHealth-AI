@@ -1,0 +1,664 @@
+import Foundation
+import CryptoKit
+@preconcurrency import SQLite
+
+// MARK: - Data Encryption Key
+//
+// One key encrypts this device's database and its document files. It lives in the
+// Keychain under an account named for a *data store ID*, a UUID kept in a plain file
+// beside the database:
+//
+//   - The ID file is in the device backup with the database, and the key item is
+//     synchronizable, so a restore to a new device brings back both halves together.
+//   - Every device has its own ID, so two devices on one Apple ID never share a slot.
+//
+// Builds from 2026-10-23 kept the key in ONE synchronizable slot. iCloud Keychain synced
+// that slot between devices whose databases are separate, so one device's key arrived on
+// another and was used there over the key its data was actually encrypted with. Every
+// existing record failed to decrypt, and records written afterwards were sealed with the
+// foreign key. `DataKeyResolver` picks the key by trying it against the stored data, and
+// re-encrypts anything a different candidate key can open.
+
+/// The process-wide data key. Both `DatabaseManager` and `FileSystemManager` read it from
+/// here, so they cannot end up holding different keys.
+@MainActor
+enum DataEncryptionKey {
+    /// A failure is kept too: `DatabaseManager` and `FileSystemManager` each ask, and a
+    /// store that could not be resolved once will not resolve on a second scan this launch.
+    private static var resolved: Swift.Result<SymmetricKey, Error>?
+
+    static func current() throws -> SymmetricKey {
+        if let resolved { return try resolved.get() }
+        let result = Swift.Result { try DataKeyResolver.forDefaultStore().resolve() }
+        resolved = result
+        return try result.get()
+    }
+
+    /// The key to rebuild an erased database with. The resolved key when there is one;
+    /// otherwise, when resolution failed (a store too damaged to inspect, say), a new key
+    /// filed under a new store ID. The data it would have protected is being discarded, and
+    /// no existing Keychain account is written, so nothing another device relies on changes.
+    static func keyForErasedStore() throws -> SymmetricKey {
+        if case .success(let key) = resolved { return key }
+        let key = try DataKeyResolver.forDefaultStore().bindNewStore()
+        resolved = .success(key)
+        return key
+    }
+}
+
+// MARK: - Key Storage
+
+/// A candidate key other than the store's own: one from before keys were filed under a
+/// data store ID, or the key of a store this one replaced.
+struct LegacyEncryptionKey {
+    enum Source {
+        /// Device-only. Written by builds before 2026-10-23, and so made on this device.
+        case deviceOnly
+        /// The single synchronizable slot from 2026-10-23. May belong to another device.
+        case sharedSynchronizable
+        /// The per-store key of a store this one replaced while that key was not here.
+        case replacedStore
+    }
+
+    let key: SymmetricKey
+    let source: Source
+}
+
+/// The Keychain operations the resolver needs. Extracted so the resolver can be tested
+/// without touching the real Keychain.
+protocol EncryptionKeyStoring {
+    func encryptionKey(forStore storeID: String) throws -> SymmetricKey?
+    func storeEncryptionKey(_ key: SymmetricKey, forStore storeID: String) throws
+    func legacyEncryptionKeys() throws -> [LegacyEncryptionKey]
+}
+
+enum DataKeyError: LocalizedError {
+    /// Encrypted data exists and none of the keys on this device can open it.
+    case noKeyOpensExistingData
+    /// The stored data could not be read to tell which key it needs.
+    case dataStoreUnreadable
+
+    var errorDescription: String? {
+        switch self {
+        case .dataStoreUnreadable:
+            return "Your health data could not be read to check its encryption key. Restart your device, then reopen the app."
+        case .noKeyOpensExistingData:
+            return "The encryption key for your health data is not available on this device. If you restored from a backup, make sure iCloud Keychain is on and has finished syncing, then reopen the app."
+        }
+    }
+
+    /// Whether erasing the store is the way past this error. Not for a missing key: the data
+    /// is intact and opens once the key syncs, so erasing would destroy what waiting saves.
+    var isRecoverableByErasingData: Bool {
+        switch self {
+        case .dataStoreUnreadable: return true
+        case .noKeyOpensExistingData: return false
+        }
+    }
+}
+
+// MARK: - Resolver
+
+@MainActor
+struct DataKeyResolver {
+    let keychain: EncryptionKeyStoring
+    /// Plain file holding this data store's ID.
+    let identityURL: URL
+    /// Database locations, live one first, then legacy ones that a later migration moves
+    /// into place. Only the first that exists is examined, as only it is ever opened.
+    let databaseURLs: [URL]
+    /// Directories of encrypted files (imported documents and their thumbnails).
+    let fileDirectories: [URL]
+
+    private let log = AppLog.shared
+
+    /// Every column sealed with the data key. BLOB cells hold the AES-GCM combined
+    /// representation; TEXT cells hold it as Base64. A column added later that is
+    /// encrypted with the data key must be listed here, or a re-key would leave it behind.
+    static let encryptedColumns: [(table: String, column: String)] = [
+        ("health_data", "encrypted_data"),
+        ("appointment_preps", "encrypted_data"),
+        ("chat_messages", "content"),
+        ("chat_conversations", "title"),
+        ("documents", "file_name"),
+        ("documents", "notes"),
+        ("documents", "tags"),
+        ("documents", "provider_name"),
+        ("documents", "extracted_text"),
+        ("documents", "extracted_data"),
+        ("documents", "extracted_sections"),
+        ("documents", "failure_reason"),
+        ("pending_import_reviews", "payload")
+    ]
+
+    /// The schema version from which a column holds only ciphertext. Below it the column
+    /// can hold legacy plaintext, which can look like Base64 or, in a BLOB, like anything
+    /// at all, so a value no key opens proves nothing there. At or above it, such a value
+    /// is data sealed with a key that is not here. Columns not listed were encrypted from
+    /// the moment they existed (`pending_import_reviews` in v13, `failure_reason` in v15).
+    private static let ciphertextOnlySinceVersion: [String: Int] = [
+        "chat_conversations.title": 11,
+        "documents.file_name": 11,
+        "documents.notes": 11,
+        "documents.provider_name": 11,
+        "documents.extracted_text": 11,
+        "documents.extracted_data": 11,
+        "documents.extracted_sections": 11,
+        "documents.tags": 14
+    ]
+
+    static func forDefaultStore() -> DataKeyResolver {
+        let fileManager = FileManager.default
+        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+
+        let databaseDirectory = applicationSupport?.appendingPathComponent("HealthApp/Database")
+            ?? fileManager.temporaryDirectory
+        let fileBase = documents?.appendingPathComponent("HealthApp")
+
+        return DataKeyResolver(
+            keychain: Keychain(),
+            identityURL: databaseDirectory.appendingPathComponent("data-store-id"),
+            databaseURLs: [
+                databaseDirectory.appendingPathComponent("health_data.sqlite"),
+                // Where builds before the move to Application Support kept it.
+                fileBase?.appendingPathComponent("Database/health_data.sqlite")
+            ].compactMap { $0 },
+            fileDirectories: [
+                fileBase?.appendingPathComponent("Documents/Imported"),
+                fileBase?.appendingPathComponent("Documents/Thumbnails")
+            ].compactMap { $0 }
+        )
+    }
+
+    // MARK: Resolution
+
+    func resolve() throws -> SymmetricKey {
+        let storeID = try readStoreID()
+
+        if let storeID, let key = try keychain.encryptionKey(forStore: storeID) {
+            log.database("Using encryption key for data store \(storeID.prefix(8)) (fingerprint: \(Self.fingerprint(key)))")
+            if isReconciliationPending {
+                retryReconciliation(boundKey: key)
+            }
+            return key
+        }
+
+        // No ID yet (an upgrade from a build that kept no ID), or an ID whose key has not
+        // reached this device. Decide by what the stored data can be opened with.
+        //
+        // Whatever is chosen is filed under a NEW store ID. A restored device shares its ID,
+        // and so its Keychain account, with the device the backup came from; a key written
+        // under that ID would sync back and replace the one that device's data needs. The old
+        // ID is kept with any unfinished recovery, so its key is still tried if it arrives.
+        let replaced = isReconciliationPending ? replacedStoreKeys(pendingReconciliation) : []
+        let candidates = try Self.distinct(
+            keychain.legacyEncryptionKeys() + replaced.map { LegacyEncryptionKey(key: $0, source: .replacedStore) },
+            by: \.key
+        )
+        let samples = try collectSamples(candidates: candidates.map(\.key))
+
+        guard samples.contains(where: \.isEvidence) else {
+            // Nothing is encrypted yet, so any key is correct. A new one, rather than a
+            // legacy key that may belong to another device. Files no key opens may still
+            // need the old store's key, so they leave recovery pending.
+            return try bindNewStore(reconciliationPending: !samples.isEmpty, previousStoreID: storeID)
+        }
+
+        var scores = Array(repeating: 0, count: candidates.count)
+        for sample in samples {
+            if let opener = sample.opener { scores[opener] += 1 }
+        }
+
+        // Most data opened wins. On a tie, not the shared slot: it may hold another device's
+        // key, where the others were made for this data.
+        guard let best = candidates.indices.max(by: { lhs, rhs in
+            if scores[lhs] != scores[rhs] { return scores[lhs] < scores[rhs] }
+            return candidates[lhs].source == .sharedSynchronizable && candidates[rhs].source != .sharedSynchronizable
+        }), scores[best] > 0 else {
+            // Never mint a key over data that exists: that is what destroys it.
+            log.database("\(samples.count) encrypted value(s) exist and none of \(candidates.count) available key(s) opens them", level: .critical)
+            throw DataKeyError.noKeyOpensExistingData
+        }
+
+        // A store with an ID was bound once, so its own key exists, if only in iCloud Keychain
+        // not yet synced here. Values no legacy key opens may need exactly that key, and
+        // binding a legacy one under the ID would overwrite its only copy. Wait for it.
+        let unopened = samples.count { $0.opener == nil && $0.isEvidence }
+        if storeID != nil && unopened > 0 {
+            log.database("Data store key has not reached this device and \(unopened) encrypted value(s) need a key other than the legacy ones; waiting for it", level: .critical)
+            throw DataKeyError.noKeyOpensExistingData
+        }
+
+        let key = candidates[best].key
+        log.database("Selected \(candidates[best].source) key (fingerprint: \(Self.fingerprint(key))): opens \(scores[best]) of \(samples.count) encrypted value(s)")
+
+        // Filed, with recovery marked pending, BEFORE any value is rewritten with it: the
+        // legacy slot it came from may be overwritten by another device, and a crash midway
+        // through would otherwise leave rewritten data whose only key is in that slot.
+        try bind(key, to: UUID().uuidString, reconciliationPending: true, previousStoreID: storeID)
+        if reconcile(samples, selected: best, keys: candidates.map(\.key)) == .complete {
+            clearReconciliationPending()
+        }
+        return key
+    }
+
+    /// A new key for a store with nothing encrypted in it, filed under a new store ID.
+    func bindNewStore(reconciliationPending: Bool = false, previousStoreID: String? = nil) throws -> SymmetricKey {
+        let key = SymmetricKey(size: .bits256)
+        try bind(key, to: UUID().uuidString, reconciliationPending: reconciliationPending, previousStoreID: previousStoreID)
+        log.database("Created a new encryption key (fingerprint: \(Self.fingerprint(key)))", level: .warning)
+        return key
+    }
+
+    /// How a reconciliation ended.
+    private enum ReconcileOutcome {
+        /// Everything opens with the selected key.
+        case complete
+        /// Done as far as it can be: some value opens with no key here.
+        case keysMissing
+        /// A rewrite failed. Nothing was learned about which keys are missing.
+        case failed
+    }
+
+    /// Re-encrypts with the selected key every value another key opens.
+    private func reconcile(_ samples: [Sample], selected: Int, keys: [SymmetricKey]) -> ReconcileOutcome {
+        let foreign = samples.filter { $0.opener != nil && $0.opener != selected }
+        if !foreign.isEmpty {
+            do {
+                // Personal info under more than one key means the app made a stand-in while
+                // the original would not decrypt. Only rows a key here opens can be restored.
+                let personalInfo = samples.filter { Self.isPersonalInfo($0.location) && $0.opener != nil }
+                let restorable = Set(personalInfo.compactMap(\.opener)).count > 1 ? personalInfo : []
+                try reencrypt(foreign, to: keys[selected], candidates: keys, restoringPersonalInfoFrom: restorable)
+            } catch {
+                log.error("Re-encrypting values sealed with another key failed: \(error.localizedDescription)", error: error, category: .database)
+                return .failed
+            }
+        }
+
+        let unopened = samples.count { $0.opener == nil }
+        if unopened > 0 {
+            log.database("\(unopened) encrypted value(s) open with no available key; will look again next launch", level: .warning)
+        }
+        return unopened == 0 ? .complete : .keysMissing
+    }
+
+    /// Launches on which a bound store looks again for values no key opened, without its
+    /// keys changing, before it gives up. A key still syncing arrives within a few launches;
+    /// one that has not by then is not coming, and looking costs launch time.
+    private static let maximumReconciliationAttempts = 5
+
+    /// Values no key opened at binding: see whether their key has arrived since. The key is
+    /// already filed, so a failure here only postpones the work to the next launch.
+    private func retryReconciliation(boundKey key: SymmetricKey) {
+        var state = pendingReconciliation
+        let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
+        let keys = Self.distinct([key] + legacy + replacedStoreKeys(state)) { $0 }
+        let fingerprints = keys.map(Self.fingerprint)
+        let keysChanged = fingerprints != state.keyFingerprints
+
+        // Files, which can be large, are read only when there may be work for them: a key
+        // has arrived (it may open a file whose row a different key opens, since editing a
+        // document rewrites its row and not its file), a row another key now opens, or no
+        // row left that no key opens. Otherwise the database alone is checked.
+        //
+        // Only a scan that worked and found a key still missing counts toward giving up. A
+        // store that could not be read, or a rewrite that failed (a full disk, say), says
+        // nothing about the keys, so the marker stays as it was and the next launch retries.
+        guard let rows = try? collectSamples(candidates: keys, includingFiles: false) else { return }
+        if keysChanged
+            || rows.contains(where: { $0.opener != nil && $0.opener != 0 })
+            || !rows.contains(where: { $0.opener == nil }) {
+            guard let samples = try? collectSamples(candidates: keys) else { return }
+            switch reconcile(samples, selected: 0, keys: keys) {
+            case .complete:
+                clearReconciliationPending()
+                return
+            case .failed:
+                return
+            case .keysMissing:
+                break
+            }
+        }
+
+        // A new key is a new chance, so the count starts again.
+        state.attempts = keysChanged ? 1 : state.attempts + 1
+        state.keyFingerprints = fingerprints
+        guard state.attempts < Self.maximumReconciliationAttempts else {
+            log.database("Gave up after \(state.attempts) launches looking for the key to values no available key opens", level: .critical)
+            clearReconciliationPending()
+            return
+        }
+        try? savePendingReconciliation(state)
+    }
+
+    /// Files the key under the store ID, then records the ID. In that order: an ID written
+    /// first and a Keychain write that then failed would point at a key that is not there.
+    /// A pending reconciliation is marked before either, so a bound store cannot lose it.
+    /// - Parameter previousStoreID: The ID this store had, whose key is not here. Recorded
+    ///   with a pending recovery so that later launches still try that key.
+    private func bind(_ key: SymmetricKey, to storeID: String, reconciliationPending: Bool, previousStoreID: String? = nil) throws {
+        try FileManager.default.createDirectory(
+            at: identityURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if reconciliationPending {
+            // Added to any IDs an earlier, unfinished recovery already holds: a store can be
+            // replaced again before the last one's key arrives, and each may still be needed.
+            var previousStoreIDs = isReconciliationPending ? pendingReconciliation.previousStoreIDs : []
+            if let previousStoreID, !previousStoreIDs.contains(previousStoreID) {
+                previousStoreIDs.append(previousStoreID)
+            }
+            try savePendingReconciliation(PendingReconciliation(previousStoreIDs: previousStoreIDs))
+        }
+        try keychain.storeEncryptionKey(key, forStore: storeID)
+        try Data(storeID.utf8).write(to: identityURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        if !reconciliationPending {
+            clearReconciliationPending()
+        }
+    }
+
+    /// Present while some stored value opened with no available key. A bound store only
+    /// samples its data again while this exists.
+    private var reconciliationPendingURL: URL { identityURL.appendingPathExtension("pending") }
+
+    /// What the pending marker records about the looking done since binding.
+    private struct PendingReconciliation: Codable {
+        /// Launches that have looked with the same keys.
+        var attempts = 0
+        /// Fingerprints of the keys the last launch had, to notice one arriving.
+        var keyFingerprints: [String] = []
+        /// Store IDs this store replaced while their keys were not here.
+        var previousStoreIDs: [String] = []
+    }
+
+    private var pendingReconciliation: PendingReconciliation {
+        (try? Data(contentsOf: reconciliationPendingURL))
+            .flatMap { try? JSONDecoder().decode(PendingReconciliation.self, from: $0) } ?? PendingReconciliation()
+    }
+
+    /// The keys of stores this one replaced that have reached this device. Once synced, one
+    /// may open what nothing else here does.
+    private func replacedStoreKeys(_ state: PendingReconciliation) -> [SymmetricKey] {
+        state.previousStoreIDs.compactMap { (try? keychain.encryptionKey(forStore: $0)) ?? nil }
+    }
+
+    private func savePendingReconciliation(_ state: PendingReconciliation) throws {
+        try JSONEncoder().encode(state)
+            .write(to: reconciliationPendingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    private var isReconciliationPending: Bool {
+        FileManager.default.fileExists(atPath: reconciliationPendingURL.path)
+    }
+
+    private func clearReconciliationPending() {
+        try? FileManager.default.removeItem(at: reconciliationPendingURL)
+    }
+
+    /// The store's ID, or nil when no ID has been recorded. An ID file that exists but
+    /// cannot be read throws: taken as "no ID", it would be overwritten with a new one and
+    /// the store's own key would never be looked up again.
+    private func readStoreID() throws -> String? {
+        guard FileManager.default.fileExists(atPath: identityURL.path) else { return nil }
+        let data: Data
+        do {
+            data = try Data(contentsOf: identityURL)
+        } catch {
+            log.error("Could not read the data store ID: \(error.localizedDescription)", error: error, category: .database)
+            throw DataKeyError.dataStoreUnreadable
+        }
+        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              UUID(uuidString: text) != nil else {
+            // Not an ID this code wrote; there is no account name to recover from it.
+            log.database("Ignoring a malformed data store ID file", level: .warning)
+            return nil
+        }
+        return text
+    }
+
+    // MARK: Sampling
+
+    /// Where an encrypted value lives, so it can be rewritten in place.
+    enum Location: Equatable {
+        case cell(database: URL, table: String, column: String, rowID: Int64, isText: Bool, recordType: String?)
+        case file(URL)
+    }
+
+    struct Sample {
+        let location: Location
+        /// Index of the candidate key that opens it, or nil when none does (legacy
+        /// plaintext, or a value sealed with a key that is not here).
+        let opener: Int?
+
+        /// Whether it can prove which key the store needs. A file no key opens cannot: it
+        /// may be legacy plaintext in a format with no recognised header. It still keeps
+        /// recovery pending, since it may equally be sealed with a key that has not arrived.
+        var isEvidence: Bool {
+            if opener != nil { return true }
+            if case .cell = location { return true }
+            return false
+        }
+    }
+
+    /// Every encrypted value in the store, and which candidate opens it.
+    ///
+    /// Fails rather than skips when the store cannot be read: an unreadable store would
+    /// otherwise look empty, and an empty store is the one case that mints a key.
+    private func collectSamples(candidates: [SymmetricKey], includingFiles: Bool = true) throws -> [Sample] {
+        var samples: [Sample] = []
+
+        do {
+            // `DatabaseManager` moves a legacy database into place only when the live one is
+            // absent. A leftover legacy copy beside a live database is never opened, so it says
+            // nothing about the key, and must not block a healthy store by being unreadable.
+            let openedDatabase = databaseURLs.first { FileManager.default.fileExists(atPath: $0.path) }
+            for databaseURL in [openedDatabase].compactMap({ $0 }) {
+                let db = try Connection(databaseURL.path, readonly: true)
+                let columns = try Self.columnsByTable(db)
+                // No version table means a schema older than any encryption migration.
+                let schemaVersion = columns["database_version"] == nil
+                    ? 0
+                    : Int((try db.scalar("SELECT MAX(version) FROM database_version") as? Int64) ?? 0)
+
+                // A missing table or column means an older schema; there is nothing to check.
+                for (table, column) in Self.encryptedColumns where columns[table]?.contains(column) == true {
+                    let holdsOnlyCiphertext = schemaVersion >= Self.ciphertextOnlySinceVersion["\(table).\(column)", default: 0]
+                    let recordType = table == "health_data" ? ", type" : ""
+                    let rows = try db.prepare("SELECT rowid, \(column)\(recordType) FROM \(table) WHERE \(column) IS NOT NULL")
+                    while let row = try rows.failableNext() {
+                        guard let rowID = row[0] as? Int64,
+                              let (sealed, isText) = Self.sealedBytes(row[1]) else { continue }
+                        let location = Location.cell(
+                            database: databaseURL, table: table, column: column, rowID: rowID,
+                            isText: isText, recordType: row.count > 2 ? row[2] as? String : nil
+                        )
+                        let opener = Self.opener(of: sealed, among: candidates)
+                        // A value no key opens counts only where it cannot be legacy plaintext.
+                        if opener != nil || holdsOnlyCiphertext && sealed.count >= Self.minimumSealedLength {
+                            samples.append(Sample(location: location, opener: opener))
+                        }
+                    }
+                }
+            }
+
+            for directory in includingFiles ? fileDirectories : [] where FileManager.default.fileExists(atPath: directory.path) {
+                let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey])
+                for url in files {
+                    guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+                    // Plain files left by earlier versions open with no key and do not count. One
+                    // in a format not recognised here is kept, but only as unfinished recovery:
+                    // see `Sample.isEvidence`.
+                    let sealed = try Data(contentsOf: url)
+                    let opener = Self.opener(of: sealed, among: candidates)
+                    if opener != nil || sealed.count >= Self.minimumSealedLength && !Self.isKnownPlaintext(sealed) {
+                        samples.append(Sample(location: .file(url), opener: opener))
+                    }
+                }
+            }
+        } catch {
+            log.error("Could not read the data store to check its encryption key: \(error.localizedDescription)", error: error, category: .database)
+            throw DataKeyError.dataStoreUnreadable
+        }
+
+        return samples
+    }
+
+    /// Each table's column names. A table that is not there is simply absent.
+    private static func columnsByTable(_ db: Connection) throws -> [String: Set<String>] {
+        var columns: [String: Set<String>] = [:]
+        let rows = try db.prepare("""
+            SELECT m.name, p.name FROM sqlite_master AS m, pragma_table_info(m.name) AS p
+            WHERE m.type = 'table'
+            """)
+        while let row = try rows.failableNext() {
+            guard let table = row[0] as? String, let column = row[1] as? String else { continue }
+            columns[table, default: []].insert(column)
+        }
+        return columns
+    }
+
+    // MARK: Re-encryption
+
+    /// - Parameter restoringPersonalInfoFrom: Personal info records, all openable, among which
+    ///   the original is to be put back in front. Empty when there is nothing to restore.
+    private func reencrypt(
+        _ samples: [Sample],
+        to key: SymmetricKey,
+        candidates: [SymmetricKey],
+        restoringPersonalInfoFrom personalInfo: [Sample]
+    ) throws {
+        let cells = Dictionary(grouping: samples.compactMap { sample -> (URL, Sample)? in
+            if case .cell(let database, _, _, _, _, _) = sample.location { return (database, sample) }
+            return nil
+        }, by: \.0)
+
+        for (databaseURL, entries) in cells {
+            let db = try Connection(databaseURL.path)
+            backUp(db, at: databaseURL)
+
+            try db.transaction {
+                for (_, sample) in entries {
+                    guard case .cell(_, let table, let column, let rowID, let isText, _) = sample.location,
+                          let opener = sample.opener else { continue }
+
+                    let stored = try db.scalar("SELECT \(column) FROM \(table) WHERE rowid = ?", rowID)
+                    guard let (sealed, _) = Self.sealedBytes(stored) else { continue }
+                    let resealed = try Self.reseal(sealed, from: candidates[opener], to: key)
+                    let value: Binding = isText ? resealed.base64EncodedString() : Blob(bytes: [UInt8](resealed))
+                    try db.run("UPDATE \(table) SET \(column) = ? WHERE rowid = ?", value, rowID)
+                }
+
+                // Personal info is read as one record: the most recently updated. The app
+                // creates a fresh one when none decrypts, so the stand-in is newer than the
+                // user's own and would hide it. Which key won says nothing about which record
+                // is the user's, so nothing is deleted: the earliest-created record is moved
+                // to the front, and the stand-in stays in the table behind it.
+                // Only openable rows are candidates: promoting one no key opens would make the
+                // app read an undecryptable profile and create yet another stand-in.
+                let rowIDs = personalInfo.compactMap { sample -> Int64? in
+                    guard case .cell(databaseURL, _, _, let rowID, _, _) = sample.location else { return nil }
+                    return rowID
+                }
+                if !rowIDs.isEmpty {
+                    let candidateRows = rowIDs.map(String.init).joined(separator: ",")
+                    try db.run("""
+                        UPDATE health_data
+                        SET updated_at = (SELECT MAX(updated_at) FROM health_data WHERE type = 'personal_info') + 1
+                        WHERE rowid = (SELECT rowid FROM health_data WHERE rowid IN (\(candidateRows))
+                                       ORDER BY created_at ASC, rowid ASC LIMIT 1)
+                        """)
+                    log.database("Restored the original personal info record ahead of one created while the wrong key was in use", level: .warning)
+                }
+            }
+            log.database("Re-encrypted \(entries.count) value(s) in \(databaseURL.lastPathComponent) with the selected key")
+        }
+
+        for sample in samples {
+            guard case .file(let url) = sample.location, let opener = sample.opener else { continue }
+            let resealed = try Self.reseal(try Data(contentsOf: url), from: candidates[opener], to: key)
+            try resealed.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+    }
+
+    /// A copy of the database before anything in it is rewritten. Named like the migration
+    /// backups so that an erase removes it with them.
+    private func backUp(_ db: Connection, at databaseURL: URL) {
+        let backupURL = URL(fileURLWithPath: databaseURL.path + ".backup.rekey-\(Int(Date().timeIntervalSince1970))")
+        do {
+            try db.run("VACUUM INTO ?", backupURL.path)
+        } catch {
+            log.database("Could not back up the database before re-encrypting: \(error.localizedDescription)", level: .warning)
+        }
+    }
+
+    // MARK: Helpers
+
+    /// Nonce (12) + tag (16): nothing shorter can be an AES-GCM combined value.
+    private static let minimumSealedLength = 28
+
+    private static func isPersonalInfo(_ location: Location) -> Bool {
+        guard case .cell(_, let table, _, _, _, let recordType) = location else { return false }
+        return table == "health_data" && recordType == "personal_info"
+    }
+
+    /// The AES-GCM bytes a cell holds, and whether the cell is TEXT (Base64).
+    private static func sealedBytes(_ value: Binding?) -> (Data, Bool)? {
+        if let blob = value as? Blob {
+            return (Data(blob.bytes), false)
+        }
+        if let text = value as? String, let data = Data(base64Encoded: text) {
+            return (data, true)
+        }
+        return nil
+    }
+
+    private static func opener(of sealed: Data, among candidates: [SymmetricKey]) -> Int? {
+        guard sealed.count >= minimumSealedLength,
+              let box = try? AES.GCM.SealedBox(combined: sealed) else { return nil }
+        return candidates.firstIndex { (try? AES.GCM.open(box, using: $0)) != nil }
+    }
+
+    private static func reseal(_ sealed: Data, from oldKey: SymmetricKey, to newKey: SymmetricKey) throws -> Data {
+        let plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: oldKey)
+        guard let combined = try AES.GCM.seal(plaintext, using: newKey).combined else {
+            throw DatabaseError.encryptionFailed
+        }
+        return combined
+    }
+
+    /// Headers of the formats the app imports, for files written before files were
+    /// encrypted: PDF, JPEG, PNG, GIF, TIFF, BMP, WebP, DOCX (ZIP) and HEIC (ISO media).
+    private static func isKnownPlaintext(_ data: Data) -> Bool {
+        data.starts(with: [0x25, 0x50, 0x44, 0x46])
+            || data.starts(with: [0xFF, 0xD8, 0xFF])
+            || data.starts(with: [0x89, 0x50, 0x4E, 0x47])
+            || data.starts(with: Array("GIF8".utf8))
+            || data.starts(with: [0x49, 0x49, 0x2A, 0x00])
+            || data.starts(with: [0x4D, 0x4D, 0x00, 0x2A])
+            || data.starts(with: Array("BM".utf8))
+            || data.starts(with: Array("RIFF".utf8)) && data.dropFirst(8).starts(with: Array("WEBP".utf8))
+            || data.starts(with: [0x50, 0x4B, 0x03, 0x04])
+            || data.dropFirst(4).starts(with: Array("ftyp".utf8))
+    }
+
+    /// The items in order, without any whose key an earlier item already holds.
+    private static func distinct<T>(_ items: [T], by key: (T) -> SymmetricKey) -> [T] {
+        var seen: [SymmetricKey] = []
+        return items.filter { item in
+            guard !seen.contains(where: { sameKey($0, key(item)) }) else { return false }
+            seen.append(key(item))
+            return true
+        }
+    }
+
+    private static func sameKey(_ lhs: SymmetricKey, _ rhs: SymmetricKey) -> Bool {
+        lhs.withUnsafeBytes { Data($0) } == rhs.withUnsafeBytes { Data($0) }
+    }
+
+    static func fingerprint(_ key: SymmetricKey) -> String {
+        let hash = SHA256.hash(data: key.withUnsafeBytes { Data($0) })
+        return hash.prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+}

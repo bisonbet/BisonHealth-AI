@@ -517,6 +517,20 @@ find HealthApp/HealthAppTests HealthApp/HealthAppUITests -type f -name '*.swift'
   then mint a fresh key over it, destroying every record. It was review item 8 and owner
   decision 3 chose to make the key restorable. Changing it back reintroduces silent total
   data loss on restore.
+
+  ⚠️ **One synced key per data store, never one per Apple ID.** The 2026-10-23 build kept
+  the key in a single synchronizable account; iCloud Keychain carried one device's key to
+  another, which then used it over its own and could read none of its data. Keys are now
+  filed under a data-store UUID kept in `Application Support/HealthApp/Database/data-store-id`
+  (backed up with the database), and `DataKeyResolver` (`Utils/DataEncryptionKey.swift`)
+  chooses the key by what opens the stored data, re-encrypting anything sealed with another
+  candidate. The two legacy accounts are only read, never written or deleted. Both
+  `DatabaseManager` and `FileSystemManager` take their key from `DataEncryptionKey.current()`;
+  a new encrypted column must be added to `DataKeyResolver.encryptedColumns`. If a
+  migration encrypts a column that already held plaintext, also add it to
+  `ciphertextOnlySinceVersion` with that migration's version: otherwise old plaintext that
+  happens to be valid Base64 counts as data sealed with a missing key, and can lock the
+  user out.
 - **Network**: TLS 1.2+ only
 
 ### .gitignore Protection

@@ -95,6 +95,7 @@
 		A1000046294A0000000000001 /* DatabaseManager+Documents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000047294A0000000000001 /* DatabaseManager+Documents.swift */; };
 		A1000048294A0000000000001 /* DatabaseManager+Chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000049294A0000000000001 /* DatabaseManager+Chat.swift */; };
 		A1000052294A0000000000001 /* DatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000053294A0000000000001 /* DatabaseTests.swift */; };
+		D7A1E5C2294A0000000000001 /* DataKeyResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A1E5C3294A0000000000001 /* DataKeyResolverTests.swift */; };
 		A1000054294A0000000000001 /* FileSystemManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000055294A0000000000001 /* FileSystemManager.swift */; };
 		A1000055YAHI7QXGF2TWBDSYSE /* DuplicateBloodTestCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000007CN3CAO39PBJEZAXGEB /* DuplicateBloodTestCandidate.swift */; };
 		A1000056294A0000000000001 /* DocumentImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000057294A0000000000001 /* DocumentImporter.swift */; };
@@ -105,6 +106,7 @@
 		A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000069294A0000000000001 /* ServiceClientTests.swift */; };
 		A1000070294A0000000000001 /* HealthDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000071294A0000000000001 /* HealthDataManager.swift */; };
 		A1000072294A0000000000001 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000073294A0000000000001 /* Keychain.swift */; };
+		D7A1E5C0294A0000000000001 /* DataEncryptionKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A1E5C1294A0000000000001 /* DataEncryptionKey.swift */; };
 		A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000073294A0000000000003 /* ServerConfigurationConstants.swift */; };
 		A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000075294A0000000000001 /* HealthDataManagerTests.swift */; };
 		A10000LOGE0000000000000001 /* LogExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000LOGE0000000000000002 /* LogExporter.swift */; };
@@ -262,6 +264,7 @@
 		A1000047294A0000000000001 /* DatabaseManager+Documents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+Documents.swift"; sourceTree = "<group>"; };
 		A1000049294A0000000000001 /* DatabaseManager+Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DatabaseManager+Chat.swift"; sourceTree = "<group>"; };
 		A1000053294A0000000000001 /* DatabaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseTests.swift; sourceTree = "<group>"; };
+		D7A1E5C3294A0000000000001 /* DataKeyResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataKeyResolverTests.swift; sourceTree = "<group>"; };
 		A1000055294A0000000000001 /* FileSystemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemManager.swift; sourceTree = "<group>"; };
 		A1000057294A0000000000001 /* DocumentImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentImporter.swift; sourceTree = "<group>"; };
 		A1000059294A0000000000001 /* DocumentExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentExporter.swift; sourceTree = "<group>"; };
@@ -270,6 +273,7 @@
 		A1000069294A0000000000001 /* ServiceClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceClientTests.swift; sourceTree = "<group>"; };
 		A1000071294A0000000000001 /* HealthDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManager.swift; sourceTree = "<group>"; };
 		A1000073294A0000000000001 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		D7A1E5C1294A0000000000001 /* DataEncryptionKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataEncryptionKey.swift; sourceTree = "<group>"; };
 		A1000073294A0000000000003 /* ServerConfigurationConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigurationConstants.swift; sourceTree = "<group>"; };
 		A1000075294A0000000000001 /* HealthDataManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataManagerTests.swift; sourceTree = "<group>"; };
 		A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestValueValidator.swift; sourceTree = "<group>"; };
@@ -569,6 +573,7 @@
 				A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */,
 				CONV02002EA12E9900999004 /* ConversationExporter.swift */,
 				A1000073294A0000000000001 /* Keychain.swift */,
+				D7A1E5C1294A0000000000001 /* DataEncryptionKey.swift */,
 				A1000073294A0000000000003 /* ServerConfigurationConstants.swift */,
 				4D504C4154464F524D303030 /* PlatformCapabilities.swift */,
 				303242343446444138303338 /* AccessibilityManager.swift */,
@@ -584,6 +589,7 @@
 				A1000033294A0000000000001 /* ModelTests.swift */,
 				4529398925814269AA2F22D8 /* AppointmentPrepProcessorTests.swift */,
 				A1000053294A0000000000001 /* DatabaseTests.swift */,
+				D7A1E5C3294A0000000000001 /* DataKeyResolverTests.swift */,
 				A1000061294A0000000000001 /* FileSystemTests.swift */,
 				A1000069294A0000000000001 /* ServiceClientTests.swift */,
 				LABREPORTPARSERTEST002 /* LabReportParserTests.swift */,
@@ -870,6 +876,7 @@
 				MEDDOCEXT001 /* MedicalDocumentExtractor.swift in Sources */,
 				B6A100030000000000000001 /* GeneticTestParser.swift in Sources */,
 				A1000072294A0000000000001 /* Keychain.swift in Sources */,
+				D7A1E5C0294A0000000000001 /* DataEncryptionKey.swift in Sources */,
 				A1000073294A0000000000002 /* ServerConfigurationConstants.swift in Sources */,
 				7CO9IFR74OOQNFSJ21MRX2MH /* BloodTestEntryView.swift in Sources */,
 				LOSQDJES9EGI21A07Y300YP6 /* BloodTestsSection.swift in Sources */,
@@ -920,6 +927,7 @@
 				A1000032294A0000000000001 /* ModelTests.swift in Sources */,
 				7A008BA2F1974A14BC1D81E9 /* AppointmentPrepProcessorTests.swift in Sources */,
 				A1000052294A0000000000001 /* DatabaseTests.swift in Sources */,
+				D7A1E5C2294A0000000000001 /* DataKeyResolverTests.swift in Sources */,
 				A1000060294A0000000000001 /* FileSystemTests.swift in Sources */,
 				142348202EA07B6300059087 /* NetworkingTests.swift in Sources */,
 				A1000068294A0000000000001 /* ServiceClientTests.swift in Sources */,

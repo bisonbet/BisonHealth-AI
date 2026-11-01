@@ -20,7 +20,8 @@ class DatabaseManager: ObservableObject {
         }
     }()
     internal var db: Connection?
-    private let encryptionKey: SymmetricKey
+    /// Replaced only by `resetDatabase()`, when a store whose key could not be resolved is rebuilt.
+    private var encryptionKey: SymmetricKey
     private let databaseURL: URL
     internal let appLog = AppLog.shared
 
@@ -28,8 +29,9 @@ class DatabaseManager: ObservableObject {
     /// query fails with `DatabaseError.connectionFailed` instead of reading placeholder state.
     private(set) var initializationError: Error?
 
-    /// Whether `resetDatabase()` has a real path and key to rebuild with. False only when a
-    /// degraded instance could recover neither, in which case erasing would target nothing.
+    /// Whether `resetDatabase()` has a real path to rebuild at. False only when a degraded
+    /// instance could not recover one, in which case erasing would target nothing. The key
+    /// is not required: a reset that has none files a new one (`keyForErasedStore`).
     let canResetDatabase: Bool
     
     // Key fingerprint for detecting key changes
@@ -138,8 +140,8 @@ class DatabaseManager: ObservableObject {
     init(databaseURL: URL? = nil) throws {
         self.canResetDatabase = true
 
-        // Generate or retrieve encryption key
-        self.encryptionKey = try Self.getOrCreateEncryptionKey()
+        // Shared with FileSystemManager; see DataKeyResolver for how it is chosen.
+        self.encryptionKey = try DataEncryptionKey.current()
         
         // Set up database URL
         let resolvedDatabaseURL: URL
@@ -186,127 +188,21 @@ class DatabaseManager: ObservableObject {
         // Enable foreign key constraints
         try db?.execute("PRAGMA foreign_keys = ON")
         
-        // Create tables
-        if let db = db {
-            // Create health_data table
-            try db.run(healthDataTable.create(ifNotExists: true) { t in
-                t.column(healthDataId, primaryKey: true)
-                t.column(healthDataType)
-                t.column(healthDataEncryptedData)
-                t.column(healthDataCreatedAt)
-                t.column(healthDataUpdatedAt)
-                t.column(healthDataMetadata)
-            })
-            
-            // Create documents table
-            try db.run(documentsTable.create(ifNotExists: true) { t in
-                t.column(documentId, primaryKey: true)
-                t.column(documentFileName)
-                t.column(documentFileType)
-                t.column(documentFilePath)
-                t.column(documentThumbnailPath)
-                t.column(documentProcessingStatus)
-                t.column(documentImportedAt)
-                t.column(documentProcessedAt)
-                t.column(documentFileSize)
-                t.column(documentTags)
-                t.column(documentNotes)
-                t.column(documentExtractedData)
-                // Medical document fields (v4)
-                t.column(documentDate)
-                t.column(documentProviderName)
-                t.column(documentProviderType)
-                t.column(documentCategory, defaultValue: "other")
-                t.column(documentExtractedText)
-                t.column(documentExtractedSections)
-                t.column(documentIncludeInAIContext, defaultValue: false)
-                t.column(documentContextPriority, defaultValue: 3)
-                t.column(documentLastEditedAt)
-                t.column(documentFailureReason)
-            })
-            
-            // Create chat_conversations table
-            try db.run(chatConversationsTable.create(ifNotExists: true) { t in
-                t.column(conversationId, primaryKey: true)
-                t.column(conversationTitle)
-                t.column(conversationCreatedAt)
-                t.column(conversationUpdatedAt)
-                t.column(conversationIncludedDataTypes)
-                t.column(conversationIncludedPersonalInfo)
-                t.column(conversationIsArchived, defaultValue: false)
-                t.column(conversationTags)
-            })
-            
-            // Create chat_messages table
-            try db.run(chatMessagesTable.create(ifNotExists: true) { t in
-                t.column(messageId, primaryKey: true)
-                t.column(messageConversationId)
-                t.column(messageContent)
-                t.column(messageRole)
-                t.column(messageTimestamp)
-                t.column(messageMetadata)
-                t.column(messageIsError, defaultValue: false)
-                t.column(messageTokens)
-                t.column(messageProcessingTime)
-                t.foreignKey(messageConversationId, references: chatConversationsTable, conversationId, delete: .cascade)
-            })
-
-            // Create appointment_preps table
-            try db.run(appointmentPrepsTable.create(ifNotExists: true) { t in
-                t.column(prepId, primaryKey: true)
-                t.column(prepEncryptedData)
-                t.column(prepStatus, defaultValue: "draft")
-                t.column(prepCreatedAt)
-                t.column(prepUpdatedAt)
-            })
-
-            // Create pending_import_reviews table (v13)
-            try db.run(pendingReviewsTable.create(ifNotExists: true) { t in
-                t.column(pendingReviewDocumentId, primaryKey: true)
-                t.column(pendingReviewPayload)
-                t.column(pendingReviewCreatedAt)
-            })
-
-            // Create database_version table
-            try db.run(databaseVersionTable.create(ifNotExists: true) { t in
-                t.column(versionNumber, primaryKey: true)
-                t.column(versionCreatedAt)
-            })
-
-            // Create app_settings table
-            try createAppSettingsTable()
-
-            // Handle database migrations
-            try performDatabaseMigration(db: db)
-
-            // Create indexes
-            try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_type ON health_data(type)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_health_data_created ON health_data(created_at)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(document_date)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
-            try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
-
-        }
+        // Same schema path as resetDatabase(), so the two can never drift apart.
+        try createTables()
     }
 
     /// Builds a manager that owns no connection, recording why the database could not be
     /// opened. With `db` nil every query throws before anything reads the other properties,
     /// but the real path and key are recovered where possible: `resetDatabase()` is the only
-    /// way out of a database that will not open, and it needs both to rebuild one.
+    /// way out of a database that will not open, and it needs the path to rebuild one.
     private init(unavailable error: Error) {
-        let recoveredEncryptionKey = try? Self.getOrCreateEncryptionKey()
+        let recoveredEncryptionKey = try? DataEncryptionKey.current()
         let recoveredDatabaseURL = Self.resolveDefaultDatabaseURL()
 
         self.encryptionKey = recoveredEncryptionKey ?? SymmetricKey(size: .bits256)
         self.databaseURL = recoveredDatabaseURL ?? URL(fileURLWithPath: "/dev/null")
-        self.canResetDatabase = recoveredEncryptionKey != nil && recoveredDatabaseURL != nil
+        self.canResetDatabase = recoveredDatabaseURL != nil
         self.db = nil
         self.initializationError = error
     }
@@ -875,6 +771,10 @@ class DatabaseManager: ObservableObject {
     func resetDatabase() throws {
         guard canResetDatabase else { throw DatabaseError.connectionFailed }
 
+        // When the key could not be resolved (a store too damaged to inspect), this is where
+        // the rebuilt store gets one. Before anything is deleted, so a failure here erases nothing.
+        self.encryptionKey = try DataEncryptionKey.keyForErasedStore()
+
         // Close current connection
         self.db = nil
 
@@ -912,6 +812,12 @@ class DatabaseManager: ObservableObject {
         AppLog.shared.database("Database reset completed")
     }
 
+    /// The one definition of the current schema, used by both a first open and a reset.
+    ///
+    /// There used to be a second copy here for `resetDatabase()`. It fell behind: it lacked
+    /// `documents.failure_reason` and the `pending_import_reviews` table, yet stamped the
+    /// rebuilt database with the current version, so no migration ever added them and
+    /// every document save after a reset failed.
     private func createTables() throws {
         guard let db = db else { throw DatabaseError.connectionFailed }
 
@@ -924,7 +830,7 @@ class DatabaseManager: ObservableObject {
             t.column(healthDataUpdatedAt)
             t.column(healthDataMetadata)
         })
-
+        
         // Create documents table
         try db.run(documentsTable.create(ifNotExists: true) { t in
             t.column(documentId, primaryKey: true)
@@ -949,8 +855,9 @@ class DatabaseManager: ObservableObject {
             t.column(documentIncludeInAIContext, defaultValue: false)
             t.column(documentContextPriority, defaultValue: 3)
             t.column(documentLastEditedAt)
+            t.column(documentFailureReason)
         })
-
+        
         // Create chat_conversations table
         try db.run(chatConversationsTable.create(ifNotExists: true) { t in
             t.column(conversationId, primaryKey: true)
@@ -962,7 +869,7 @@ class DatabaseManager: ObservableObject {
             t.column(conversationIsArchived, defaultValue: false)
             t.column(conversationTags)
         })
-
+        
         // Create chat_messages table
         try db.run(chatMessagesTable.create(ifNotExists: true) { t in
             t.column(messageId, primaryKey: true)
@@ -986,6 +893,13 @@ class DatabaseManager: ObservableObject {
             t.column(prepUpdatedAt)
         })
 
+        // Create pending_import_reviews table (v13)
+        try db.run(pendingReviewsTable.create(ifNotExists: true) { t in
+            t.column(pendingReviewDocumentId, primaryKey: true)
+            t.column(pendingReviewPayload)
+            t.column(pendingReviewCreatedAt)
+        })
+
         // Create database_version table
         try db.run(databaseVersionTable.create(ifNotExists: true) { t in
             t.column(versionNumber, primaryKey: true)
@@ -1004,54 +918,31 @@ class DatabaseManager: ObservableObject {
         try db.run("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(processing_status)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_documents_imported ON documents(imported_at)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(file_type)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(document_date)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(document_category)")
+        try db.run("CREATE INDEX IF NOT EXISTS idx_documents_ai_context ON documents(include_in_ai_context)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON chat_messages(conversation_id)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_conversations_updated ON chat_conversations(updated_at)")
         try db.run("CREATE INDEX IF NOT EXISTS idx_appointment_preps_updated ON appointment_preps(updated_at)")
+
+        try repairSchemaCreatedByReset(db: db)
     }
 
-    // MARK: - Encryption Key Management
-    private static func getOrCreateEncryptionKey() throws -> SymmetricKey {
-        let keychain = Keychain()
-        let log = AppLog.shared
-
-        if let existingKey = try keychain.getEncryptionKey() {
-            // Verify key integrity
-            let keyData = existingKey.withUnsafeBytes { Data($0) }
-            if keyData.count != 32 { // 256 bits = 32 bytes
-                log.database("Encryption key has invalid size (\(keyData.count) bytes, expected 32). This may cause data loss!", level: .error)
-                throw DatabaseError.encryptionFailed
-            }
-
-            // Log key fingerprint for debugging (first 8 chars only for security)
-            let hash = SHA256.hash(data: keyData)
-            let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
-            log.database("Using existing encryption key (fingerprint: \(fingerprint)...)")
-
-            return existingKey
-        } else {
-            // Check if database already exists - if so, warn about potential data loss
-            if let databaseURL = applicationSupportDatabaseURL(),
-               FileManager.default.fileExists(atPath: databaseURL.path) {
-                log.database("CRITICAL: Database exists but encryption key is missing! Creating new key will make existing data unreadable!", level: .critical)
-                log.database("Attempting to scan database for recoverable data...", level: .error)
-                // Don't throw - let the recovery scanner handle it
-            }
-
-            log.database("Creating new encryption key (no existing key found)", level: .warning)
-            let newKey = SymmetricKey(size: .bits256)
-            try keychain.storeEncryptionKey(newKey)
-
-            // Store key fingerprint for future validation
-            let keyData = newKey.withUnsafeBytes { Data($0) }
-            let hash = SHA256.hash(data: keyData)
-            let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined().prefix(8).description
-            log.database("New encryption key created (fingerprint: \(fingerprint)...)")
-
-            return newKey
+    /// Adds what the old reset path left out of a database it stamped current. Not a
+    /// migration: these databases already claim the current version, so no version step
+    /// will ever reach them. The missing table is handled by `createTables`'
+    /// `ifNotExists`; only the column needs adding.
+    private func repairSchemaCreatedByReset(db: Connection) throws {
+        let hasFailureReason = try db.scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = 'failure_reason'"
+        ) as? Int64 ?? 0
+        if hasFailureReason == 0 {
+            try db.run(documentsTable.addColumn(documentFailureReason))
+            AppLog.shared.database("Repaired schema: added documents.failure_reason, missing since a database reset", level: .warning)
         }
     }
-    
+
     // MARK: - Encryption/Decryption
     internal func encryptData<T: Codable>(_ data: T) throws -> Data {
         let jsonData = try JSONEncoder().encode(data)

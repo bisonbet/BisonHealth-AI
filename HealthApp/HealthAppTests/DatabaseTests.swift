@@ -563,6 +563,41 @@ final class DatabaseMigrationTests: XCTestCase {
         )
     }
 
+    // MARK: Reset and stamped-current repair
+
+    /// Reset used to rebuild from a second, stale copy of the schema and stamp it current,
+    /// so documents had no failure_reason column and every document save failed.
+    func testResettingTheDatabaseBuildsTheCurrentSchema() throws {
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+
+        try manager.resetDatabase()
+
+        XCTAssertTrue(try documentsHasColumn("failure_reason"))
+        XCTAssertTrue(try hasTable("pending_import_reviews"))
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+    }
+
+    /// A database the old reset path already built: current version, objects missing.
+    /// No migration step can reach it, so opening it has to repair it, and do so every
+    /// time without failing on the second open.
+    func testDatabaseStampedCurrentByTheOldResetIsRepairedOnOpen() throws {
+        do {
+            _ = try DatabaseManager(databaseURL: databaseURL)
+        }
+        try execute("""
+            ALTER TABLE documents DROP COLUMN failure_reason;
+            DROP TABLE pending_import_reviews;
+            """)
+        XCTAssertFalse(try documentsHasColumn("failure_reason"), "Precondition: the old reset's schema")
+
+        _ = try DatabaseManager(databaseURL: databaseURL)
+        XCTAssertNoThrow(try DatabaseManager(databaseURL: databaseURL), "The repair must be safe to run twice")
+
+        XCTAssertTrue(try documentsHasColumn("failure_reason"))
+        XCTAssertTrue(try hasTable("pending_import_reviews"))
+        XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)
+    }
+
     // MARK: v14 → v15 (W-B)
 
     func testUpgradingFromVersion14AddsTheFailureReasonColumn() async throws {

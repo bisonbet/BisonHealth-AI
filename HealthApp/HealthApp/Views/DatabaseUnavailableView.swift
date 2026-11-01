@@ -46,12 +46,16 @@ struct DatabaseUnavailableView: View {
     /// Erasing is offered wherever the records are genuinely unreachable and a rebuild is
     /// possible. Note the default: most launch failures surface as a raw SQLite error rather
     /// than a `DatabaseError` — a corrupt file is the common case — and those are exactly the
-    /// ones only a rebuild clears. Two cases are excluded: a version mismatch, where the data
-    /// is intact and a newer build opens it, and a file-storage failure, which erasing the
+    /// ones only a rebuild clears. Three cases are excluded: a version mismatch, where the data
+    /// is intact and a newer build opens it; a missing encryption key, where the data is
+    /// intact and opens once the key syncs; and a file-storage failure, which erasing the
     /// database would not fix.
     private var canOfferErase: Bool {
         guard !isFileSystemUnavailable else { return false }
         if let databaseError = error as? DatabaseError, !databaseError.isRecoverableByErasingData {
+            return false
+        }
+        if let keyError = error as? DataKeyError, !keyError.isRecoverableByErasingData {
             return false
         }
         return DatabaseManager.shared.canResetDatabase
@@ -232,6 +236,14 @@ struct DatabaseUnavailableView: View {
     private func eraseAndRebuild() {
         do {
             try DatabaseManager.shared.resetDatabase()
+            // File storage may have failed at launch for the same reason (no data key), and
+            // the reset has just established one. The erase already happened, so a failure
+            // here is not reported as one: the refresh below shows what is still wrong.
+            do {
+                try FileSystemManager.shared.recoverIfUnavailable()
+            } catch {
+                AppLog.shared.fileManagement("Secure file storage did not recover after the erase: \(error)", level: .critical)
+            }
             AppStartupHealth.shared.refresh()
         } catch {
             AppLog.shared.database("Database erase-and-rebuild failed: \(error)", level: .critical)

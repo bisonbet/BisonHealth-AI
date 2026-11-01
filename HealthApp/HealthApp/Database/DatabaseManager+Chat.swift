@@ -286,36 +286,21 @@ extension DatabaseManager {
     // MARK: - Chat Statistics
     func getChatStatistics() async throws -> ChatStatistics {
         guard let db = db else { throw DatabaseError.connectionFailed }
-        let conversationsTable = chatConversationsTable
-        let messagesTable = chatMessagesTable
-        let tokensExpr = messageTokens
-        let roleExpr = messageRole
-        let processingTimeExpr = messageProcessingTime
-        let updatedAtExpr = conversationUpdatedAt
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    let totalConversations = try db.scalar(conversationsTable.count)
-                    let totalMessages = try db.scalar(messagesTable.count)
-                    let totalTokens: Int = try db.scalar(messagesTable.select(tokensExpr.sum)) ?? 0
-                    let avgResponseTime: Double = try db.scalar(messagesTable
-                        .filter(roleExpr == MessageRole.assistant.rawValue && processingTimeExpr != nil)
-                        .select(processingTimeExpr.average)) ?? 0.0
-                    let lastChatTimestamp: Int64? = try db.scalar(conversationsTable.select(updatedAtExpr.max))
-                    let lastChatDate = lastChatTimestamp.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-                    continuation.resume(returning: ChatStatistics(
-                        totalConversations: totalConversations,
-                        totalMessages: totalMessages,
-                        totalTokensUsed: totalTokens,
-                        averageResponseTime: avgResponseTime,
-                        mostUsedDataTypes: [], // TODO: Implement this calculation
-                        lastChatDate: lastChatDate
-                    ))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        let totalConversations = try db.scalar(chatConversationsTable.count)
+        let totalMessages = try db.scalar(chatMessagesTable.count)
+        let totalTokens: Int = try db.scalar(chatMessagesTable.select(messageTokens.sum)) ?? 0
+        let avgResponseTime: Double = try db.scalar(chatMessagesTable
+            .filter(messageRole == MessageRole.assistant.rawValue && messageProcessingTime != nil)
+            .select(messageProcessingTime.average)) ?? 0.0
+        let lastChatTimestamp: Int64? = try db.scalar(chatConversationsTable.select(conversationUpdatedAt.max))
+        return ChatStatistics(
+            totalConversations: totalConversations,
+            totalMessages: totalMessages,
+            totalTokensUsed: totalTokens,
+            averageResponseTime: avgResponseTime,
+            mostUsedDataTypes: [], // TODO: Implement this calculation
+            lastChatDate: lastChatTimestamp.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        )
     }
 
     // MARK: - Helper Methods

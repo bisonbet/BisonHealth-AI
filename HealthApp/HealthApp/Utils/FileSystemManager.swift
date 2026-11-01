@@ -25,13 +25,14 @@ class FileSystemManager: ObservableObject {
     }()
     
     // MARK: - Directory Structure
-    private let baseDirectory: URL
-    private let documentsDirectory: URL
-    private let thumbnailsDirectory: URL
-    private let exportsDirectory: URL
-    private let logsDirectory: URL
+    // Variables only so that `recoverIfUnavailable()` can repair a failed `shared` in place.
+    private var baseDirectory: URL
+    private var documentsDirectory: URL
+    private var thumbnailsDirectory: URL
+    private var exportsDirectory: URL
+    private var logsDirectory: URL
     
-    private let encryptionKey: SymmetricKey
+    private var encryptionKey: SymmetricKey
     private(set) var initializationError: Error? = nil
 
     // MARK: - Availability
@@ -61,13 +62,8 @@ class FileSystemManager: ObservableObject {
         self.exportsDirectory = self.baseDirectory.appendingPathComponent("Exports")
         self.logsDirectory = self.baseDirectory.appendingPathComponent("Logs")
         
-        // Get encryption key from keychain
-        let keychain = Keychain()
-        self.encryptionKey = try keychain.getEncryptionKey() ?? {
-            let newKey = SymmetricKey(size: .bits256)
-            try keychain.storeEncryptionKey(newKey)
-            return newKey
-        }()
+        // The same key as the database; see DataKeyResolver.
+        self.encryptionKey = try DataEncryptionKey.current()
         
         // Create directory structure
         try createDirectoryStructure()
@@ -85,6 +81,21 @@ class FileSystemManager: ObservableObject {
         self.logsDirectory = unavailableBaseDirectory.appendingPathComponent("Logs")
         self.encryptionKey = SymmetricKey(size: .bits256)
         self.initializationError = error
+    }
+    
+    /// Initializes again, in place, a manager that failed to at launch. `shared` is a
+    /// constant, so this is the only way it becomes usable without relaunching: after the
+    /// database is erased and rebuilt, the data key it could not get at launch exists.
+    func recoverIfUnavailable() throws {
+        guard initializationError != nil else { return }
+        let recovered = try FileSystemManager()
+        baseDirectory = recovered.baseDirectory
+        documentsDirectory = recovered.documentsDirectory
+        thumbnailsDirectory = recovered.thumbnailsDirectory
+        exportsDirectory = recovered.exportsDirectory
+        logsDirectory = recovered.logsDirectory
+        encryptionKey = recovered.encryptionKey
+        initializationError = nil
     }
     
     // MARK: - Directory Management
