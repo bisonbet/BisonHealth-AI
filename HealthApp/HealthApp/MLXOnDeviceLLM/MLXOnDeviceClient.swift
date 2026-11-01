@@ -205,6 +205,13 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         await MLXGPUGate.shared.acquire()
         defer { MLXGPUGate.shared.release() }
 
+        // Checked before loading: `suspendForBackground()` has just given the model back,
+        // and reloading ~2.4 GB in the background only to stop at the first token is the
+        // memory pressure the suspend exists to avoid.
+        if isSuspendedForBackground {
+            throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+        }
+
         try await ensureModelLoadedLocked()
 
         let instructions = buildInstructions(systemPrompt: nil, healthContext: context)

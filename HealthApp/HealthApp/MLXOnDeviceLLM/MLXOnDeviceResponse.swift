@@ -93,9 +93,9 @@ enum MLXOnDeviceError: LocalizedError {
         case .simulatorNotSupported:
             return "Deploy the app to a physical iPhone or iPad to use on-device AI."
         case .generationInterrupted(.backgrounded):
-            return "Send your message again now that the app is in the foreground."
+            return "Try again now that the app is in the foreground."
         case .generationInterrupted(.cancelled):
-            return "Send your message again to get a complete response."
+            return "Try again to get a complete response."
         }
     }
 }

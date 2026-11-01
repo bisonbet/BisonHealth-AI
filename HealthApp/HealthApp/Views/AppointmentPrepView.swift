@@ -74,7 +74,7 @@ struct AppointmentPrepView: View {
                     .fontWeight(.semibold)
             }
             .buttonStyle(.borderedProminent)
-            .tint(BisonTheme.gold)
+            .tint(BisonTheme.goldText)
         }
     }
 

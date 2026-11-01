@@ -190,13 +190,7 @@ final class DatabaseMigrationTests: XCTestCase {
         plaintextTagsJSON: String,
         plaintextConversationTitle: String?
     ) throws {
-        // v15 added failure_reason; v12 dropped the legacy Docling column v10 still had.
-        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
-        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
-        // v13 created it.
-        try execute("DROP TABLE IF EXISTS pending_import_reviews")
-        // v11 added it.
-        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
+        try windBackSchemaToVersion10()
 
         // v11 encrypted these text columns, and v14 the tags column.
         try execute("""
@@ -214,6 +208,19 @@ final class DatabaseMigrationTests: XCTestCase {
         if let plaintextConversationTitle {
             try execute("UPDATE chat_conversations SET title = '\(plaintextConversationTitle)'")
         }
+    }
+
+    /// Undo every schema change after v10 and stamp the file v10, leaving the stored values
+    /// as they are. The one place each later migration is reversed: a new version adds its
+    /// undo step here, and both v10 fixtures pick it up.
+    private func windBackSchemaToVersion10() throws {
+        // v15 added failure_reason; v12 dropped the legacy Docling column v10 still had.
+        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
+        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
+        // v13 created it.
+        try execute("DROP TABLE IF EXISTS pending_import_reviews")
+        // v11 added it.
+        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
 
         try execute("DELETE FROM database_version")
         try execute("INSERT INTO database_version (version, created_at) VALUES (10, 0)")
@@ -539,12 +546,7 @@ final class DatabaseMigrationTests: XCTestCase {
         let fileNameBefore = try textScalar("SELECT file_name FROM documents LIMIT 1")
         XCTAssertNotEqual(fileNameBefore, "panel.pdf", "Precondition: the row is already encrypted")
 
-        try execute("ALTER TABLE documents DROP COLUMN failure_reason")
-        try execute("ALTER TABLE documents ADD COLUMN raw_docling_output BLOB")
-        try execute("DROP TABLE IF EXISTS pending_import_reviews")
-        try execute("ALTER TABLE chat_conversations DROP COLUMN included_personal_info_categories")
-        try execute("DELETE FROM database_version")
-        try execute("INSERT INTO database_version (version, created_at) VALUES (10, 0)")
+        try windBackSchemaToVersion10()
 
         let migrated = try DatabaseManager(databaseURL: databaseURL)
         XCTAssertEqual(try storedVersion(), DatabaseManager.currentDatabaseVersion)

@@ -21,10 +21,13 @@ struct BisonTheme {
         )
     }
 
+    /// `gold`'s dark-appearance value, shared by every gold token that uses it.
+    private static let brightGold = Color(red: 0.93, green: 0.70, blue: 0.28)
+
     static var gold: Color {
         Color.adaptive(
             light: Color(red: 0.78, green: 0.55, blue: 0.16),
-            dark: Color(red: 0.93, green: 0.70, blue: 0.28)
+            dark: brightGold
         )
     }
 
@@ -36,7 +39,7 @@ struct BisonTheme {
     static var goldText: Color {
         Color.adaptive(
             light: Color(red: 0.56, green: 0.37, blue: 0.05),
-            dark: Color(red: 0.93, green: 0.70, blue: 0.28)
+            dark: brightGold
         )
     }
 
@@ -45,7 +48,7 @@ struct BisonTheme {
     /// the dark brown — 3.4:1 on the splash's fixed near-black. This is `gold`'s dark value,
     /// 9.9:1 there, regardless of appearance.
     static var goldOnDarkSurface: Color {
-        Color(red: 0.93, green: 0.70, blue: 0.28)
+        brightGold
     }
 
     static var sage: Color {

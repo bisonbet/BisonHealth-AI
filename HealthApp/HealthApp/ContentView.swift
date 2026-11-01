@@ -43,7 +43,7 @@ struct ContentView: View {
                     compactTabShell
                 }
             }
-            .tint(BisonTheme.gold)
+            .tint(BisonTheme.goldText)
             .withErrorHandling() // Add global error handling
 
             // Global offline indicator
