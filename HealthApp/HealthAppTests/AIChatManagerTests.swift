@@ -247,7 +247,7 @@ final class AIChatManagerTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager.isolatedForTesting()
+        let settingsManager = try makeIsolatedSettingsManager()
         let scriptedProvider = ScriptedAIProvider()
         scriptedProvider.reset()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)

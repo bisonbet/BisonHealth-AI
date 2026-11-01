@@ -227,7 +227,7 @@ final class AppointmentPrepManagerRegressionTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager.isolatedForTesting()
+        let settingsManager = try makeIsolatedSettingsManager()
         let scriptedProvider = ScriptedAIProvider()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)
 

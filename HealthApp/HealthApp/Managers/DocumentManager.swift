@@ -397,10 +397,18 @@ class DocumentManager: ObservableObject {
             }
 
             // The imported file may already have been removed outside the app.
-            // File cleanup is therefore best-effort after the database delete.
-            if FileManager.default.fileExists(atPath: document.filePath.path) {
+            // File cleanup is therefore best-effort after the database delete. A copy of the
+            // row loaded before the launch-time rename still names the legacy file, which has
+            // since moved, so look under its renamed name too.
+            let storedFileExists = FileManager.default.fileExists(atPath: document.filePath.path)
+            let fileToDelete = storedFileExists
+                ? document.filePath
+                : FileSystemManager.renamedLegacyDocumentName(for: document.filePath.lastPathComponent)
+                    .flatMap { fileSystemManager.findDocumentByFileName($0) }
+            if let fileToDelete {
                 do {
-                    try fileSystemManager.deleteDocument(at: document.filePath)
+                    // Also removes the thumbnail named after this file.
+                    try fileSystemManager.deleteDocument(at: fileToDelete)
                 } catch {
                     AppLog.shared.documents("Failed to remove source file for '\(document.fileName)': \(error.localizedDescription)", level: .warning)
                 }

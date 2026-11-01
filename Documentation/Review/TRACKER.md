@@ -308,11 +308,15 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     and its path rewritten. The new name is derived from the old one, so an interruption between
     move and rewrite heals next launch, and `resolveDocumentFilePath` also looks under the
     derived name. A stale path from an older container is found by name. **Schema stays at v15;
-    no migration is outstanding.**
+    no migration is outstanding.** Review of #55 found the **thumbnails** were missed: they are
+    named after the document's file, so legacy ones are `<uuid>_<original name>_thumb.jpg`.
+    They are renamed to `<uuid>_thumb.jpg` by the same pass. Deleting a row loaded before the
+    pass now looks under the renamed name, and caches are reloaded after it runs.
 15. ~~**W-S**~~ (code part) — **done 2026-11-01.** `AIDisclaimerFooter` sits under the chat composer
     for the whole conversation and under generated appointment-prep content, and the exported,
     printed or shared prep report carries the same line once it has AI content — one
-    `AIDisclaimer.text`. **Still the owner's:** the App Store Connect answers (regulated medical
+    `AIDisclaimer.text`, also used by the chat empty state and by conversation export (Markdown
+    and PDF), which review of #55 found still had none. **Still the owner's:** the App Store Connect answers (regulated medical
     device: No; age rating for medical/treatment information; category) and a hosted
     privacy-policy/support URL (WS-13-10, WS-13-13).
 
@@ -329,7 +333,7 @@ start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
 
 ### Standing verification facts for this repo
 
-- **402 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
+- **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
   (404 before W-K deleted 9 tests that could not fail and added 7 real ones)
   (368 on 2026-10-26).
   Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted

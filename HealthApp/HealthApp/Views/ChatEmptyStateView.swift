@@ -55,12 +55,7 @@ struct ChatEmptyStateView: View {
                 .cornerRadius(25)
             }
             
-            // Subtle disclaimer
-            Text("AI chat is for personal health insights only. Not for professional medical advice.")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
+            AIDisclaimerFooter()
         }
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -3,18 +3,18 @@ import XCTest
 
 @MainActor
 final class HealthDataManagerTests: XCTestCase {
-    private var container: TestContainer?
+    private var containers: [TestContainer] = []
 
     override func tearDown() async throws {
-        container?.remove()
-        container = nil
+        containers.forEach { $0.remove() }
+        containers.removeAll()
         try await super.tearDown()
     }
 
     /// Not `HealthDataManager.shared`, which loads from the app's own database on first use.
     private func makeManager() throws -> HealthDataManager {
         let container = try TestContainer()
-        self.container = container
+        containers.append(container)
         return HealthDataManager(
             databaseManager: try container.makeDatabaseManager(),
             fileSystemManager: try container.makeFileSystemManager(),

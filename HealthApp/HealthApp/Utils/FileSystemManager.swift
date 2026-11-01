@@ -396,34 +396,58 @@ class FileSystemManager: ObservableObject {
     /// path cannot share a transaction, so a run interrupted between the two must still be
     /// able to tell, next launch, where the file went.
     nonisolated static func renamedLegacyDocumentName(for storedName: String) -> String? {
-        let uuidLength = 36
-        guard storedName.count > uuidLength + 1 else { return nil }
-        let prefix = String(storedName.prefix(uuidLength))
-        guard UUID(uuidString: prefix) != nil,
-              storedName.dropFirst(uuidLength).first == "_" else { return nil }
+        guard let prefix = legacyUUIDPrefix(of: storedName) else { return nil }
         let pathExtension = (storedName as NSString).pathExtension.lowercased()
         return pathExtension.isEmpty ? prefix : "\(prefix).\(pathExtension)"
     }
 
+    /// The same for a legacy document's thumbnail. `generateThumbnail` names a thumbnail after
+    /// its document's file, so a legacy one is `<uuid>_<original name>_thumb.jpg` and carries
+    /// the same words. It becomes `<uuid>_thumb.jpg`, which is also what `getThumbnailURL(for:)`
+    /// gives the renamed document, so deleting or regenerating it still finds the file.
+    nonisolated static func renamedLegacyThumbnailName(for storedName: String) -> String? {
+        let suffix = "_thumb.jpg"
+        guard storedName.hasSuffix(suffix), let prefix = legacyUUIDPrefix(of: storedName) else { return nil }
+        let renamed = prefix + suffix
+        return renamed == storedName ? nil : renamed
+    }
+
+    /// The UUID a legacy name starts with, when it is followed by `_` and more.
+    private nonisolated static func legacyUUIDPrefix(of name: String) -> String? {
+        let uuidLength = 36
+        guard name.count > uuidLength + 1 else { return nil }
+        let prefix = String(name.prefix(uuidLength))
+        guard UUID(uuidString: prefix) != nil, name.dropFirst(uuidLength).first == "_" else { return nil }
+        return prefix
+    }
+
     /// Rename one legacy-named document file, returning the URL its row should now record.
-    ///
-    /// Returns nil when there is nothing to record: the name is not a legacy one, or the file
-    /// cannot be found under either name. If the renamed file already exists, an earlier run
-    /// moved it and stopped before the path was rewritten, so its URL is returned unchanged.
     func renameLegacyDocumentFile(storedAt storedURL: URL) throws -> URL? {
         try ensureAvailable()
-        let storedName = storedURL.lastPathComponent
-        guard let renamed = Self.renamedLegacyDocumentName(for: storedName) else { return nil }
+        guard let renamed = Self.renamedLegacyDocumentName(for: storedURL.lastPathComponent) else { return nil }
+        return try moveLegacyFile(storedAt: storedURL, to: renamed, in: documentsDirectory)
+    }
 
+    /// Rename one legacy-named thumbnail, returning the URL its row should now record.
+    func renameLegacyThumbnail(storedAt storedURL: URL) throws -> URL? {
+        try ensureAvailable()
+        guard let renamed = Self.renamedLegacyThumbnailName(for: storedURL.lastPathComponent) else { return nil }
+        return try moveLegacyFile(storedAt: storedURL, to: renamed, in: thumbnailsDirectory)
+    }
+
+    /// Returns nil when there is nothing to record: the file cannot be found under either name.
+    /// If the renamed file already exists, an earlier run moved it and stopped before the path
+    /// was rewritten, so its URL is returned unchanged.
+    private func moveLegacyFile(storedAt storedURL: URL, to renamed: String, in directory: URL) throws -> URL? {
         let fileManager = FileManager.default
-        let destination = documentsDirectory.appendingPathComponent(renamed)
+        let destination = directory.appendingPathComponent(renamed)
         if fileManager.fileExists(atPath: destination.path) {
             return destination
         }
 
         // The recorded path can be stale — the container path changes on reinstall and
-        // restore — so look in the documents directory by name as well.
-        let candidates = [storedURL, documentsDirectory.appendingPathComponent(storedName)]
+        // restore — so look in the managed directory by name as well.
+        let candidates = [storedURL, directory.appendingPathComponent(storedURL.lastPathComponent)]
         guard let source = candidates.first(where: { $0.isFileURL && fileManager.fileExists(atPath: $0.path) }) else {
             return nil
         }

@@ -384,7 +384,15 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
             let recorded = recordsStalePath
                 ? URL(fileURLWithPath: "/private/var/old-container/Documents/HealthApp/Imported/\(legacyName)")
                 : legacyURL
-            let document = makeDocument(named: "panel-\(index).pdf", filePath: recorded)
+            var document = makeDocument(named: "panel-\(index).pdf", filePath: recorded)
+            // Thumbnails were named after the document's file, so they carry the same words.
+            document.thumbnailPath = try await harness.fileSystemManager.generateThumbnail(
+                for: legacyURL, documentType: .docx
+            )
+            XCTAssertTrue(
+                document.thumbnailPath?.lastPathComponent.contains("Quest_Lipid_Panel") ?? false,
+                "Precondition: the legacy thumbnail name carries the document's words"
+            )
             try await harness.databaseManager.saveMedicalDocument(document)
             legacyNames[document.id] = prefix
             documents.append(document)
@@ -412,6 +420,9 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
                 Data("report \(index)".utf8),
                 "Row \(index) must still open its own file"
             )
+            let thumbnail = try XCTUnwrap(reloaded.thumbnailPath)
+            XCTAssertEqual(thumbnail.lastPathComponent, "\(prefix)_thumb.jpg")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: thumbnail.path))
         }
     }
 
@@ -739,7 +750,7 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager.isolatedForTesting()
+        let settingsManager = try makeIsolatedSettingsManager()
         let scriptedProvider = ScriptedAIProvider()
         scriptedProvider.reset()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)

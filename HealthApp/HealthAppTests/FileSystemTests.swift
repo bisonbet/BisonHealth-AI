@@ -33,13 +33,18 @@ struct TestContainer {
     }
 }
 
-extension SettingsManager {
-    /// Empty defaults and an in-memory keychain, so a test neither reads the app's real
-    /// settings and credentials nor writes over them.
-    static func isolatedForTesting() -> SettingsManager {
+extension XCTestCase {
+    /// A `SettingsManager` with its own empty defaults domain and an in-memory keychain, so a
+    /// test neither reads the app's real settings and credentials nor writes over them. The
+    /// domain is removed when the test ends, and failing to create one fails the test rather
+    /// than quietly falling back to the real defaults.
+    @MainActor
+    func makeIsolatedSettingsManager() throws -> SettingsManager {
         let suiteName = "HealthAppTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
-        defaults.removePersistentDomain(forName: suiteName)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Could not create an isolated defaults domain")
+        addTeardownBlock {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
         return SettingsManager(userDefaults: defaults, keychain: InMemoryKeychain())
     }
 }
@@ -93,6 +98,16 @@ final class FileSystemTests: XCTestCase {
         )
     }
 
+    func testALegacyThumbnailNameLosesTheDocumentsWords() {
+        let uuid = "0F8C2C3E-6A57-4E57-9E3B-6F6C0A5B9D11"
+        XCTAssertEqual(
+            FileSystemManager.renamedLegacyThumbnailName(for: "\(uuid)_Quest_Lipid_Panel_thumb.jpg"),
+            "\(uuid)_thumb.jpg"
+        )
+        XCTAssertNil(FileSystemManager.renamedLegacyThumbnailName(for: "\(uuid)_thumb.jpg"), "Already the current scheme")
+        XCTAssertNil(FileSystemManager.renamedLegacyThumbnailName(for: "\(uuid)_Quest_Lipid_Panel.pdf"), "Not a thumbnail")
+    }
+
     func testRenamingALegacyFileKeepsItReadableAndIsSafeToRepeat() throws {
         let stored = try fileSystemManager.storeDocument(data: testDocumentData, fileName: "panel.pdf", fileType: .pdf)
         let uuid = UUID().uuidString
@@ -106,6 +121,27 @@ final class FileSystemTests: XCTestCase {
 
         // A run interrupted after the move and before the path was rewritten.
         XCTAssertEqual(try fileSystemManager.renameLegacyDocumentFile(storedAt: legacy), renamed)
+    }
+
+    // MARK: - Conversation Export
+
+    func testAnExportedConversationCarriesTheAIDisclaimer() async throws {
+        // The replies leave the app in an export, away from the screen that framed them.
+        let fileSystemManager = try XCTUnwrap(fileSystemManager)
+        let exporter = ConversationExporter(fileSystemManager: fileSystemManager)
+        let conversation = ChatConversation(
+            title: "About my statin",
+            messages: [
+                ChatMessage(content: "Could my statin cause muscle aches?", role: .user),
+                ChatMessage(content: "Muscle aches are a known side effect of statins.", role: .assistant)
+            ]
+        )
+
+        let exportURL = try await exporter.exportConversationAsMarkdown(conversation)
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+
+        let markdown = try String(contentsOf: exportURL, encoding: .utf8)
+        XCTAssertTrue(markdown.contains(AIDisclaimer.text))
     }
 
     // MARK: - Document Storage Tests

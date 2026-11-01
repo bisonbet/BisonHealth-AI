@@ -12,7 +12,7 @@ final class AIChatManagerReliabilityTests: XCTestCase {
         let container = try TestContainer()
         self.container = container
         let databaseManager = try container.makeDatabaseManager()
-        let settingsManager = SettingsManager.isolatedForTesting()
+        let settingsManager = try makeIsolatedSettingsManager()
         self.settingsManager = settingsManager
         chatManager = AIChatManager(
             healthDataManager: HealthDataManager(
@@ -21,7 +21,9 @@ final class AIChatManagerReliabilityTests: XCTestCase {
                 automaticallyLoad: false
             ),
             databaseManager: databaseManager,
-            settingsManager: settingsManager
+            settingsManager: settingsManager,
+            // Its unawaited load would read the container tearDown deletes; no test here needs it.
+            automaticallyLoadConversations: false
         )
     }
 

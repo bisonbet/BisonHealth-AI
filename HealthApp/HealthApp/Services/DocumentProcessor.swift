@@ -1999,36 +1999,42 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - Persistence
-    /// Rename files stored as `<uuid>_<original name>.<ext>` before 2026-10-24, whose on-disk
-    /// names carried the patient's own words (lab, test, date) in plaintext (W-Q).
+    /// Rename files stored as `<uuid>_<original name>.<ext>` before 2026-10-24, and their
+    /// `<uuid>_<original name>_thumb.jpg` thumbnails, whose on-disk names carried the patient's
+    /// own words (lab, test, date) in plaintext (W-Q).
     ///
     /// Not a schema migration: no column changes, and a file move cannot join SQLite's
     /// transaction. Instead it is idempotent and runs every launch. Each file is moved first and
     /// its path rewritten second; an interruption between the two is healed next launch,
     /// because the new name is derived from the old one.
     func renameLegacyDocumentFiles() async {
-        let stored: [(id: UUID, filePath: URL)]
+        let stored: [(id: UUID, filePath: URL, thumbnailPath: URL?)]
         do {
-            stored = try await databaseManager.fetchDocumentFilePaths()
+            stored = try await databaseManager.fetchDocumentStoragePaths()
         } catch {
             AppLog.shared.error("Could not list document paths to rename legacy files", error: error, category: .documents)
             return
         }
 
         var renamed = 0
-        for entry in stored where FileSystemManager.renamedLegacyDocumentName(for: entry.filePath.lastPathComponent) != nil {
+        for entry in stored {
             do {
-                guard let newURL = try fileSystemManager.renameLegacyDocumentFile(storedAt: entry.filePath) else {
-                    continue
+                if let newURL = try fileSystemManager.renameLegacyDocumentFile(storedAt: entry.filePath) {
+                    try await databaseManager.updateDocumentFilePath(entry.id, filePath: newURL)
+                    renamed += 1
                 }
-                try await databaseManager.updateDocumentFilePath(entry.id, filePath: newURL)
-                renamed += 1
+                // The thumbnail is named after the document's file, so it carries the same words.
+                if let thumbnail = entry.thumbnailPath,
+                   let newURL = try fileSystemManager.renameLegacyThumbnail(storedAt: thumbnail) {
+                    try await databaseManager.updateDocumentThumbnailPath(entry.id, thumbnailPath: newURL)
+                    renamed += 1
+                }
             } catch {
                 AppLog.shared.error("Could not rename a legacy document file", error: error, category: .documents)
             }
         }
         if renamed > 0 {
-            AppLog.shared.documents("Renamed \(renamed) document file(s) stored under the old name scheme")
+            AppLog.shared.documents("Renamed \(renamed) document or thumbnail file(s) stored under the old name scheme")
             // Anything loaded before this ran holds the old paths, and an edit to a cached copy
             // writes the whole row back — path included. No object: every listener reloads.
             NotificationCenter.default.post(name: .medicalDocumentDidChange, object: nil)

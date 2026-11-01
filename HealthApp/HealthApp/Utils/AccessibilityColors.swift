@@ -43,6 +43,11 @@ struct BisonTheme {
         )
     }
 
+    /// The splash screen's background, near-black in both appearances.
+    static var splashBackground: Color {
+        Color(red: 0.07, green: 0.07, blue: 0.07)
+    }
+
     /// Gold for foregrounds on a surface that is dark in *both* appearances, such as the
     /// splash screen. `goldText` follows the system appearance, so in light mode it picks
     /// the dark brown — 3.4:1 on the splash's fixed near-black. This is `gold`'s dark value,

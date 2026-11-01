@@ -104,9 +104,9 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
-    /// The light backgrounds `goldText` is drawn on (W-N). `sidebarBackground` is the darkest
-    /// of them, so it is the one that decides whether the token passes.
-    private let lightBackgrounds: [(name: String, color: Color)] = [
+    /// The adaptive backgrounds `goldText` is drawn on (W-N). In light mode `sidebarBackground`
+    /// is the darkest of them, so it is the one that decides whether the token passes.
+    private let appBackgrounds: [(name: String, color: Color)] = [
         ("panelBackground", BisonTheme.panelBackground),
         ("appBackground", BisonTheme.appBackground),
         ("sidebarBackground", BisonTheme.sidebarBackground)
@@ -115,7 +115,7 @@ final class ThemeContrastTests: XCTestCase {
     func testGoldTextMeetsAAOnEveryAppBackgroundInBothAppearances() throws {
         for style in [UIUserInterfaceStyle.light, .dark] {
             let text = try resolve(BisonTheme.goldText, style: style)
-            for background in lightBackgrounds {
+            for background in appBackgrounds {
                 let surface = try resolve(background.color, style: style)
                 XCTAssertGreaterThan(
                     contrastRatio(text, surface), aaNormal,
@@ -135,8 +135,8 @@ final class ThemeContrastTests: XCTestCase {
 
     func testGoldOnDarkSurfaceMeetsAAOnTheSplashInBothAppearances() throws {
         // The splash is near-black whatever the appearance, which is why it has its own token.
-        let splash = RGB(r: 0.07, g: 0.07, b: 0.07)
         for style in [UIUserInterfaceStyle.light, .dark] {
+            let splash = try resolve(BisonTheme.splashBackground, style: style)
             let text = try resolve(BisonTheme.goldOnDarkSurface, style: style)
             XCTAssertGreaterThan(contrastRatio(text, splash), aaNormal)
         }
