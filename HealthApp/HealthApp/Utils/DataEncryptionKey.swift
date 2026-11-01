@@ -101,8 +101,8 @@ struct DataKeyResolver {
     let keychain: EncryptionKeyStoring
     /// Plain file holding this data store's ID.
     let identityURL: URL
-    /// Databases to examine. The first is the live one; any others are legacy locations
-    /// that a later migration moves into place.
+    /// Database locations, live one first, then legacy ones that a later migration moves
+    /// into place. Only the first that exists is examined, as only it is ever opened.
     let databaseURLs: [URL]
     /// Directories of encrypted files (imported documents and their thumbnails).
     let fileDirectories: [URL]
@@ -229,7 +229,7 @@ struct DataKeyResolver {
         // legacy slot it came from may be overwritten by another device, and a crash midway
         // through would otherwise leave rewritten data whose only key is in that slot.
         try bind(key, to: UUID().uuidString, reconciliationPending: true, previousStoreID: storeID)
-        if reconcile(samples, selected: best, keys: candidates.map(\.key)) {
+        if reconcile(samples, selected: best, keys: candidates.map(\.key)) == .complete {
             clearReconciliationPending()
         }
         return key
@@ -243,10 +243,18 @@ struct DataKeyResolver {
         return key
     }
 
+    /// How a reconciliation ended.
+    private enum ReconcileOutcome {
+        /// Everything opens with the selected key.
+        case complete
+        /// Done as far as it can be: some value opens with no key here.
+        case keysMissing
+        /// A rewrite failed. Nothing was learned about which keys are missing.
+        case failed
+    }
+
     /// Re-encrypts with the selected key every value another key opens.
-    /// - Returns: whether nothing is left to do. False when a re-encryption failed, or when
-    ///   some value opens with no key here (its key may still be syncing).
-    private func reconcile(_ samples: [Sample], selected: Int, keys: [SymmetricKey]) -> Bool {
+    private func reconcile(_ samples: [Sample], selected: Int, keys: [SymmetricKey]) -> ReconcileOutcome {
         let foreign = samples.filter { $0.opener != nil && $0.opener != selected }
         if !foreign.isEmpty {
             do {
@@ -257,7 +265,7 @@ struct DataKeyResolver {
                 try reencrypt(foreign, to: keys[selected], candidates: keys, restoringPersonalInfoFrom: restorable)
             } catch {
                 log.error("Re-encrypting values sealed with another key failed: \(error.localizedDescription)", error: error, category: .database)
-                return false
+                return .failed
             }
         }
 
@@ -265,7 +273,7 @@ struct DataKeyResolver {
         if unopened > 0 {
             log.database("\(unopened) encrypted value(s) open with no available key; will look again next launch", level: .warning)
         }
-        return unopened == 0
+        return unopened == 0 ? .complete : .keysMissing
     }
 
     /// Launches on which a bound store looks again for values no key opened, without its
@@ -289,14 +297,24 @@ struct DataKeyResolver {
         // has arrived (it may open a file whose row a different key opens, since editing a
         // document rewrites its row and not its file), a row another key now opens, or no
         // row left that no key opens. Otherwise the database alone is checked.
-        if let rows = try? collectSamples(candidates: keys, includingFiles: false),
-           keysChanged
+        //
+        // Only a scan that worked and found a key still missing counts toward giving up. A
+        // store that could not be read, or a rewrite that failed (a full disk, say), says
+        // nothing about the keys, so the marker stays as it was and the next launch retries.
+        guard let rows = try? collectSamples(candidates: keys, includingFiles: false) else { return }
+        if keysChanged
             || rows.contains(where: { $0.opener != nil && $0.opener != 0 })
-            || !rows.contains(where: { $0.opener == nil }),
-           let samples = try? collectSamples(candidates: keys),
-           reconcile(samples, selected: 0, keys: keys) {
-            clearReconciliationPending()
-            return
+            || !rows.contains(where: { $0.opener == nil }) {
+            guard let samples = try? collectSamples(candidates: keys) else { return }
+            switch reconcile(samples, selected: 0, keys: keys) {
+            case .complete:
+                clearReconciliationPending()
+                return
+            case .failed:
+                return
+            case .keysMissing:
+                break
+            }
         }
 
         // A new key is a new chance, so the count starts again.
@@ -415,7 +433,11 @@ struct DataKeyResolver {
         var samples: [Sample] = []
 
         do {
-            for databaseURL in databaseURLs where FileManager.default.fileExists(atPath: databaseURL.path) {
+            // `DatabaseManager` moves a legacy database into place only when the live one is
+            // absent. A leftover legacy copy beside a live database is never opened, so it says
+            // nothing about the key, and must not block a healthy store by being unreadable.
+            let openedDatabase = databaseURLs.first { FileManager.default.fileExists(atPath: $0.path) }
+            for databaseURL in [openedDatabase].compactMap({ $0 }) {
                 let db = try Connection(databaseURL.path, readonly: true)
                 let columns = try Self.columnsByTable(db)
                 // No version table means a schema older than any encryption migration.

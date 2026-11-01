@@ -47,11 +47,11 @@ final class DataKeyResolverTests: XCTestCase {
         try await super.tearDown()
     }
 
-    private func makeResolver() -> DataKeyResolver {
+    private func makeResolver(legacyDatabases: [URL] = []) -> DataKeyResolver {
         DataKeyResolver(
             keychain: keychain,
             identityURL: identityURL,
-            databaseURLs: [databaseURL],
+            databaseURLs: [databaseURL] + legacyDatabases,
             fileDirectories: [filesURL]
         )
     }
@@ -524,6 +524,46 @@ final class DataKeyResolverTests: XCTestCase {
 
         XCTAssertEqual(open(try Data(contentsOf: fileURL), with: key), "pdf bytes")
         XCTAssertFalse(pendingMarkerExists)
+    }
+
+    /// A legacy-location database left behind beside the live one is never opened, so a
+    /// damaged copy of it must not block the healthy live store.
+    func testLeftoverLegacyDatabaseIsIgnoredWhileTheLiveOneExists() throws {
+        let own = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        let leftover = directory.appendingPathComponent("legacy.sqlite")
+        try Data(repeating: 0xAB, count: 4096).write(to: leftover)
+
+        let key = try makeResolver(legacyDatabases: [leftover]).resolve()
+
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, own.withUnsafeBytes { Data($0) })
+    }
+
+    /// A rewrite that fails (a full disk, say) learns nothing about which keys are missing,
+    /// so it must not use up the launches allowed before recovery gives up.
+    func testFailedRewritesDoNotCountTowardGivingUp() throws {
+        let own = SymmetricKey(size: .bits256)
+        let foreign = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        try insertHealthData(db, id: "gone", type: "blood_test", sealed: seal("lost", with: SymmetricKey(size: .bits256)))
+        _ = try makeResolver().resolve()
+
+        keychain.sharedSynchronizable = foreign
+        let fileURL = filesURL.appendingPathComponent("doc.pdf")
+        try seal("pdf bytes", with: foreign).write(to: fileURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: filesURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: filesURL.path) }
+
+        for _ in 0..<6 { _ = try makeResolver().resolve() }
+        XCTAssertTrue(pendingMarkerExists, "Failed rewrites are retried, not counted")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: filesURL.path)
+        _ = try makeResolver().resolve()
+        XCTAssertEqual(open(try Data(contentsOf: fileURL), with: own), "pdf bytes")
     }
 
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
