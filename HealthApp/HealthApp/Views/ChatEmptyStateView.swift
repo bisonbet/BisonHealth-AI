@@ -97,6 +97,26 @@ struct FeatureHighlight: View {
     }
 }
 
+// MARK: - AI Disclaimer Footer
+
+/// A persistent one-line disclaimer under AI-generated content. It wraps rather than
+/// truncates, so it stays whole at the largest Dynamic Type sizes.
+struct AIDisclaimerFooter: View {
+    var body: some View {
+        Label(AIDisclaimer.text, systemImage: "info.circle")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(AIDisclaimer.text)
+            .accessibilityIdentifier("aiDisclaimerFooter")
+    }
+}
+
 #Preview {
     ChatEmptyStateView {
         AppLog.shared.ui("Start new chat")

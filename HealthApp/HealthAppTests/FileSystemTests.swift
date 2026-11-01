@@ -2,8 +2,51 @@ import XCTest
 import UIKit
 @testable import HealthApp
 
+// MARK: - Test Container
+
+/// A throwaway storage root for hosted unit tests.
+///
+/// Unit tests run inside the app, so a manager built with no URL opens the app's own
+/// container: the database and documents someone may be using on the same simulator. Every
+/// test that needs real storage builds it here instead, and removes it in `tearDown`.
+struct TestContainer {
+    let root: URL
+
+    init() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HealthAppTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    @MainActor
+    func makeDatabaseManager() throws -> DatabaseManager {
+        try DatabaseManager(databaseURL: root.appendingPathComponent("Database/health_data.sqlite"))
+    }
+
+    @MainActor
+    func makeFileSystemManager() throws -> FileSystemManager {
+        try FileSystemManager(baseDirectory: root.appendingPathComponent("Files/HealthApp", isDirectory: true))
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
+extension SettingsManager {
+    /// Empty defaults and an in-memory keychain, so a test neither reads the app's real
+    /// settings and credentials nor writes over them.
+    static func isolatedForTesting() -> SettingsManager {
+        let suiteName = "HealthAppTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
+        defaults.removePersistentDomain(forName: suiteName)
+        return SettingsManager(userDefaults: defaults, keychain: InMemoryKeychain())
+    }
+}
+
 @MainActor
 final class FileSystemTests: XCTestCase {
+    var container: TestContainer?
     var fileSystemManager: FileSystemManager!
     var testDocumentData: Data!
     var testImageData: Data!
@@ -11,8 +54,9 @@ final class FileSystemTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         
-        // Create test file system manager
-        fileSystemManager = try FileSystemManager()
+        let container = try TestContainer()
+        self.container = container
+        fileSystemManager = try container.makeFileSystemManager()
         
         // Create test data
         testDocumentData = "This is a test document content".data(using: .utf8)!
@@ -27,10 +71,43 @@ final class FileSystemTests: XCTestCase {
         fileSystemManager = nil
         testDocumentData = nil
         testImageData = nil
+        container?.remove()
+        container = nil
         
         try await super.tearDown()
     }
     
+    // MARK: - Legacy Document Names (W-Q)
+
+    func testALegacyNameBecomesItsOwnUUIDAndExtensionAndNothingElseDoes() {
+        let uuid = "0F8C2C3E-6A57-4E57-9E3B-6F6C0A5B9D11"
+        XCTAssertEqual(
+            FileSystemManager.renamedLegacyDocumentName(for: "\(uuid)_Quest_Lipid_Panel_Jan2026.PDF"),
+            "\(uuid).pdf"
+        )
+        XCTAssertNil(FileSystemManager.renamedLegacyDocumentName(for: "\(uuid).pdf"), "Already the current scheme")
+        XCTAssertNil(FileSystemManager.renamedLegacyDocumentName(for: "Quest_Lipid_Panel.pdf"))
+        XCTAssertNil(
+            FileSystemManager.renamedLegacyDocumentName(for: "NOTAUUIDNOTAUUIDNOTAUUIDNOTAUUIDNOTA_x.pdf"),
+            "Only a real UUID prefix marks a legacy name"
+        )
+    }
+
+    func testRenamingALegacyFileKeepsItReadableAndIsSafeToRepeat() throws {
+        let stored = try fileSystemManager.storeDocument(data: testDocumentData, fileName: "panel.pdf", fileType: .pdf)
+        let uuid = UUID().uuidString
+        let legacy = stored.deletingLastPathComponent().appendingPathComponent("\(uuid)_Quest_Lipid_Panel.pdf")
+        try FileManager.default.moveItem(at: stored, to: legacy)
+
+        let renamed = try XCTUnwrap(fileSystemManager.renameLegacyDocumentFile(storedAt: legacy))
+        XCTAssertEqual(renamed.lastPathComponent, "\(uuid).pdf")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path), "The PHI-bearing name is gone")
+        XCTAssertEqual(try fileSystemManager.retrieveDocument(from: renamed), testDocumentData)
+
+        // A run interrupted after the move and before the path was rewritten.
+        XCTAssertEqual(try fileSystemManager.renameLegacyDocumentFile(storedAt: legacy), renamed)
+    }
+
     // MARK: - Document Storage Tests
     func testStoreAndRetrieveDocument() throws {
         let fileName = "test_document.txt"
@@ -365,14 +442,17 @@ final class FileSystemTests: XCTestCase {
 @MainActor
 final class DocumentImporterTests: XCTestCase {
     var documentImporter: DocumentImporter!
+    var container: TestContainer?
     var fileSystemManager: FileSystemManager!
     var databaseManager: DatabaseManager!
     
     override func setUp() async throws {
         try await super.setUp()
         
-        fileSystemManager = try FileSystemManager()
-        databaseManager = try DatabaseManager()
+        let container = try TestContainer()
+        self.container = container
+        fileSystemManager = try container.makeFileSystemManager()
+        databaseManager = try container.makeDatabaseManager()
         documentImporter = DocumentImporter(
             fileSystemManager: fileSystemManager,
             databaseManager: databaseManager
@@ -383,6 +463,8 @@ final class DocumentImporterTests: XCTestCase {
         documentImporter = nil
         fileSystemManager = nil
         databaseManager = nil
+        container?.remove()
+        container = nil
         
         try await super.tearDown()
     }
@@ -427,14 +509,17 @@ final class DocumentImporterTests: XCTestCase {
 @MainActor
 final class DocumentExporterTests: XCTestCase {
     var documentExporter: DocumentExporter!
+    var container: TestContainer?
     var fileSystemManager: FileSystemManager!
     var databaseManager: DatabaseManager!
     
     override func setUp() async throws {
         try await super.setUp()
         
-        fileSystemManager = try FileSystemManager()
-        databaseManager = try DatabaseManager()
+        let container = try TestContainer()
+        self.container = container
+        fileSystemManager = try container.makeFileSystemManager()
+        databaseManager = try container.makeDatabaseManager()
         documentExporter = DocumentExporter(
             fileSystemManager: fileSystemManager,
             databaseManager: databaseManager
@@ -445,6 +530,8 @@ final class DocumentExporterTests: XCTestCase {
         documentExporter = nil
         fileSystemManager = nil
         databaseManager = nil
+        container?.remove()
+        container = nil
         
         try await super.tearDown()
     }

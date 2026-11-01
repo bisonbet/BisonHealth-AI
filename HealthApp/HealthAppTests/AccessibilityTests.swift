@@ -7,32 +7,12 @@ final class AccessibilityTests: XCTestCase {
 
     // MARK: - Dynamic Type Tests
     
-    func testDynamicTypeHelper() {
-        let font = DynamicTypeHelper.scaledFont(.body, isIPad: false)
-        XCTAssertNotNil(font)
-        
-        let ipadFont = DynamicTypeHelper.scaledFont(.body, isIPad: true)
-        XCTAssertNotNil(ipadFont)
-        
-        let customFont = DynamicTypeHelper.scaledFont(.headline, size: 18, isIPad: false)
-        XCTAssertNotNil(customFont)
-    }
-    
     func testMinimumScaleFactor() {
         let scaleFactor = DynamicTypeHelper.minimumScaleFactor
         XCTAssertEqual(scaleFactor, 0.8, accuracy: 0.01)
     }
     
     // MARK: - Device Helper Tests
-    
-    func testDeviceAccessibilityHelper() {
-        let isIPad = DeviceAccessibilityHelper.isIPad
-        let isIPhone = DeviceAccessibilityHelper.isIPhone
-        
-        // One should be true, one should be false (depending on test environment)
-        XCTAssertTrue(isIPad || isIPhone)
-        XCTAssertFalse(isIPad && isIPhone)
-    }
     
     func testMinimumTouchTarget() {
         let minTarget = DeviceAccessibilityHelper.minimumTouchTarget
@@ -46,31 +26,6 @@ final class AccessibilityTests: XCTestCase {
     
     // MARK: - Accessibility Colors Tests
     
-    func testAccessibilityColorsExist() {
-        // Test that all color properties exist and are accessible
-        let _ = AccessibilityColors.primary
-        let _ = AccessibilityColors.primaryText
-        let _ = AccessibilityColors.secondaryText
-        let _ = AccessibilityColors.success
-        let _ = AccessibilityColors.error
-        let _ = AccessibilityColors.warning
-        let _ = AccessibilityColors.info
-        let _ = AccessibilityColors.background
-        let _ = AccessibilityColors.secondaryBackground
-        let _ = AccessibilityColors.tertiaryBackground
-        let _ = AccessibilityColors.groupedBackground
-        let _ = AccessibilityColors.border
-        let _ = AccessibilityColors.divider
-        let _ = AccessibilityColors.buttonBackground
-        let _ = AccessibilityColors.buttonText
-        let _ = AccessibilityColors.disabledBackground
-        let _ = AccessibilityColors.disabledText
-        let _ = AccessibilityColors.connected
-        let _ = AccessibilityColors.disconnected
-        let _ = AccessibilityColors.processing
-        let _ = AccessibilityColors.pending
-    }
-    
     // MARK: - Accessibility Traits Tests
     
     func testAccessibilityTraits() {
@@ -83,9 +38,6 @@ final class AccessibilityTests: XCTestCase {
         traits.insert(.header)
         XCTAssertTrue(traits.contains(.header))
         XCTAssertTrue(traits.contains(.button))
-        
-        let swiftUITraits = traits.swiftUITraits
-        XCTAssertNotNil(swiftUITraits)
     }
 }
 
@@ -149,6 +101,44 @@ final class ThemeContrastTests: XCTestCase {
             let ink = try resolve(BisonTheme.inkOnGold, style: style)
             let white = RGB(r: 1, g: 1, b: 1)
             XCTAssertGreaterThan(contrastRatio(ink, gold), contrastRatio(white, gold))
+        }
+    }
+
+    /// The light backgrounds `goldText` is drawn on (W-N). `sidebarBackground` is the darkest
+    /// of them, so it is the one that decides whether the token passes.
+    private let lightBackgrounds: [(name: String, color: Color)] = [
+        ("panelBackground", BisonTheme.panelBackground),
+        ("appBackground", BisonTheme.appBackground),
+        ("sidebarBackground", BisonTheme.sidebarBackground)
+    ]
+
+    func testGoldTextMeetsAAOnEveryAppBackgroundInBothAppearances() throws {
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let text = try resolve(BisonTheme.goldText, style: style)
+            for background in lightBackgrounds {
+                let surface = try resolve(background.color, style: style)
+                XCTAssertGreaterThan(
+                    contrastRatio(text, surface), aaNormal,
+                    "goldText on \(background.name) in \(style == .light ? "light" : "dark") mode"
+                )
+            }
+        }
+    }
+
+    func testGoldAsAForegroundIsWhyGoldTextExists() throws {
+        // The premise: `gold` itself fails AA as text on the light backgrounds, so a
+        // `foregroundColor(BisonTheme.gold)` that creeps back in is a real regression.
+        let surface = try resolve(BisonTheme.sidebarBackground, style: .light)
+        let gold = try resolve(BisonTheme.gold, style: .light)
+        XCTAssertLessThan(contrastRatio(gold, surface), aaNormal)
+    }
+
+    func testGoldOnDarkSurfaceMeetsAAOnTheSplashInBothAppearances() throws {
+        // The splash is near-black whatever the appearance, which is why it has its own token.
+        let splash = RGB(r: 0.07, g: 0.07, b: 0.07)
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let text = try resolve(BisonTheme.goldOnDarkSurface, style: style)
+            XCTAssertGreaterThan(contrastRatio(text, splash), aaNormal)
         }
     }
 

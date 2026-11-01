@@ -92,6 +92,22 @@ final class AppointmentPrepProcessorTests: XCTestCase {
     }
 }
 
+final class AppointmentPrepExportTests: XCTestCase {
+
+    func testAnExportedReportCarriesTheDisclaimerOnlyOnceItHasAIContent() {
+        // A printed or forwarded report leaves the app that framed it as AI-generated.
+        var prep = AppointmentPrep(
+            title: "GI Visit",
+            symptoms: "Abdominal discomfort for three days",
+            includedHealthDataTypes: []
+        )
+        XCTAssertFalse(prep.exportText.contains(AIDisclaimer.text), "Only the user's own words so far")
+
+        prep.questions = "Could my statin be related?"
+        XCTAssertTrue(prep.exportText.contains(AIDisclaimer.text))
+    }
+}
+
 @MainActor
 final class AppointmentPrepManagerRegressionTests: XCTestCase {
 
@@ -211,7 +227,7 @@ final class AppointmentPrepManagerRegressionTests: XCTestCase {
             fileSystemManager: fileSystemManager,
             automaticallyLoad: false
         )
-        let settingsManager = SettingsManager()
+        let settingsManager = SettingsManager.isolatedForTesting()
         let scriptedProvider = ScriptedAIProvider()
         settingsManager.setAIClientOverrideForTesting(scriptedProvider)
 

@@ -145,9 +145,8 @@ class FileSystemManager: ObservableObject {
         // `file_name` column, which is where the UI reads it from, so nothing needs the
         // original name here.
         //
-        // Forward-only: files already stored keep their names, and their paths are recorded
-        // in the database, so they continue to open. Renaming them would need a migration
-        // that rewrites every stored path, which is a bigger change than this.
+        // Files stored under the old scheme are renamed at launch by
+        // `DocumentProcessor.renameLegacyDocumentFiles()`; see `renamedLegacyDocumentName(for:)`.
         let fileExtension = fileType.rawValue
         let finalFileName = "\(UUID().uuidString).\(fileExtension)"
         let destinationURL = documentsDirectory.appendingPathComponent(finalFileName)
@@ -388,6 +387,50 @@ class FileSystemManager: ObservableObject {
         return destinationURL
     }
     
+    // MARK: - Legacy Document Names (W-Q)
+
+    /// The name a legacy `<uuid>_<original name>.<ext>` document file is renamed to — the same
+    /// UUID and extension, without the patient's words — or nil when `storedName` is not one.
+    ///
+    /// Derived from the old name alone on purpose. Renaming the file and rewriting its stored
+    /// path cannot share a transaction, so a run interrupted between the two must still be
+    /// able to tell, next launch, where the file went.
+    nonisolated static func renamedLegacyDocumentName(for storedName: String) -> String? {
+        let uuidLength = 36
+        guard storedName.count > uuidLength + 1 else { return nil }
+        let prefix = String(storedName.prefix(uuidLength))
+        guard UUID(uuidString: prefix) != nil,
+              storedName.dropFirst(uuidLength).first == "_" else { return nil }
+        let pathExtension = (storedName as NSString).pathExtension.lowercased()
+        return pathExtension.isEmpty ? prefix : "\(prefix).\(pathExtension)"
+    }
+
+    /// Rename one legacy-named document file, returning the URL its row should now record.
+    ///
+    /// Returns nil when there is nothing to record: the name is not a legacy one, or the file
+    /// cannot be found under either name. If the renamed file already exists, an earlier run
+    /// moved it and stopped before the path was rewritten, so its URL is returned unchanged.
+    func renameLegacyDocumentFile(storedAt storedURL: URL) throws -> URL? {
+        try ensureAvailable()
+        let storedName = storedURL.lastPathComponent
+        guard let renamed = Self.renamedLegacyDocumentName(for: storedName) else { return nil }
+
+        let fileManager = FileManager.default
+        let destination = documentsDirectory.appendingPathComponent(renamed)
+        if fileManager.fileExists(atPath: destination.path) {
+            return destination
+        }
+
+        // The recorded path can be stale — the container path changes on reinstall and
+        // restore — so look in the documents directory by name as well.
+        let candidates = [storedURL, documentsDirectory.appendingPathComponent(storedName)]
+        guard let source = candidates.first(where: { $0.isFileURL && fileManager.fileExists(atPath: $0.path) }) else {
+            return nil
+        }
+        try fileManager.moveItem(at: source, to: destination)
+        return destination
+    }
+
     func getFileSize(at url: URL) throws -> Int64 {
         try ensureAvailable()
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)

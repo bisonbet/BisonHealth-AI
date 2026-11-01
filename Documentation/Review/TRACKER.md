@@ -93,7 +93,7 @@ Two things that run settles, both worth knowing before trusting a green tick:
 | | Item | State |
 |---|---|---|
 | W-A | Icon alpha, `aps-environment`, delete unused icon set | **done 2026-10-25.** `AppIcon-Doctor-Dark.appiconset` deleted (16 files; still 0 references in `project.pbxproj`, and the asset catalog's root `Contents.json` lists no children, so nothing was orphaned). `BisonHealthAI_ProIcon_1024.imageset` was left alone — `ContentView.swift:261` uses it. |
-| W-B | Show why a document failed | **done 2026-10-25.** ⚠️ **W-B took schema v15** — W-Q was not in flight, so the collision resolved in W-B's favour. **W-Q is now v16.** `documents.failure_reason` holds the reason, written in the same statement as the status and cleared by any status other than `.failed`. Stored **encrypted** (`encryptTextField`), not filename-free as WS-17 suggested: two of these error strings interpolate the file name, and encrypting the column is cheaper to keep correct than auditing every present and future error case for PHI. Not an `UnreadableField` — a corrupt message is not worth refusing to save a document over. ⚠️ **New finding, not fixed:** the documents table has **two** `buildMedicalDocument` readers (`+Documents.swift` and `+MedicalDocuments.swift`) and **three** full-row writers, all with hand-maintained column lists. Codex caught v15 being wired into only one of each — the UI reads through the *other* one, so the first cut of W-B did nothing after a relaunch. All five sites now carry the column, but the next column added will hit the same trap. |
+| W-B | Show why a document failed | **done 2026-10-25.** ⚠️ **W-B took schema v15** — W-Q was not in flight, so the collision resolved in W-B's favour. **W-Q is now v16** (it later turned out to need no migration; see W-Q below). `documents.failure_reason` holds the reason, written in the same statement as the status and cleared by any status other than `.failed`. Stored **encrypted** (`encryptTextField`), not filename-free as WS-17 suggested: two of these error strings interpolate the file name, and encrypting the column is cheaper to keep correct than auditing every present and future error case for PHI. Not an `UnreadableField` — a corrupt message is not worth refusing to save a document over. ⚠️ **New finding, not fixed:** the documents table has **two** `buildMedicalDocument` readers (`+Documents.swift` and `+MedicalDocuments.swift`) and **three** full-row writers, all with hand-maintained column lists. Codex caught v15 being wired into only one of each — the UI reads through the *other* one, so the first cut of W-B did nothing after a relaunch. All five sites now carry the column, but the next column added will hit the same trap. |
 | W-C | One device archive + three owner-only checks | **done 2026-10-25 by the owner** (archive built; background mid-reply, one Bedrock call, keychain restore on a real upgrade all run). ⚠️ **The outcomes were not reported to this session** — see "What W-C settled" below. |
 | W-D | TestFlight tester notes | **done 2026-10-25 by the owner.** |
 
@@ -287,9 +287,37 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     build so far used. The fork has no tags, and its `main` has since moved to `ad589638` —
     exactly the silent drift the pin prevents.
 
-**Still open from the WS-17 queue:** W-K (test hygiene), W-Q (legacy file rename, **v16**),
-W-S (in-session disclaimer, ASC declarations, public privacy URL — needed before external
-TestFlight), W-R (113 orphaned UI tests, backlog), W-M (item 32, needs the app).
+13. ~~**W-K**~~ — **done 2026-11-01 (core).** The tests that could not fail are gone or
+    rewritten: the queue-order test now drives `DocumentProcessor.insertByPriority` instead of
+    sorting its own array; the context-builder count is `== 2`, not `>= 0`; the non-optional
+    `NotNil`s, the assertion-free colour test, the `isIPad || isIPhone` tautology, the duplicate
+    "offline" test, the token test that compared nothing and the memberwise-init tests are
+    deleted, and real `goldText` / `goldOnDarkSurface` contrast tests replace the colour one.
+    Hosted tests no longer touch the app's container or settings: one `TestContainer` (temp
+    root, removed in `tearDown`) and `SettingsManager.isolatedForTesting()` (own defaults
+    domain, in-memory keychain) replace `DatabaseManager()`, `FileSystemManager()`, the
+    `.shared` singletons and the four harnesses' default `SettingsManager()`. The retry-budget
+    item was already fixed 2026-10-24. **Not done (separate seams):** constructing
+    `MLXModelDownloadManager` against a fake transfer (WS-15-07), a `URLProtocol` stub for the
+    providers (WS-15-09), keychain injection for the encryption-failure tests (WS-15-10), a
+    failing-step migration case (WS-15-11), the review-sheet selection model (WS-15-12).
+14. ~~**W-Q**~~ — **done 2026-11-01, and not as a migration.** No column changes, and a file move
+    cannot join SQLite's transaction, so a v16 step would have committed paths and moved files
+    separately anyway. `DocumentProcessor.renameLegacyDocumentFiles()` runs at launch, before
+    pending documents are re-queued: each `<uuid>_<name>.<ext>` file is moved to `<uuid>.<ext>`
+    and its path rewritten. The new name is derived from the old one, so an interruption between
+    move and rewrite heals next launch, and `resolveDocumentFilePath` also looks under the
+    derived name. A stale path from an older container is found by name. **Schema stays at v15;
+    no migration is outstanding.**
+15. ~~**W-S**~~ (code part) — **done 2026-11-01.** `AIDisclaimerFooter` sits under the chat composer
+    for the whole conversation and under generated appointment-prep content, and the exported,
+    printed or shared prep report carries the same line once it has AI content — one
+    `AIDisclaimer.text`. **Still the owner's:** the App Store Connect answers (regulated medical
+    device: No; age rating for medical/treatment information; category) and a hosted
+    privacy-policy/support URL (WS-13-10, WS-13-13).
+
+**Still open:** W-R (113 orphaned UI tests, backlog), W-M (item 32, needs the app), and the
+W-K seams listed above.
 
 ### Serialise these
 
@@ -297,12 +325,12 @@ TestFlight), W-R (113 orphaned UI tests, backlog), W-M (item 32, needs the app).
 makes SourceKit noisy until the next build. `ContentView.swift` by W-F and W-G.
 `HealthAppTests/DatabaseTests.swift` by W-J (**done**), **W-K** and **W-U** — W-K may now
 start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
-Only **one** migration is outstanding, **W-Q, which is now v16**: W-B took v15 on
-2026-10-25.
+**No migration is outstanding.** W-B took v15 on 2026-10-25; W-Q turned out to need none.
 
 ### Standing verification facts for this repo
 
-- **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-testing-batch`
+- **402 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
+  (404 before W-K deleted 9 tests that could not fail and added 7 real ones)
   (368 on 2026-10-26).
   Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted
   since it stood at 348.

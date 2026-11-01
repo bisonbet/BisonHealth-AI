@@ -3,6 +3,24 @@ import XCTest
 
 @MainActor
 final class HealthDataManagerTests: XCTestCase {
+    private var container: TestContainer?
+
+    override func tearDown() async throws {
+        container?.remove()
+        container = nil
+        try await super.tearDown()
+    }
+
+    /// Not `HealthDataManager.shared`, which loads from the app's own database on first use.
+    private func makeManager() throws -> HealthDataManager {
+        let container = try TestContainer()
+        self.container = container
+        return HealthDataManager(
+            databaseManager: try container.makeDatabaseManager(),
+            fileSystemManager: try container.makeFileSystemManager(),
+            automaticallyLoad: false
+        )
+    }
 
     func testValidationResultStoresCurrentState() {
         let valid = ValidationResult(isValid: true, errors: [])
@@ -20,8 +38,8 @@ final class HealthDataManagerTests: XCTestCase {
     /// never their values — so every repeat of a standard panel scored ~100% similar.
     /// With the import-date fallback putting undated reports inside the 24-hour window,
     /// importing a stack of historical labs saved the first and discarded the rest.
-    func testRepeatOfTheSamePanelWithDifferentValuesIsNotADuplicate() {
-        let manager = HealthDataManager.shared
+    func testRepeatOfTheSamePanelWithDifferentValuesIsNotADuplicate() throws {
+        let manager = try makeManager()
         let panel2023 = BloodTestResult(testDate: Date(), results: [
             BloodTestItem(name: "Glucose", value: "95"),
             BloodTestItem(name: "Creatinine", value: "0.9"),
@@ -40,8 +58,8 @@ final class HealthDataManagerTests: XCTestCase {
         )
     }
 
-    func testTheSameReportImportedTwiceIsStillADuplicate() {
-        let manager = HealthDataManager.shared
+    func testTheSameReportImportedTwiceIsStillADuplicate() throws {
+        let manager = try makeManager()
         let results = [
             BloodTestItem(name: "Glucose", value: "95"),
             BloodTestItem(name: "Creatinine", value: "0.9")

@@ -527,8 +527,9 @@ class DocumentProcessor: ObservableObject {
     }
 
     /// Insert keeping `processingQueue` ordered by priority, behind items of equal priority.
+    /// (internal so the queue-order test can drive the real ordering without starting a run)
     @discardableResult
-    private func insertByPriority(_ item: ProcessingQueueItem) -> Int {
+    func insertByPriority(_ item: ProcessingQueueItem) -> Int {
         let index = processingQueue.firstIndex { $0.priority.rawValue < item.priority.rawValue }
             ?? processingQueue.count
         processingQueue.insert(item, at: index)
@@ -1038,7 +1039,9 @@ class DocumentProcessor: ObservableObject {
             // path changes, and an exact match cannot rebind to another document
             // that happens to share a display name.
             let storedFileName = document.filePath.lastPathComponent
-            if let correctedPath = fileSystemManager.findDocumentByFileName(storedFileName) {
+            let renamedFileName = FileSystemManager.renamedLegacyDocumentName(for: storedFileName)
+            if let correctedPath = fileSystemManager.findDocumentByFileName(storedFileName)
+                ?? renamedFileName.flatMap({ fileSystemManager.findDocumentByFileName($0) }) {
                 AppLog.shared.documents("Found file at corrected path: \(correctedPath)")
                 finalFilePath = correctedPath
                 try await databaseManager.updateDocumentFilePath(document.id, filePath: correctedPath)
@@ -1996,8 +1999,43 @@ class DocumentProcessor: ObservableObject {
     }
     
     // MARK: - Persistence
+    /// Rename files stored as `<uuid>_<original name>.<ext>` before 2026-10-24, whose on-disk
+    /// names carried the patient's own words (lab, test, date) in plaintext (W-Q).
+    ///
+    /// Not a schema migration: no column changes, and a file move cannot join SQLite's
+    /// transaction. Instead it is idempotent and runs every launch. Each file is moved first and
+    /// its path rewritten second; an interruption between the two is healed next launch,
+    /// because the new name is derived from the old one.
+    func renameLegacyDocumentFiles() async {
+        let stored: [(id: UUID, filePath: URL)]
+        do {
+            stored = try await databaseManager.fetchDocumentFilePaths()
+        } catch {
+            AppLog.shared.error("Could not list document paths to rename legacy files", error: error, category: .documents)
+            return
+        }
+
+        var renamed = 0
+        for entry in stored where FileSystemManager.renamedLegacyDocumentName(for: entry.filePath.lastPathComponent) != nil {
+            do {
+                guard let newURL = try fileSystemManager.renameLegacyDocumentFile(storedAt: entry.filePath) else {
+                    continue
+                }
+                try await databaseManager.updateDocumentFilePath(entry.id, filePath: newURL)
+                renamed += 1
+            } catch {
+                AppLog.shared.error("Could not rename a legacy document file", error: error, category: .documents)
+            }
+        }
+        if renamed > 0 {
+            AppLog.shared.documents("Renamed \(renamed) document file(s) stored under the old name scheme")
+        }
+    }
+
     private func loadPendingDocuments() {
         Task {
+            // First, so nothing below opens a file by a name that is about to change.
+            await renameLegacyDocumentFiles()
             do {
                 // A crash/force-quit mid-processing leaves rows stuck at
                 // `.processing` with no task owning them. Reset them so the
