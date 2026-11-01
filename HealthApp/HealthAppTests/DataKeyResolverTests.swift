@@ -248,6 +248,32 @@ final class DataKeyResolverTests: XCTestCase {
                        "Nothing is left to look for")
     }
 
+    /// A restore whose per-store key has not synced, where a legacy key opens only part of
+    /// the data. The rest may need the store's own key, so a legacy key must not replace it.
+    func testRestoredStoreWaitsForItsKeyWhenALegacyKeyOpensOnlySomeData() throws {
+        let storeKey = SymmetricKey(size: .bits256)
+        let legacy = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = legacy
+
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "old", type: "blood_test", sealed: seal("old lab", with: legacy))
+        try insertHealthData(db, id: "new", type: "blood_test", sealed: seal("new lab", with: storeKey))
+        let storeID = UUID().uuidString
+        try Data(storeID.utf8).write(to: identityURL)
+
+        XCTAssertThrowsError(try makeResolver().resolve()) { error in
+            guard case DataKeyError.noKeyOpensExistingData = error else {
+                return XCTFail("Unexpected error \(error)")
+            }
+        }
+        XCTAssertNil(keychain.storeKeys[storeID], "The store's own key slot is not overwritten")
+
+        // The store's key syncs.
+        keychain.storeKeys[storeID] = storeKey
+        let key = try makeResolver().resolve()
+        XCTAssertEqual(key.withUnsafeBytes { Data($0) }, storeKey.withUnsafeBytes { Data($0) })
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()

@@ -189,6 +189,15 @@ struct DataKeyResolver {
             throw DataKeyError.noKeyOpensExistingData
         }
 
+        // A store with an ID was bound once, so its own key exists, if only in iCloud Keychain
+        // not yet synced here. Values no legacy key opens may need exactly that key, and
+        // binding a legacy one under the ID would overwrite its only copy. Wait for it.
+        let unopened = samples.count { $0.opener == nil }
+        if storeID != nil && unopened > 0 {
+            log.database("Data store key has not reached this device and \(unopened) encrypted value(s) need a key other than the legacy ones; waiting for it", level: .critical)
+            throw DataKeyError.noKeyOpensExistingData
+        }
+
         let key = candidates[best].key
         log.database("Selected \(candidates[best].source) key (fingerprint: \(Self.fingerprint(key))): opens \(scores[best]) of \(samples.count) encrypted value(s)")
 
