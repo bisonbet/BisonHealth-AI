@@ -236,6 +236,14 @@ struct DatabaseUnavailableView: View {
     private func eraseAndRebuild() {
         do {
             try DatabaseManager.shared.resetDatabase()
+            // File storage may have failed at launch for the same reason (no data key), and
+            // the reset has just established one. The erase already happened, so a failure
+            // here is not reported as one: the refresh below shows what is still wrong.
+            do {
+                try FileSystemManager.shared.recoverIfUnavailable()
+            } catch {
+                AppLog.shared.fileManagement("Secure file storage did not recover after the erase: \(error)", level: .critical)
+            }
             AppStartupHealth.shared.refresh()
         } catch {
             AppLog.shared.database("Database erase-and-rebuild failed: \(error)", level: .critical)

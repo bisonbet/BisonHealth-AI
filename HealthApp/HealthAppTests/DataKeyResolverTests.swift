@@ -461,6 +461,29 @@ final class DataKeyResolverTests: XCTestCase {
         XCTAssertFalse(pendingMarkerExists)
     }
 
+    /// A key arriving that opens only a document file, while an unrelated row stays
+    /// unopened: no row changes, so only noticing the new key gets the file looked at.
+    func testArrivingKeyRecoversAFileWhileARowStaysUnopened() throws {
+        let own = SymmetricKey(size: .bits256)
+        let late = SymmetricKey(size: .bits256)
+        keychain.deviceOnly = own
+        let db = try makeDatabase()
+        try insertHealthData(db, id: "a", type: "blood_test", sealed: seal("lab", with: own))
+        try insertHealthData(db, id: "gone", type: "blood_test", sealed: seal("lost", with: SymmetricKey(size: .bits256)))
+        let fileURL = filesURL.appendingPathComponent("doc.pdf")
+        try seal("pdf bytes", with: late).write(to: fileURL)
+
+        _ = try makeResolver().resolve()
+        _ = try makeResolver().resolve()
+        XCTAssertNil(open(try Data(contentsOf: fileURL), with: own), "Its key is not here yet")
+
+        keychain.sharedSynchronizable = late
+        _ = try makeResolver().resolve()
+
+        XCTAssertEqual(open(try Data(contentsOf: fileURL), with: own), "pdf bytes")
+        XCTAssertTrue(pendingMarkerExists, "The row still needs its key")
+    }
+
     func testExistingDataWithNoMatchingKeyThrowsAndCreatesNothing() throws {
         keychain.sharedSynchronizable = SymmetricKey(size: .bits256)
         let db = try makeDatabase()

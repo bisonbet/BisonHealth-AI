@@ -266,9 +266,9 @@ struct DataKeyResolver {
         return unopened == 0
     }
 
-    /// Launches on which a bound store looks again for values no key opened, before it
-    /// gives up. A key still syncing arrives within a few launches; one that has not by then
-    /// is not coming, and looking costs launch time.
+    /// Launches on which a bound store looks again for values no key opened, without its
+    /// keys changing, before it gives up. A key still syncing arrives within a few launches;
+    /// one that has not by then is not coming, and looking costs launch time.
     private static let maximumReconciliationAttempts = 5
 
     /// Values no key opened at binding: see whether their key has arrived since. The key is
@@ -276,25 +276,33 @@ struct DataKeyResolver {
     private func retryReconciliation(boundKey key: SymmetricKey) {
         let legacy = (try? keychain.legacyEncryptionKeys().map(\.key)) ?? []
         let keys = Self.distinct([key] + legacy) { $0 }
+        var state = pendingReconciliation
+        let fingerprints = keys.map(Self.fingerprint)
+        let keysChanged = fingerprints != state.keyFingerprints
 
-        // The database alone shows whether anything has changed: every document file has a
-        // row sealed with the same key. Files, which can be large, are read only when there
-        // is work to do: values another key now opens, or none left that no key opens.
+        // Files, which can be large, are read only when there may be work for them: a key
+        // has arrived (it may open a file whose row a different key opens, since editing a
+        // document rewrites its row and not its file), a row another key now opens, or no
+        // row left that no key opens. Otherwise the database alone is checked.
         if let rows = try? collectSamples(candidates: keys, includingFiles: false),
-           rows.contains(where: { $0.opener != nil && $0.opener != 0 }) || !rows.contains(where: { $0.opener == nil }),
+           keysChanged
+            || rows.contains(where: { $0.opener != nil && $0.opener != 0 })
+            || !rows.contains(where: { $0.opener == nil }),
            let samples = try? collectSamples(candidates: keys),
            reconcile(samples, selected: 0, keys: keys) {
             clearReconciliationPending()
             return
         }
 
-        let attempt = reconciliationAttempts + 1
-        guard attempt < Self.maximumReconciliationAttempts else {
-            log.database("Gave up after \(attempt) launches looking for the key to values no available key opens", level: .critical)
+        // A new key is a new chance, so the count starts again.
+        state.attempts = keysChanged ? 1 : state.attempts + 1
+        state.keyFingerprints = fingerprints
+        guard state.attempts < Self.maximumReconciliationAttempts else {
+            log.database("Gave up after \(state.attempts) launches looking for the key to values no available key opens", level: .critical)
             clearReconciliationPending()
             return
         }
-        try? Data(String(attempt).utf8).write(to: reconciliationPendingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try? savePendingReconciliation(state)
     }
 
     /// Files the key under the store ID, then records the ID. In that order: an ID written
@@ -306,7 +314,7 @@ struct DataKeyResolver {
             withIntermediateDirectories: true
         )
         if reconciliationPending {
-            try Data().write(to: reconciliationPendingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try savePendingReconciliation(PendingReconciliation())
         }
         try keychain.storeEncryptionKey(key, forStore: storeID)
         try Data(storeID.utf8).write(to: identityURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -316,11 +324,25 @@ struct DataKeyResolver {
     }
 
     /// Present while some stored value opened with no available key. A bound store only
-    /// samples its data again while this exists. Holds how many launches have looked since.
+    /// samples its data again while this exists.
     private var reconciliationPendingURL: URL { identityURL.appendingPathExtension("pending") }
 
-    private var reconciliationAttempts: Int {
-        (try? Data(contentsOf: reconciliationPendingURL)).flatMap { String(bytes: $0, encoding: .utf8) }.flatMap { Int($0) } ?? 0
+    /// What the pending marker records about the looking done since binding.
+    private struct PendingReconciliation: Codable {
+        /// Launches that have looked with the same keys.
+        var attempts = 0
+        /// Fingerprints of the keys the last launch had, to notice one arriving.
+        var keyFingerprints: [String] = []
+    }
+
+    private var pendingReconciliation: PendingReconciliation {
+        (try? Data(contentsOf: reconciliationPendingURL))
+            .flatMap { try? JSONDecoder().decode(PendingReconciliation.self, from: $0) } ?? PendingReconciliation()
+    }
+
+    private func savePendingReconciliation(_ state: PendingReconciliation) throws {
+        try JSONEncoder().encode(state)
+            .write(to: reconciliationPendingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     private var isReconciliationPending: Bool {
