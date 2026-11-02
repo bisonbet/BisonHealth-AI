@@ -1,18 +1,7 @@
 import XCTest
 
-final class HealthAppUITests: XCTestCase {
-    var app: XCUIApplication!
-    
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
-    }
-    
-    override func tearDownWithError() throws {
-        app = nil
-    }
-    
+final class HealthAppUITests: HealthAppUITestCase {
+
     // MARK: - App Launch and Navigation Tests
     
     func testAppLaunches() throws {
@@ -28,26 +17,26 @@ final class HealthAppUITests: XCTestCase {
     
     func testTabNavigation() throws {
         // Test Health Data tab
-        app.tabBars.buttons["Health Data"].tap()
+        navigateToHealth()
         XCTAssertTrue(app.navigationBars["Health Data"].exists)
         
         // Test Documents tab
-        app.tabBars.buttons["Documents"].tap()
+        navigateToDocuments()
         XCTAssertTrue(app.navigationBars["Documents"].exists)
         
         // Test AI Chat tab
-        app.tabBars.buttons["AI Chat"].tap()
+        navigateToChat()
         XCTAssertTrue(app.navigationBars["BisonHealth AI"].exists)
         
         // Test Settings tab
-        app.tabBars.buttons["Settings"].tap()
+        navigateToSettings()
         XCTAssertTrue(app.navigationBars["Settings"].exists)
     }
     
     // MARK: - Health Data Tab Tests
     
     func testHealthDataTabContent() throws {
-        app.tabBars.buttons["Health Data"].tap()
+        navigateToHealth()
         
         // Verify main sections are present
         XCTAssertTrue(app.staticTexts["Personal Information"].exists)
@@ -65,7 +54,7 @@ final class HealthAppUITests: XCTestCase {
     }
     
     func testHealthDataRefresh() throws {
-        app.tabBars.buttons["Health Data"].tap()
+        navigateToHealth()
         
         // Test pull to refresh
         let healthDataList = app.scrollViews.element
@@ -78,7 +67,7 @@ final class HealthAppUITests: XCTestCase {
     // MARK: - Documents Tab Tests
     
     func testDocumentsTabContent() throws {
-        app.tabBars.buttons["Documents"].tap()
+        navigateToDocuments()
         
         // Should show empty state initially
         XCTAssertTrue(app.staticTexts["No Documents"].exists || app.staticTexts["Import your first health document"].exists)
@@ -96,7 +85,7 @@ final class HealthAppUITests: XCTestCase {
     // MARK: - AI Chat Tab Tests
     
     func testAIChatTabContent() throws {
-        app.tabBars.buttons["AI Chat"].tap()
+        navigateToChat()
         
         // Should show empty state or existing conversations
         XCTAssertTrue(app.staticTexts["No Conversation"].exists || app.buttons["New Chat"].exists)
@@ -110,7 +99,7 @@ final class HealthAppUITests: XCTestCase {
     // MARK: - Settings Tab Tests
     
     func testSettingsTabContent() throws {
-        app.tabBars.buttons["Settings"].tap()
+        navigateToSettings()
         
         // Verify main settings sections
         XCTAssertTrue(app.staticTexts["AI Services"].exists)
@@ -121,7 +110,7 @@ final class HealthAppUITests: XCTestCase {
     }
     
     func testSettingsNavigation() throws {
-        app.tabBars.buttons["Settings"].tap()
+        navigateToSettings()
         
         // Test Export Health Data navigation
         app.buttons["Export Health Data"].tap()
@@ -138,22 +127,22 @@ final class HealthAppUITests: XCTestCase {
     
     func testHealthDataToDocumentsFlow() throws {
         // Start in Health Data
-        app.tabBars.buttons["Health Data"].tap()
+        navigateToHealth()
         
         // Navigate to Documents tab
-        app.tabBars.buttons["Documents"].tap()
+        navigateToDocuments()
         
         // Verify we can navigate back
-        app.tabBars.buttons["Health Data"].tap()
+        navigateToHealth()
         XCTAssertTrue(app.navigationBars["Health Data"].exists)
     }
     
     func testDocumentsToAIChatFlow() throws {
         // Start in Documents
-        app.tabBars.buttons["Documents"].tap()
+        navigateToDocuments()
         
         // Navigate to AI Chat
-        app.tabBars.buttons["AI Chat"].tap()
+        navigateToChat()
         
         // Verify chat interface
         XCTAssertTrue(app.navigationBars["BisonHealth AI"].exists)
@@ -174,7 +163,7 @@ final class HealthAppUITests: XCTestCase {
     
     func testVoiceOverNavigation() throws {
         // Test basic VoiceOver navigation
-        app.tabBars.buttons["Health Data"].tap()
+        navigateToHealth()
         
         let healthDataTitle = app.navigationBars["Health Data"]
         XCTAssertTrue(healthDataTitle.exists)
@@ -219,11 +208,11 @@ final class HealthAppUITests: XCTestCase {
     
     func testTabSwitchingPerformance() throws {
         measure {
-            app.tabBars.buttons["Health Data"].tap()
-            app.tabBars.buttons["Documents"].tap()
-            app.tabBars.buttons["AI Chat"].tap()
-            app.tabBars.buttons["Settings"].tap()
-            app.tabBars.buttons["Health Data"].tap()
+            navigateToHealth()
+            navigateToDocuments()
+            navigateToChat()
+            navigateToSettings()
+            navigateToHealth()
         }
     }
     
@@ -233,7 +222,7 @@ final class HealthAppUITests: XCTestCase {
         // This would require network simulation in a real test environment
         // For now, we test that the app doesn't crash when network is unavailable
         
-        app.tabBars.buttons["AI Chat"].tap()
+        navigateToChat()
         
         // App should handle offline state gracefully
         XCTAssertTrue(app.navigationBars["BisonHealth AI"].exists)
@@ -245,10 +234,10 @@ final class HealthAppUITests: XCTestCase {
         
         // Navigate through all tabs multiple times
         for _ in 1...5 {
-            app.tabBars.buttons["Health Data"].tap()
-            app.tabBars.buttons["Documents"].tap()
-            app.tabBars.buttons["AI Chat"].tap()
-            app.tabBars.buttons["Settings"].tap()
+            navigateToHealth()
+            navigateToDocuments()
+            navigateToChat()
+            navigateToSettings()
         }
         
         // App should still be responsive

@@ -420,9 +420,10 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
                 throw providerRequestFailure(operation: "chat", response: httpResponse)
             }
 
-            // Parse response
+            // Parse response. No `.convertFromSnakeCase`: these types spell their snake_case
+            // keys out, and the strategy rewrites `total_tokens` to `totalTokens` before it
+            // matches them, so usage and `finish_reason` silently decoded as nil.
             let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
 
             if let chatResponse = try? decoder.decode(OpenAIChatCompletionResponse.self, from: data),
                let choice = chatResponse.choices.first {
@@ -568,7 +569,6 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
         }
 
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
         if let chatResponse = try? decoder.decode(OpenAIChatCompletionResponse.self, from: data),
            let content = chatResponse.choices.first?.primaryContent {
             return content
@@ -942,7 +942,6 @@ class OpenAICompatibleClient: ObservableObject, AIProviderInterface {
             }
 
             let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
 
             if let modelsResponse = try? decoder.decode(OpenAIModelsResponse.self, from: data) {
                 return modelsResponse.data.map { $0.id }

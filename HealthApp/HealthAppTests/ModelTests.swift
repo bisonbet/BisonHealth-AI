@@ -425,6 +425,17 @@ final class ModelTests: XCTestCase {
         )
     }
     
+    func testMedGemma27BIsHiddenWhileDisabledForBeta() throws {
+        try XCTSkipIf(
+            PlatformCapabilities.isMedGemma27BEnabled,
+            "MedGemma 27B is enabled; the memory gate test covers it"
+        )
+        XCTAssertFalse(PlatformCapabilities.supportsMedGemma27BChat)
+        XCTAssertFalse(MLXModelInfo.medGemma27BTextIT4Bit.isAvailable)
+        XCTAssertFalse(MLXModelInfo.allModels.contains { $0.id == MLXModelInfo.medGemma27BTextIT4Bit.id })
+        XCTAssertNil(MLXModelInfo.model(withId: MLXModelInfo.medGemma27BTextIT4Bit.id))
+    }
+
     func testGenderDisplayNames() {
         XCTAssertEqual(Gender.male.displayName, "Male")
         XCTAssertEqual(Gender.preferNotToSay.displayName, "Prefer not to say")

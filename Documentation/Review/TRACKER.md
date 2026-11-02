@@ -297,10 +297,25 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     root, removed in `tearDown`) and `SettingsManager.isolatedForTesting()` (own defaults
     domain, in-memory keychain) replace `DatabaseManager()`, `FileSystemManager()`, the
     `.shared` singletons and the four harnesses' default `SettingsManager()`. The retry-budget
-    item was already fixed 2026-10-24. **Not done (separate seams):** constructing
-    `MLXModelDownloadManager` against a fake transfer (WS-15-07), a `URLProtocol` stub for the
-    providers (WS-15-09), keychain injection for the encryption-failure tests (WS-15-10), a
-    failing-step migration case (WS-15-11), the review-sheet selection model (WS-15-12).
+    item was already fixed 2026-10-24. **The seams landed 2026-11-01:**
+    - WS-15-07 — `MLXModelDownloadManager(transfer:timing:userDefaults:)`: the Hugging Face
+      transfer is the default (`hubTransfer()` holds the device-only body), and
+      `MLXModelDownloadManagerWiringTests` drive the real manager against a scripted transfer:
+      success, retry within budget, give-up, stall give-up wording, cancel, and the budget
+      restore. **Mutation-checked:** commenting out `retryBudget.recordProgress` turns
+      `testProgressBetweenFailuresEarnsTheRetriesBack` red and nothing else.
+    - WS-15-09 — `StubURLProtocol` plus `OpenAICompatibleClientNetworkTests` (401/503 mapping,
+      key header, timeout, SSE accumulation with bad chunks and multi-byte text, empty
+      stream, 429 delivering no text, model listing). **It found a real bug:** the client
+      decoded with `.convertFromSnakeCase` on types that spell out snake_case keys, so
+      `usage.total_tokens` and `finish_reason` always decoded as nil. Removed at all three
+      decoders. Bedrock still has no seam (the AWS SDK owns its transport).
+    - WS-15-10 — the missing-key cases were already covered through `EncryptionKeyStoring` by
+      `DataKeyResolverTests`; added the end-to-end tampered-ciphertext case.
+    - WS-15-11 — a failing migration step leaves the stored version and keeps its backup.
+    - WS-15-12 — `BloodTestImportReviewView.Selection` holds all of the sheet's selection
+      state and every transition the view applies; the regression tests drive it, including
+      the appear-time "undecided is not ignored" half that was previously untestable.
 14. ~~**W-Q**~~ — **done 2026-11-01, and not as a migration.** No column changes, and a file move
     cannot join SQLite's transaction, so a v16 step would have committed paths and moved files
     separately anyway. `DocumentProcessor.renameLegacyDocumentFiles()` runs at launch, before
@@ -320,8 +335,25 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     device: No; age rating for medical/treatment information; category) and a hosted
     privacy-policy/support URL (WS-13-10, WS-13-13).
 
-**Still open:** W-R (113 orphaned UI tests, backlog), W-M (item 32, needs the app), and the
-W-K seams listed above.
+16. ~~**W-R**~~ — **revived 2026-11-01, partly.** The six orphaned files (113 tests) are
+    back in `HealthAppUITests` on a shared `HealthAppUITestCase`, which launches in UI-test
+    mode (`--ui-testing --reset-test-data …`) instead of the real container and knows the
+    current navigation: tabs on iPhone, sidebar on iPad, Health → Documents segment, and the
+    Health "Add Health Data" menu that the editor suites open from. **On iPhone 17 (iOS 26.5):
+    56 pass, 12 skip themselves, and 47 that assert UI which no longer exists are listed by
+    name in `PreRelease.xctestplan`'s `skippedTests`** — old "Health Data"/"Documents" tabs,
+    editor field identifiers that were renamed, the documents "plus" menu, the chat composer
+    symbol name. Rewrite those against the current UI once the iPhone Duo PR (#56, which
+    renames chat and toolbar identifiers) has landed, and delete each skip entry as it passes.
+    **Reviving them found two real harness bugs, both fixed:** in UI-test mode
+    `DataKeyResolver.forDefaultStore()` still examined the real container and Keychain, so on
+    a simulator whose real store needed a missing key, every UI test opened on "Your Health
+    Data Didn't Open" (it now uses the test paths and, for resetting runs, a throwaway key
+    store); and `DocumentProcessor` asked for notification permission at launch, putting a
+    system alert over the tab bar (skipped in UI-test mode — the launch-time ask is itself
+    WS-09-05-shaped and stays a beta follow-up).
+
+**Still open:** W-M (item 32, needs the app); the 47 skipped UI tests (W-R above).
 
 ### Serialise these
 
@@ -333,7 +365,15 @@ start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
 
 ### Standing verification facts for this repo
 
-- **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
+- **428 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on
+  `fix/beta-backlog-seams-ui-tests` (the W-K seams and triage fixes added 24).
+- **UI tests: 56 pass, 59 skipped (12 by the tests themselves, 47 in the plan), 0 fail** on
+  iPhone 17 / iOS 26.5, derived from the unskipped run (56 pass / 47 fail / 12 skip) — the
+  run with the plan's skip list in place was not repeated on iPhone. **iPad Pro 11-inch (M5)
+  with the skip list: 52 pass, 16 fail, and 0 reported skipped — so whether the plan's
+  `skippedTests` IDs are honoured is unconfirmed, and the 16 iPad failures are untriaged.**
+  Check both before trusting the PreRelease plan on `main`.
+- Previously: **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
   (404 before W-K deleted 9 tests that could not fail and added 7 real ones)
   (368 on 2026-10-26).
   Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted
@@ -348,22 +388,95 @@ start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
 - Revert-and-confirm is worth the time: it caught **four** tests of mine that asserted
   nothing, including one whose own comment claimed otherwise.
 
-### Six decisions waiting on you
+### Owner decisions — answered 2026-11-01
 
-**New (W-H):** should iPad have a real two-column Documents layout? The old one was dead
-code and is now gone. Building it means `HealthTabView` adopting a `NavigationSplitView`
-instead of its single nav bar with a segment switcher, which is a visible redesign of the
-merged Records/Documents tab — not something to infer from a bug report. Today a document
-opens in a sheet on every device, which works but wastes a 13-inch landscape.
+- **Export compliance: `ITSAppUsesNonExemptEncryption = false`, signed off.** The BoringSSL
+  worry turned out not to apply: checked against the device build, swift-nio-ssl is resolved
+  but not linked, swift-crypto re-exports CryptoKit, and aws-crt-swift uses CommonCrypto and
+  Network.framework TLS on iOS. All encryption the app uses is Apple's. The App Store Connect
+  answer that matches is "None of the algorithms mentioned above". `Info.plist` has the check
+  to re-run if a dependency is added.
+- **TestFlight round one is internal.** W-A..W-D is the complete list for it.
+- **MedGemma 27B is hidden for the beta** — `PlatformCapabilities.isMedGemma27BEnabled = false`
+  removes it from the catalog and the settings screen; a saved selection falls back to the
+  default model. Downloaded weights are not deleted (they are simply no longer listed), so a
+  Mac that already has them should delete them from Settings before installing this build.
+- **iPad keeps the current design.** No two-column Documents layout for now.
+- **App Store Connect setup is done by the owner** (medical device, age rating, category).
+- **Privacy policy / support URL — not done yet.** bisonnetworking.com has a BisonVoice
+  privacy policy and a general contact form, but no BisonHealth policy. Not needed for
+  internal TestFlight; needed before external TestFlight or App Store review (WS-13-10,
+  WS-13-13). The plan is a `/bisonhealth-privacy-policy/` page carrying the in-app policy
+  text (`PrivacyPolicyView`), and `/contact-us/` as the support URL.
 
-§6 of the triage report has them in full. In short: sign off
-`ITSAppUsesNonExemptEncryption = false` (legal call, BoringSSL via the AWS SDK is the
-complication); internal vs external TestFlight for round one (WS-17 recommends internal,
-which makes W-A..W-D the complete list); measure the 384 KiB/token KV constant during W-C;
-hide the MedGemma 27B Mac path for the beta; re-verify item 32 during the W-C run.
+Still to measure during the device run: the 384 KiB/token KV constant, and item 32 (W-M).
 
 ---
 
+
+## ▶ Triage of the untracked P2/P3 findings (2026-11-01)
+
+WS-17 left "103" P2/P3 findings in the findings files with no tracker item. A recount by ID
+against this file finds **129 P2/P3 plus 4 P1 with no tracker entry** (the 103 predates
+WS-15/WS-16 additions). Each now has a disposition. IDs stay the reference — the detail is
+in `findings/`.
+
+**Fixed in this PR (2026-11-01)**
+- WS-07-11 — copies of messages, prep reports and diagnostics go through
+  `PrivatePasteboard.copy`: `localOnly` (no Universal Clipboard) and a 10-minute expiry.
+- WS-09-14 — relative timestamps use `.relative(presentation: .named)`, so a new item reads
+  "now", not "in 0 seconds" (documents list, conversation list and sidebar).
+- WS-10-12 — the typing indicator stays still under Reduce Motion.
+- WS-15-14 — the encrypted-at-rest assertions require ciphertext that opens to exactly the
+  original (`assertSealed`), not merely `!= plaintext`, which nil and "" passed.
+- WS-15-05 — W-R, see the W-K/W-R entry above.
+- WS-15-07, -09, -10, -11, -12 — the W-K seams, see above.
+
+**Already fixed by earlier work — closed**
+WS-14-01 (build number from commit count), WS-14-05 and WS-15-15 (CI, test plans, count
+from `.xcresult`), WS-14-06 (`archive.sh` and `ExportOptions.plist` exist; signing is the
+owner's Distribution identity), WS-02-09 (`DatabaseMigrationTests` harness), WS-10-15 (the
+accessibility UI tests now compile in the target), WS-12-05 (partials are published as
+`incompleteDownloadBytes` and offered as Resume/Remove), WS-16-01, -02, -03 (Reset wording,
+qualified encryption claims, CLAUDE.md backup note — item 22), WS-16-04 (policy date),
+WS-16-05 (Hugging Face is contacted for downloads only), WS-16-06 (DB version in CLAUDE.md),
+WS-16-07, -08 (build/test commands), WS-16-10 (MLX device-build rule in CLAUDE.md),
+WS-16-15 (`.claude/CLAUDE.md` casing).
+
+**Beta follow-up — fix before external TestFlight or App Store review**
+- Chat reliability: WS-02-08 (one undecryptable message hides the whole conversation list —
+  a placeholder must never be written back over its ciphertext), WS-03-05 (no way to cancel a
+  reply), WS-04-07 + WS-04-08 + WS-06-10 + WS-08-08 (a reply cut off by the token limit or a
+  dropped stream is stored as complete; `finish_reason` now decodes, which this needs),
+  WS-04-06 (every Bedrock error reads "network error"), WS-04-09 (server reason dropped).
+- Document/lab correctness: WS-05-07 (a neighbouring date taken as the reference range),
+  WS-05-08, WS-05-09 (decimal comma `5,4` read as 54), WS-05-10 (test date), WS-05-12,
+  WS-05-13, WS-05-14 + WS-08-13 (partial extraction reported as success), WS-05-15
+  (delete can leave encrypted originals), WS-04-11 (retries on non-transient errors),
+  WS-04-12, WS-04-13 (unfenced document text in prompts), WS-03-04.
+- State/UI correctness: WS-06-05, WS-06-06, WS-06-07, WS-06-08, WS-06-09 (Bedrock settings
+  nothing reads), WS-08-09 (one-tap destructive actions), WS-08-10 (log email without Mail),
+  WS-08-11 (Apple Health outcomes all read "synced"), WS-08-14 (dead Share item), WS-09-04,
+  WS-09-05 + WS-13-08 (Health prompt at launch), WS-09-07, WS-09-08.
+- Privacy: WS-07-07 (plaintext exports never cleaned up), WS-07-08 (export toggles ignored),
+  WS-07-09 (regex log redaction), WS-07-10 (name and DOB sent to cloud providers),
+  WS-07-12 (decrypted temp copies), WS-04-10 (endpoint validator vs ATS, redirects).
+- Accessibility: WS-10-03 through WS-10-08.
+- Storage/models/performance: WS-11-09 + WS-11-14 + WS-12-10 (storage screen omits models;
+  models in purgeable Caches), WS-11-11 (downloads stall on auto-lock), WS-12-06 (no
+  free-space check), WS-12-04 + WS-13-11 (no model integrity check or revision pin),
+  WS-12-08, WS-12-09, WS-11-04, WS-11-05, WS-11-12, WS-11-13.
+- Owner calls: WS-11-08 + WS-06-15 (the fixed 5-second splash — a brand choice),
+  WS-12-11 (reviewer notes about the model download).
+- Docs: WS-16-09, WS-16-11, WS-16-12; WS-15-13 (UI tests still match English strings).
+
+**Later or won't fix for the beta** — P3, architectural, or a decision already taken:
+WS-03-07 + WS-11-06 + WS-11-15 (database on the main actor: L effort, documented deferral),
+WS-09-06 (iPad shell — owner decided 2026-11-01 to keep the iPad design), WS-07-13 (app lock
+is a feature), WS-04-14 (device-only AWS keys are a defensible choice), WS-07-15 (history
+only, no live secrets), WS-02-10, -11, -13, -14, -15, WS-03-08 through -15, WS-04-15,
+WS-06-13, WS-06-14, WS-07-14, WS-08-15, WS-09-09 through -13, WS-09-15, WS-10-09, -10, -11,
+-13, -14, WS-11-10, WS-12-12, -13, -14, WS-13-14, WS-14-08, WS-16-13, WS-16-14.
 
 ## ▶ WS-17 triage (2026-10-25) — all 18 workstreams now run and merged
 
@@ -597,7 +710,7 @@ is also absent, so every TestFlight build stops at "Missing Compliance". Both co
 | # | Title | Sev | Source |
 |---|---|---|---|
 | 33 | No app-level `PrivacyInfo.xcprivacy`; required-reason APIs undeclared | **P0** (submission) | **fixed** — `HealthApp/PrivacyInfo.xcprivacy`, verified present and parsed in the built bundle |
-| 34 | `ITSAppUsesNonExemptEncryption` absent — every TestFlight build blocks on Missing Compliance | P1 (submission) | **mechanism fixed**, value set `false` and verified in the built Info.plist — ⚠️ **the value is a legal declaration and needs the owner's sign-off**; see the comment in `Info.plist` for the BoringSSL complication |
+| 34 | `ITSAppUsesNonExemptEncryption` absent — every TestFlight build blocks on Missing Compliance | P1 (submission) | **mechanism fixed**, value set `false` and verified in the built Info.plist — **signed off by the owner 2026-11-01** — no BoringSSL is linked after all; see the owner-decisions section |
 | 35 | Release path not repeatable: `CURRENT_PROJECT_VERSION = 1` hard-coded in **6** places (WS-14 said 8; recounted), no CI, no test plan, no export options, no distribution identity | P1 | **build numbering fixed** — `Scripts/archive.sh` derives it from the commit count, proven to reach `CFBundleVersion` (1 → 584). Still open: CI, test plan, `ExportOptions.plist`, distribution identity |
 | 36 | **Session rebuild re-prefills the entire conversation.** `AIChatManager` builds `mlxConversationHistory` from all of `conversation.messages`; `ConversationContextBuilder` is never applied on this path. My own comment in `MLXOnDeviceClient.swift` claims "history trimmed to fit" — it is false, and commit 6ad65405 *added* a rebuild trigger, so it made this fire more often while asserting it was handled | P1 | **fixed** — `AIChatManager` now runs the conversation through `ConversationContextBuilder` with a reserve covering the real reply budget and the rules block; the false comment is corrected |
 | 37 | No device-aware memory ceiling for the KV cache: `MLX.Memory.memoryLimit` is never set and the context slider reaches 65,536. Item 27 sized patient data within the window but never asked whether the window fits the device | P1 | WS-11-01 |

@@ -698,6 +698,29 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try documentsHasColumn("failure_reason"))
     }
 
+    func testAFailingMigrationStepLeavesTheVersionAndKeepsTheBackup() throws {
+        // The converse of the backup-deletion test: a step that throws must roll back, leave
+        // the stored version where it was, and keep the pre-migration copy for recovery.
+        // The v15 step is made to fail by turning `documents` into a view, which
+        // `CREATE TABLE IF NOT EXISTS` leaves alone and `ALTER TABLE ADD COLUMN` rejects.
+        do {
+            _ = try DatabaseManager(databaseURL: databaseURL)
+        }
+        try execute("ALTER TABLE documents RENAME TO documents_real")
+        try execute("ALTER TABLE documents_real DROP COLUMN failure_reason")
+        try execute("CREATE VIEW documents AS SELECT * FROM documents_real")
+        try execute("DELETE FROM database_version")
+        try execute("INSERT INTO database_version (version, created_at) VALUES (14, 0)")
+
+        XCTAssertThrowsError(try DatabaseManager(databaseURL: databaseURL))
+
+        XCTAssertEqual(try storedVersion(), 14, "A failed step must not advance the stored version")
+        XCTAssertEqual(
+            try migrationBackupFiles().count, 1,
+            "A failed migration keeps its backup; only a committed one may delete it"
+        )
+    }
+
     func testAFailureReasonSurvivesReopeningTheDatabaseAndIsStoredEncrypted() async throws {
         // The entire point of v15. Before it the reason lived in `DocumentProcessor`'s
         // memory, so a relaunch left a red badge and no explanation.
@@ -986,6 +1009,59 @@ final class MedicalDocumentWriteSafetyTests: XCTestCase {
         // The point of refusing: the stored copy is still readable.
         let stored = try await manager.fetchMedicalDocument(id: document.id)
         XCTAssertEqual(stored?.extractedText, "Potassium 5.9 mmol/L")
+    }
+
+    func testTamperedCiphertextReadsAsUnreadableAndIsNotOverwritten() async throws {
+        // WS-15-10: the failure path end to end, through the real key. A column whose
+        // AES-GCM tag no longer verifies must come back flagged, not blank-and-clean, and the
+        // flagged record must not be able to write its emptiness over the stored bytes.
+        let manager = try DatabaseManager(databaseURL: databaseURL)
+        let document = sampleDocument()
+        try await manager.saveMedicalDocument(document)
+
+        // The first four Base64 characters are the nonce's first three bytes.
+        try rawExecute("UPDATE documents SET extracted_text = 'AAAA' || substr(extracted_text, 5)")
+        let tampered = try rawText("SELECT extracted_text FROM documents")
+
+        let fetched = try await manager.fetchMedicalDocument(id: document.id)
+        let loaded = try XCTUnwrap(fetched)
+        XCTAssertNil(loaded.extractedText, "Ciphertext that fails authentication must not surface")
+        XCTAssertTrue(loaded.unreadableFields.contains(.extractedText))
+        XCTAssertEqual(loaded.tags, ["lab"], "Only the damaged column is affected")
+
+        do {
+            _ = try await manager.saveMedicalDocument(loaded, requireExistingRow: true)
+            XCTFail("Writing back a record with an unreadable field must be refused")
+        } catch DatabaseError.lossyWriteRefused(let fields) {
+            XCTAssertEqual(fields, ["extractedText"])
+        }
+        XCTAssertEqual(
+            try rawText("SELECT extracted_text FROM documents"), tampered,
+            "The stored bytes are left for a later key or decoder to recover"
+        )
+    }
+
+    private func rawExecute(_ sql: String) throws {
+        var handle: OpaquePointer?
+        defer { sqlite3_close(handle) }
+        guard sqlite3_open(databaseURL.path, &handle) == SQLITE_OK,
+              sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(domain: "WriteSafetyTests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(handle))
+            ])
+        }
+    }
+
+    private func rawText(_ sql: String) throws -> String? {
+        var handle: OpaquePointer?
+        defer { sqlite3_close(handle) }
+        guard sqlite3_open(databaseURL.path, &handle) == SQLITE_OK else { return nil }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              let text = sqlite3_column_text(statement, 0) else { return nil }
+        return String(cString: text)
     }
 
     func testTogglingAIContextDoesNotRewriteTheWholeRow() async throws {

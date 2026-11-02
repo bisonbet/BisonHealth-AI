@@ -1265,3 +1265,195 @@ final class LoadConversationsWiringTests: XCTestCase {
         XCTAssertEqual(manager.conversations.count, 2)
     }
 }
+
+// MARK: - Download Manager Wiring (WS-15-07)
+//
+// `MLXDownloadRetryBudgetTests` prove the budget's arithmetic. These prove the manager
+// consults it: they construct `MLXModelDownloadManager` against a scripted transfer, so the
+// retry, restore, give-up and completion paths run in the simulator. Deleting the
+// `retryBudget.recordProgress` call in the progress monitor turns
+// `testProgressBetweenFailuresEarnsTheRetriesBack` red.
+
+/// Plays one scripted step per download attempt.
+@MainActor
+private final class ScriptedTransfer {
+    enum Step {
+        case succeed
+        case fail
+        /// Report `bytes` of progress, give the watchdog time to see it, then fail.
+        case progressThenFail(bytes: Int64)
+        /// Report a little progress, then never again until cancelled.
+        case hang
+    }
+
+    private var steps: [Step]
+    private(set) var attempts = 0
+    private let tick: Duration
+    private let root: URL
+
+    init(_ steps: [Step], tick: Duration, root: URL) {
+        self.steps = steps
+        self.tick = tick
+        self.root = root
+    }
+
+    func run(_ model: MLXModelInfo, _ progress: DownloadProgressBox, _ metered: Bool) async throws -> URL {
+        attempts += 1
+        let step = steps.isEmpty ? .fail : steps.removeFirst()
+        // Let the watchdog take its zero baseline before any bytes are reported.
+        try await Task.sleep(for: tick * 3)
+        switch step {
+        case .succeed:
+            let directory = root.appendingPathComponent("attempt-\(attempts)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("{}".utf8).write(to: directory.appendingPathComponent("config.json"))
+            try Data([0]).write(to: directory.appendingPathComponent("model.safetensors"))
+            return directory
+        case .fail:
+            throw URLError(.networkConnectionLost)
+        case .progressThenFail(let bytes):
+            progress.configure(fileSizes: ["model.safetensors": bytes * 2])
+            progress.update(file: "model.safetensors", completedBytes: bytes)
+            try await Task.sleep(for: tick * 4)
+            throw URLError(.networkConnectionLost)
+        case .hang:
+            progress.configure(fileSizes: ["model.safetensors": 1_000])
+            progress.update(file: "model.safetensors", completedBytes: 10)
+            try await Task.sleep(for: .seconds(30))
+            throw URLError(.timedOut)
+        }
+    }
+}
+
+@MainActor
+final class MLXModelDownloadManagerWiringTests: XCTestCase {
+
+    private let tick: Duration = .milliseconds(20)
+    private let model = MLXModelInfo.mediPhi4B
+    private var suiteName = ""
+    private var defaults: UserDefaults?
+    private var root: URL?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        suiteName = "MLXDownloadWiring.\(UUID().uuidString)"
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mlx-wiring-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        root = directory
+    }
+
+    override func tearDownWithError() throws {
+        defaults?.removePersistentDomain(forName: suiteName)
+        if let root { try? FileManager.default.removeItem(at: root) }
+        try super.tearDownWithError()
+    }
+
+    private func makeManager(_ steps: [ScriptedTransfer.Step]) throws -> (MLXModelDownloadManager, ScriptedTransfer) {
+        let script = ScriptedTransfer(steps, tick: tick, root: try XCTUnwrap(root))
+        let manager = MLXModelDownloadManager(
+            transfer: { model, progress, metered in try await script.run(model, progress, metered) },
+            timing: .init(tick: tick, stallThreshold: 0.25, retryDelay: tick),
+            userDefaults: try XCTUnwrap(defaults)
+        )
+        return (manager, script)
+    }
+
+    /// Waits for the download to stop, one way or the other.
+    private func waitUntilIdle(_ manager: MLXModelDownloadManager, timeout: TimeInterval = 10) async throws {
+        // Give the initial status refresh and the first attempt a chance to start.
+        try await Task.sleep(for: tick * 2)
+        let deadline = Date().addingTimeInterval(timeout)
+        while manager.isDownloading {
+            guard Date() < deadline else { return XCTFail("The download never finished") }
+            try await Task.sleep(for: tick)
+        }
+    }
+
+    func testASuccessfulTransferMarksTheModelDownloadedAndPersistsIt() async throws {
+        let (manager, script) = try makeManager([.succeed])
+
+        manager.startDownload(for: model)
+        try await waitUntilIdle(manager)
+
+        XCTAssertEqual(script.attempts, 1)
+        XCTAssertTrue(manager.isModelDownloaded(model))
+        XCTAssertEqual(manager.downloadProgress, 1.0)
+        XCTAssertNil(manager.downloadError)
+        XCTAssertEqual(defaults?.stringArray(forKey: "mlxDownloadedModelIds"), [model.id])
+    }
+
+    func testTransferFailuresAreRetriedWithinTheBudget() async throws {
+        let (manager, script) = try makeManager([.fail, .fail, .succeed])
+
+        manager.startDownload(for: model)
+        try await waitUntilIdle(manager)
+
+        XCTAssertEqual(script.attempts, 3, "Two automatic retries, then the third attempt lands")
+        XCTAssertTrue(manager.isModelDownloaded(model))
+    }
+
+    func testRunningOutOfRetriesReportsTheErrorAndKeepsTheModelUnmarked() async throws {
+        let (manager, script) = try makeManager([.fail, .fail, .fail, .succeed])
+
+        manager.startDownload(for: model)
+        try await waitUntilIdle(manager)
+
+        XCTAssertEqual(script.attempts, 3, "The budget is two retries; a fourth attempt must not start")
+        XCTAssertFalse(manager.isModelDownloaded(model))
+        XCTAssertEqual(manager.downloadError, URLError(.networkConnectionLost).localizedDescription)
+    }
+
+    func testProgressBetweenFailuresEarnsTheRetriesBack() async throws {
+        // Without the restore the third failure exhausts the budget. With it, a full slice of
+        // progress on attempt three wins both retries back and attempt five succeeds.
+        let slice: Int64 = 8 * 1024 * 1024
+        let (manager, script) = try makeManager([.fail, .fail, .progressThenFail(bytes: slice), .fail, .succeed])
+
+        manager.startDownload(for: model)
+        try await waitUntilIdle(manager)
+
+        XCTAssertEqual(script.attempts, 5)
+        XCTAssertTrue(manager.isModelDownloaded(model), "Bytes landing must restore the retry budget")
+    }
+
+    func testRepeatedStallsGiveUpWithResumableWordingRatherThanFailing() async throws {
+        let (manager, script) = try makeManager([.hang, .hang, .hang, .succeed])
+
+        manager.startDownload(for: model)
+        try await waitUntilIdle(manager)
+
+        XCTAssertEqual(script.attempts, 3, "Two stall retries, then the watchdog stops")
+        XCTAssertFalse(manager.isModelDownloaded(model))
+        XCTAssertEqual(
+            manager.downloadError,
+            "Download paused after repeated connection problems. Your progress is kept — tap Resume to continue."
+        )
+    }
+
+    func testCancellingIsNotReportedAsAnError() async throws {
+        let (manager, _) = try makeManager([.hang])
+
+        manager.startDownload(for: model)
+        try await Task.sleep(for: tick * 5)
+        XCTAssertTrue(manager.isDownloading)
+
+        manager.cancelDownload()
+        try await Task.sleep(for: tick * 5)
+
+        XCTAssertFalse(manager.isDownloading)
+        XCTAssertFalse(manager.isModelDownloaded(model))
+        XCTAssertNil(manager.downloadError, "A cancel the user chose is not a failure")
+    }
+
+    func testAnUnavailableModelIsRefusedWithoutStartingATransfer() throws {
+        let (manager, script) = try makeManager([.succeed])
+
+        manager.startDownload(for: MLXModelInfo.medGemma27BTextIT4Bit)
+
+        XCTAssertEqual(script.attempts, 0)
+        XCTAssertFalse(manager.isDownloading)
+        XCTAssertNotNil(manager.downloadError)
+    }
+}

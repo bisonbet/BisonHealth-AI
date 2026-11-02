@@ -460,6 +460,8 @@ struct EnhancedMessageListView: View {
 
 struct TypingIndicatorView: View {
     @State private var isAnimating = false
+    /// The dots pulse forever otherwise; with Reduce Motion on they stay still (WS-10-12).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack {
@@ -497,7 +499,7 @@ struct TypingIndicatorView: View {
             Spacer(minLength: 50)
         }
         .onAppear {
-            isAnimating = true
+            isAnimating = !reduceMotion
         }
         .onDisappear {
             isAnimating = false
@@ -720,13 +722,13 @@ struct EnhancedMessageBubbleView: View, Equatable {
         }
         .contextMenu {
             Button("Copy Message", systemImage: "doc.on.doc") {
-                UIPasteboard.general.string = message.content
+                PrivatePasteboard.copy(message.content)
                 showingCopyConfirmation = true
             }
             
             if !message.isFromUser {
                 Button("Copy Response", systemImage: "doc.on.doc.fill") {
-                    UIPasteboard.general.string = message.content
+                    PrivatePasteboard.copy(message.content)
                     showingCopyConfirmation = true
                 }
             }

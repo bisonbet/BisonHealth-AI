@@ -1,23 +1,12 @@
 import XCTest
 
-final class PersonalInfoEditorUITests: XCTestCase {
-    var app: XCUIApplication!
-    
+final class PersonalInfoEditorUITests: HealthAppUITestCase {
+
     override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
-        
-        // Navigate to Health Data tab and open Personal Info Editor
-        app.tabBars.buttons["Health Data"].tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap() // Menu button
-        app.buttons["Personal Info"].tap()
+        try super.setUpWithError()
+        openAddHealthDataMenuItem("Add Personal Information")
     }
-    
-    override func tearDownWithError() throws {
-        app = nil
-    }
-    
+
     // MARK: - Basic Navigation Tests
     
     func testPersonalInfoEditorOpens() throws {

@@ -9,12 +9,9 @@ struct BloodTestImportReviewView: View {
     var onCancel: (() -> Void)? = nil
 
     @State private var showingAcceptAllConfirmation = false
-    @State private var selectedIds: [UUID: UUID] = [:] // groupId -> candidateId
-    @State private var ignoredGroupIds: Set<UUID> = [] // explicit user choice to skip import
-
-    // Auto-accepted groups (audit trail); the user can demote one back into review
-    @State private var autoAcceptedGroups: [BloodTestImportGroup]
-    @State private var demotedGroups: [BloodTestImportGroup] = []
+    /// Every choice the user makes on this sheet. A value type so the transitions the view
+    /// performs are the ones the tests exercise (WS-15-12).
+    @State private var selection: Selection
     @State private var showAutoAccepted = false
 
     init(
@@ -24,7 +21,7 @@ struct BloodTestImportReviewView: View {
         onCancel: (() -> Void)? = nil
     ) {
         self._importGroups = importGroups
-        self._autoAcceptedGroups = State(initialValue: autoAcceptedGroups)
+        self._selection = State(initialValue: Selection(autoAcceptedGroups: autoAcceptedGroups))
         self.onComplete = onComplete
         self.onCancel = onCancel
     }
@@ -40,7 +37,7 @@ struct BloodTestImportReviewView: View {
             get: { importGroups },
             set: { _ in }
         )
-        self._autoAcceptedGroups = State(initialValue: autoAcceptedGroups)
+        self._selection = State(initialValue: Selection(autoAcceptedGroups: autoAcceptedGroups))
         self.onComplete = onComplete
         self.onCancel = onCancel
     }
@@ -50,7 +47,7 @@ struct BloodTestImportReviewView: View {
             List {
                 headerSection
 
-                if !autoAcceptedGroups.isEmpty {
+                if !selection.autoAcceptedGroups.isEmpty {
                     autoAcceptedSection
                 }
 
@@ -58,26 +55,12 @@ struct BloodTestImportReviewView: View {
                     reviewGroupSection($group)
                 }
 
-                ForEach($demotedGroups) { $group in
+                ForEach($selection.demotedGroups) { $group in
                     reviewGroupSection($group)
                 }
             }
             .onAppear {
-                // Initialize selectedIds from groups' selectedCandidateId.
-                //
-                // Groups with no pre-selection are left UNDECIDED. They used to be
-                // inserted into `ignoredGroupIds` — a set documented as "explicit user
-                // choice to skip import" — which marked them "Will Ignore" in red before
-                // the user had looked at anything. Abnormal values never carry a
-                // pre-selection (`isRecommended` requires `!isAbnormal`), so exactly the
-                // results that matter most arrived pre-marked for discard, and one tap on
-                // Import Selected dropped them while saving a record that read
-                // "All normal".
-                for group in importGroups {
-                    if let selectedCandidateId = group.selectedCandidateId {
-                        selectedIds[group.id] = selectedCandidateId
-                    }
-                }
+                selection.seed(from: importGroups)
             }
             .navigationTitle("Review Lab Results")
             .navigationBarTitleDisplayMode(.inline)
@@ -119,18 +102,12 @@ struct BloodTestImportReviewView: View {
     }
 
     // MARK: - Import Counts
-    /// Every group the sheet is accounting for.
     private var totalGroupCount: Int {
-        importGroups.count + demotedGroups.count + autoAcceptedGroups.count
+        selection.totalCount(importGroups: importGroups)
     }
 
-    /// Groups that will actually be written: ones the user selected, plus the
-    /// auto-accepted ones, which import by definition.
     private var selectedGroupCount: Int {
-        func chosen(_ groups: [BloodTestImportGroup]) -> Int {
-            groups.filter { selectedIds[$0.id] != nil && !ignoredGroupIds.contains($0.id) }.count
-        }
-        return chosen(importGroups) + chosen(demotedGroups) + autoAcceptedGroups.count
+        selection.selectedCount(importGroups: importGroups)
     }
 
     /// Groups that will be dropped — whether the user said so or simply has not
@@ -144,7 +121,7 @@ struct BloodTestImportReviewView: View {
     private var headerSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Review \(importGroups.count + demotedGroups.count + autoAcceptedGroups.count) extracted test results")
+                Text("Review \(totalGroupCount) extracted test results")
                     .font(.headline)
 
                 Text("Please review values before importing. You can deselect items to ignore them.")
@@ -176,15 +153,15 @@ struct BloodTestImportReviewView: View {
     private var autoAcceptedSection: some View {
         Section {
             DisclosureGroup(isExpanded: $showAutoAccepted) {
-                ForEach(autoAcceptedGroups) { group in
+                ForEach(selection.autoAcceptedGroups) { group in
                     autoAcceptedRow(group)
                 }
             } label: {
-                Label("Auto-imported (\(autoAcceptedGroups.count) values)", systemImage: "checkmark.seal.fill")
+                Label("Auto-imported (\(selection.autoAcceptedGroups.count) values)", systemImage: "checkmark.seal.fill")
                     .font(.subheadline)
                     .foregroundColor(.green)
             }
-            .accessibilityLabel("Auto-imported values, \(autoAcceptedGroups.count) items")
+            .accessibilityLabel("Auto-imported values, \(selection.autoAcceptedGroups.count) items")
             .accessibilityHint("Expands to show values that passed validation and will import automatically")
             .accessibilityIdentifier("autoImportedSection")
         } footer: {
@@ -228,13 +205,7 @@ struct BloodTestImportReviewView: View {
 
     private func demoteAutoAcceptedGroup(_ group: BloodTestImportGroup) {
         AppLog.shared.ui("User demoted auto-accepted group '\(group.standardTestName)' to manual review")
-        autoAcceptedGroups.removeAll { $0.id == group.id }
-
-        var demoted = group
-        demoted.isAutoAccepted = false
-        demoted.selectedCandidateId = nil
-        demotedGroups.append(demoted)
-        ignoredGroupIds.insert(demoted.id)
+        selection.demote(group)
     }
 
     // MARK: - Review Group Section
@@ -246,7 +217,7 @@ struct BloodTestImportReviewView: View {
                 Text(group.wrappedValue.standardTestName)
                     .font(.headline)
                 Spacer()
-                if ignoredGroupIds.contains(group.wrappedValue.id) {
+                if selection.isIgnored(group.wrappedValue.id) {
                     Text("Will Ignore")
                         .font(.caption)
                         .foregroundColor(.red)
@@ -288,7 +259,7 @@ struct BloodTestImportReviewView: View {
     // MARK: - Don't Import Row
     private func dontImportRow(group: Binding<BloodTestImportGroup>) -> some View {
         let groupId = group.wrappedValue.id
-        let isSelected = ignoredGroupIds.contains(groupId)
+        let isSelected = selection.isIgnored(groupId)
 
         return HStack(spacing: 12) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -306,9 +277,7 @@ struct BloodTestImportReviewView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             AppLog.shared.ui("🔘 Don't import tapped for group: \(groupId)")
-            // Update state dictionary
-            ignoredGroupIds.insert(groupId)
-            selectedIds[groupId] = nil
+            selection.ignore(groupId)
             // Update binding
             var updatedGroup = group.wrappedValue
             updatedGroup.selectedCandidateId = nil
@@ -320,10 +289,7 @@ struct BloodTestImportReviewView: View {
     
     // MARK: - Candidate Row
     private func candidateRow(_ candidate: BloodTestImportCandidate, group: Binding<BloodTestImportGroup>) -> some View {
-        // Use selectedIds state if available, otherwise fall back to group's selectedCandidateId
-        let groupId = group.wrappedValue.id
-        let currentSelection = selectedIds[groupId] ?? group.wrappedValue.selectedCandidateId
-        let isSelected = !ignoredGroupIds.contains(groupId) && currentSelection == candidate.id
+        let isSelected = selection.isSelected(candidate.id, in: group.wrappedValue)
         
         // Check if this candidate is the recommended one (matches the group's recommendedCandidate)
         let isRecommended = group.wrappedValue.recommendedCandidate?.id == candidate.id
@@ -422,10 +388,8 @@ struct BloodTestImportReviewView: View {
             AppLog.shared.ui("Candidate tapped: \(candidate.displayValue)")
             // Allow explicit selection of parseable values with a unit warning;
             // structurally invalid OCR values remain non-selectable.
-            if candidate.isSelectable {
+            if selection.select(candidate, inGroup: group.wrappedValue.id) {
                 // Update both the state and the binding
-                ignoredGroupIds.remove(groupId)
-                selectedIds[groupId] = candidate.id
                 var updatedGroup = group.wrappedValue
                 updatedGroup.selectedCandidateId = candidate.id
                 group.wrappedValue = updatedGroup
@@ -477,57 +441,131 @@ struct BloodTestImportReviewView: View {
     }
     
     // MARK: - Actions
-    /// Applies the view's tap-state (selectedIds/ignoredGroupIds) to COPIES of
-    /// the groups. Pure + static so the selection-propagation contract is
-    /// unit-testable: the call sites pass a read-only Binding, so historically
-    /// mutating `importGroups` in acceptSelected wrote nowhere and the user's
-    /// choices were silently discarded.
-    static func resolvedGroups(
-        importGroups: [BloodTestImportGroup],
-        demotedGroups: [BloodTestImportGroup],
-        autoAcceptedGroups: [BloodTestImportGroup],
-        selectedIds: [UUID: UUID],
-        ignoredGroupIds: Set<UUID>
-    ) -> [BloodTestImportGroup] {
-        func apply(_ groups: [BloodTestImportGroup]) -> [BloodTestImportGroup] {
-            groups.map { group in
-                var group = group
-                if ignoredGroupIds.contains(group.id) {
-                    group.selectedCandidateId = nil
-                } else if let selectedId = selectedIds[group.id] {
-                    group.selectedCandidateId = selectedId
-                }
-                return group
-            }
-        }
-        return apply(importGroups) + apply(demotedGroups) + apply(autoAcceptedGroups)
-    }
-
     private func acceptSelected() {
-        // Apply the user's tap-state to copies — the binding at the call sites
-        // is read-only, so mutating `importGroups` here writes nowhere.
-        let resolved = Self.resolvedGroups(
-            importGroups: importGroups,
-            demotedGroups: demotedGroups,
-            autoAcceptedGroups: autoAcceptedGroups,
-            selectedIds: selectedIds,
-            ignoredGroupIds: ignoredGroupIds
-        )
-
         // The completion receives every decided group: reviewed + demoted-then-decided
-        // + still-auto-accepted (their selection was set by the reconciler)
-        onComplete(resolved)
+        // + still-auto-accepted (their selection was set by the reconciler). Resolved on
+        // copies — the binding at the call sites is read-only, so mutating `importGroups`
+        // here would write nowhere.
+        onComplete(selection.resolved(importGroups: importGroups))
         dismiss()
     }
 
     private func acceptAllRecommended() {
-        // Update selectedIds state with all recommended candidates
-        for group in importGroups + demotedGroups {
-            if let recommended = group.recommendedCandidate {
-                selectedIds[group.id] = recommended.id
-                ignoredGroupIds.remove(group.id)
+        selection.acceptAllRecommended(in: importGroups)
+        acceptSelected()
+    }
+}
+
+// MARK: - Selection State
+extension BloodTestImportReviewView {
+    /// The sheet's selection state and every transition the view applies to it.
+    ///
+    /// FE-P0 was a no-op `Binding` that dropped the user's pick, and the fix after it marked
+    /// every undecided group "Will Ignore" on appear. Both bugs lived in the view's wiring,
+    /// which a test of a pure function fed hand-built state could not see. The view now
+    /// holds one of these and calls nothing else, so testing it tests the wiring.
+    struct Selection {
+        /// groupId -> candidateId
+        private(set) var selectedIds: [UUID: UUID] = [:]
+        /// Explicit user choice to skip import. Never inferred.
+        private(set) var ignoredGroupIds: Set<UUID> = []
+        /// Imported without review (audit trail); the user can demote one back into review.
+        private(set) var autoAcceptedGroups: [BloodTestImportGroup]
+        /// Settable because the view edits these rows through a binding, as it does the
+        /// reviewed groups.
+        var demotedGroups: [BloodTestImportGroup] = []
+
+        init(autoAcceptedGroups: [BloodTestImportGroup] = []) {
+            self.autoAcceptedGroups = autoAcceptedGroups
+        }
+
+        /// Copies the reconciler's pre-selections in. A group with none is left UNDECIDED.
+        /// They used to be inserted into `ignoredGroupIds`, which marked them "Will Ignore"
+        /// in red before the user had looked at anything. Abnormal values never carry a
+        /// pre-selection (`isRecommended` requires `!isAbnormal`), so exactly the results
+        /// that matter most arrived pre-marked for discard, and one tap on Import Selected
+        /// dropped them while saving a record that read "All normal".
+        ///
+        /// Safe to call on every appear: a choice the user has already made is kept.
+        mutating func seed(from importGroups: [BloodTestImportGroup]) {
+            for group in importGroups where selectedIds[group.id] == nil && !ignoredGroupIds.contains(group.id) {
+                if let selectedCandidateId = group.selectedCandidateId {
+                    selectedIds[group.id] = selectedCandidateId
+                }
             }
         }
-        acceptSelected()
+
+        func isIgnored(_ groupId: UUID) -> Bool {
+            ignoredGroupIds.contains(groupId)
+        }
+
+        func isSelected(_ candidateId: UUID, in group: BloodTestImportGroup) -> Bool {
+            !isIgnored(group.id) && (selectedIds[group.id] ?? group.selectedCandidateId) == candidateId
+        }
+
+        /// Picks `candidate`. Structurally invalid OCR values stay non-selectable; parseable
+        /// values with a unit warning can be chosen explicitly. Returns whether it applied.
+        @discardableResult
+        mutating func select(_ candidate: BloodTestImportCandidate, inGroup groupId: UUID) -> Bool {
+            guard candidate.isSelectable else { return false }
+            ignoredGroupIds.remove(groupId)
+            selectedIds[groupId] = candidate.id
+            return true
+        }
+
+        mutating func ignore(_ groupId: UUID) {
+            ignoredGroupIds.insert(groupId)
+            selectedIds[groupId] = nil
+        }
+
+        /// Moves an auto-accepted group into review, marked ignored until the user picks:
+        /// demoting is a request to look again, and nothing should import unseen.
+        mutating func demote(_ group: BloodTestImportGroup) {
+            autoAcceptedGroups.removeAll { $0.id == group.id }
+            var demoted = group
+            demoted.isAutoAccepted = false
+            demoted.selectedCandidateId = nil
+            demotedGroups.append(demoted)
+            ignoredGroupIds.insert(demoted.id)
+        }
+
+        mutating func acceptAllRecommended(in importGroups: [BloodTestImportGroup]) {
+            for group in importGroups + demotedGroups {
+                if let recommended = group.recommendedCandidate {
+                    selectedIds[group.id] = recommended.id
+                    ignoredGroupIds.remove(group.id)
+                }
+            }
+        }
+
+        /// Every group the sheet is accounting for.
+        func totalCount(importGroups: [BloodTestImportGroup]) -> Int {
+            importGroups.count + demotedGroups.count + autoAcceptedGroups.count
+        }
+
+        /// Groups that will actually be written: ones the user selected, plus the
+        /// auto-accepted ones, which import by definition.
+        func selectedCount(importGroups: [BloodTestImportGroup]) -> Int {
+            func chosen(_ groups: [BloodTestImportGroup]) -> Int {
+                groups.filter { selectedIds[$0.id] != nil && !ignoredGroupIds.contains($0.id) }.count
+            }
+            return chosen(importGroups) + chosen(demotedGroups) + autoAcceptedGroups.count
+        }
+
+        /// The user's choices applied to COPIES of every group, in presentation order.
+        func resolved(importGroups: [BloodTestImportGroup]) -> [BloodTestImportGroup] {
+            func apply(_ groups: [BloodTestImportGroup]) -> [BloodTestImportGroup] {
+                groups.map { group in
+                    var group = group
+                    if ignoredGroupIds.contains(group.id) {
+                        group.selectedCandidateId = nil
+                    } else if let selectedId = selectedIds[group.id] {
+                        group.selectedCandidateId = selectedId
+                    }
+                    return group
+                }
+            }
+            return apply(importGroups) + apply(demotedGroups) + apply(autoAcceptedGroups)
+        }
     }
 }

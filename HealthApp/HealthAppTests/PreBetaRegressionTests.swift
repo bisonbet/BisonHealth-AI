@@ -103,8 +103,9 @@ final class PreBetaRegressionTests: XCTestCase {
         guard let rawTitle = row?[harness.databaseManager.conversationTitle] else {
             return XCTFail("Raw conversation row missing")
         }
-        XCTAssertNotEqual(rawTitle, "My Hemoglobin Results Discussion",
-                           "Conversation titles are PHI (AI-derived from health messages) and must not sit in the SQLite file as plaintext")
+        // Conversation titles are PHI (AI-derived from health messages) and must not sit in
+        // the SQLite file as plaintext.
+        assertSealed(rawTitle, holds: "My Hemoglobin Results Discussion", in: harness.databaseManager)
 
         // And the model layer still decrypts correctly
         let fetched = try await harness.databaseManager.fetchConversations()
@@ -143,10 +144,10 @@ final class PreBetaRegressionTests: XCTestCase {
         let rawExtractedText = row?[harness.databaseManager.documentExtractedText]
         let rawProviderName = row?[harness.databaseManager.documentProviderName]
 
-        XCTAssertNotEqual(rawFileName, "Private Lab Report.pdf", "file_name must be encrypted at rest")
-        XCTAssertNotEqual(rawNotes, "Patient notes with details", "notes must be encrypted at rest")
-        XCTAssertNotEqual(rawExtractedText, "Hemoglobin 13.5 g/dL — Glucose 95 mg/dL", "extracted_text must be encrypted at rest")
-        XCTAssertNotEqual(rawProviderName, "Bison Diagnostics", "provider_name must be encrypted at rest")
+        assertSealed(rawFileName, holds: "Private Lab Report.pdf", in: harness.databaseManager)
+        assertSealed(rawNotes, holds: "Patient notes with details", in: harness.databaseManager)
+        assertSealed(rawExtractedText, holds: "Hemoglobin 13.5 g/dL — Glucose 95 mg/dL", in: harness.databaseManager)
+        assertSealed(rawProviderName, holds: "Bison Diagnostics", in: harness.databaseManager)
 
         // Round-trip through the decrypting row builder
         let fetched = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
@@ -372,13 +373,14 @@ final class PreBetaRegressionTests: XCTestCase {
             candidates: [BloodTestImportCandidate(testName: "WBC", value: "6.0", originalTestName: "WBC")]
         )
 
-        let resolved = BloodTestImportReviewView.resolvedGroups(
-            importGroups: [abnormalGroup, recommendedGroup, ignoredGroup],
-            demotedGroups: [],
-            autoAcceptedGroups: [],
-            selectedIds: [abnormalGroup.id: picked.id, recommendedGroup.id: glucoseAlt.id],
-            ignoredGroupIds: [ignoredGroup.id]
-        )
+        // Driven through the same transitions the sheet's taps call.
+        let groups = [abnormalGroup, recommendedGroup, ignoredGroup]
+        var selection = BloodTestImportReviewView.Selection()
+        selection.seed(from: groups)
+        selection.select(picked, inGroup: abnormalGroup.id)
+        selection.select(glucoseAlt, inGroup: recommendedGroup.id)
+        selection.ignore(ignoredGroup.id)
+        let resolved = selection.resolved(importGroups: groups)
 
         // The user's explicit pick must land (historically discarded via a no-op Binding).
         XCTAssertEqual(resolved.first(where: { $0.id == abnormalGroup.id })?.selectedCandidateId, picked.id)
@@ -400,9 +402,8 @@ final class PreBetaRegressionTests: XCTestCase {
     /// unit test — that undecided still means not-imported, so the new default cannot
     /// silently start importing unreviewed values instead.
     ///
-    /// Not covered here: that `onAppear` no longer marks them ignored. That is view state
-    /// and would need a UI test, and the UI test target currently compiles only
-    /// `RegressionSmokeUITests`.
+    /// The appear-time half is covered too: the sheet's `onAppear` calls `Selection.seed`,
+    /// which this test drives, so marking undecided groups ignored there again goes red.
     func testUndecidedGroupIsNotImported() {
         // Abnormal, so `isRecommended` is false and `BloodTestImportGroup.init` does not
         // pre-select it — which is exactly how a group reaches the sheet undecided, and
@@ -420,17 +421,109 @@ final class PreBetaRegressionTests: XCTestCase {
         )
         XCTAssertNil(undecided.selectedCandidateId, "Precondition: the group must start undecided")
 
-        let resolved = BloodTestImportReviewView.resolvedGroups(
-            importGroups: [undecided],
-            demotedGroups: [],
-            autoAcceptedGroups: [],
-            selectedIds: [:],
-            ignoredGroupIds: []
-        )
+        var selection = BloodTestImportReviewView.Selection()
+        selection.seed(from: [undecided])
+        XCTAssertFalse(selection.isIgnored(undecided.id), "Appearing must not mark an undecided group \"Will Ignore\"")
+        XCTAssertEqual(selection.selectedCount(importGroups: [undecided]), 0)
+        let resolved = selection.resolved(importGroups: [undecided])
 
         XCTAssertNil(
             resolved.first(where: { $0.id == undecided.id })?.selectedCandidateId,
             "A group the user has not decided on must not be imported"
+        )
+    }
+
+    // MARK: - Review selection wiring (WS-15-12)
+
+    func testReappearingKeepsTheUsersOverride() {
+        let pick = BloodTestImportCandidate(testName: "Glucose", value: "95", originalTestName: "GLU")
+        let alternative = BloodTestImportCandidate(testName: "Glucose", value: "99", originalTestName: "GLUCOSE")
+        let group = BloodTestImportGroup(
+            standardTestName: "Glucose", standardKey: "glucose",
+            candidates: [pick, alternative], selectedCandidateId: pick.id
+        )
+        var selection = BloodTestImportReviewView.Selection()
+        selection.seed(from: [group])
+        selection.select(alternative, inGroup: group.id)
+
+        // The call sites pass a read-only binding, so `group` still carries the default.
+        selection.seed(from: [group])
+
+        XCTAssertTrue(selection.isSelected(alternative.id, in: group))
+        XCTAssertEqual(selection.resolved(importGroups: [group]).first?.selectedCandidateId, alternative.id)
+    }
+
+    func testAStructurallyInvalidValueCannotBeSelected() {
+        let invalid = BloodTestImportCandidate(
+            testName: "Sodium", value: "l4O", originalTestName: "NA", validationStatus: .invalidType
+        )
+        let group = BloodTestImportGroup(standardTestName: "Sodium", standardKey: "sodium", candidates: [invalid])
+        var selection = BloodTestImportReviewView.Selection()
+
+        XCTAssertFalse(selection.select(invalid, inGroup: group.id))
+        XCTAssertNil(selection.resolved(importGroups: [group]).first?.selectedCandidateId)
+    }
+
+    func testDemotingAnAutoImportedValueStopsItImportingUntilTheUserPicks() {
+        let candidate = BloodTestImportCandidate(testName: "Calcium", value: "9.4", originalTestName: "CA")
+        let auto = BloodTestImportGroup(
+            standardTestName: "Calcium", standardKey: "calcium",
+            candidates: [candidate], selectedCandidateId: candidate.id, isAutoAccepted: true
+        )
+        var selection = BloodTestImportReviewView.Selection(autoAcceptedGroups: [auto])
+        XCTAssertEqual(selection.selectedCount(importGroups: []), 1, "Auto-accepted values import by definition")
+
+        selection.demote(auto)
+
+        XCTAssertTrue(selection.autoAcceptedGroups.isEmpty)
+        XCTAssertTrue(selection.isIgnored(auto.id))
+        XCTAssertEqual(selection.selectedCount(importGroups: []), 0)
+        XCTAssertEqual(selection.totalCount(importGroups: []), 1, "Still accounted for, now under review")
+        XCTAssertNil(selection.resolved(importGroups: []).first?.selectedCandidateId)
+
+        selection.select(candidate, inGroup: auto.id)
+        XCTAssertEqual(selection.resolved(importGroups: []).first?.selectedCandidateId, candidate.id)
+    }
+
+    func testAcceptAllRecommendedLeavesAbnormalValuesForTheUser() {
+        let normal = BloodTestImportCandidate(testName: "Glucose", value: "95", originalTestName: "GLU")
+        let abnormal = BloodTestImportCandidate(testName: "Potassium", value: "5.9", isAbnormal: true, originalTestName: "K")
+        let normalGroup = BloodTestImportGroup(standardTestName: "Glucose", standardKey: "glucose", candidates: [normal])
+        let abnormalGroup = BloodTestImportGroup(standardTestName: "Potassium", standardKey: "potassium", candidates: [abnormal])
+        let groups = [normalGroup, abnormalGroup]
+        var selection = BloodTestImportReviewView.Selection()
+        selection.seed(from: groups)
+        selection.ignore(normalGroup.id)
+
+        selection.acceptAllRecommended(in: groups)
+
+        XCTAssertFalse(selection.isIgnored(normalGroup.id), "Accepting a recommendation overrides an earlier skip")
+        XCTAssertEqual(selection.resolved(importGroups: groups).first?.selectedCandidateId, normal.id)
+        XCTAssertNil(
+            selection.resolved(importGroups: groups).last?.selectedCandidateId,
+            "An abnormal value has no recommendation, so bulk-accept must not pick one for the user"
+        )
+    }
+
+    // MARK: - Encryption assertion
+
+    /// A raw column holds `plaintext` sealed with the data key. `XCTAssertNotEqual` against the
+    /// plaintext passed for nil, an empty string, a truncated value or a double encryption
+    /// (WS-15-14); this requires real ciphertext that opens to exactly the original.
+    private func assertSealed(
+        _ raw: String?,
+        holds plaintext: String,
+        in database: DatabaseManager,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let raw, !raw.isEmpty else {
+            return XCTFail("The column is empty, not encrypted", file: file, line: line)
+        }
+        XCTAssertFalse(raw.contains(plaintext), "The plaintext is visible in the stored value", file: file, line: line)
+        XCTAssertEqual(
+            database.decryptTextField(raw), plaintext,
+            "The stored value must be ciphertext that opens to the original", file: file, line: line
         )
     }
 }

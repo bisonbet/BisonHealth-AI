@@ -218,7 +218,7 @@ struct DatabaseUnavailableView: View {
     }
 
     private func copyDetails() {
-        UIPasteboard.general.string = summary
+        PrivatePasteboard.copy(summary)
         didCopyDetails = true
 
         // Without this the button reads "Copied" for the rest of the screen's life, so a
