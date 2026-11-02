@@ -80,7 +80,15 @@ Duo devices exist only on the iOS 27.1 simulator runtime; `simctl create` refuse
 - **Chat:** Back, New Chat and the system "…" overflow stack in the side strip in that order, as the HIG asks. The composer and the AI disclaimer stay clear of the bar.
 - **Draft across rotation:** a message typed in the composer survived a rotation to landscape and back. The tab and the open conversation survived too.
 - **Conversation list:** "Conversations" was showing twice, once as the new navigation title and once as the sidebar's own header. Fixed: the header text is gone, and the + is now a toolbar item (`chat.sidebar.newConversation`) that the Duo places in its side strip. The duplicate ⌘N shortcut went with it.
-- **Still not exercised:** the inner display and partial fold. In Xcode 27, Device Hub replaces the Simulator app. Its pose controls are reachable only through its window, there is no `simctl` or XCUITest API for them, and scripting the window needs macOS Accessibility permission, which this app does not have.
+- **Device Hub pass (the owner drove the poses, 2026-11-01):**
+  - Closing the phone kept the open chat and the typed draft on the outer display.
+  - Reopening restored the list and chat side by side.
+  - Inner display, open in landscape: the app fills the display. The chat is a split view, with the list's bar horizontal and the chat's actions in the side strip.
+  - **Half-folded, two bugs found and fixed:**
+    1. The chat split view's column was capped at 400 pt, which kept the system from moving the column edge to the fold. The crease ran through the chat. The cap is removed and the columns now meet at the crease.
+    2. The centred Records/Documents switch sat on the crease. It now moves to the leading half while a fold divides the screen, using `PlatformCapabilities.isDividedByFold`, now shared with the documents grid. It returns to the centre when the phone is fully open.
+  - The fold detection itself is confirmed working on the simulator. The grid's even-column count could not be eyeballed because the seed data has a single document; it is covered by its unit test.
+- **Earlier limitation, now resolved:** I could not change poses myself. Device Hub's pose controls are reachable only through its window, and scripting that needs macOS Accessibility permission.
 
 ## Phase 2–3 status (2026-11-01, uncommitted)
 

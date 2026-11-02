@@ -1223,7 +1223,10 @@ struct ChatView: View {
                     }
                 }
             )
-            .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 400)
+            // No maximum: on a partly folded iPhone Duo the system widens this column to
+            // the fold, and a cap (this was 400 pt, half the open display is ~475 pt) left
+            // the crease running through the middle of the chat.
+            .navigationSplitViewColumnWidth(min: 300, ideal: 350)
             // Also names the Back button that returns here on compact width.
             .navigationTitle("Conversations")
             .toolbarTitleDisplayMode(.inline)

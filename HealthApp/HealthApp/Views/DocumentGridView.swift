@@ -41,17 +41,6 @@ struct DocumentGridView: View {
         return max(2, fitting - fitting % 2)
     }
 
-    private nonisolated static func isDividedByFold(_ proxy: GeometryProxy) -> Bool {
-        // `#if compiler`: CI builds with Xcode 26, whose SDK has no `ReservedRegion` at all
-        // (see `OverflowToolbarMenu`).
-        #if compiler(>=6.4)
-        if #available(iOS 27.1, *) {
-            // Only active regions are returned by default: a fully open device has none.
-            return !proxy.reservedRegions(kind: .division).isEmpty
-        }
-        #endif
-        return false
-    }
 
     /// Below this a tile cannot show a readable filename; above it the thumbnails get
     /// gratuitously large on a 13-inch landscape.
@@ -80,7 +69,7 @@ struct DocumentGridView: View {
             .padding()
         }
         .onGeometryChange(for: Int?.self) { proxy in
-            Self.evenColumnCount(forWidth: proxy.size.width, dividedByFold: Self.isDividedByFold(proxy))
+            Self.evenColumnCount(forWidth: proxy.size.width, dividedByFold: PlatformCapabilities.isDividedByFold(proxy))
         } action: { count in
             foldColumnCount = count
         }

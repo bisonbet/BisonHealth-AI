@@ -48,6 +48,20 @@ enum PlatformCapabilities {
         !isIPadAppOnMac && VNDocumentCameraViewController.isSupported
     }
 
+    /// Whether a partly folded iPhone Duo divides this view: a fold region is active inside it.
+    ///
+    /// `#if compiler` as well as `#available`: CI builds with Xcode 26, whose SDK has no
+    /// `ReservedRegion` at all, and Swift 6.4 is the Xcode 27 toolchain this app ships with.
+    nonisolated static func isDividedByFold(_ proxy: GeometryProxy) -> Bool {
+        #if compiler(>=6.4)
+        if #available(iOS 27.1, *) {
+            // Only active regions are returned by default: a fully open device has none.
+            return !proxy.reservedRegions(kind: .division).isEmpty
+        }
+        #endif
+        return false
+    }
+
     @MainActor
     static func usesExpandedLayout(horizontalSizeClass: UserInterfaceSizeClass?) -> Bool {
         isIPadAppOnMac || horizontalSizeClass == .regular

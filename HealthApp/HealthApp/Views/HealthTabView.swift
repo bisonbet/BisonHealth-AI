@@ -16,19 +16,28 @@ struct HealthTabView: View {
     }
 
     @State private var segment: Segment = .records
+    /// True while a partly folded iPhone Duo divides the screen. The switch is centred
+    /// otherwise, which is exactly where the fold runs; Apple asks for controls to be kept
+    /// clear of it, so it moves to the leading half.
+    @State private var isDividedByFold = false
 
     var body: some View {
         NavigationStack {
             content
                 .safeAreaInset(edge: .top, spacing: 0) {
                     segmentSwitcher
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: isDividedByFold ? .leading : .center)
                         .padding(.horizontal)
                         .padding(.vertical, 8)
                         .background(BisonTheme.appBackground)
                 }
                 // Each segment titles itself ("Health Data", "Documents").
                 .toolbarTitleDisplayMode(.inline)
+                .onGeometryChange(for: Bool.self) { proxy in
+                    PlatformCapabilities.isDividedByFold(proxy)
+                } action: { divided in
+                    isDividedByFold = divided
+                }
         }
     }
 
