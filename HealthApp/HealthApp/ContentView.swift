@@ -1227,6 +1227,12 @@ struct ChatView: View {
             // Also names the Back button that returns here on compact width.
             .navigationTitle("Conversations")
             .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("New Conversation", systemImage: "plus", action: startNewConversation)
+                        .accessibilityIdentifier("chat.sidebar.newConversation")
+                }
+            }
         } detail: {
             ChatDetailView(
                 chatManager: chatManager,

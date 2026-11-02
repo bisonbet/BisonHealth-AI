@@ -32,6 +32,22 @@ class HealthAppUITestCase: XCTestCase {
 
     // MARK: - Navigation
 
+    /// A top-level section's button: a tab-bar button where there is a bottom tab bar, and
+    /// otherwise a plain button — a sidebar row on iPad, or the side strip on iPhone Duo,
+    /// which XCUITest does not report as a tab bar.
+    func sectionButton(_ section: String) -> XCUIElement {
+        let tab = app.tabBars.buttons[section]
+        return tab.exists ? tab : app.buttons[section]
+    }
+
+    /// The Back button that returns to `title`. On iPhone Duo bars sit in the side strip and
+    /// are not reported as navigation bars, so this does not look inside `navigationBars`.
+    func backButton(to title: String) -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(format: "label == %@ OR identifier == 'BackButton'", title)
+        ).firstMatch
+    }
+
     /// Opens a top-level section: a tab on iPhone, a sidebar row on iPad.
     func navigate(to section: String) {
         let tab = app.tabBars.buttons[section]

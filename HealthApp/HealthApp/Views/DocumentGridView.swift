@@ -42,10 +42,14 @@ struct DocumentGridView: View {
     }
 
     private nonisolated static func isDividedByFold(_ proxy: GeometryProxy) -> Bool {
+        // `#if compiler`: CI builds with Xcode 26, whose SDK has no `ReservedRegion` at all
+        // (see `OverflowToolbarMenu`).
+        #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             // Only active regions are returned by default: a fully open device has none.
             return !proxy.reservedRegions(kind: .division).isEmpty
         }
+        #endif
         return false
     }
 

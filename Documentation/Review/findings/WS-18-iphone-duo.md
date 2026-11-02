@@ -74,6 +74,14 @@ Checked by reading code, plus the Duo simulator once the build finished (screens
 | 4 Records/Documents switch | **Done** as the safe default: pinned above the content with `safeAreaInset(edge: .top)`. |
 | 5 Orientation | **Done:** iPhone now allows portrait and both landscapes (not upside down), because the open Duo is held book-style. No code locks orientation. Checked on the Duo's outer display: landscape moves the bar strip to the left, beside the camera, and the selected tab and content survive the rotation. **This also changes ordinary iPhones**, which can now rotate. |
 
+## Simulator test pass (2026-11-01, "BisonHealth Duo Test", iOS 27.1)
+
+Duo devices exist only on the iOS 27.1 simulator runtime; `simctl create` refuses 27.2.
+- **Chat:** Back, New Chat and the system "…" overflow stack in the side strip in that order, as the HIG asks. The composer and the AI disclaimer stay clear of the bar.
+- **Draft across rotation:** a message typed in the composer survived a rotation to landscape and back. The tab and the open conversation survived too.
+- **Conversation list:** "Conversations" was showing twice, once as the new navigation title and once as the sidebar's own header. Fixed: the header text is gone, and the + is now a toolbar item (`chat.sidebar.newConversation`) that the Duo places in its side strip. The duplicate ⌘N shortcut went with it.
+- **Still not exercised:** the inner display and partial fold. In Xcode 27, Device Hub replaces the Simulator app. Its pose controls are reachable only through its window, there is no `simctl` or XCUITest API for them, and scripting the window needs macOS Accessibility permission, which this app does not have.
+
 ## Phase 2–3 status (2026-11-01, uncommitted)
 
 | Item | State |

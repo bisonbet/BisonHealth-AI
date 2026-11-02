@@ -7,6 +7,10 @@ import SwiftUI
 /// to move their own "More" menus there, so every overflowed action — the app's and the
 /// system's, when side bars run out of room — is in one place. Earlier systems keep the
 /// app's own titled "More" menu.
+///
+/// The iOS 27 calls in this file sit behind `#if compiler(>=6.4)` as well as `#available`:
+/// `#available` only decides at run time, and CI builds with Xcode 26, whose SDK does not
+/// declare them at all. Swift 6.4 is the Xcode 27 toolchain this app ships with.
 struct OverflowToolbarMenu<Content: View>: ToolbarContent {
     private let content: Content
 
@@ -15,17 +19,25 @@ struct OverflowToolbarMenu<Content: View>: ToolbarContent {
     }
 
     var body: some ToolbarContent {
+        #if compiler(>=6.4)
         if #available(iOS 27.0, *) {
             ToolbarOverflowMenu {
                 content
             }
         } else {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    content
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                }
+            moreMenu
+        }
+        #else
+        moreMenu
+        #endif
+    }
+
+    private var moreMenu: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                content
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
             }
         }
     }
@@ -37,10 +49,14 @@ extension ToolbarContent {
     /// iPhone Duo's side bars. For a screen's main action: Add, New Chat, Import.
     @ToolbarContentBuilder
     func keptVisibleLongest() -> some ToolbarContent {
+        #if compiler(>=6.4)
         if #available(iOS 27.0, *) {
             visibilityPriority(.high)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }

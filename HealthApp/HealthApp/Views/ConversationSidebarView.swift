@@ -21,24 +21,9 @@ struct ConversationSidebarView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with search
+            // Search. The title and the New Conversation button are in the column's
+            // navigation bar (`ChatView`), so the system can place them on iPhone Duo.
             VStack(spacing: 12) {
-                HStack {
-                    Text("Conversations")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    
-                    Spacer()
-                    
-                    Button(action: onNewConversation) {
-                        Image(systemName: "plus")
-                            .font(.title3)
-                    }
-                    .buttonStyle(.borderless)
-                    .keyboardShortcut("n", modifiers: [.command])
-                    .hoverEffect(.highlight)
-                }
-                
                 // Search bar optimized for iPad
                 HStack {
                     Image(systemName: "magnifyingglass")
