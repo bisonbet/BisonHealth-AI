@@ -148,6 +148,11 @@ struct DataKeyResolver {
     ]
 
     static func forDefaultStore() -> DataKeyResolver {
+        #if DEBUG
+        if let testResolver = forUITestStore() {
+            return testResolver
+        }
+        #endif
         let fileManager = FileManager.default
         let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -170,6 +175,32 @@ struct DataKeyResolver {
             ].compactMap { $0 }
         )
     }
+
+    #if DEBUG
+    /// UI tests redirect the database and files into a temporary root. The resolver has to
+    /// look there too: examining the real container meant a simulator whose real store needed
+    /// a missing key showed "Your Health Data Didn't Open" for every UI test, even though the
+    /// test database was brand new. A run that resets its data also gets a throwaway key
+    /// store, so UI tests neither read the simulator's real key nor file one per launch.
+    private static func forUITestStore() -> DataKeyResolver? {
+        guard let databaseURL = AppTestRuntime.databaseURLForUITesting(),
+              let fileBase = AppTestRuntime.fileSystemBaseDirectoryForUITesting() else {
+            return nil
+        }
+        let keychain: EncryptionKeyStoring = AppTestRuntime.shouldResetTestData
+            ? EphemeralEncryptionKeyStore()
+            : Keychain()
+        return DataKeyResolver(
+            keychain: keychain,
+            identityURL: databaseURL.deletingLastPathComponent().appendingPathComponent("data-store-id"),
+            databaseURLs: [databaseURL],
+            fileDirectories: [
+                fileBase.appendingPathComponent("Documents/Imported"),
+                fileBase.appendingPathComponent("Documents/Thumbnails")
+            ]
+        )
+    }
+    #endif
 
     // MARK: Resolution
 
@@ -662,3 +693,24 @@ struct DataKeyResolver {
         return hash.prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 }
+
+#if DEBUG
+// MARK: - UI Test Key Store
+
+/// Holds keys for one process only. For UI-test runs that start from empty data each launch.
+private final class EphemeralEncryptionKeyStore: EncryptionKeyStoring {
+    private var keys: [String: SymmetricKey] = [:]
+
+    func encryptionKey(forStore storeID: String) throws -> SymmetricKey? {
+        keys[storeID]
+    }
+
+    func storeEncryptionKey(_ key: SymmetricKey, forStore storeID: String) throws {
+        keys[storeID] = key
+    }
+
+    func legacyEncryptionKeys() throws -> [LegacyEncryptionKey] {
+        []
+    }
+}
+#endif

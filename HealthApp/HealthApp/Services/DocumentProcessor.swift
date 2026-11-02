@@ -1941,6 +1941,8 @@ class DocumentProcessor: ObservableObject {
     
     // MARK: - Notifications
     private func setupNotifications() {
+        // A system permission alert over the tab bar blocks every UI test that runs after it.
+        guard !AppTestRuntime.isUITesting else { return }
         // Request notification permissions
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {

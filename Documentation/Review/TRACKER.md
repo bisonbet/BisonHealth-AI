@@ -297,10 +297,25 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     root, removed in `tearDown`) and `SettingsManager.isolatedForTesting()` (own defaults
     domain, in-memory keychain) replace `DatabaseManager()`, `FileSystemManager()`, the
     `.shared` singletons and the four harnesses' default `SettingsManager()`. The retry-budget
-    item was already fixed 2026-10-24. **Not done (separate seams):** constructing
-    `MLXModelDownloadManager` against a fake transfer (WS-15-07), a `URLProtocol` stub for the
-    providers (WS-15-09), keychain injection for the encryption-failure tests (WS-15-10), a
-    failing-step migration case (WS-15-11), the review-sheet selection model (WS-15-12).
+    item was already fixed 2026-10-24. **The seams landed 2026-11-01:**
+    - WS-15-07 — `MLXModelDownloadManager(transfer:timing:userDefaults:)`: the Hugging Face
+      transfer is the default (`hubTransfer()` holds the device-only body), and
+      `MLXModelDownloadManagerWiringTests` drive the real manager against a scripted transfer:
+      success, retry within budget, give-up, stall give-up wording, cancel, and the budget
+      restore. **Mutation-checked:** commenting out `retryBudget.recordProgress` turns
+      `testProgressBetweenFailuresEarnsTheRetriesBack` red and nothing else.
+    - WS-15-09 — `StubURLProtocol` plus `OpenAICompatibleClientNetworkTests` (401/503 mapping,
+      key header, timeout, SSE accumulation with bad chunks and multi-byte text, empty
+      stream, 429 delivering no text, model listing). **It found a real bug:** the client
+      decoded with `.convertFromSnakeCase` on types that spell out snake_case keys, so
+      `usage.total_tokens` and `finish_reason` always decoded as nil. Removed at all three
+      decoders. Bedrock still has no seam (the AWS SDK owns its transport).
+    - WS-15-10 — the missing-key cases were already covered through `EncryptionKeyStoring` by
+      `DataKeyResolverTests`; added the end-to-end tampered-ciphertext case.
+    - WS-15-11 — a failing migration step leaves the stored version and keeps its backup.
+    - WS-15-12 — `BloodTestImportReviewView.Selection` holds all of the sheet's selection
+      state and every transition the view applies; the regression tests drive it, including
+      the appear-time "undecided is not ignored" half that was previously untestable.
 14. ~~**W-Q**~~ — **done 2026-11-01, and not as a migration.** No column changes, and a file move
     cannot join SQLite's transaction, so a v16 step would have committed paths and moved files
     separately anyway. `DocumentProcessor.renameLegacyDocumentFiles()` runs at launch, before
@@ -320,8 +335,25 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     device: No; age rating for medical/treatment information; category) and a hosted
     privacy-policy/support URL (WS-13-10, WS-13-13).
 
-**Still open:** W-R (113 orphaned UI tests, backlog), W-M (item 32, needs the app), and the
-W-K seams listed above.
+16. ~~**W-R**~~ — **revived 2026-11-01, partly.** The six orphaned files (113 tests) are
+    back in `HealthAppUITests` on a shared `HealthAppUITestCase`, which launches in UI-test
+    mode (`--ui-testing --reset-test-data …`) instead of the real container and knows the
+    current navigation: tabs on iPhone, sidebar on iPad, Health → Documents segment, and the
+    Health "Add Health Data" menu that the editor suites open from. **On iPhone 17 (iOS 26.5):
+    56 pass, 12 skip themselves, and 47 that assert UI which no longer exists are listed by
+    name in `PreRelease.xctestplan`'s `skippedTests`** — old "Health Data"/"Documents" tabs,
+    editor field identifiers that were renamed, the documents "plus" menu, the chat composer
+    symbol name. Rewrite those against the current UI once the iPhone Duo PR (#56, which
+    renames chat and toolbar identifiers) has landed, and delete each skip entry as it passes.
+    **Reviving them found two real harness bugs, both fixed:** in UI-test mode
+    `DataKeyResolver.forDefaultStore()` still examined the real container and Keychain, so on
+    a simulator whose real store needed a missing key, every UI test opened on "Your Health
+    Data Didn't Open" (it now uses the test paths and, for resetting runs, a throwaway key
+    store); and `DocumentProcessor` asked for notification permission at launch, putting a
+    system alert over the tab bar (skipped in UI-test mode — the launch-time ask is itself
+    WS-09-05-shaped and stays a beta follow-up).
+
+**Still open:** W-M (item 32, needs the app); the 47 skipped UI tests (W-R above).
 
 ### Serialise these
 
@@ -333,7 +365,15 @@ start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
 
 ### Standing verification facts for this repo
 
-- **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
+- **428 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on
+  `fix/beta-backlog-seams-ui-tests` (the W-K seams and triage fixes added 24).
+- **UI tests: 56 pass, 59 skipped (12 by the tests themselves, 47 in the plan), 0 fail** on
+  iPhone 17 / iOS 26.5, derived from the unskipped run (56 pass / 47 fail / 12 skip) — the
+  run with the plan's skip list in place was not repeated on iPhone. **iPad Pro 11-inch (M5)
+  with the skip list: 52 pass, 16 fail, and 0 reported skipped — so whether the plan's
+  `skippedTests` IDs are honoured is unconfirmed, and the 16 iPad failures are untriaged.**
+  Check both before trusting the PreRelease plan on `main`.
+- Previously: **404 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on `fix/pre-submission-batch`
   (404 before W-K deleted 9 tests that could not fail and added 7 real ones)
   (368 on 2026-10-26).
   Read the count from the `.xcresult`, never stdout. `PreRelease` has not been re-counted

@@ -3,20 +3,18 @@
     {
       "id" : "A1F2C3D4-0002-4000-8000-000000000002",
       "name" : "Default",
-      "options" : {
-
-      }
+      "options" : {}
     }
   ],
   "defaultOptions" : {
     "codeCoverage" : true,
+    "maximumTestExecutionTimeAllowance" : 600,
     "targetForVariableExpansion" : {
       "containerPath" : "container:HealthApp.xcodeproj",
       "identifier" : "A1000000294A0000000000001",
       "name" : "HealthApp"
     },
-    "testTimeoutsEnabled" : true,
-    "maximumTestExecutionTimeAllowance" : 600
+    "testTimeoutsEnabled" : true
   },
   "testTargets" : [
     {
@@ -28,6 +26,55 @@
       }
     },
     {
+      "skippedTests" : [
+        "AccessibilityUITests/testTabBarAccessibility()",
+        "BloodTestEntryUITests/testAccessibilityLabels()",
+        "BloodTestEntryUITests/testAddTestResultButton()",
+        "BloodTestEntryUITests/testBloodTestEntryOpens()",
+        "BloodTestEntryUITests/testCompleteBloodTestWorkflow()",
+        "BloodTestEntryUITests/testDeleteTestResult()",
+        "BloodTestEntryUITests/testDuplicateTestNames()",
+        "BloodTestEntryUITests/testLaboratoryNameField()",
+        "BloodTestEntryUITests/testLargeNumberOfResults()",
+        "BloodTestEntryUITests/testMultipleTestResults()",
+        "BloodTestEntryUITests/testOrderingPhysicianField()",
+        "BloodTestEntryUITests/testResultsValidation()",
+        "BloodTestEntryUITests/testSaveButtonState()",
+        "BloodTestEntryUITests/testTestDatePicker()",
+        "BloodTestEntryUITests/testTestItemValidation()",
+        "BloodTestEntryUITests/testTestResultItemFields()",
+        "BloodTestEntryUITests/testVoiceOverSupport()",
+        "ChatInterfaceUITests/testChatScrollingPerformance()",
+        "ChatInterfaceUITests/testConversationSearch()",
+        "ChatInterfaceUITests/testMessageInputFunctionality()",
+        "ChatInterfaceUITests/testMessageSending()",
+        "ChatInterfaceUITests/testMessageTextSelection()",
+        "ChatInterfaceUITests/testSendButtonDisabledWhenEmpty()",
+        "DocumentManagementUITests/testAccessibilityLabels()",
+        "DocumentManagementUITests/testBatchSelection()",
+        "DocumentManagementUITests/testDocumentListView()",
+        "DocumentManagementUITests/testEditModeToggle()",
+        "DocumentManagementUITests/testProcessAllPendingButton()",
+        "DocumentManagementUITests/testRetryFailedButton()",
+        "DocumentManagementUITests/testVoiceOverSupport()",
+        "HealthAppUITests/testAccessibilityElements()",
+        "HealthAppUITests/testAppLaunches()",
+        "HealthAppUITests/testDocumentsTabContent()",
+        "HealthAppUITests/testHealthDataRefresh()",
+        "HealthAppUITests/testHealthDataTabContent()",
+        "HealthAppUITests/testHealthDataToDocumentsFlow()",
+        "HealthAppUITests/testSettingsNavigation()",
+        "HealthAppUITests/testSettingsTabContent()",
+        "HealthAppUITests/testVoiceOverNavigation()",
+        "PersonalInfoEditorUITests/testBloodTypePicker()",
+        "PersonalInfoEditorUITests/testCompleteFormWorkflow()",
+        "PersonalInfoEditorUITests/testDateOfBirthPicker()",
+        "PersonalInfoEditorUITests/testGenderPicker()",
+        "PersonalInfoEditorUITests/testHeightInputModes()",
+        "PersonalInfoEditorUITests/testUnitSystemToggle()",
+        "PersonalInfoEditorUITests/testVoiceOverSupport()",
+        "PersonalInfoEditorUITests/testWeightInputModes()"
+      ],
       "target" : {
         "containerPath" : "container:HealthApp.xcodeproj",
         "identifier" : "UITESTTARGET001",

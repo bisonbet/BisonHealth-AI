@@ -6,8 +6,10 @@ import XCTest
 /// The launch arguments matter. Without `--ui-testing` the app opens its real container, so a
 /// test run would read and write the data of whoever last used that simulator.
 class HealthAppUITestCase: XCTestCase {
-    /// Replaced with a fresh instance for every test in `setUpWithError`.
-    var app = XCUIApplication()
+    /// Set for every test in `setUpWithError`. Not a default value: `XCUIApplication` is
+    /// main-actor isolated and XCTest's lifecycle methods are not, so this is the one place an
+    /// implicitly unwrapped optional is the honest type.
+    var app: XCUIApplication! // swiftlint:disable:this implicitly_unwrapped_optional
 
     /// Overridden by suites that need a seeded document or another variation.
     var launchArguments: [String] {

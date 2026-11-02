@@ -168,6 +168,7 @@
 		UITESTBUILD008 /* HealthAppUITestCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE008 /* HealthAppUITestCase.swift */; };
 		UITESTBUILD007 /* RegressionSmokeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = UITESTFILE007 /* RegressionSmokeUITests.swift */; };
 		UJKK8BJBQIGWWOLORVC6PAXY /* ChatEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0LFKQL33BRDWI1HZ310C0FW4 /* ChatEmptyStateView.swift */; };
+		XK3TMWNMQQM5L5H14WFZE3H5 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = I8L71EM4RJ5CIBEC2USO4YGT /* ConversationListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
