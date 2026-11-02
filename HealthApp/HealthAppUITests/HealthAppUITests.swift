@@ -241,6 +241,6 @@ final class HealthAppUITests: HealthAppUITestCase {
         }
         
         // App should still be responsive
-        XCTAssertTrue(app.tabBars.element.exists)
+        XCTAssertTrue(sectionButton("Health").exists)
     }
 }

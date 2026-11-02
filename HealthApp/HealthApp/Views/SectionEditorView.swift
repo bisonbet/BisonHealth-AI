@@ -57,14 +57,14 @@ struct SectionEditorView: View {
             .navigationTitle(originalSection.sectionType.isEmpty ? "New Section" : "Edit Section")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         onCancel()
                     }
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") {
                         let updatedSection = DocumentSection(
                             id: originalSection.id,
                             sectionType: sectionType,

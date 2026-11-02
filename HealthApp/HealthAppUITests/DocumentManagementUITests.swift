@@ -81,17 +81,23 @@ final class DocumentManagementUITests: HealthAppUITestCase {
     
     func testAddMenuInToolbar() throws {
         // Test the plus menu in toolbar
-        let addButton = app.navigationBars.buttons["plus"]
-        if addButton.exists {
-            addButton.tap()
-            
-            XCTAssertTrue(app.buttons["Scan Document"].exists)
-            XCTAssertTrue(app.buttons["Import File"].exists)
-            XCTAssertTrue(app.buttons["Import Photos"].exists)
-            
-            // Dismiss menu
-            app.tap()
-        }
+        // This looked for a button labelled "plus", which never existed, so its `if` skipped
+        // every assertion. It now has to find the menu.
+        let addButton = app.buttons["Add Document"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5), "The Add Document menu should be in the toolbar")
+        addButton.tap()
+
+        XCTAssertTrue(app.buttons["Import File"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Import Photos"].exists)
+        #if targetEnvironment(simulator)
+        // The app hides scanning where there is no document camera.
+        XCTAssertFalse(app.buttons["Scan Document"].exists)
+        #else
+        XCTAssertTrue(app.buttons["Scan Document"].exists)
+        #endif
+
+        // Dismiss menu
+        app.tap()
     }
     
     // MARK: - Document List Tests
@@ -193,15 +199,14 @@ final class DocumentManagementUITests: HealthAppUITestCase {
             throw XCTSkip("No documents available for testing")
         }
         
-        // Look for view mode picker
-        let viewModePicker = app.segmentedControls.element
-        if viewModePicker.exists {
-            // Test grid view
-            viewModePicker.buttons.element(boundBy: 1).tap()
-            
-            // Test list view
-            viewModePicker.buttons.element(boundBy: 0).tap()
-        }
+        // One button that names the other mode.
+        let toGrid = app.buttons["Grid View"]
+        XCTAssertTrue(toGrid.waitForExistence(timeout: 3), "The view mode button should offer the grid first")
+        toGrid.tap()
+
+        let toList = app.buttons["List View"]
+        XCTAssertTrue(toList.waitForExistence(timeout: 2), "After switching, it should offer the list")
+        toList.tap()
     }
     
     // MARK: - Batch Operations Tests
@@ -245,7 +250,7 @@ final class DocumentManagementUITests: HealthAppUITestCase {
         }
         
         // Open add menu
-        app.navigationBars.buttons["plus"].tap()
+        app.buttons["Add Document"].tap()
         
         // Look for process all pending option
         if app.buttons["Process All Pending"].exists {
@@ -267,7 +272,7 @@ final class DocumentManagementUITests: HealthAppUITestCase {
         }
         
         // Open add menu
-        app.navigationBars.buttons["plus"].tap()
+        app.buttons["Add Document"].tap()
         
         // Look for retry failed option
         if app.buttons["Retry Failed"].exists {

@@ -130,8 +130,8 @@ struct SupplementSelectorView: View {
         .navigationTitle("Add Supplement")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", systemImage: "xmark") {
                     dismiss()
                 }
             }
@@ -140,13 +140,13 @@ struct SupplementSelectorView: View {
             NavigationStack {
                 SupplementEditorView(supplement: $newCustomSupplement)
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Cancel") {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel", systemImage: "xmark") {
                                 showingCustomSupplementEditor = false
                             }
                         }
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Add") {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Add", systemImage: "plus") {
                                 supplements.append(newCustomSupplement)
                                 showingCustomSupplementEditor = false
                                 dismiss()

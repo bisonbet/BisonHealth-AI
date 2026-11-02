@@ -105,15 +105,15 @@ struct TestTypePickerView: View {
             .navigationTitle("Select Test Type")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
                 }
 
                 if !searchText.isEmpty {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Clear") {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Clear", systemImage: "xmark.circle") {
                             searchText = ""
                         }
                         .font(.subheadline)

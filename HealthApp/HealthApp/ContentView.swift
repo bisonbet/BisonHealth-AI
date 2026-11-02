@@ -8,7 +8,6 @@ import PhotosUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSection: AppSection = .health
 
     /// The review sheets live here, at the root, not in `DocumentsView`.
@@ -30,20 +29,10 @@ struct ContentView: View {
     @State private var showingImportReview = false
     @State private var showingGeneticTestReview = false
 
-    private var isIPad: Bool {
-        PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
-    }
-
     var body: some View {
         ZStack(alignment: .top) {
-            Group {
-                if isIPad {
-                    expandedAppShell
-                } else {
-                    compactTabShell
-                }
-            }
-            .tint(BisonTheme.goldText)
+            appShell
+                .tint(BisonTheme.goldText)
             .withErrorHandling() // Add global error handling
 
             // Global offline indicator
@@ -110,66 +99,35 @@ struct ContentView: View {
         }
     }
 
-    private var compactTabShell: some View {
+    /// One container for every width. `.sidebarAdaptable` is a tab bar on compact width
+    /// and a system sidebar on regular width, from the same view tree.
+    ///
+    /// It used to be two trees, a `TabView` or a hand-built sidebar `HStack`, chosen by size
+    /// class. Changing size class swapped one for the other and rebuilt everything inside, so
+    /// every navigation path, scroll position, open chat and half-filled form was lost. On
+    /// iPad that took a Split View resize; on iPhone Duo it happens every time the phone is
+    /// opened or closed. One tree keeps that state, and system bars and sidebar are what
+    /// Duo moves to the side of the display and keeps clear of the fold.
+    private var appShell: some View {
         TabView(selection: $selectedSection) {
-            HealthTabView()
-                .tabItem {
-                    Image(systemName: AppSection.health.systemImage)
-                        .accessibilityLabel(AppSection.health.title)
-                    Text(AppSection.health.title)
+            ForEach(AppSection.allCases) { section in
+                Tab(section.title, systemImage: section.systemImage, value: section) {
+                    section.destination
+                        .background(BisonTheme.appBackground)
+                        .accessibilityIdentifier("tab.\(section.rawValue)")
                 }
-                .tag(AppSection.health)
-                .accessibilityIdentifier("tab.health")
-
-            AppointmentPrepView()
-                .tabItem {
-                    Image(systemName: AppSection.appointmentPrep.systemImage)
-                        .accessibilityLabel(AppSection.appointmentPrep.title)
-                    Text(AppSection.appointmentPrep.title)
-                }
-                .tag(AppSection.appointmentPrep)
-                .accessibilityIdentifier("tab.appointmentPrep")
-
-            ChatView()
-                .tabItem {
-                    Image(systemName: AppSection.chat.systemImage)
-                        .accessibilityLabel(AppSection.chat.title)
-                    Text(AppSection.chat.title)
-                }
-                .tag(AppSection.chat)
-                .accessibilityIdentifier("tab.chat")
-
-            SettingsView()
-                .tabItem {
-                    Image(systemName: AppSection.settings.systemImage)
-                        .accessibilityLabel(AppSection.settings.title)
-                    Text(AppSection.settings.title)
-                }
-                .tag(AppSection.settings)
-                .accessibilityIdentifier("tab.settings")
+            }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        // iPad and the open Duo had a sidebar before; keep it the default there.
+        .defaultAdaptableTabBarPlacement(.sidebar)
+        .tabViewSidebarHeader { AppSidebarHeader() }
+        .tabViewSidebarFooter { AppSidebarFooter() }
         .background(BisonTheme.appBackground)
         .toolbarBackground(BisonTheme.sidebarBackground, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarBackground(BisonTheme.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-    }
-
-    private var expandedAppShell: some View {
-        HStack(spacing: 0) {
-            AppSidebar(selectedSection: $selectedSection)
-                .frame(width: 280)
-
-            Rectangle()
-                .fill(AccessibilityColors.divider.opacity(0.5))
-                .frame(width: 1)
-
-            selectedSection.destination
-                .background(BisonTheme.appBackground)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(BisonTheme.appBackground)
     }
 }
 
@@ -200,15 +158,6 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var accent: Color {
-        switch self {
-        case .health: return BisonTheme.sage
-        case .appointmentPrep: return BisonTheme.hideBrown
-        case .chat: return BisonTheme.gold
-        case .settings: return BisonTheme.steel
-        }
-    }
-
     /// `@MainActor` because it constructs `View`s whose initializers are main-actor
     /// isolated; this enum is not itself a `View`, so it gets no isolation by inference.
     @MainActor
@@ -227,36 +176,9 @@ private enum AppSection: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-private struct AppSidebar: View {
-    @Binding var selectedSection: AppSection
-
+/// App name and mark at the top of the regular-width sidebar.
+private struct AppSidebarHeader: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            sidebarHeader
-
-            VStack(spacing: 6) {
-                ForEach(AppSection.allCases) { section in
-                    AppSidebarItem(
-                        section: section,
-                        isSelected: selectedSection == section,
-                        action: {
-                            selectedSection = section
-                        }
-                    )
-                }
-            }
-
-            Spacer(minLength: 24)
-
-            sidebarFooter
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(BisonTheme.sidebarBackground)
-    }
-
-    private var sidebarHeader: some View {
         HStack(spacing: 12) {
             Image("BisonHealthAI_ProIcon_1024")
                 .resizable()
@@ -282,8 +204,11 @@ private struct AppSidebar: View {
         .padding(.horizontal, 4)
         .padding(.bottom, 4)
     }
+}
 
-    private var sidebarFooter: some View {
+/// The privacy note at the foot of the regular-width sidebar.
+private struct AppSidebarFooter: View {
+    var body: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(BisonTheme.sage)
@@ -299,52 +224,6 @@ private struct AppSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(BisonTheme.panelBackground.opacity(0.72))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct AppSidebarItem: View {
-    let section: AppSection
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: section.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? BisonTheme.inkOnGold : section.accent)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(isSelected ? BisonTheme.gold : section.accent.opacity(0.13))
-                    )
-
-                Text(section.title)
-                    .font(.callout.weight(isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? BisonTheme.primaryText : BisonTheme.secondaryText)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-            .background(itemBackground)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("sidebar.\(section.rawValue)")
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-    }
-
-    private var itemBackground: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(isSelected ? BisonTheme.selectedSidebarItem : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? BisonTheme.gold.opacity(0.32) : Color.clear, lineWidth: 1)
-            )
     }
 }
 
@@ -423,7 +302,7 @@ struct HealthDataView: View {
             .navigationBarTitleDisplayMode(.inline)
             .dynamicType(.body, isIPad: isIPad)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Personal Info") {
                             showingPersonalInfoEditor = true
@@ -457,8 +336,7 @@ struct HealthDataView: View {
                             hint: "Feature coming soon"
                         )
                     } label: {
-                        Image(systemName: "plus")
-                            .touchTarget()
+                        Label("Add Health Data", systemImage: "plus")
                     }
                     .voiceOverLabel(
                         "Add Health Data",
@@ -466,6 +344,7 @@ struct HealthDataView: View {
                         traits: [.button]
                     )
                 }
+                .keptVisibleLongest()
             }
             .refreshable {
                 await healthDataManager.loadHealthData()
@@ -804,51 +683,46 @@ struct DocumentsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .dynamicType(.body, isIPad: isIPad)
         .toolbar {
-                ToolbarItemGroup(placement: .navigationBarLeading) {
+                // Items in the group directly, not wrapped in an HStack: a custom view in a
+                // toolbar is never moved to the vertical bar on iPhone Duo.
+                ToolbarItemGroup(placement: .topBarLeading) {
                     if !documentManager.documents.isEmpty {
-                        HStack {
-                            EditButton()
-                                .voiceOverLabel(
-                                    "Edit Documents",
-                                    hint: "Toggle edit mode to select documents",
-                                    traits: [.button]
-                                )
+                        EditButton()
+                            .voiceOverLabel(
+                                "Edit Documents",
+                                hint: "Toggle edit mode to select documents",
+                                traits: [.button]
+                            )
 
-                            if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
-                                Button("Batch") {
-                                    showingBatchProcessing = true
-                                }
-                                .font(.caption)
-                                .touchTarget()
-                                .voiceOverLabel(
-                                    "Batch Process",
-                                    hint: "Process selected documents together",
-                                    traits: [.button]
-                                )
+                        if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
+                            Button("Batch", systemImage: "square.stack.3d.up") {
+                                showingBatchProcessing = true
                             }
+                            .voiceOverLabel(
+                                "Batch Process",
+                                hint: "Process selected documents together",
+                                traits: [.button]
+                            )
                         }
                     }
                 }
 
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     if !documentManager.documents.isEmpty {
                         // View mode toggle (iPad only)
+                        // A button that names the other mode rather than a fixed-width segmented
+                        // picker, which as a custom view could not join a vertical bar.
                         if isIPad {
-                            Picker("View Mode", selection: $viewMode) {
-                                Image(systemName: "list.bullet")
-                                    .accessibilityLabel("List View")
-                                    .tag(DocumentViewMode.list)
-                                Image(systemName: "square.grid.2x2")
-                                    .accessibilityLabel("Grid View")
-                                    .tag(DocumentViewMode.grid)
+                            Button(
+                                viewMode == .list ? "Grid View" : "List View",
+                                systemImage: viewMode == .list ? "square.grid.2x2" : "list.bullet"
+                            ) {
+                                viewMode = viewMode == .list ? .grid : .list
                             }
-                            .pickerStyle(.segmented)
-                            .frame(width: 100)
-                            .voiceOverLabel(
-                                "View Mode",
-                                hint: "Switch between list and grid view",
-                                traits: [.button]
-                            )
+                            // No fixed label: the title is the destination ("Grid View" /
+                            // "List View"), which VoiceOver should announce.
+                            .accessibilityHint("Switches how documents are shown")
+                            .accessibilityIdentifier("documents.viewModeToggle")
                         }
                     }
 
@@ -908,8 +782,7 @@ struct DocumentsView: View {
                             )
                         }
                     } label: {
-                        Image(systemName: "plus")
-                            .touchTarget()
+                        Label("Add Document", systemImage: "plus")
                     }
                     .voiceOverLabel(
                         "Add Document",
@@ -917,6 +790,7 @@ struct DocumentsView: View {
                         traits: [.button]
                     )
                 }
+                .keptVisibleLongest()
             }
             .refreshable {
                 await documentManager.refreshDocuments()
@@ -1303,9 +1177,11 @@ struct ChatView: View {
         databaseManager: DatabaseManager.shared
     )
     @State private var showingContextSelector = false
-    @State private var showingConversationList = false
     @State private var searchText = ""
     @State private var selectedConversationId: UUID?
+    /// Which column a collapsed split view shows. Starts on the chat, as the phone layout
+    /// always did; Back reaches the conversation list.
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .detail
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -1313,18 +1189,68 @@ struct ChatView: View {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
     }
 
-    private var shouldUseSplitView: Bool {
-        isIPad
-    }
-
+    /// One split view at every width. It collapses to a stack on compact width by itself.
+    ///
+    /// This used to be a `NavigationSplitView` or a `NavigationStack` chosen by size class,
+    /// with a sheet standing in for the sidebar on phones. Changing size class swapped the
+    /// trees, so opening an iPhone Duo mid-conversation dropped the open chat and its draft.
     var body: some View {
-        Group {
-            if shouldUseSplitView {
-                iPadSplitView
-            } else {
-                iPhoneView
+        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+            ConversationSidebarView(
+                conversations: chatManager.conversations,
+                selectedConversationId: $selectedConversationId,
+                searchText: $searchText,
+                onSelectConversation: { conversation in
+                    chatManager.selectConversation(conversation)
+                    selectedConversationId = conversation.id
+                    preferredCompactColumn = .detail
+                },
+                onNewConversation: startNewConversation,
+                onDeleteConversation: { conversation in
+                    Task {
+                        do {
+                            try await chatManager.deleteConversation(conversation)
+                            if selectedConversationId == conversation.id {
+                                selectedConversationId = nil
+                            }
+                            if chatManager.currentConversation?.id == conversation.id {
+                                chatManager.currentConversation = nil
+                            }
+                        } catch {
+                            ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
+                        }
+                    }
+                }
+            )
+            // No maximum: on a partly folded iPhone Duo the system widens this column to
+            // the fold, and a cap (this was 400 pt, half the open display is ~475 pt) left
+            // the crease running through the middle of the chat.
+            .navigationSplitViewColumnWidth(min: 300, ideal: 350)
+            // Also names the Back button that returns here on compact width.
+            .navigationTitle("Conversations")
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("New Conversation", systemImage: "plus", action: startNewConversation)
+                        .accessibilityIdentifier("chat.sidebar.newConversation")
+                }
+            }
+        } detail: {
+            ChatDetailView(
+                chatManager: chatManager,
+                showingContextSelector: $showingContextSelector,
+                isIPad: isIPad
+            )
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("New Chat", systemImage: "square.and.pencil", action: startNewConversation)
+                        .keyboardShortcut("n", modifiers: [.command])
+                        .accessibilityIdentifier("chat.newConversation")
+                }
+                .keptVisibleLongest()
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showingContextSelector) {
             UnifiedContextSelectorView(chatManager: chatManager)
                 .presentationDetents([.large])
@@ -1334,111 +1260,17 @@ struct ChatView: View {
             await chatManager.loadConversations()
             // Skip automatic connection test on startup to avoid console noise
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.keyboardWillShowNotification)) { _ in
-            // Handle keyboard appearance for iPad
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.keyboardWillHideNotification)) { _ in
-            // Handle keyboard dismissal for iPad
-        }
     }
 
-    // MARK: - iPad Split View
-    private var iPadSplitView: some View {
-        NavigationSplitView {
-            // Sidebar with conversations
-            ConversationSidebarView(
-                conversations: chatManager.conversations,
-                selectedConversationId: $selectedConversationId,
-                searchText: $searchText,
-                onSelectConversation: { conversation in
-                    chatManager.selectConversation(conversation)
-                    selectedConversationId = conversation.id
-                },
-                onNewConversation: {
-                    Task {
-                        do {
-                            let conversation = try await chatManager.startNewConversation()
-                            selectedConversationId = conversation.id
-                        } catch {
-                            ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
-                        }
-                    }
-                },
-                onDeleteConversation: { conversation in
-                    Task {
-                        do {
-                            try await chatManager.deleteConversation(conversation)
-                            if selectedConversationId == conversation.id {
-                                selectedConversationId = nil
-                            }
-                        } catch {
-                            ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
-                        }
-                    }
-                }
-            )
-            .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 400)
-        } detail: {
-            // Main chat interface
-            ChatDetailView(
-                chatManager: chatManager,
-                showingContextSelector: $showingContextSelector,
-                isIPad: isIPad
-            )
-        }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    // MARK: - iPhone View
-    private var iPhoneView: some View {
-        NavigationStack {
-            ChatDetailView(
-                chatManager: chatManager,
-                showingContextSelector: $showingContextSelector,
-                isIPad: isIPad
-            )
-                .toolbar {
-                    ToolbarItemGroup(placement: .navigationBarLeading) {
-                        Button("Conversations") {
-                            showingConversationList = true
-                        }
-                        .keyboardShortcut("l", modifiers: [.command])
-                    }
-
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("New Chat") {
-                            Task {
-                                do {
-                                    _ = try await chatManager.startNewConversation()
-                                } catch {
-                                    ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
-                                }
-                            }
-                        }
-                        .keyboardShortcut("n", modifiers: [.command])
-                    }
-                }
-                .sheet(isPresented: $showingConversationList) {
-                    ConversationListView(
-                        conversations: chatManager.conversations,
-                        onSelectConversation: { conversation in
-                            chatManager.selectConversation(conversation)
-                            showingConversationList = false
-                        },
-                        onDeleteConversation: { conversation in
-                            Task {
-                                do {
-                                    try await chatManager.deleteConversation(conversation)
-                                    if chatManager.currentConversation?.id == conversation.id {
-                                        chatManager.currentConversation = nil
-                                    }
-                                } catch {
-                                    ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
-                                }
-                            }
-                        }
-                    )
-                }
+    private func startNewConversation() {
+        Task {
+            do {
+                let conversation = try await chatManager.startNewConversation()
+                selectedConversationId = conversation.id
+                preferredCompactColumn = .detail
+            } catch {
+                ErrorHandler.shared.handle(error, context: "Chat", severity: .error)
+            }
         }
     }
 }

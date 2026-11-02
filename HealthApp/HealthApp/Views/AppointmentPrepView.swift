@@ -29,12 +29,9 @@ struct AppointmentPrepView: View {
             .navigationBarTitleDisplayMode(.inline)
             .dynamicType(.body, isIPad: isIPad)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("New Appointment Prep", systemImage: "plus") {
                         showingNewPrep = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .touchTarget()
                     }
                     .voiceOverLabel(
                         "New Appointment Prep",
@@ -43,6 +40,7 @@ struct AppointmentPrepView: View {
                     )
                     .accessibilityIdentifier("prep.new")
                 }
+                .keptVisibleLongest()
             }
             .navigationDestination(item: $selectedPrep) { prep in
                 AppointmentPrepDetailView(prep: prep, manager: manager)

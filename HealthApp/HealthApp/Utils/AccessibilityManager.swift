@@ -42,29 +42,16 @@ extension Font {
     }
 }
 
-// MARK: - Device Type Helper
+// MARK: - Touch Target Helper
 
-/// Helper for device-specific accessibility features.
-/// `@MainActor` because every value derives from the main-actor-isolated device idiom.
-@MainActor
-struct DeviceAccessibilityHelper {
-    static var isIPad: Bool {
-        PlatformCapabilities.isIPadInterface || PlatformCapabilities.isIPadAppOnMac
-    }
-    
-    static var isIPhone: Bool {
-        !PlatformCapabilities.isIPadInterface && !PlatformCapabilities.isIPadAppOnMac
-    }
-    
-    /// Returns minimum touch target size based on device
-    static var minimumTouchTarget: CGFloat {
-        // Apple's recommended minimum is 44x44 points
-        // iPad can benefit from slightly larger targets
-        return isIPad ? 48 : 44
-    }
-    
-    /// Returns recommended padding for touch targets
-    static var recommendedPadding: CGFloat {
-        return isIPad ? 12 : 8
+/// Touch target sizing.
+///
+/// Chosen by horizontal size class, not by device type. iPhone Duo's inner display is a
+/// regular-width layout on a `.phone` device, so an idiom check would give it phone-sized
+/// targets inside an iPad-style layout.
+enum DeviceAccessibilityHelper {
+    /// Apple's minimum is 44 × 44 pt; regular-width layouts get slightly larger targets.
+    static func minimumTouchTarget(for horizontalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
+        horizontalSizeClass == .regular ? 48 : 44
     }
 }

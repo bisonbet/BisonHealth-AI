@@ -100,8 +100,8 @@ final class RegressionSmokeUITests: XCTestCase {
         if startButton.waitForExistence(timeout: 5) {
             startButton.tap()
         } else {
-            let newConversationButton = app.buttons.matching(identifier: "plus").firstMatch
-            XCTAssertTrue(newConversationButton.waitForExistence(timeout: 5), "New conversation button should be visible")
+            let newConversationButton = app.buttons["chat.newConversation"]
+            XCTAssertTrue(newConversationButton.waitForExistence(timeout: 5), "New Chat should be in the toolbar")
             newConversationButton.tap()
         }
 

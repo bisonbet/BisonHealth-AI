@@ -59,13 +59,13 @@ struct AppointmentPrepEditorView: View {
             .navigationTitle(isNew ? "New Appointment Prep" : "Edit Prep")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                         .disabled(manager.isGenerating)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     if manager.generationStage == .done {
-                        Button("Done") {
+                        Button("Done", systemImage: "checkmark") {
                             onComplete?(displayPrep)
                             dismiss()
                         }

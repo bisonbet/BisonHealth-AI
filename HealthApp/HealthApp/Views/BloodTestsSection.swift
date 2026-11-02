@@ -227,14 +227,12 @@ struct BloodTestDetailView: View {
         .navigationTitle("Lab Results Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack {
-                    Button("Edit") { onEdit(bloodTest) }
-                    Button(role: .destructive) {
-                        showingDeleteConfirm = true
-                    } label: {
-                        Image(systemName: "trash")
-                    }
+            // Separate items, not an HStack: a custom view in a toolbar is never moved to
+            // the vertical bar on iPhone Duo.
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("Edit", systemImage: "pencil") { onEdit(bloodTest) }
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    showingDeleteConfirm = true
                 }
             }
         }
