@@ -719,11 +719,10 @@ struct DocumentsView: View {
                             ) {
                                 viewMode = viewMode == .list ? .grid : .list
                             }
-                            .voiceOverLabel(
-                                "View Mode",
-                                hint: "Switch between list and grid view",
-                                traits: [.button]
-                            )
+                            // No fixed label: the title is the destination ("Grid View" /
+                            // "List View"), which VoiceOver should announce.
+                            .accessibilityHint("Switches how documents are shown")
+                            .accessibilityIdentifier("documents.viewModeToggle")
                         }
                     }
 

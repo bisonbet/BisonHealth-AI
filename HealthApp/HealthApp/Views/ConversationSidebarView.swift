@@ -8,14 +8,18 @@ struct ConversationSidebarView: View {
     let onNewConversation: () -> Void
     let onDeleteConversation: (ChatConversation) -> Void
     
-    @State private var showingSearchResults = false
-    @State private var filteredConversations: [ChatConversation] = []
-    
+    /// Computed from the current `conversations` every time, never cached. A cached result
+    /// refreshed only when the search text changed kept a deleted conversation listed (and
+    /// selectable, reopening a conversation that no longer existed) until the query changed.
     var displayedConversations: [ChatConversation] {
-        if searchText.isEmpty {
+        guard !searchText.isEmpty else {
             return conversations.filter { !$0.isArchived }
-        } else {
-            return filteredConversations
+        }
+        return conversations.filter { conversation in
+            conversation.title.localizedCaseInsensitiveContains(searchText) ||
+            conversation.messages.contains { message in
+                message.content.localizedCaseInsensitiveContains(searchText)
+            }
         }
     }
     
@@ -89,24 +93,6 @@ struct ConversationSidebarView: View {
             }
         }
         .background(Color(.systemGroupedBackground))
-        .onChange(of: searchText) { _, newValue in
-            performSearch(newValue)
-        }
-    }
-    
-    private func performSearch(_ query: String) {
-        if query.isEmpty {
-            filteredConversations = []
-            showingSearchResults = false
-        } else {
-            filteredConversations = conversations.filter { conversation in
-                conversation.title.localizedCaseInsensitiveContains(query) ||
-                conversation.messages.contains { message in
-                    message.content.localizedCaseInsensitiveContains(query)
-                }
-            }
-            showingSearchResults = true
-        }
     }
 }
 
