@@ -556,8 +556,11 @@ struct DocumentsView<ListHeader: View>: View {
     @State private var autoImportBannerDismissTask: Task<Void, Never>?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.editMode) private var editMode
-
+    /// Owned here and handed to the list column, not read from the environment. This view
+    /// sits *outside* its split view, so an environment read would see its ancestor's edit
+    /// mode, while the Edit button and the rows inside the column would see the column's —
+    /// and Batch, which checks it, would never appear. One binding keeps them all in step.
+    @State private var editMode: EditMode = .inactive
 
     private var isIPad: Bool {
         PlatformCapabilities.usesExpandedLayout(horizontalSizeClass: horizontalSizeClass)
@@ -576,6 +579,7 @@ struct DocumentsView<ListHeader: View>: View {
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             documentsPrimaryContent
+                .environment(\.editMode, $editMode)
                 .pinnedSegmentSwitcher(listHeader)
                 // No maximum, for the same reason as the chat list: on a partly folded
                 // Duo the system widens this column to the fold.
@@ -732,7 +736,7 @@ struct DocumentsView<ListHeader: View>: View {
                                 traits: [.button]
                             )
 
-                        if editMode?.wrappedValue.isEditing == true && !documentManager.selectedDocuments.isEmpty {
+                        if editMode.isEditing && !documentManager.selectedDocuments.isEmpty {
                             Button("Batch", systemImage: "square.stack.3d.up") {
                                 showingBatchProcessing = true
                             }
