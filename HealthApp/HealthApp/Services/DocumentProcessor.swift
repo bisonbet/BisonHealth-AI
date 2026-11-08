@@ -1851,11 +1851,13 @@ class DocumentProcessor: ObservableObject {
     private func extractTestDate(from fileName: String) -> Date? {
         // Try to extract date from filename patterns
         let dateRegex = try? NSRegularExpression(pattern: #"\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{2}-\d{2}-\d{4}"#)
-        let range = NSRange(location: 0, length: fileName.count)
-        
-        if let match = dateRegex?.firstMatch(in: fileName, range: range) {
-            let dateString = String(fileName[Range(match.range, in: fileName)!])
-            return parseDate(from: dateString)
+        // NSRange counts UTF-16 units, not Characters: with `fileName.count` a name holding
+        // emoji or combining accents was only partly searched.
+        let range = NSRange(fileName.startIndex..., in: fileName)
+
+        if let match = dateRegex?.firstMatch(in: fileName, range: range),
+           let matchRange = Range(match.range, in: fileName) {
+            return parseDate(from: String(fileName[matchRange]))
         }
         
         return nil

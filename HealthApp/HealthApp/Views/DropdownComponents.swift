@@ -128,6 +128,10 @@ struct SearchableDropdownWithAddNew: View {
                 .shadow(radius: 2)
             }
         }
+        // Each button keeps its own tap area. These dropdowns sit inside Form rows, and a
+        // Form row with default-styled buttons fires every one of them on any tap: the
+        // chevron, each option and "Add New" all at once.
+        .buttonStyle(.borderless)
         .alert("Add New \(title)", isPresented: $isShowingAddNew) {
             TextField("Enter \(title.lowercased())", text: $newItemText)
             Button("Add") {
@@ -225,6 +229,10 @@ struct UnitDropdown: View {
                 .shadow(radius: 2)
             }
         }
+        // Each button keeps its own tap area. These dropdowns sit inside Form rows, and a
+        // Form row with default-styled buttons fires every one of them on any tap: the
+        // chevron, each option and "Add New" all at once.
+        .buttonStyle(.borderless)
     }
 }
 

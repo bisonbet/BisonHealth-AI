@@ -25,6 +25,23 @@ struct VitalsListView: View {
         }
         .navigationTitle("Recent Vitals")
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            // A category's own + only appears once it has a reading, so without this a type
+            // with no readings yet (every type, for a new user) could not be entered by hand.
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    ForEach(VitalType.allCases) { vitalType in
+                        Button(vitalType.displayName) {
+                            showingVitalEntry = vitalType
+                        }
+                    }
+                } label: {
+                    Label("Add Vital", systemImage: "plus")
+                }
+                .accessibilityHint("Choose a type of vital to record")
+                .accessibilityIdentifier("vitals.addMenu")
+            }
+        }
         .sheet(item: $showingVitalEntry) { vitalType in
             VitalEntryView(
                 vitalType: vitalType,

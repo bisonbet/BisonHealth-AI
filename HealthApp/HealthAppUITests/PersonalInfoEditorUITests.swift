@@ -201,6 +201,38 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
         }
     }
     
+    /// Each row used to be bound with `$allergies[index]`, a pattern that can trap with
+    /// "Index out of range" when SwiftUI evaluates a removed row's binding once more. It did
+    /// not reproduce on iOS 26.5; this guards the safe binding that replaced it.
+    func testDeletingAnAllergyDoesNotCrash() throws {
+        let allergiesLink = button(labelStartingWith: "Allergies")
+        XCTAssertTrue(scrollUntilHittable(allergiesLink))
+        allergiesLink.tap()
+
+        let newAllergy = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Add new allergy")).firstMatch
+        XCTAssertTrue(newAllergy.waitForExistence(timeout: 5))
+        // The row's own Add button: other screens in the stack also have one.
+        let addButton = app.cells.containing(.textField, identifier: "Add new allergy").buttons["Add"]
+        for allergy in ["Penicillin", "Peanuts"] {
+            newAllergy.tap()
+            newAllergy.typeText(allergy)
+            addButton.tap()
+        }
+
+        let rows = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Allergy"))
+        XCTAssertEqual(rows.count, 2)
+        // The last row is the one whose index stops existing.
+        let lastRow = app.cells.containing(NSPredicate(format: "value == %@", "Peanuts")).firstMatch
+        lastRow.swipeLeft()
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        delete.tap()
+
+        XCTAssertTrue(app.state == .runningForeground, "The app should still be running")
+        XCTAssertTrue(rows.element(boundBy: 1).waitForNonExistence(timeout: 3))
+        XCTAssertEqual(rows.firstMatch.value as? String, "Penicillin")
+    }
+
     // MARK: - Complete Form Workflow Test
     
     func testCompleteFormWorkflow() throws {

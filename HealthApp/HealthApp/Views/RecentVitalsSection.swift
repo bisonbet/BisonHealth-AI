@@ -407,7 +407,7 @@ struct EmptyVitalsView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
-            Text("Sync with Apple Health or add manually")
+            Text("Sync with Apple Health, or add one with the + button")
                 .font(.caption)
                 .foregroundColor(Color(.tertiaryLabel))
                 .multilineTextAlignment(.center)
@@ -417,7 +417,7 @@ struct EmptyVitalsView: View {
 }
 
 // MARK: - Vital Type Enum
-enum VitalType {
+enum VitalType: CaseIterable {
     case bloodPressure
     case heartRate
     case weight

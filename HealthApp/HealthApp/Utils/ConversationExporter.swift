@@ -530,10 +530,17 @@ class ConversationExporter: ObservableObject {
             let framesetter = CTFramesetterCreateWithAttributedString(attributedContent)
             let path = CGPath(rect: CGRect(origin: .zero, size: maxSize), transform: nil)
             let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(startLocation, 0), path, nil)
-            let visibleRange = CTFrameGetVisibleStringRange(frame)
+            var pageLength = CTFrameGetVisibleStringRange(frame).length
+            if pageLength == 0 {
+                // Nothing fit: a glyph wider than the column, or a page shorter than one
+                // line. Without advancing, this loop added empty pages until memory ran out.
+                // Take at least one character so the export always finishes.
+                pageLength = (attributedContent.string as NSString)
+                    .rangeOfComposedCharacterSequence(at: startLocation).length
+            }
 
             // Extract the text for this page
-            let pageRange = NSRange(location: startLocation, length: visibleRange.length)
+            let pageRange = NSRange(location: startLocation, length: pageLength)
             let pageContent = attributedContent.attributedSubstring(from: pageRange)
 
             // Render the page
@@ -550,7 +557,7 @@ class ConversationExporter: ObservableObject {
             pages.append(page)
 
             // Move to next segment
-            startLocation += visibleRange.length
+            startLocation += pageLength
             isFirstPage = false
         }
 

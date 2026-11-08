@@ -697,9 +697,7 @@ class HealthDataManager: ObservableObject {
 
             // Update weight property with the most recent reading using Measurement API
             if let mostRecentWeight = info.weightReadings.first {
-                // Use Foundation's Measurement API for accurate unit conversion
-                let weightInPounds = Measurement(value: mostRecentWeight.value, unit: UnitMass.pounds)
-                info.weight = weightInPounds.converted(to: .kilograms)
+                info.weight = Self.weightMeasurement(of: mostRecentWeight).converted(to: .kilograms)
             }
 
             // Merge vitals (prioritize manual, then fill with HealthKit data)
@@ -747,46 +745,51 @@ class HealthDataManager: ObservableObject {
         try await savePersonalInfo(info)
     }
 
-    /// Merge vital readings, prioritizing manual entries over HealthKit data
+    /// A weight reading as a `Measurement`, read in the unit it was stored with. Every writer
+    /// stores pounds today, but `info.weight` is kilograms and a reading in kg read as pounds
+    /// would silently shrink it by more than half.
+    nonisolated static func weightMeasurement(of reading: VitalReading) -> Measurement<UnitMass> {
+        switch reading.unit.lowercased() {
+        case "kg", "kgs", "kilogram", "kilograms":
+            return Measurement(value: reading.value, unit: .kilograms)
+        default:
+            return Measurement(value: reading.value, unit: .pounds)
+        }
+    }
+
+    /// Merge stored vital readings with a fresh HealthKit batch.
     ///
-    /// This method implements a smart merging strategy to prevent data loss while avoiding duplicates:
-    /// 1. Manual entries are always preserved (user's explicit input takes precedence)
-    /// 2. HealthKit entries are added only if they don't conflict with manual entries
-    /// 3. Conflict detection uses a 5-minute time window (manualEntryConflictInterval)
-    /// 4. Results are sorted by timestamp (most recent first) and limited to the specified count
-    ///
-    /// Example:
-    /// - Manual entry at 10:00 AM prevents HealthKit entries from 9:57:30 AM to 10:02:30 AM
-    /// - This ensures user-corrected readings override automatic Apple Health data
-    ///
-    /// - Parameters:
-    ///   - manual: Array of manually entered vital readings
-    ///   - healthKit: Array of vital readings from Apple Health sync
-    ///   - limit: Maximum number of readings to return (typically 7)
-    /// - Returns: Merged array with most recent readings, prioritizing manual entries
+    /// 1. Every stored reading is kept. This used to keep only `.manual` ones and rebuild the
+    ///    rest from the batch, which deleted readings the user typed in and tagged with the
+    ///    entry screen's "Apple Health" source, and any older history the batch no longer
+    ///    reached.
+    /// 2. A HealthKit reading is added only if no stored reading lies within
+    ///    `conflictInterval` of it, so a re-sync does not duplicate what it already brought
+    ///    in, and a hand-corrected reading wins over the automatic one.
+    /// 3. The result is sorted most recent first and cut to `limit`.
     private func mergeVitalReadings(
         manual: [VitalReading],
         healthKit: [VitalReading],
         limit: Int
     ) -> [VitalReading] {
-        // Start with manual entries (these are sacrosanct - never discard user input)
-        var merged = manual.filter { $0.source == .manual }
+        Self.mergeVitalReadings(stored: manual, healthKit: healthKit, limit: limit, conflictInterval: manualEntryConflictInterval)
+    }
 
-        // Add HealthKit entries that don't conflict with manual entries (by date)
+    nonisolated static func mergeVitalReadings(
+        stored: [VitalReading],
+        healthKit: [VitalReading],
+        limit: Int,
+        conflictInterval: TimeInterval
+    ) -> [VitalReading] {
+        var merged = stored
         for hkReading in healthKit {
-            // Check if there's a manual entry within the conflict window (5 minutes)
-            // This prevents duplicate entries when user manually entered what HealthKit also has
-            let hasManualConflict = merged.contains { manualReading in
-                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < manualEntryConflictInterval
+            let alreadyStored = merged.contains { existing in
+                abs(existing.timestamp.timeIntervalSince(hkReading.timestamp)) < conflictInterval
             }
-
-            if !hasManualConflict {
+            if !alreadyStored {
                 merged.append(hkReading)
             }
         }
-
-        // Sort by timestamp (most recent first) and limit to 'limit' readings
-        // This ensures we keep the most relevant recent data while honoring the storage limit
         return Array(merged.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
     }
 
@@ -817,10 +820,11 @@ class HealthDataManager: ObservableObject {
         healthKit: [SleepData],
         limit: Int
     ) -> [SleepData] {
-        // Start with manual entries (preserve user's explicit sleep logs)
-        var merged = manual.filter { $0.source == .manual }
+        // Keep every stored night, not only `.manual` ones: like the vitals, a night the user
+        // entered with the "Apple Health" source was otherwise deleted by the next sync.
+        var merged = manual
 
-        // Add HealthKit entries that don't conflict with manual entries (by calendar date)
+        // Add HealthKit nights for days that have no stored entry (by calendar date)
         for hkSleep in healthKit {
             // Check if there's a manual entry for the same calendar day
             // Uses same-day check since sleep sessions represent a single night

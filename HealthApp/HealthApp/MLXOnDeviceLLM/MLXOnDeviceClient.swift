@@ -293,6 +293,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         await MLXGPUGate.shared.acquire()
         defer { MLXGPUGate.shared.release() }
 
+        // Same check as `sendMessage`: a reply that was waiting for the gate while the app
+        // went to the background must not reload the model `suspendForBackground()` freed.
+        if isSuspendedForBackground {
+            throw MLXOnDeviceError.generationInterrupted(.backgrounded)
+        }
+
         try await ensureModelLoadedLocked()
 
         guard let modelContainer else {

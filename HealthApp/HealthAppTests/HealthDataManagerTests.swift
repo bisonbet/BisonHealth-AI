@@ -95,4 +95,40 @@ final class HealthDataManagerTests: XCTestCase {
         XCTAssertEqual(decoded.name, "Jane Doe")
         XCTAssertEqual(decoded.gender, .female)
     }
+
+    // MARK: - HealthKit merge
+
+    /// A reading typed in on the entry screen can carry the "Apple Health" source. The old
+    /// merge kept only `.manual` readings, so the next sync deleted it.
+    func testHealthKitMergeKeepsStoredNonManualReadings() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let typedAsAppleHealth = VitalReading(value: 72, unit: "bpm", timestamp: base, source: .appleHealth)
+        let fresh = VitalReading(value: 70, unit: "bpm", timestamp: base.addingTimeInterval(3600), source: .appleHealth)
+
+        let merged = HealthDataManager.mergeVitalReadings(
+            stored: [typedAsAppleHealth], healthKit: [fresh], limit: 7, conflictInterval: 300
+        )
+
+        XCTAssertEqual(merged.map(\.id), [fresh.id, typedAsAppleHealth.id])
+    }
+
+    func testHealthKitMergeDoesNotDuplicateAReadingItAlreadyHas() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let stored = VitalReading(value: 120, unit: "lbs", timestamp: base, source: .manual)
+        let sameMoment = VitalReading(value: 121, unit: "lbs", timestamp: base.addingTimeInterval(60), source: .appleHealth)
+
+        let merged = HealthDataManager.mergeVitalReadings(
+            stored: [stored], healthKit: [sameMoment], limit: 7, conflictInterval: 300
+        )
+
+        XCTAssertEqual(merged.map(\.id), [stored.id], "The stored reading wins inside the conflict window")
+    }
+
+    func testWeightReadingIsConvertedFromItsOwnUnit() {
+        let kilograms = VitalReading(value: 70, unit: "kg", timestamp: Date(), source: .manual)
+        let pounds = VitalReading(value: 154.3, unit: "lbs", timestamp: Date(), source: .manual)
+
+        XCTAssertEqual(HealthDataManager.weightMeasurement(of: kilograms).converted(to: .kilograms).value, 70, accuracy: 0.001)
+        XCTAssertEqual(HealthDataManager.weightMeasurement(of: pounds).converted(to: .kilograms).value, 70, accuracy: 0.05)
+    }
 }

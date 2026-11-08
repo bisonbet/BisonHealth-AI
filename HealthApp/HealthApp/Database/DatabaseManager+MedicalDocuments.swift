@@ -404,7 +404,10 @@ extension DatabaseManager {
     }
 
     // MARK: - Helper Methods
-    private func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
+    /// The one reader for a `documents` row. There used to be a second copy in
+    /// `+Documents.swift`, which never set `unreadableFields`, so documents loaded for the
+    /// library were not protected from being written back over columns it could not decrypt.
+    func buildMedicalDocument(from row: Row) throws -> MedicalDocument {
         let id = UUID(uuidString: row[documentId]) ?? UUID()
         // PHI text columns are encrypted at rest; fall back to the raw value
         // only for fileName (non-optional) so corruption is visible, not hidden.

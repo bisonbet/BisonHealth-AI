@@ -67,7 +67,11 @@ struct SupplementEditorView: View {
         .navigationTitle(supplement.name.isEmpty ? "New Supplement" : "Edit Supplement")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: setupView)
-        .onDisappear(perform: saveChanges)
+        // Written back on every change, not on disappear: the custom-supplement sheet's Add
+        // button appends the supplement before this view disappears, so a frequency saved
+        // only then was lost and the supplement was stored as daily.
+        .onChange(of: frequencyType) { saveChanges() }
+        .onChange(of: customFrequency) { saveChanges() }
     }
 
     private func setupView() {
