@@ -69,7 +69,9 @@ final class RegressionSmokeUITests: XCTestCase {
         if healthTab.waitForExistence(timeout: 5) {
             healthTab.tap()
         } else {
-            let healthSidebarButton = app.buttons["Health"]
+            // `.firstMatch`: on iPad in portrait the top tab bar and the closed sidebar
+            // both expose a "Health" button.
+            let healthSidebarButton = app.buttons["Health"].firstMatch
             XCTAssertTrue(healthSidebarButton.waitForExistence(timeout: 5), "Health navigation should be visible")
             healthSidebarButton.tap()
         }
@@ -86,7 +88,7 @@ final class RegressionSmokeUITests: XCTestCase {
             return
         }
 
-        let chatSidebarButton = app.buttons["AI Chat"]
+        let chatSidebarButton = app.buttons["AI Chat"].firstMatch
         XCTAssertTrue(chatSidebarButton.waitForExistence(timeout: 5), "AI Chat navigation should be visible")
         chatSidebarButton.tap()
     }

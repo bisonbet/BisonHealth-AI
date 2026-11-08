@@ -403,7 +403,26 @@ start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
   removes it from the catalog and the settings screen; a saved selection falls back to the
   default model. Downloaded weights are not deleted (they are simply no longer listed), so a
   Mac that already has them should delete them from Settings before installing this build.
-- **iPad keeps the current design.** No two-column Documents layout for now.
+- ~~**iPad keeps the current design.** No two-column Documents layout for now.~~
+  **Superseded 2026-11-07 by the owner:** Documents shows the list and the open document side
+  by side on iPad and the open iPhone Duo, and the iPad sidebar starts closed in portrait.
+  Done on `feat/ipad-sidebar-documents-split`:
+  - `DocumentsView` is one `NavigationSplitView` at every width, the pattern `ChatView`
+    already used. Regular width shows list + document; compact width collapses to a stack, so
+    **on iPhone a document is now pushed with a Back button instead of opening in a sheet.**
+    The detail column reads the document live from `documentManager.documents` by id, so it
+    shows processing progress as it happens; the old sheet held a snapshot.
+  - `HealthTabView` no longer wraps Documents in its own `NavigationStack` (a split view
+    cannot sit inside one); the Records/Documents switch is pinned to the list column by a
+    shared `pinnedSegmentSwitcher` modifier, which keeps the fold-avoidance behaviour.
+  - The tab view's default placement is chosen once at launch: the top tab bar on iPad in
+    portrait, the sidebar otherwise (landscape iPad, iPhone Duo, Mac). It is **not** updated
+    on rotation: changing it live from sidebar to tab bar on iOS 26.5 left the floating tab
+    bar drawn over the navigation bars and stopped tab taps landing. Held from launch, the
+    system shows the sidebar in landscape and puts it away in portrait by itself — checked
+    on iPad Pro 11-inch (M5) for both launch orientations and both rotations.
+  - Not checked: a real iPhone Duo (no simulator for it), and a partly folded Duo with the
+    fold on the list/document boundary. Device-test item.
 - **App Store Connect setup is done by the owner** (medical device, age rating, category).
 - **Privacy policy / support URL — not done yet.** bisonnetworking.com has a BisonVoice
   privacy policy and a general contact form, but no BisonHealth policy. Not needed for

@@ -1,8 +1,9 @@
 import SwiftUI
 
 // MARK: - Health Tab (merged Records + Documents)
-/// Combines the health record and document management into one tab. One navigation bar,
-/// owned here; each child renders content only.
+/// Combines the health record and document management into one tab. Records sits in a
+/// stack owned here; Documents owns a split view so the list and the open document can sit
+/// side by side on iPad and the open iPhone Duo.
 ///
 /// The Records/Documents switch is pinned above the content, not in the bar's principal
 /// slot. On iPhone Duo bars move to the side of the display, and a custom view in a toolbar
@@ -16,38 +17,20 @@ struct HealthTabView: View {
     }
 
     @State private var segment: Segment = .records
-    /// True while a partly folded iPhone Duo divides the screen. The switch is centred
-    /// otherwise, which is exactly where the fold runs; Apple asks for controls to be kept
-    /// clear of it, so it moves to the leading half.
-    @State private var isDividedByFold = false
 
-    var body: some View {
-        NavigationStack {
-            content
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    segmentSwitcher
-                        .frame(maxWidth: .infinity, alignment: isDividedByFold ? .leading : .center)
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .background(BisonTheme.appBackground)
-                }
-                // Each segment titles itself ("Health Data", "Documents").
-                .toolbarTitleDisplayMode(.inline)
-                .onGeometryChange(for: Bool.self) { proxy in
-                    PlatformCapabilities.isDividedByFold(proxy)
-                } action: { divided in
-                    isDividedByFold = divided
-                }
-        }
-    }
-
+    /// Records is one column in a stack. Documents brings its own split view — the list
+    /// beside the open document at regular width, a stack with the document pushed on
+    /// compact width — so it gets the switch pinned to its list column instead.
     @ViewBuilder
-    private var content: some View {
+    var body: some View {
         switch segment {
         case .records:
-            HealthDataView()
+            NavigationStack {
+                HealthDataView()
+                    .pinnedSegmentSwitcher(segmentSwitcher)
+            }
         case .documents:
-            DocumentsView()
+            DocumentsView(listHeader: segmentSwitcher)
         }
     }
 
@@ -85,5 +68,41 @@ struct HealthTabView: View {
         )
         .accessibilityIdentifier("health.segment")
         .accessibilityElement(children: .contain)
+    }
+}
+
+// MARK: - Pinned Segment Switcher
+/// Pins the Records/Documents switch above a column's content.
+///
+/// The switch is centred, which on a partly folded iPhone Duo is exactly where the fold
+/// runs; Apple asks for controls to be kept clear of it, so while a fold divides the column
+/// it moves to the leading half. In the Documents split view the fold usually falls on the
+/// column boundary instead, so the list column is not divided and the switch stays centred.
+private struct PinnedSegmentSwitcher<Switcher: View>: ViewModifier {
+    let switcher: Switcher
+    @State private var isDividedByFold = false
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaInset(edge: .top, spacing: 0) {
+                switcher
+                    .frame(maxWidth: .infinity, alignment: isDividedByFold ? .leading : .center)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(BisonTheme.appBackground)
+            }
+            // Each segment titles itself ("Health Data", "Documents").
+            .toolbarTitleDisplayMode(.inline)
+            .onGeometryChange(for: Bool.self) { proxy in
+                PlatformCapabilities.isDividedByFold(proxy)
+            } action: { divided in
+                isDividedByFold = divided
+            }
+    }
+}
+
+extension View {
+    func pinnedSegmentSwitcher<Switcher: View>(_ switcher: Switcher) -> some View {
+        modifier(PinnedSegmentSwitcher(switcher: switcher))
     }
 }

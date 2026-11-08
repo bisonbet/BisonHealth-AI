@@ -16,7 +16,6 @@ struct DocumentDetailView: View {
     let document: MedicalDocument
     @ObservedObject var documentManager: DocumentManager
     @ObservedObject var documentProcessor: DocumentProcessor
-    let showsCloseButton: Bool
     
     @Environment(\.dismiss) private var dismiss
     @State private var showingQuickLook = false
@@ -35,13 +34,11 @@ struct DocumentDetailView: View {
     init(
         document: MedicalDocument,
         documentManager: DocumentManager,
-        documentProcessor: DocumentProcessor,
-        showsCloseButton: Bool = true
+        documentProcessor: DocumentProcessor
     ) {
         self.document = document
         self.documentManager = documentManager
         self.documentProcessor = documentProcessor
-        self.showsCloseButton = showsCloseButton
     }
     
     var body: some View {
@@ -75,15 +72,10 @@ struct DocumentDetailView: View {
             }
             .navigationTitle(document.fileName)
             .navigationBarTitleDisplayMode(.inline)
+            // No Close button: this is the detail column of `DocumentsView`'s split view.
+            // At regular width it stays beside the list; on compact width the system's Back
+            // button returns to the list.
             .toolbar {
-                if showsCloseButton {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close", systemImage: "xmark") {
-                            dismiss()
-                        }
-                    }
-                }
-                
                 OverflowToolbarMenu {
                     Button("Share", systemImage: "square.and.arrow.up") {
                         // Files are encrypted at rest — decrypt to a temp

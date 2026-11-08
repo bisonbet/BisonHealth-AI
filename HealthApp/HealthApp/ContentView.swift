@@ -9,6 +9,8 @@ import PhotosUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedSection: AppSection = .health
+    /// See `appShell`: chosen at launch and held, so rotation never changes it.
+    @State private var launchTabBarPlacement: AdaptableTabBarPlacement?
 
     /// The review sheets live here, at the root, not in `DocumentsView`.
     ///
@@ -108,7 +110,37 @@ struct ContentView: View {
     /// iPad that took a Split View resize; on iPhone Duo it happens every time the phone is
     /// opened or closed. One tree keeps that state, and system bars and sidebar are what
     /// Duo moves to the side of the display and keeps clear of the fold.
+    ///
+    /// iPad in portrait starts with the sidebar closed (owner decision, 2026-11-07): there a
+    /// sidebar is drawn over the content rather than beside it, so it starts as the top tab
+    /// bar, whose sidebar button opens it. Landscape iPad starts with the sidebar.
+    ///
+    /// The choice is made once, from the window's shape at launch, and then held; the
+    /// `GeometryReader` is there so the very first layout already knows that shape. It must
+    /// not follow rotation: changing the placement on a live tab view from sidebar to tab bar
+    /// left the floating tab bar drawn over the navigation bars and stopped tab taps landing
+    /// (iOS 26.5). Rotation is left to the system, which on a portrait launch brings the
+    /// sidebar out in landscape and puts it away again in portrait.
+    ///
+    /// Everything else keeps the sidebar: the open iPhone Duo is a phone and not covered by
+    /// the decision, and on a Mac an iPad app's window can be any shape.
     private var appShell: some View {
+        GeometryReader { proxy in
+            tabShell(placement: launchTabBarPlacement ?? Self.tabBarPlacement(for: proxy.size))
+                .onAppear {
+                    if launchTabBarPlacement == nil {
+                        launchTabBarPlacement = Self.tabBarPlacement(for: proxy.size)
+                    }
+                }
+        }
+    }
+
+    private static func tabBarPlacement(for size: CGSize) -> AdaptableTabBarPlacement {
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad && !PlatformCapabilities.isRunningOnMac
+        return isPad && size.height > size.width ? .tabBar : .sidebar
+    }
+
+    private func tabShell(placement: AdaptableTabBarPlacement) -> some View {
         TabView(selection: $selectedSection) {
             ForEach(AppSection.allCases) { section in
                 Tab(section.title, systemImage: section.systemImage, value: section) {
@@ -119,8 +151,7 @@ struct ContentView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        // iPad and the open Duo had a sidebar before; keep it the default there.
-        .defaultAdaptableTabBarPlacement(.sidebar)
+        .defaultAdaptableTabBarPlacement(placement)
         .tabViewSidebarHeader { AppSidebarHeader() }
         .tabViewSidebarFooter { AppSidebarFooter() }
         .background(BisonTheme.appBackground)
@@ -491,7 +522,10 @@ extension VitalType: Identifiable {
 }
 
 // MARK: - Documents View
-struct DocumentsView: View {
+struct DocumentsView<ListHeader: View>: View {
+    /// Pinned above the list column: the Records/Documents switch from `HealthTabView`.
+    let listHeader: ListHeader
+
     @StateObject private var documentManager = DocumentManager(
         documentImporter: DocumentImporter.shared,
         documentProcessor: DocumentProcessor.shared,
@@ -505,7 +539,12 @@ struct DocumentsView: View {
     @State private var showingPhotosPicker = false
     @State private var showingFilterView = false
     @State private var showingBatchProcessing = false
-    @State private var selectedDocument: MedicalDocument?
+    /// The open document, by id. The detail column looks it up in `documentManager.documents`
+    /// on every render, so it shows processing progress as it happens and falls back to the
+    /// placeholder once the document is deleted. (The sheet this replaced held a snapshot.)
+    @State private var selectedDocumentID: UUID?
+    /// Which column a collapsed split view shows: the list until a document is tapped.
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var viewMode: DocumentViewMode = .list
     @State private var showingDocumentTypeSelector = false
@@ -528,23 +567,29 @@ struct DocumentsView: View {
         PlatformCapabilities.supportsDocumentScanning
     }
 
+    /// One split view at every width, as in `ChatView`: the list beside the open document on
+    /// iPad and the open iPhone Duo, collapsing to a stack with the document pushed on
+    /// compact width. One tree means opening or closing a Duo keeps the open document.
+    ///
+    /// Before this, landscape iPad got a full-width list with the document in a form sheet
+    /// (WS-09-03), and the owner chose side by side on 2026-11-07.
     var body: some View {
-        // Content only: `HealthTabView` owns the navigation bar for both segments. The
-        // `documentsSplitView` and `documentsStackView` branches that used to be selected
-        // here were unreachable — `embedInNavigation` was always false, because the merged
-        // Records/Documents tab is the only caller. WS-09 reported the iPad master-detail as
-        // dead code and it was: landscape got a full-width list with the detail in a sheet.
-        //
-        // Whether iPad *should* have a real two-column layout is a design question about
-        // `HealthTabView`, not a flag to flip here, and it is recorded as such in the
-        // tracker rather than guessed at.
-        documentsPrimaryContent
+        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+            documentsPrimaryContent
+                .pinnedSegmentSwitcher(listHeader)
+                // No maximum, for the same reason as the chat list: on a partly folded
+                // Duo the system widens this column to the fold.
+                .navigationSplitViewColumnWidth(min: 320, ideal: 380)
+        } detail: {
+            documentDetailColumn
+        }
+        .navigationSplitViewStyle(.balanced)
         .fullScreenCover(isPresented: $showingCamera) {
             DocumentCameraView { scan in
                 Task {
                     if let document = await documentManager.importScannedDocument(scan) {
                         pendingDocumentForCategory = document
-                        selectedDocument = document
+                        selectedDocumentID = document.id
                         showingDocumentTypeSelector = true
                     }
                 }
@@ -573,13 +618,6 @@ struct DocumentsView: View {
         }
         .sheet(isPresented: $showingBatchProcessing) {
             BatchProcessingView(
-                documentManager: documentManager,
-                documentProcessor: documentProcessor
-            )
-        }
-        .sheet(item: $selectedDocument) { document in
-            DocumentDetailView(
-                document: document,
                 documentManager: documentManager,
                 documentProcessor: documentProcessor
             )
@@ -637,7 +675,7 @@ struct DocumentsView: View {
                             pendingCategoryDocuments.removeAll { $0.id == document.id }
                             if let next = pendingCategoryDocuments.first {
                                 pendingDocumentForCategory = next
-                                selectedDocument = next
+                                selectedDocumentID = next.id
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                                     showingDocumentTypeSelector = true
                                 }
@@ -842,7 +880,7 @@ struct DocumentsView: View {
                     pendingCategoryDocuments.append(contentsOf: importedDocs)
                     if pendingDocumentForCategory == nil {
                         pendingDocumentForCategory = pendingCategoryDocuments.first
-                        selectedDocument = pendingCategoryDocuments.first
+                        selectedDocumentID = pendingCategoryDocuments.first?.id
                     }
                     showingDocumentTypeSelector = true
                 }
@@ -896,7 +934,7 @@ struct DocumentsView: View {
                 pendingCategoryDocuments.append(contentsOf: importedDocs)
                 if pendingDocumentForCategory == nil {
                     pendingDocumentForCategory = pendingCategoryDocuments.first
-                    selectedDocument = pendingCategoryDocuments.first
+                    selectedDocumentID = pendingCategoryDocuments.first?.id
                 }
                 showingDocumentTypeSelector = true
             }
@@ -1105,18 +1143,42 @@ struct DocumentsView: View {
             DocumentListView(
                 documents: documentManager.filteredDocuments,
                 selectedDocuments: $documentManager.selectedDocuments,
-                onDocumentTap: { document in
-                    selectedDocument = document
-                }
+                onDocumentTap: openDocument
             )
         case .grid:
             DocumentGridView(
                 documents: documentManager.filteredDocuments,
                 selectedDocuments: $documentManager.selectedDocuments,
-                onDocumentTap: { document in
-                    selectedDocument = document
-                }
+                onDocumentTap: openDocument
             )
+        }
+    }
+
+    private func openDocument(_ document: MedicalDocument) {
+        selectedDocumentID = document.id
+        preferredCompactColumn = .detail
+    }
+
+    /// The open document, or a prompt to pick one.
+    @ViewBuilder
+    private var documentDetailColumn: some View {
+        if let id = selectedDocumentID,
+           let document = documentManager.documents.first(where: { $0.id == id }) {
+            DocumentDetailView(
+                document: document,
+                documentManager: documentManager,
+                documentProcessor: documentProcessor
+            )
+            // Fresh editor state per document; the same document re-rendering with new
+            // processing status keeps it.
+            .id(document.id)
+        } else {
+            ContentUnavailableView(
+                "No Document Selected",
+                systemImage: "doc.text.magnifyingglass",
+                description: Text("Choose a document from the list to see it here.")
+            )
+            .background(BisonTheme.appBackground)
         }
     }
 
