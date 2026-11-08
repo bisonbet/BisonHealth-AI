@@ -353,7 +353,9 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     system alert over the tab bar (skipped in UI-test mode — the launch-time ask is itself
     WS-09-05-shaped and stays a beta follow-up).
 
-**Still open:** W-M (item 32, needs the app); the 47 skipped UI tests (W-R above).
+**Still open:** W-M (item 32, needs the app); the skipped UI tests (W-R above) — **44** in
+`PreRelease.xctestplan` as of 2026-11-07 (47 when W-R was written; #56 revived three). #56
+merged on 2026-11-07, so the rewrite W-R was waiting on is unblocked.
 
 ### Serialise these
 
