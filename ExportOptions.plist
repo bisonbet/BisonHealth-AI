@@ -8,15 +8,16 @@
 	  every option on the command line, which is how an upload ends up differing from the
 	  last one in ways nobody recorded.
 
-	  ⚠️ NOT YET USED FOR A REAL EXPORT. The keychain holds an Apple Development identity
-	  and no Apple Distribution identity, so an App Store export cannot be produced on this
-	  machine yet. The values below are derived from the project's own settings, not from a
-	  successful run:
+	  ✅ First used for a real export on 2026-11-07 (Xcode 27.2, build 657): EXPORT SUCCEEDED,
+	  signed "Apple Distribution: Timothy Champ (4W55VW7UXX)" with a *Cloud Managed* Apple
+	  Distribution certificate and "iOS Team Store Provisioning Profile:
+	  com.bisonhealthai.app". No distribution identity is needed in the local keychain —
+	  Xcode signs through the account — but `-allowProvisioningUpdates` must be passed:
+	    xcodebuild -exportArchive -archivePath <archive> -exportOptionsPlist ExportOptions.plist \
+	      -exportPath <dir> -allowProvisioningUpdates
+	  `app-store-connect` is the accepted `method` there (`app-store` is deprecated).
 	    - teamID matches DEVELOPMENT_TEAM in project.pbxproj
 	    - signingStyle matches CODE_SIGN_STYLE = Automatic
-	  Expect to adjust `method` if this Xcode reports it as unsupported; Apple renamed
-	  `app-store` to `app-store-connect`, and which one a given Xcode accepts has changed
-	  between versions.
 	-->
 
 	<key>method</key>

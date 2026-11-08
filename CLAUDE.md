@@ -487,10 +487,14 @@ See `Documentation/Review/TRACKER.md` for the full first-run findings.
 ### Release
 
 `Scripts/archive.sh` sets the build number from the commit count. `ExportOptions.plist` holds
-the export settings for `xcodebuild -exportArchive`. **Neither has produced a signed,
-uploadable build yet**: the keychain has an Apple Development identity and no Apple
-Distribution identity. The `method` value in particular is unverified — Apple renamed
-`app-store` to `app-store-connect` and which one a given Xcode accepts has changed.
+the export settings for `xcodebuild -exportArchive`. **The first signed App Store export
+succeeded on 2026-11-07** (Xcode 27.2, build 657, exported to disk, not uploaded). It signs
+with a **Cloud Managed** Apple Distribution certificate, so the keychain needs no
+distribution identity — only Apple Development is installed — but both `archive` and
+`-exportArchive` must be given `-allowProvisioningUpdates` so Xcode can fetch the store
+profile. `method` = `app-store-connect` is the value that worked. Regenerate profiles the
+same way after enabling a capability on the developer site; the store profile is only
+refreshed by an archive/export, not by a development build.
 
 To inspect the current source and test-file counts:
 

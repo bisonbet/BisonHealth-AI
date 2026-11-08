@@ -66,17 +66,18 @@ fi
 rm -rf "$ARCHIVE_PATH"
 mkdir -p "$(dirname "$ARCHIVE_PATH")"
 
-# Signing is intentionally left to the project's own settings: this script decides the build
-# number and nothing else. An archive for upload needs an Apple Distribution identity, which
-# is not yet set up (see tracker item 35).
+# Signing is left to the project's own settings (automatic). `-allowProvisioningUpdates` lets
+# Xcode fetch or regenerate profiles from the account — needed after a capability is enabled
+# on the developer site, and for the cloud-managed distribution signing the export uses.
 xcodebuild archive \
     -project HealthApp/HealthApp.xcodeproj \
     -scheme HealthApp \
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
+    -allowProvisioningUpdates \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
 
 echo
 echo "Archived build $BUILD_NUMBER ($MARKETING_VERSION) from $COMMIT"
-echo "Next: export with an Apple Distribution identity, then upload."
+echo "Next: xcodebuild -exportArchive -archivePath \"$ARCHIVE_PATH\" -exportOptionsPlist ExportOptions.plist -exportPath build/export -allowProvisioningUpdates"
