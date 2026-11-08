@@ -172,7 +172,12 @@ final class BloodTestEntryUITests: HealthAppUITestCase {
         // A named result with no value cannot be saved.
         type("A", into: nameFields.firstMatch)
         XCTAssertFalse(app.staticTexts["Test name is required"].exists)
-        XCTAssertEqual(app.staticTexts["bloodTest.resultsError"].label, "All test results must have values")
+        // The error sits below the result; on iPad's shorter sheet the keyboard hides it, and
+        // a hidden form row is not in the hierarchy. Dismiss the keyboard and scroll to it.
+        nameFields.firstMatch.typeText("\n")
+        let error = app.staticTexts["bloodTest.resultsError"]
+        XCTAssertTrue(scrollUntilHittable(error), "The results error should be shown")
+        XCTAssertEqual(error.label, "All test results must have values")
         XCTAssertFalse(saveButton.isEnabled)
     }
 

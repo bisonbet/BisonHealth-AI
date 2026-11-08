@@ -22,7 +22,11 @@ class HealthAppUITestCase: XCTestCase {
             "--disable-mlx-preload",
             // Pinned through the arguments domain so a test that switches units cannot leak
             // its choice into the next launch; the reset does not clear UserDefaults.
-            "-useImperialUnits", "NO"
+            "-useImperialUnits", "NO",
+            // The simulator keeps whichever AI provider it was last set to. If that is a cloud
+            // provider, the first send stops at the consent prompt, so a test's message never
+            // arrives. Count consent as given; the scripted provider sends nothing anywhere.
+            "-hasAcknowledgedCloudProcessing", "YES"
         ]
     }
 

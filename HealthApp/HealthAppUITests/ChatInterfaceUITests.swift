@@ -117,28 +117,31 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
         guard UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("This test is only for iPad")
         }
-        
-        navigateToChat()
-        
-        // Test Cmd+N for new conversation
+
+        // Key commands reach the app once something in it has focus; a started conversation
+        // focuses the message input.
+        startNewConversationAndWait()
+        let conversations = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'New Conversation,'"))
+        XCTAssertEqual(conversations.count, 1)
+
+        // Cmd+N is New Chat's shortcut.
         app.typeKey("n", modifierFlags: .command)
-        
-        let messageInput = app.textFields["Type your message..."]
-        XCTAssertTrue(messageInput.waitForExistence(timeout: 2), "New conversation should start with Cmd+N")
+        XCTAssertTrue(
+            conversations.element(boundBy: 1).waitForExistence(timeout: 8),
+            "Cmd+N should start a second conversation"
+        )
     }
     
     func testIPadContextSelector() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("This test is only for iPad")
         }
-        
+
         startNewConversationAndWait()
-        
-        // Test Cmd+K for context selector
-        app.typeKey("k", modifierFlags: .command)
-        
-        let contextTitle = app.staticTexts["Health Data Context"]
-        XCTAssertTrue(contextTitle.waitForExistence(timeout: 2), "Context selector should open with Cmd+K")
+
+        // Cmd+Shift+H opens the conversation's health data context.
+        app.typeKey("h", modifierFlags: [.command, .shift])
+        XCTAssertTrue(screenTitle("AI Context").waitForExistence(timeout: 3), "Context selector should open with Cmd+Shift+H")
     }
     
     // MARK: - Conversation Management Tests

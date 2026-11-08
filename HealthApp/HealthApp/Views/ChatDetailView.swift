@@ -36,6 +36,11 @@ struct ChatDetailView: View {
             // Dismiss keyboard when tapping outside the input field
             isMessageInputFocused = false
         }
+        .background {
+            if chatManager.currentConversation != nil {
+                conversationShortcuts
+            }
+        }
         .navigationTitle(chatManager.currentConversation?.title ?? "BisonHealth AI")
         .navigationBarTitleDisplayMode(isIPad ? .inline : .large)
         .toolbar {
@@ -326,6 +331,24 @@ struct ChatDetailView: View {
         }
     }
     
+    /// The overflow menu's keyboard shortcuts. SwiftUI only registers a shortcut on a menu
+    /// item while the menu is open, so on iPad these never fired from a hardware keyboard.
+    /// Invisible buttons in the view's background are always registered; the menu items
+    /// keep showing the shortcut so it stays discoverable.
+    private var conversationShortcuts: some View {
+        ZStack {
+            Button("Conversation Settings") { showingConversationSettings = true }
+                .keyboardShortcut(",", modifiers: [.command])
+            Button("Health Data") { showingAIDocumentSelector = true }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+            Button("Export Conversation") { showingExportOptions = true }
+                .keyboardShortcut("e", modifiers: [.command])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private var menuContent: some View {
         Button("Conversation Settings", systemImage: "gear") {

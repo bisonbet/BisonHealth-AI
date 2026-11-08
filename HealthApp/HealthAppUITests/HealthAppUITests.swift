@@ -168,24 +168,14 @@ final class HealthAppUITests: HealthAppUITestCase {
         guard UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("iPad-specific test")
         }
-        
-        // Test portrait orientation
-        XCUIDevice.shared.orientation = .portrait
-        XCTAssertTrue(app.tabBars.element.exists)
-        
-        // Test landscape orientation
-        XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.tabBars.element.exists)
-        
-        // Test landscape right
-        XCUIDevice.shared.orientation = .landscapeRight
-        XCTAssertTrue(app.tabBars.element.exists)
-        
-        // Test upside down (iPad only)
-        XCUIDevice.shared.orientation = .portraitUpsideDown
-        XCTAssertTrue(app.tabBars.element.exists)
-        
-        // Reset to portrait
+
+        // Navigation stays reachable in every orientation: a tab bar in portrait, the
+        // sidebar in landscape.
+        let orientations: [UIDeviceOrientation] = [.portrait, .landscapeLeft, .landscapeRight, .portraitUpsideDown]
+        for orientation in orientations {
+            XCUIDevice.shared.orientation = orientation
+            XCTAssertTrue(sectionButton("Settings").waitForExistence(timeout: 5), "Navigation should be reachable in \(orientation.rawValue)")
+        }
         XCUIDevice.shared.orientation = .portrait
     }
     

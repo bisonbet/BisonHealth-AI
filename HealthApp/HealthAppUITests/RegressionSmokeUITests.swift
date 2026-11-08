@@ -14,7 +14,9 @@ final class RegressionSmokeUITests: XCTestCase {
             "--seed-lab-report",
             "--scripted-ai-provider",
             "--disable-healthkit-sync",
-            "--disable-mlx-preload"
+            "--disable-mlx-preload",
+            // See HealthAppUITestCase: the simulator's saved provider may ask for cloud consent.
+            "-hasAcknowledgedCloudProcessing", "YES"
         ]
         app.launch()
     }
