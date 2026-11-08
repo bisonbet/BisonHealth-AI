@@ -5,14 +5,11 @@ final class HealthAppUITests: HealthAppUITestCase {
     // MARK: - App Launch and Navigation Tests
     
     func testAppLaunches() throws {
-        // Verify the app launches successfully
-        XCTAssertTrue(app.tabBars.element.exists)
-        
-        // Verify all main tabs are present
-        XCTAssertTrue(app.tabBars.buttons["Health Data"].exists)
-        XCTAssertTrue(app.tabBars.buttons["Documents"].exists)
-        XCTAssertTrue(app.tabBars.buttons["AI Chat"].exists)
-        XCTAssertTrue(app.tabBars.buttons["Settings"].exists)
+        // Every top-level section is reachable: tabs on iPhone, the sidebar on iPad.
+        for section in ["Health", "Prep", "AI Chat", "Settings"] {
+            XCTAssertTrue(sectionButton(section).waitForExistence(timeout: 5), "\(section) should be reachable")
+        }
+        XCTAssertTrue(screenTitle("Health Data").exists, "The app should open on Health")
     }
     
     func testTabNavigation() throws {
@@ -37,49 +34,40 @@ final class HealthAppUITests: HealthAppUITestCase {
     
     func testHealthDataTabContent() throws {
         navigateToHealth()
-        
-        // Verify main sections are present
-        XCTAssertTrue(app.staticTexts["Personal Information"].exists)
-        XCTAssertTrue(app.staticTexts["Blood Test Results"].exists)
-        XCTAssertTrue(app.staticTexts["Imaging Reports"].exists)
-        XCTAssertTrue(app.staticTexts["Health Checkups"].exists)
-        
-        // Test add menu
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["Personal Info"].exists)
-        XCTAssertTrue(app.buttons["Blood Test"].exists)
-        
-        // Dismiss menu
-        app.tap()
+
+        for section in ["Personal Information", "Lab Results", "Imaging Reports"] {
+            XCTAssertTrue(app.staticTexts[section].waitForExistence(timeout: 5), "\(section) should be on Health")
+        }
+
+        let addMenu = app.buttons["Add Health Data"]
+        XCTAssertTrue(addMenu.waitForExistence(timeout: 5))
+        addMenu.tap()
+        XCTAssertTrue(app.buttons["Add Personal Information"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Add Lab Results"].exists)
     }
     
     func testHealthDataRefresh() throws {
         navigateToHealth()
-        
-        // Test pull to refresh
-        let healthDataList = app.scrollViews.element
-        healthDataList.swipeDown()
-        
-        // Verify content is still there after refresh
-        XCTAssertTrue(app.staticTexts["Personal Information"].exists)
+        XCTAssertTrue(app.staticTexts["Personal Information"].waitForExistence(timeout: 5))
+
+        // Pull to refresh reloads the records; the content must still be there after.
+        let records = app.collectionViews.firstMatch
+        XCTAssertTrue(records.exists)
+        records.swipeDown()
+        XCTAssertTrue(app.staticTexts["Personal Information"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Lab Results"].exists)
     }
     
     // MARK: - Documents Tab Tests
     
     func testDocumentsTabContent() throws {
         navigateToDocuments()
-        
-        // Should show empty state initially
-        XCTAssertTrue(app.staticTexts["No Documents"].exists || app.staticTexts["Import your first health document"].exists)
-        
-        // Test add menu
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["Scan Document"].exists)
-        XCTAssertTrue(app.buttons["Import File"].exists)
-        XCTAssertTrue(app.buttons["Import Photos"].exists)
-        
-        // Dismiss menu
-        app.tap()
+
+        // A reset store has no documents, so the empty state offers the import routes.
+        XCTAssertTrue(app.staticTexts["No Documents"].waitForExistence(timeout: 5))
+        XCTAssertTrue(button(labelStartingWith: "Import File").exists)
+        XCTAssertTrue(button(labelStartingWith: "Import Photos").exists)
+        XCTAssertTrue(app.buttons["Add Document"].exists, "The Add Document menu should be in the toolbar")
     }
     
     // MARK: - AI Chat Tab Tests
@@ -100,41 +88,41 @@ final class HealthAppUITests: HealthAppUITestCase {
     
     func testSettingsTabContent() throws {
         navigateToSettings()
-        
-        // Verify main settings sections
-        XCTAssertTrue(app.staticTexts["AI Services"].exists)
-        XCTAssertTrue(app.staticTexts["Data Management"].exists)
-        XCTAssertTrue(app.staticTexts["About"].exists)
-        
-        XCTAssertTrue(app.staticTexts["On-Device LLM"].exists || app.staticTexts["OpenAI Compatible"].exists)
+
+        XCTAssertTrue(app.staticTexts["AI Provider"].waitForExistence(timeout: 5))
+        XCTAssertTrue(button(labelStartingWith: "AI Provider").exists, "The provider picker should show the current provider")
+        XCTAssertTrue(scrollUntilHittable(app.staticTexts["Data Management"]), "Data Management should be in Settings")
+        XCTAssertTrue(scrollUntilHittable(app.staticTexts["About"]), "About should be in Settings")
     }
     
     func testSettingsNavigation() throws {
         navigateToSettings()
-        
-        // Test Export Health Data navigation
-        app.buttons["Export Health Data"].tap()
-        XCTAssertTrue(app.navigationBars["Data Export"].exists || app.navigationBars.element.exists)
-        app.navigationBars.buttons.element(boundBy: 0).tap() // Back
-        
-        // Test Storage Usage navigation
-        app.buttons["Storage Usage"].tap()
-        XCTAssertTrue(app.navigationBars["Storage Usage"].exists || app.navigationBars.element.exists)
-        app.navigationBars.buttons.element(boundBy: 0).tap() // Back
+
+        for destination in ["Export Health Data", "Storage Usage"] {
+            let link = app.buttons[destination]
+            XCTAssertTrue(scrollUntilHittable(link), "\(destination) should be in Settings")
+            link.tap()
+            XCTAssertTrue(screenTitle(destination).waitForExistence(timeout: 5), "\(destination) should open")
+
+            let back = backButton(to: "Settings")
+            XCTAssertTrue(back.waitForExistence(timeout: 5), "Back to Settings should exist")
+            back.tap()
+            XCTAssertTrue(screenTitle("Settings").waitForExistence(timeout: 5))
+        }
     }
     
     // MARK: - Cross-Tab Integration Tests
     
     func testHealthDataToDocumentsFlow() throws {
-        // Start in Health Data
-        navigateToHealth()
-        
-        // Navigate to Documents tab
         navigateToDocuments()
-        
-        // Verify we can navigate back
-        navigateToHealth()
-        XCTAssertTrue(app.navigationBars["Health Data"].exists)
+        XCTAssertTrue(screenTitle("Documents").waitForExistence(timeout: 5))
+
+        // The segment switches back to the records without leaving Health.
+        let records = app.buttons["Records"]
+        XCTAssertTrue(records.exists)
+        records.tap()
+        XCTAssertTrue(screenTitle("Health Data").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Personal Information"].exists)
     }
     
     func testDocumentsToAIChatFlow() throws {
@@ -151,23 +139,26 @@ final class HealthAppUITests: HealthAppUITestCase {
     // MARK: - Accessibility Tests
     
     func testAccessibilityElements() throws {
-        // Test that main navigation elements are accessible
-        let tabBar = app.tabBars.element
-        XCTAssertTrue(tabBar.isAccessibilityElement || tabBar.children(matching: .button).count > 0)
-        
-        // Test tab buttons have proper labels
-        let healthDataTab = app.tabBars.buttons["Health Data"]
-        XCTAssertTrue(healthDataTab.isAccessibilityElement)
-        XCTAssertNotNil(healthDataTab.label)
+        // Navigation controls carry the visible name as their label, so VoiceOver reads it.
+        for section in ["Health", "AI Chat", "Settings"] {
+            let control = sectionButton(section)
+            XCTAssertTrue(control.waitForExistence(timeout: 5))
+            XCTAssertEqual(control.label, section)
+            XCTAssertTrue(control.isHittable, "\(section) should be reachable by touch")
+        }
     }
     
     func testVoiceOverNavigation() throws {
-        // Test basic VoiceOver navigation
         navigateToHealth()
-        
-        let healthDataTitle = app.navigationBars["Health Data"]
-        XCTAssertTrue(healthDataTitle.exists)
-        XCTAssertTrue(healthDataTitle.isAccessibilityElement)
+        XCTAssertTrue(screenTitle("Health Data").waitForExistence(timeout: 5))
+
+        // Icon-only and segmented controls must still speak a name.
+        let addMenu = app.buttons["Add Health Data"]
+        XCTAssertTrue(addMenu.exists, "The plus button should be labelled for VoiceOver")
+        let segments = app.buttons.matching(identifier: "health.segment")
+        XCTAssertEqual(segments.count, 2)
+        XCTAssertTrue(segments["Records"].exists)
+        XCTAssertTrue(segments["Documents"].exists)
     }
     
     // MARK: - Device Orientation Tests (iPad)
@@ -243,4 +234,5 @@ final class HealthAppUITests: HealthAppUITestCase {
         // App should still be responsive
         XCTAssertTrue(sectionButton("Health").exists)
     }
+
 }
