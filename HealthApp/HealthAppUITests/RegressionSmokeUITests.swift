@@ -40,6 +40,34 @@ final class RegressionSmokeUITests: XCTestCase {
         )
     }
 
+    /// Edit, select a document, and Batch must appear. Regression for PR #59: `DocumentsView`
+    /// sits outside its own split view, so reading edit mode from the environment saw a
+    /// different value from the one the Edit button changed, and Batch never showed.
+    func testSelectingDocumentInEditModeOffersBatch() throws {
+        navigateToDocuments()
+
+        let seededDocument = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "ui-test-lab-report.pdf"))
+            .firstMatch
+        XCTAssertTrue(seededDocument.waitForExistence(timeout: 10), "Seeded lab report should be listed")
+
+        let editButton = app.buttons
+            .matching(NSPredicate(format: "label IN %@", ["Edit", "Edit Documents"]))
+            .firstMatch
+        XCTAssertTrue(editButton.waitForExistence(timeout: 5), "Edit should be in the Documents toolbar")
+        editButton.tap()
+
+        seededDocument.tap()
+
+        XCTAssertTrue(
+            app.buttons
+                .matching(NSPredicate(format: "label IN %@", ["Batch", "Batch Process"]))
+                .firstMatch
+                .waitForExistence(timeout: 5),
+            "Selecting a document in edit mode should offer Batch"
+        )
+    }
+
     func testScriptedDoctorReplyAppearsAfterSendingMessage() throws {
         startNewConversationAndWait()
 
@@ -69,7 +97,9 @@ final class RegressionSmokeUITests: XCTestCase {
         if healthTab.waitForExistence(timeout: 5) {
             healthTab.tap()
         } else {
-            let healthSidebarButton = app.buttons["Health"]
+            // `.firstMatch`: on iPad in portrait the top tab bar and the closed sidebar
+            // both expose a "Health" button.
+            let healthSidebarButton = app.buttons["Health"].firstMatch
             XCTAssertTrue(healthSidebarButton.waitForExistence(timeout: 5), "Health navigation should be visible")
             healthSidebarButton.tap()
         }
@@ -86,7 +116,7 @@ final class RegressionSmokeUITests: XCTestCase {
             return
         }
 
-        let chatSidebarButton = app.buttons["AI Chat"]
+        let chatSidebarButton = app.buttons["AI Chat"].firstMatch
         XCTAssertTrue(chatSidebarButton.waitForExistence(timeout: 5), "AI Chat navigation should be visible")
         chatSidebarButton.tap()
     }
