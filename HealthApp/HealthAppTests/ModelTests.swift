@@ -425,6 +425,38 @@ final class ModelTests: XCTestCase {
         )
     }
     
+    func testConversationSearchReflectsTheCurrentConversationsNotACachedResult() {
+        // Review of #56: results were cached and refreshed only when the query changed, so
+        // a conversation deleted mid-search stayed listed and could be reopened.
+        let kept = ChatConversation(title: "Cholesterol trend")
+        let deleted = ChatConversation(title: "Cholesterol question")
+        func sidebar(_ conversations: [ChatConversation]) -> ConversationSidebarView {
+            ConversationSidebarView(
+                conversations: conversations,
+                selectedConversationId: .constant(nil),
+                searchText: .constant("cholesterol"),
+                onSelectConversation: { _ in },
+                onNewConversation: {},
+                onDeleteConversation: { _ in }
+            )
+        }
+
+        XCTAssertEqual(sidebar([kept, deleted]).displayedConversations.map(\.id), [kept.id, deleted.id])
+        XCTAssertEqual(sidebar([kept]).displayedConversations.map(\.id), [kept.id])
+    }
+
+    func testTheDocumentGridUsesAnEvenColumnCountOnlyAcrossAFold() {
+        // Unfolded: the adaptive column decides, so no fixed count.
+        XCTAssertNil(DocumentGridView.evenColumnCount(forWidth: 900, dividedByFold: false))
+
+        // 900 pt fits five 150 pt tiles; across a fold that rounds down to four.
+        XCTAssertEqual(DocumentGridView.evenColumnCount(forWidth: 900, dividedByFold: true), 4)
+        // An already even fit is kept.
+        XCTAssertEqual(DocumentGridView.evenColumnCount(forWidth: 720, dividedByFold: true), 4)
+        // Never fewer than one column per side of the fold.
+        XCTAssertEqual(DocumentGridView.evenColumnCount(forWidth: 200, dividedByFold: true), 2)
+    }
+
     func testMedGemma27BIsHiddenWhileDisabledForBeta() throws {
         try XCTSkipIf(
             PlatformCapabilities.isMedGemma27BEnabled,

@@ -147,14 +147,14 @@ struct BloodTestEntryView: View {
             .navigationTitle(bloodTest == nil ? "Lab Results Entry" : "Edit Lab Results")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") {
                         let bloodTest = BloodTestResult(
                             id: bloodTest?.id ?? UUID(),
                             testDate: testDate,

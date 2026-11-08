@@ -139,9 +139,9 @@ struct AppointmentPrepDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigationBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
             if isEditing {
-                Button("Save") {
+                Button("Save", systemImage: "checkmark") {
                     prep.lastModified = Date()
                     Task { try? await manager.save(prep) }
                     isEditing = false
@@ -180,7 +180,7 @@ struct AppointmentPrepDetailView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("More", systemImage: "ellipsis.circle")
                 }
                 .accessibilityLabel("Report actions")
                 .accessibilityIdentifier("prep.detail.menu")
@@ -188,8 +188,8 @@ struct AppointmentPrepDetailView: View {
         }
 
         if showsCloseButton {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Close") { dismiss() }
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close", systemImage: "xmark") { dismiss() }
             }
         }
     }

@@ -32,6 +32,26 @@ class HealthAppUITestCase: XCTestCase {
 
     // MARK: - Navigation
 
+    /// A top-level section's control, wherever the system put it: a bottom tab-bar button on
+    /// iPhone, a sidebar row on iPad (reported as a cell, not a button), or the side strip on
+    /// iPhone Duo (not reported as a tab bar at all).
+    func sectionButton(_ section: String) -> XCUIElement {
+        let tab = app.tabBars.buttons[section]
+        if tab.exists { return tab }
+        let types = [XCUIElement.ElementType.button, .cell, .staticText].map(\.rawValue)
+        return app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@ AND elementType IN %@", section, types)
+        ).firstMatch
+    }
+
+    /// The Back button that returns to `title`. On iPhone Duo bars sit in the side strip and
+    /// are not reported as navigation bars, so this does not look inside `navigationBars`.
+    func backButton(to title: String) -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(format: "label == %@ OR identifier == 'BackButton'", title)
+        ).firstMatch
+    }
+
     /// Opens a top-level section: a tab on iPhone, a sidebar row on iPad.
     func navigate(to section: String) {
         let tab = app.tabBars.buttons[section]
@@ -39,9 +59,9 @@ class HealthAppUITestCase: XCTestCase {
             tab.tap()
             return
         }
-        let sidebarButton = app.buttons[section]
-        XCTAssertTrue(sidebarButton.waitForExistence(timeout: 5), "\(section) navigation should be visible")
-        sidebarButton.tap()
+        let control = sectionButton(section)
+        XCTAssertTrue(control.waitForExistence(timeout: 5), "\(section) navigation should be visible")
+        control.tap()
     }
 
     func navigateToHealth() {

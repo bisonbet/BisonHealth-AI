@@ -93,8 +93,8 @@ struct TermsOfServiceView: View {
             .navigationTitle("Terms of Service")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", systemImage: "checkmark") {
                         dismiss()
                     }
                 }

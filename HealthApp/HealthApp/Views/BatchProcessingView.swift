@@ -40,8 +40,8 @@ struct BatchProcessingView: View {
             .navigationTitle("Batch Processing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         dismiss()
                     }
                 }

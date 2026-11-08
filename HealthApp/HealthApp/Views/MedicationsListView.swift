@@ -40,10 +40,8 @@ struct MedicationsListView: View {
         .navigationTitle("Medications")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: addMedication) {
-                    Image(systemName: "plus")
-                }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Add Medication", systemImage: "plus", action: addMedication)
             }
         }
     }

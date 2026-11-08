@@ -144,15 +144,14 @@ struct AccessibilityTraits: OptionSet {
 
 /// Ensures minimum touch target size for accessibility
 struct TouchTargetModifier: ViewModifier {
-    let minSize: CGFloat
-    
-    init(minSize: CGFloat? = nil) {
-        self.minSize = minSize ?? DeviceAccessibilityHelper.minimumTouchTarget
-    }
-    
+    let minSize: CGFloat?
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     func body(content: Content) -> some View {
+        let size = minSize ?? DeviceAccessibilityHelper.minimumTouchTarget(for: horizontalSizeClass)
         content
-            .frame(minWidth: minSize, minHeight: minSize)
+            .frame(minWidth: size, minHeight: size)
             .contentShape(Rectangle())
     }
 }

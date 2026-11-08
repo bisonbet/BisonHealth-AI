@@ -12,8 +12,8 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
     // MARK: - Basic Chat Interface Tests
     
     func testChatTabExists() throws {
-        let chatTab = app.tabBars.buttons["AI Chat"]
-        XCTAssertTrue(chatTab.exists, "Chat tab should exist")
+        let chatTab = sectionButton("AI Chat")
+        XCTAssertTrue(chatTab.waitForExistence(timeout: 5), "Chat tab should exist")
         
         chatTab.tap()
         XCTAssertTrue(chatTab.isSelected, "Chat tab should be selected after tapping")
@@ -115,7 +115,7 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
         XCTAssertTrue(conversationsTitle.exists, "Conversations sidebar should exist on iPad")
         
         // Check for new conversation button in sidebar
-        let newConversationButton = app.buttons.matching(identifier: "plus").firstMatch
+        let newConversationButton = app.buttons["chat.sidebar.newConversation"]
         XCTAssertTrue(newConversationButton.exists, "New conversation button should exist in sidebar")
     }
     
@@ -157,14 +157,13 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
             let conversationsTitle = app.staticTexts["Conversations"]
             XCTAssertTrue(conversationsTitle.exists, "Conversations should be visible in sidebar")
         } else {
-            // On iPhone, need to tap conversations button
-            let conversationsButton = app.buttons["Conversations"]
-            if conversationsButton.exists {
-                conversationsButton.tap()
-                
-                let conversationsTitle = app.staticTexts["Conversations"]
-                XCTAssertTrue(conversationsTitle.waitForExistence(timeout: 2), "Conversations list should open")
-            }
+            // On iPhone the list is the split view's sidebar, reached with Back.
+            let backToConversations = backButton(to: "Conversations")
+            XCTAssertTrue(backToConversations.waitForExistence(timeout: 2), "Back to Conversations should exist")
+            backToConversations.tap()
+
+            let searchField = app.textFields["Search conversations..."]
+            XCTAssertTrue(searchField.waitForExistence(timeout: 2), "Conversations list should open")
         }
     }
     
@@ -182,14 +181,13 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
                 XCTAssertTrue(searchField.value as? String == "test", "Search field should contain typed text")
             }
         } else {
-            // Open conversations list first
-            let conversationsButton = app.buttons["Conversations"]
-            if conversationsButton.exists {
-                conversationsButton.tap()
-                
-                let searchField = app.textFields["Search conversations..."]
-                XCTAssertTrue(searchField.waitForExistence(timeout: 2), "Search field should exist in conversations list")
-            }
+            // Open conversations list first: it is the split view's sidebar, reached with Back.
+            let backToConversations = backButton(to: "Conversations")
+            XCTAssertTrue(backToConversations.waitForExistence(timeout: 2), "Back to Conversations should exist")
+            backToConversations.tap()
+
+            let searchField = app.textFields["Search conversations..."]
+            XCTAssertTrue(searchField.waitForExistence(timeout: 2), "Search field should exist in conversations list")
         }
     }
     
@@ -306,23 +304,15 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
     private func startNewConversationAndWait() {
         navigateToChat()
         
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            // On iPad, use the + button in sidebar
-            let newConversationButton = app.buttons.matching(identifier: "plus").firstMatch
-            if newConversationButton.exists {
-                newConversationButton.tap()
-            }
+        // The chat column's New Chat toolbar item exists at every width; the empty
+        // state's button is the more natural tap when it is showing.
+        let startButton = app.buttons["Start New Conversation"]
+        if startButton.exists {
+            startButton.tap()
         } else {
-            // On iPhone, use the start button or new chat button
-            let startButton = app.buttons["Start New Conversation"]
-            if startButton.exists {
-                startButton.tap()
-            } else {
-                let newChatButton = app.buttons["New Chat"]
-                if newChatButton.exists {
-                    newChatButton.tap()
-                }
-            }
+            let newChatButton = app.buttons["chat.newConversation"]
+            XCTAssertTrue(newChatButton.waitForExistence(timeout: 2), "New Chat should be in the toolbar")
+            newChatButton.tap()
         }
         
         // Wait for message input to appear

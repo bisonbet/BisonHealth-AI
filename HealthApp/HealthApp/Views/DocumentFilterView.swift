@@ -115,14 +115,14 @@ struct DocumentFilterView: View {
             .navigationTitle("Filter & Sort")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Clear All") {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear All", systemImage: "arrow.counterclockwise") {
                         documentManager.clearAllFilters()
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", systemImage: "checkmark") {
                         dismiss()
                     }
                     .fontWeight(.semibold)

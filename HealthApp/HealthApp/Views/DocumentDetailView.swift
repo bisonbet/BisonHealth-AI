@@ -77,43 +77,39 @@ struct DocumentDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if showsCloseButton {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Close") {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close", systemImage: "xmark") {
                             dismiss()
                         }
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("Share", systemImage: "square.and.arrow.up") {
-                            // Files are encrypted at rest — decrypt to a temp
-                            // copy before handing anything to the share sheet.
-                            Task {
-                                do {
-                                    let data = try FileSystemManager.shared.retrieveDocument(from: document.filePath)
-                                    let tempURL = FileManager.default.temporaryDirectory
-                                        .appendingPathComponent("share_\(UUID().uuidString)_\(document.fileName)")
-                                    try data.write(to: tempURL)
-                                    shareURL = tempURL
-                                    showingShareSheet = true
-                                } catch {
-                                    actionError = "Could not prepare the document for sharing: \(error.localizedDescription)"
-                                }
+                OverflowToolbarMenu {
+                    Button("Share", systemImage: "square.and.arrow.up") {
+                        // Files are encrypted at rest — decrypt to a temp
+                        // copy before handing anything to the share sheet.
+                        Task {
+                            do {
+                                let data = try FileSystemManager.shared.retrieveDocument(from: document.filePath)
+                                let tempURL = FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("share_\(UUID().uuidString)_\(document.fileName)")
+                                try data.write(to: tempURL)
+                                shareURL = tempURL
+                                showingShareSheet = true
+                            } catch {
+                                actionError = "Could not prepare the document for sharing: \(error.localizedDescription)"
                             }
                         }
-                        
-                        Button("Quick Look", systemImage: "eye") {
-                            showingQuickLook = true
-                        }
-                        
-                        Divider()
-                        
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            showingDeleteAlert = true
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                    }
+                    
+                    Button("Quick Look", systemImage: "eye") {
+                        showingQuickLook = true
+                    }
+                    
+                    Divider()
+                    
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        showingDeleteAlert = true
                     }
                 }
             }
@@ -796,14 +792,14 @@ struct TagEditorSheet: View {
             .navigationTitle("Edit Tags")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         isPresented = false
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") {
                         Task {
                             // Update document tags
                             for tag in tags {
@@ -852,14 +848,14 @@ struct NotesEditorSheet: View {
             .navigationTitle("Edit Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") {
                         isPresented = false
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", systemImage: "checkmark") {
                         Task {
                             await documentManager.updateDocumentNotes(
                                 document.id,

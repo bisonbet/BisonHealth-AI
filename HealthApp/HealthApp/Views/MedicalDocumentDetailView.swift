@@ -29,25 +29,21 @@ struct MedicalDocumentDetailView: View {
             .navigationTitle(viewModel.document.fileName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", systemImage: "xmark") {
                         dismiss()
                     }
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("Share", systemImage: "square.and.arrow.up") {
-                            // Share functionality
-                        }
+                OverflowToolbarMenu {
+                    Button("Share", systemImage: "square.and.arrow.up") {
+                        // Share functionality
+                    }
 
-                        Divider()
+                    Divider()
 
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            showingDeleteConfirmation = true
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                    Button("Delete", systemImage: "trash", role: .destructive) {
+                        showingDeleteConfirmation = true
                     }
                 }
             }

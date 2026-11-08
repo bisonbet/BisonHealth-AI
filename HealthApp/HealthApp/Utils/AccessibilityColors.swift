@@ -91,13 +91,6 @@ struct BisonTheme {
         )
     }
 
-    static var selectedSidebarItem: Color {
-        Color.adaptive(
-            light: Color.white.opacity(0.92),
-            dark: Color(red: 0.19, green: 0.17, blue: 0.14)
-        )
-    }
-
     static var primaryText: Color {
         Color.primary
     }
