@@ -124,6 +124,7 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
         let conversations = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'New Conversation,'"))
         XCTAssertEqual(conversations.count, 1)
 
+        waitForMessageInputFocus()
         // Cmd+N is New Chat's shortcut.
         app.typeKey("n", modifierFlags: .command)
         XCTAssertTrue(
@@ -139,6 +140,7 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
 
         startNewConversationAndWait()
 
+        waitForMessageInputFocus()
         // Cmd+Shift+H opens the conversation's health data context.
         app.typeKey("h", modifierFlags: [.command, .shift])
         XCTAssertTrue(screenTitle("AI Context").waitForExistence(timeout: 3), "Context selector should open with Cmd+Shift+H")
@@ -290,6 +292,18 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
 
     private var messageInput: XCUIElement { app.textFields["chat.messageInput"] }
     private var sendButton: XCUIElement { app.buttons["chat.sendButton"] }
+
+    /// Hardware-keyboard shortcuts reach the app only once something in its window has
+    /// keyboard focus. A new conversation focuses the input shortly after it appears; a key
+    /// pressed before then goes nowhere, which is why these passed alone and failed when the
+    /// suite ran faster.
+    private func waitForMessageInputFocus() {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        let expectation = XCTNSPredicateExpectation(predicate: focused, object: messageInput)
+        if XCTWaiter.wait(for: [expectation], timeout: 5) != .completed {
+            messageInput.tap()
+        }
+    }
 
     private func send(_ text: String) {
         messageInput.tap()

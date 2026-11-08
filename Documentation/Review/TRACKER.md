@@ -335,7 +335,7 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     device: No; age rating for medical/treatment information; category) and a hosted
     privacy-policy/support URL (WS-13-10, WS-13-13).
 
-16. ~~**W-R**~~ — **revived 2026-11-01, partly.** The six orphaned files (113 tests) are
+16. ~~**W-R**~~ — **done 2026-11-08: no skip list left.** Revived 2026-11-01, partly. The six orphaned files (113 tests) are
     back in `HealthAppUITests` on a shared `HealthAppUITestCase`, which launches in UI-test
     mode (`--ui-testing --reset-test-data …`) instead of the real container and knows the
     current navigation: tabs on iPhone, sidebar on iPad, Health → Documents segment, and the
@@ -353,9 +353,29 @@ privacy copy are genuinely fixed, at the specific sites rather than from this fi
     system alert over the tab bar (skipped in UI-test mode — the launch-time ask is itself
     WS-09-05-shaped and stays a beta follow-up).
 
-**Still open:** W-M (item 32, needs the app); the skipped UI tests (W-R above) — **44** in
-`PreRelease.xctestplan` as of 2026-11-07 (47 when W-R was written; #56 revived three). #56
-merged on 2026-11-07, so the rewrite W-R was waiting on is unblocked.
+    **2026-11-08 — the remaining 44 rewritten, `skippedTests` deleted.** Every one now asserts
+    the current UI (Health/Prep/AI Chat/Settings sections, the Records/Documents segment, the
+    lab-results and personal-info editors' real identifiers, `chat.messageInput` /
+    `chat.sendButton`). None was deleted. What the rewrite found, beyond stale selectors:
+    - **Simulator state leaked into tests.** The units preference and the cloud-consent answer
+      live in UserDefaults, which `--reset-test-data` does not clear; a simulator left on
+      Imperial, or on a cloud provider with no consent, failed 9 tests. Both are now pinned
+      through the arguments domain in `HealthAppUITestCase` (and `RegressionSmokeUITests`).
+    - **Cmd+, / Cmd+Shift+H / Cmd+E never worked** — they sat on items inside the chat's
+      overflow menu, which SwiftUI registers only while the menu is open. Now also registered
+      on invisible background buttons.
+    - **Documents' Edit button is announced "Edit Documents" only in edit mode**, where it is
+      the Done button (identifier `checkmark`): VoiceOver users never hear "Done". Not fixed.
+    - The harness opens the iPad sidebar when it is collapsed (#59), and pins the Health
+      segment by identifier because iPad has other "Documents" controls.
+    - `testIPadOrientationSupport` expected a tab bar in landscape; it now checks navigation
+      is reachable. `testIPadContextSelector` tested a Cmd+K that never existed; it uses
+      Cmd+Shift+H.
+
+**Still open:** W-M (item 32, needs the app). From W-R: the two iPad hardware-keyboard tests
+(`testIPadKeyboardShortcuts`, `testIPadContextSelector`) pass alone but have failed in full
+runs — unresolved whether that is the test or the simulator's keyboard mode; and no clean
+full iPad run exists yet (see the verification facts below).
 
 ### Serialise these
 
@@ -369,7 +389,14 @@ start. `MLXOnDeviceClient.swift` by W-E and W-T (**both done**).
 
 - **428 tests, 0 failures** in the `Fast` plan, measured 2026-11-01 on
   `fix/beta-backlog-seams-ui-tests` (the W-K seams and triage fixes added 24).
-- **UI tests: 56 pass, 59 skipped (12 by the tests themselves, 47 in the plan), 0 fail** on
+- **UI tests, 2026-11-08, no skip list: iPhone 17 Pro (iOS 26.5) 116 run — 104 pass,
+  12 skip themselves (iPad-only), 0 fail.** iPad Pro 11-inch (M5): 116 run — 109 pass,
+  7 fail. Five of the seven were "Test crashed with signal term": another project's test
+  script on this Mac ran `xcrun simctl shutdown all` before each of its runs, killing these
+  simulators mid-test. Re-run with retries, three of those five passed and two were killed
+  again. The other two are the keyboard-shortcut tests above. **A clean full iPad run is
+  still owed** — run it when no other simulator work is happening on the machine.
+- Previously (2026-11-01): **UI tests: 56 pass, 59 skipped (12 by the tests themselves, 47 in the plan), 0 fail** on
   iPhone 17 / iOS 26.5, derived from the unskipped run (56 pass / 47 fail / 12 skip) — the
   run with the plan's skip list in place was not repeated on iPhone. **iPad Pro 11-inch (M5)
   with the skip list: 52 pass, 16 fail, and 0 reported skipped — so whether the plan's
