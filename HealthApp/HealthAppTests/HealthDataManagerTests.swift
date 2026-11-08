@@ -124,6 +124,44 @@ final class HealthDataManagerTests: XCTestCase {
         XCTAssertEqual(merged.map(\.id), [stored.id], "The stored reading wins inside the conflict window")
     }
 
+    /// HealthKit recomputes a night's totals from its current samples each sync; stages can
+    /// arrive after the first one. A night it imported earlier must be refreshed, while a
+    /// night the user entered by hand is kept.
+    func testHealthKitSleepMergeRefreshesImportedNightsButKeepsManualOnes() {
+        let calendar = Calendar(identifier: .gregorian)
+        let monday = Date(timeIntervalSince1970: 1_800_000_000)
+        let tuesday = monday.addingTimeInterval(86_400)
+        func night(_ date: Date, _ minutes: Int, _ source: VitalSource) -> SleepData {
+            SleepData(date: date, startTime: date, endTime: date.addingTimeInterval(Double(minutes) * 60),
+                      totalSleepMinutes: minutes, source: source)
+        }
+        let importedMonday = night(monday, 300, .appleHealth)
+        let manualTuesday = night(tuesday, 480, .manual)
+        let refreshedMonday = night(monday, 420, .appleHealth)
+        let healthKitTuesday = night(tuesday, 200, .appleHealth)
+
+        let merged = HealthDataManager.mergeSleepData(
+            stored: [importedMonday, manualTuesday],
+            healthKit: [refreshedMonday, healthKitTuesday],
+            limit: 7,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(merged.map(\.id), [manualTuesday.id, refreshedMonday.id])
+    }
+
+    func testHealthKitMergeRefreshesAnImportedReading() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let imported = VitalReading(value: 98, unit: "%", timestamp: base, source: .appleHealth)
+        let refreshed = VitalReading(value: 97, unit: "%", timestamp: base, source: .appleHealth)
+
+        let merged = HealthDataManager.mergeVitalReadings(
+            stored: [imported], healthKit: [refreshed], limit: 7, conflictInterval: 300
+        )
+
+        XCTAssertEqual(merged.map(\.id), [refreshed.id])
+    }
+
     func testWeightReadingIsConvertedFromItsOwnUnit() {
         let kilograms = VitalReading(value: 70, unit: "kg", timestamp: Date(), source: .manual)
         let pounds = VitalReading(value: 154.3, unit: "lbs", timestamp: Date(), source: .manual)

@@ -462,8 +462,13 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertEqual(parts.month, 1)
         XCTAssertEqual(parts.day, 15, "A bare date must not shift to the previous day")
 
-        XCTAssertNotNil(MedicalDocumentExtractor.parseDocumentDate("2026-01-15T09:30:00Z"))
+        // A full timestamp keeps its own time and zone; it is not cut back to a bare date.
+        XCTAssertEqual(
+            MedicalDocumentExtractor.parseDocumentDate("2026-01-15T01:30:00Z"),
+            Date(timeIntervalSince1970: 1_768_440_600)
+        )
         XCTAssertNil(MedicalDocumentExtractor.parseDocumentDate("not a date"))
+        XCTAssertNil(MedicalDocumentExtractor.parseDocumentDate("2026-01-15 trailing"))
     }
 
     /// A portrait iPhone photo stores landscape pixels plus an EXIF "rotate" flag.
