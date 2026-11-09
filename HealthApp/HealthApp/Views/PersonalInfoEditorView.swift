@@ -179,6 +179,13 @@ struct PersonalInfoEditorView: View {
                                 .font(.headline)
                             Spacer()
                             Button(showHeightTextInput ? "Use Picker" : "Type Value") {
+                                if showHeightTextInput {
+                                    // Leaving typing mode: apply what was typed so the wheel
+                                    // shows it, and drop the text so a later Save cannot
+                                    // overwrite a value chosen on the wheel with it.
+                                    commitHeightText()
+                                    heightTextInput = ""
+                                }
                                 // Dismiss keyboard before switching input modes
                                 focusedField = nil
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -201,33 +208,7 @@ struct PersonalInfoEditorView: View {
                                         focusedField = .heightText
                                     }
                                 }
-                                .onSubmit {
-                                    if let value = Double(heightTextInput), value > 0 {
-                                        if useImperialUnits {
-                                            // Validate range (3'0" to 8'11")
-                                            if value >= 3.0 && value <= 8.95 {
-                                                let totalInches = value * 12
-                                                heightFeet = Int(value)
-                                                heightInches = Int((value - Double(heightFeet)) * 12)
-                                                heightCentimeters = totalInches * 2.54
-                                                updateHeight()
-                                                heightTextInput = ""
-                                                focusedField = nil
-                                            }
-                                        } else {
-                                            // Validate range (100cm to 220cm)
-                                            if value >= 100 && value <= 220 {
-                                                heightCentimeters = value
-                                                let totalInches = value / 2.54
-                                                heightFeet = Int(totalInches / 12)
-                                                heightInches = Int(totalInches.truncatingRemainder(dividingBy: 12))
-                                                updateHeight()
-                                                heightTextInput = ""
-                                                focusedField = nil
-                                            }
-                                        }
-                                    }
-                                }
+                                .onSubmit { commitHeightText() }
                         } else {
                             if useImperialUnits {
                                 HStack {
@@ -291,6 +272,13 @@ struct PersonalInfoEditorView: View {
                                 .font(.headline)
                             Spacer()
                             Button(showWeightTextInput ? "Use Picker" : "Type Value") {
+                                if showWeightTextInput {
+                                    // Leaving typing mode: apply what was typed so the wheel
+                                    // shows it, and drop the text so a later Save cannot
+                                    // overwrite a value chosen on the wheel with it.
+                                    commitWeightText()
+                                    weightTextInput = ""
+                                }
                                 // Dismiss keyboard before switching input modes
                                 focusedField = nil
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -313,29 +301,7 @@ struct PersonalInfoEditorView: View {
                                         focusedField = .weightText
                                     }
                                 }
-                                .onSubmit {
-                                    if let value = Double(weightTextInput), value > 0 {
-                                        if useImperialUnits {
-                                            // Validate range (80lbs to 400lbs)
-                                            if value >= 80 && value <= 400 {
-                                                weightPounds = value
-                                                weightKilograms = value / 2.20462
-                                                updateWeight()
-                                                weightTextInput = ""
-                                                focusedField = nil
-                                            }
-                                        } else {
-                                            // Validate range (35kg to 180kg)
-                                            if value >= 35 && value <= 180 {
-                                                weightKilograms = value
-                                                weightPounds = value * 2.20462
-                                                updateWeight()
-                                                weightTextInput = ""
-                                                focusedField = nil
-                                            }
-                                        }
-                                    }
-                                }
+                                .onSubmit { commitWeightText() }
                         } else {
                             if useImperialUnits {
                                 Picker("Weight", selection: Binding(
@@ -421,17 +387,90 @@ struct PersonalInfoEditorView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", systemImage: "checkmark") {
+                        commitPendingMeasurements()
                         onSave(editedInfo)
                         dismiss()
                     }
                     .disabled(!isFormValid)
                     .accessibilityIdentifier("personalInfo.saveButton")
                 }
+
+                // `.decimalPad` has no Return key on iPhone, so without this a typed height
+                // or weight could never be submitted, and the keyboard never dismissed.
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        commitHeightText()
+                        commitWeightText()
+                        focusedField = nil
+                    }
+                    .accessibilityIdentifier("personalInfo.keyboardDone")
+                }
             }
         }
     }
     
     // MARK: - Helper Functions
+
+    /// Applies everything the user has entered but not yet committed, before a save.
+    ///
+    /// A typed height or weight was applied only by `onSubmit`, which the decimal pad cannot
+    /// trigger, and a wheel change only after a 0.15 s debounce, so tapping Save could drop
+    /// either one.
+    private func commitPendingMeasurements() {
+        // Only a field that is showing can hold the user's latest entry; in picker mode the
+        // wheel is the value.
+        if showHeightTextInput { commitHeightText() }
+        if showWeightTextInput { commitWeightText() }
+        if let pending = heightUpdateWorkItem, !pending.isCancelled {
+            pending.cancel()
+            updateHeight()
+        }
+        if let pending = weightUpdateWorkItem, !pending.isCancelled {
+            pending.cancel()
+            updateWeight()
+        }
+    }
+
+    private func commitHeightText() {
+        guard let value = Double(heightTextInput), value > 0 else { return }
+        if useImperialUnits {
+            // Validate range (3'0" to 8'11")
+            guard value >= 3.0 && value <= 8.95 else { return }
+            let totalInches = value * 12
+            heightFeet = Int(value)
+            heightInches = Int((value - Double(heightFeet)) * 12)
+            heightCentimeters = totalInches * 2.54
+        } else {
+            // Validate range (100cm to 220cm)
+            guard value >= 100 && value <= 220 else { return }
+            heightCentimeters = value
+            let totalInches = value / 2.54
+            heightFeet = Int(totalInches / 12)
+            heightInches = Int(totalInches.truncatingRemainder(dividingBy: 12))
+        }
+        updateHeight()
+        heightTextInput = ""
+        focusedField = nil
+    }
+
+    private func commitWeightText() {
+        guard let value = Double(weightTextInput), value > 0 else { return }
+        if useImperialUnits {
+            // Validate range (80lbs to 400lbs)
+            guard value >= 80 && value <= 400 else { return }
+            weightPounds = value
+            weightKilograms = value / 2.20462
+        } else {
+            // Validate range (35kg to 180kg)
+            guard value >= 35 && value <= 180 else { return }
+            weightKilograms = value
+            weightPounds = value * 2.20462
+        }
+        updateWeight()
+        weightTextInput = ""
+        focusedField = nil
+    }
     
     private func updateHeight() {
         if useImperialUnits {
@@ -592,9 +631,16 @@ struct AllergiesEditorView: View {
     var body: some View {
         List {
             Section {
-                ForEach(allergies.indices, id: \.self) {
-                    index in
-                    TextField("Allergy", text: $allergies[index])
+                // Not `$allergies[index]`: after a delete SwiftUI can evaluate the removed
+                // row's binding once more, and subscripting past the end traps. Not seen on
+                // iOS 26.5, but the bounds-checked binding costs nothing.
+                ForEach(Array(allergies.enumerated()), id: \.offset) { index, _ in
+                    TextField("Allergy", text: Binding(
+                        get: { allergies.indices.contains(index) ? allergies[index] : "" },
+                        set: { newValue in
+                            if allergies.indices.contains(index) { allergies[index] = newValue }
+                        }
+                    ))
                 }
                 .onDelete { indexSet in
                     allergies.remove(atOffsets: indexSet)

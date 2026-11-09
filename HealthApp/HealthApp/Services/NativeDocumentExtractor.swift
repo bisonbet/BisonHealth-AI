@@ -5,6 +5,7 @@ import UIKit
 import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import ImageIO
 
 // MARK: - Native Document Extractor
 /// On-device document text extraction using Apple frameworks (PDFKit + Vision).
@@ -404,6 +405,36 @@ class NativeDocumentExtractor {
 
     // MARK: - Image Extraction
 
+    /// Decodes image data with its EXIF orientation applied to the pixels.
+    ///
+    /// Not `UIImage(data:).cgImage`: a UIImage keeps the orientation as a flag beside the
+    /// pixels, and `cgImage` is the raw sensor-oriented bitmap. A portrait iPhone photo
+    /// (orientation `.right`) reached Vision and the VLM lying on its side, which read table
+    /// rows as columns.
+    static func uprightCGImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let width = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
+        var options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+        // Full size: a "thumbnail" no smaller than the image is the image, upright. Only when
+        // the size is known: a missing size must not become a 1×1 limit, and without the key
+        // ImageIO does not limit the thumbnail at all.
+        let longestEdge = max(width, height)
+        if longestEdge > 0 {
+            options[kCGImageSourceThumbnailMaxPixelSize] = longestEdge
+        }
+        if let upright = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+            return upright
+        }
+        // Unrotated beats nothing: OCR can still read a sideways page, if less well.
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
     private func extractFromImage(at url: URL) async throws -> ExtractionResult {
         guard let imageData = try? Data(contentsOf: url) else {
             throw NativeExtractionError.fileNotFound(url.path)
@@ -412,8 +443,7 @@ class NativeDocumentExtractor {
     }
 
     private func extractFromImageData(_ data: Data, fileName: String) async throws -> ExtractionResult {
-        guard let uiImage = UIImage(data: data),
-              let rawCGImage = uiImage.cgImage else {
+        guard let rawCGImage = Self.uprightCGImage(from: data) else {
             AppLog.shared.documents("Could not create UIImage/CGImage from data (\(data.count) bytes) for '\(fileName)'", level: .error)
             throw NativeExtractionError.ocrFailed("Could not create image from data")
         }
@@ -739,7 +769,7 @@ class NativeDocumentExtractor {
             return PageImageSource(totalPageCount: 1, renderedPageCount: pageCount) { index in
                 guard index == 0 else { return nil }
                 return try autoreleasepool {
-                    guard let uiImage = UIImage(data: data), let cgImage = uiImage.cgImage else {
+                    guard let cgImage = Self.uprightCGImage(from: data) else {
                         throw NativeExtractionError.ocrFailed("Could not create image from data")
                     }
                     return self.jpegPageImage(from: cgImage, pageNumber: 1, maxLongEdge: maxLongEdge)

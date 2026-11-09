@@ -210,7 +210,9 @@ class AIChatManager: ObservableObject {
         }
         #endif
 
-        guard !isOffline else {
+        // Not `isOffline`: the on-device model needs no network, so airplane mode must not
+        // mark it disconnected (the composer already uses `isBlockedByNetwork`).
+        guard !isBlockedByNetwork else {
             isConnected = false
             return
         }
@@ -521,7 +523,7 @@ class AIChatManager: ObservableObject {
             throw AIChatError.messageInFlight
         }
 
-        guard !isOffline else {
+        guard !isBlockedByNetwork else {
             throw AIChatError.notConnected
         }
 

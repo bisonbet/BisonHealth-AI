@@ -124,11 +124,9 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
         let conversations = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'New Conversation,'"))
         XCTAssertEqual(conversations.count, 1)
 
-        waitForMessageInputFocus()
         // Cmd+N is New Chat's shortcut.
-        app.typeKey("n", modifierFlags: .command)
         XCTAssertTrue(
-            conversations.element(boundBy: 1).waitForExistence(timeout: 8),
+            pressShortcut("n", .command, until: conversations.element(boundBy: 1)),
             "Cmd+N should start a second conversation"
         )
     }
@@ -140,10 +138,11 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
 
         startNewConversationAndWait()
 
-        waitForMessageInputFocus()
         // Cmd+Shift+H opens the conversation's health data context.
-        app.typeKey("h", modifierFlags: [.command, .shift])
-        XCTAssertTrue(screenTitle("AI Context").waitForExistence(timeout: 3), "Context selector should open with Cmd+Shift+H")
+        XCTAssertTrue(
+            pressShortcut("h", [.command, .shift], until: screenTitle("AI Context")),
+            "Context selector should open with Cmd+Shift+H"
+        )
     }
     
     // MARK: - Conversation Management Tests
@@ -292,6 +291,29 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
 
     private var messageInput: XCUIElement { app.textFields["chat.messageInput"] }
     private var sendButton: XCUIElement { app.buttons["chat.sendButton"] }
+
+    /// Presses a hardware-keyboard shortcut and waits for `result`.
+    ///
+    /// With the simulator's on-screen keyboard up, XCUITest sometimes delivers the key to the
+    /// focused text field with the modifier dropped: Cmd+N arrives as a typed "N" and the
+    /// shortcut never fires. When that happens the stray text is cleared and the shortcut
+    /// pressed again. It still fails if the shortcut never works.
+    private func pressShortcut(
+        _ key: String,
+        _ modifiers: XCUIElement.KeyModifierFlags,
+        until result: XCUIElement
+    ) -> Bool {
+        for _ in 0..<3 {
+            waitForMessageInputFocus()
+            app.typeKey(key, modifierFlags: modifiers)
+            if result.waitForExistence(timeout: 5) { return true }
+            let stray = (messageInput.value as? String) ?? ""
+            if !stray.isEmpty, stray != messageInput.placeholderValue {
+                messageInput.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: stray.count))
+            }
+        }
+        return false
+    }
 
     /// Hardware-keyboard shortcuts reach the app only once something in its window has
     /// keyboard focus. A new conversation focuses the input shortly after it appears; a key

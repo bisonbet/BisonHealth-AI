@@ -697,9 +697,7 @@ class HealthDataManager: ObservableObject {
 
             // Update weight property with the most recent reading using Measurement API
             if let mostRecentWeight = info.weightReadings.first {
-                // Use Foundation's Measurement API for accurate unit conversion
-                let weightInPounds = Measurement(value: mostRecentWeight.value, unit: UnitMass.pounds)
-                info.weight = weightInPounds.converted(to: .kilograms)
+                info.weight = Self.weightMeasurement(of: mostRecentWeight).converted(to: .kilograms)
             }
 
             // Merge vitals (prioritize manual, then fill with HealthKit data)
@@ -747,93 +745,114 @@ class HealthDataManager: ObservableObject {
         try await savePersonalInfo(info)
     }
 
-    /// Merge vital readings, prioritizing manual entries over HealthKit data
+    /// A weight reading as a `Measurement`, read in the unit it was stored with. Every writer
+    /// stores pounds today, but `info.weight` is kilograms and a reading in kg read as pounds
+    /// would silently shrink it by more than half.
+    nonisolated static func weightMeasurement(of reading: VitalReading) -> Measurement<UnitMass> {
+        switch reading.unit.lowercased() {
+        case "kg", "kgs", "kilogram", "kilograms":
+            return Measurement(value: reading.value, unit: .kilograms)
+        default:
+            return Measurement(value: reading.value, unit: .pounds)
+        }
+    }
+
+    /// Merge stored vital readings with a fresh HealthKit batch.
     ///
-    /// This method implements a smart merging strategy to prevent data loss while avoiding duplicates:
-    /// 1. Manual entries are always preserved (user's explicit input takes precedence)
-    /// 2. HealthKit entries are added only if they don't conflict with manual entries
-    /// 3. Conflict detection uses a 5-minute time window (manualEntryConflictInterval)
-    /// 4. Results are sorted by timestamp (most recent first) and limited to the specified count
+    /// For each HealthKit reading, the stored reading within `conflictInterval` of it decides:
+    /// - a `.manual` one wins — the user's own entry, or their correction of Apple's;
+    /// - any other is replaced by the fresh reading, so a re-sync refreshes what it brought in;
+    /// - with neither, the reading is added.
     ///
-    /// Example:
-    /// - Manual entry at 10:00 AM prevents HealthKit entries from 9:57:30 AM to 10:02:30 AM
-    /// - This ensures user-corrected readings override automatic Apple Health data
-    ///
-    /// - Parameters:
-    ///   - manual: Array of manually entered vital readings
-    ///   - healthKit: Array of vital readings from Apple Health sync
-    ///   - limit: Maximum number of readings to return (typically 7)
-    /// - Returns: Merged array with most recent readings, prioritizing manual entries
+    /// Stored readings the batch does not touch are kept. This used to keep only `.manual`
+    /// ones and rebuild the rest from the batch, which deleted readings typed in with the entry
+    /// screen's "Apple Health" source, and any history the batch no longer reached.
+    /// The result is sorted most recent first and cut to `limit`.
     private func mergeVitalReadings(
         manual: [VitalReading],
         healthKit: [VitalReading],
         limit: Int
     ) -> [VitalReading] {
-        // Start with manual entries (these are sacrosanct - never discard user input)
-        var merged = manual.filter { $0.source == .manual }
+        Self.mergeVitalReadings(stored: manual, healthKit: healthKit, limit: limit, conflictInterval: manualEntryConflictInterval)
+    }
 
-        // Add HealthKit entries that don't conflict with manual entries (by date)
-        for hkReading in healthKit {
-            // Check if there's a manual entry within the conflict window (5 minutes)
-            // This prevents duplicate entries when user manually entered what HealthKit also has
-            let hasManualConflict = merged.contains { manualReading in
-                abs(manualReading.timestamp.timeIntervalSince(hkReading.timestamp)) < manualEntryConflictInterval
-            }
-
-            if !hasManualConflict {
-                merged.append(hkReading)
-            }
+    nonisolated static func mergeVitalReadings(
+        stored: [VitalReading],
+        healthKit: [VitalReading],
+        limit: Int,
+        conflictInterval: TimeInterval
+    ) -> [VitalReading] {
+        // Newest first, which `mergeKeepingManual` relies on to keep a cluster's newest reading.
+        // HealthKitManager already queries that way; sorting here makes it a guarantee.
+        let newestFirst = healthKit.sorted { $0.timestamp > $1.timestamp }
+        let merged = mergeKeepingManual(stored: stored, healthKit: newestFirst, source: \.source) { existing, fresh in
+            abs(existing.timestamp.timeIntervalSince(fresh.timestamp)) < conflictInterval
         }
-
-        // Sort by timestamp (most recent first) and limit to 'limit' readings
-        // This ensures we keep the most relevant recent data while honoring the storage limit
         return Array(merged.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
     }
 
-    /// Merge sleep data, prioritizing manual entries over HealthKit data
+    /// The rule both merges share: a stored `.manual` entry beats the fresh one, any other
+    /// matching stored entry is replaced by it, and an unmatched fresh entry is added.
     ///
-    /// Sleep data merging uses same-day conflict detection instead of time windows:
-    /// 1. Manual sleep entries are preserved (user-entered sleep logs take precedence)
-    /// 2. HealthKit sleep data is added only if no manual entry exists for that calendar day
-    /// 3. Conflict detection checks if dates fall on the same calendar day
-    /// 4. Results are sorted by date (most recent first) and limited to the specified count
+    /// Only entries that were stored before this sync can be replaced. `healthKit` must be
+    /// newest first (both callers sort it), so within a cluster of fresh readings the first
+    /// one accepted is the newest; letting a later (older) sample from the same batch replace it left only
+    /// the oldest reading of every cluster.
+    nonisolated private static func mergeKeepingManual<Entry>(
+        stored: [Entry],
+        healthKit: [Entry],
+        source: KeyPath<Entry, VitalSource>,
+        matches: (Entry, Entry) -> Bool
+    ) -> [Entry] {
+        var merged = stored
+        var fromThisBatch = Array(repeating: false, count: stored.count)
+        for fresh in healthKit {
+            let matching = merged.indices.filter { matches(merged[$0], fresh) }
+            let keepExisting = matching.contains {
+                fromThisBatch[$0] || merged[$0][keyPath: source] == .manual
+            }
+            if keepExisting {
+                continue
+            }
+            if let first = matching.first {
+                merged[first] = fresh
+                fromThisBatch[first] = true
+                for index in matching.dropFirst().reversed() {
+                    merged.remove(at: index)
+                    fromThisBatch.remove(at: index)
+                }
+            } else {
+                merged.append(fresh)
+                fromThisBatch.append(true)
+            }
+        }
+        return merged
+    }
+
+    /// Merge stored sleep nights with a fresh HealthKit batch, one night per calendar day.
     ///
-    /// Rationale for same-day detection:
-    /// - Sleep sessions typically span a single night (even if crossing midnight)
-    /// - Users won't manually enter multiple sleep sessions for the same night
-    /// - Time-window detection (like vitals) isn't appropriate for multi-hour events
-    ///
-    /// Example:
-    /// - Manual entry for March 15, 2024 prevents HealthKit entries for same date
-    /// - This ensures user corrections (e.g., adjusted wake time) override Apple Watch data
-    ///
-    /// - Parameters:
-    ///   - manual: Array of manually entered sleep data
-    ///   - healthKit: Array of sleep data from Apple Health sync
-    ///   - limit: Maximum number of nights to return (typically 7)
-    /// - Returns: Merged array with most recent sleep nights, prioritizing manual entries
+    /// Same rule as the vitals: a `.manual` night for that day wins; a night HealthKit
+    /// brought in earlier is replaced, because its totals and stages are recomputed from the
+    /// current samples each sync (stages can arrive after the first one); otherwise the fresh
+    /// night is added. Stored nights the batch does not cover are kept.
     private func mergeSleepData(
         manual: [SleepData],
         healthKit: [SleepData],
         limit: Int
     ) -> [SleepData] {
-        // Start with manual entries (preserve user's explicit sleep logs)
-        var merged = manual.filter { $0.source == .manual }
+        Self.mergeSleepData(stored: manual, healthKit: healthKit, limit: limit)
+    }
 
-        // Add HealthKit entries that don't conflict with manual entries (by calendar date)
-        for hkSleep in healthKit {
-            // Check if there's a manual entry for the same calendar day
-            // Uses same-day check since sleep sessions represent a single night
-            let hasManualConflict = merged.contains { manualSleep in
-                Calendar.current.isDate(manualSleep.date, inSameDayAs: hkSleep.date)
-            }
-
-            if !hasManualConflict {
-                merged.append(hkSleep)
-            }
+    nonisolated static func mergeSleepData(
+        stored: [SleepData],
+        healthKit: [SleepData],
+        limit: Int,
+        calendar: Calendar = .current
+    ) -> [SleepData] {
+        let newestFirst = healthKit.sorted { $0.date > $1.date }
+        let merged = mergeKeepingManual(stored: stored, healthKit: newestFirst, source: \.source) { existing, fresh in
+            calendar.isDate(existing.date, inSameDayAs: fresh.date)
         }
-
-        // Sort by date (most recent first) and limit to 'limit' nights
         return Array(merged.sorted { $0.date > $1.date }.prefix(limit))
     }
 }

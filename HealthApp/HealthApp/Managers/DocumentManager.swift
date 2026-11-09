@@ -356,32 +356,38 @@ class DocumentManager: ObservableObject {
     }
     
     func addTagToDocument(_ documentId: UUID, tag: String) async {
-        guard let index = documents.firstIndex(where: { $0.id == documentId }) else { return }
-        
-        var document = documents[index]
-        document.addTag(tag)
-        
-        await updateDocument(document)
+        await editDocument(documentId) { $0.addTag(tag) }
     }
-    
+
     func removeTagFromDocument(_ documentId: UUID, tag: String) async {
-        guard let index = documents.firstIndex(where: { $0.id == documentId }) else { return }
-        
-        var document = documents[index]
-        document.removeTag(tag)
-        
-        await updateDocument(document)
+        await editDocument(documentId) { $0.removeTag(tag) }
     }
-    
+
     func updateDocumentNotes(_ documentId: UUID, notes: String?) async {
-        guard let index = documents.firstIndex(where: { $0.id == documentId }) else { return }
-        
-        var document = documents[index]
-        document.notes = notes
-        
-        await updateDocument(document)
+        await editDocument(documentId) { $0.notes = notes }
     }
-    
+
+    /// Applies a user edit to the stored row and writes it back whole.
+    ///
+    /// Not `updateDocument`: its `saveDocument` merge keeps the old value whenever the new
+    /// one is nil or empty, so removing the last tag or clearing the notes came straight
+    /// back. The row is re-read first because `documents` can be older than the database
+    /// (extraction may have finished since), and `updateMedicalDocument` refuses a row with
+    /// columns it could not decrypt rather than overwriting them.
+    private func editDocument(_ documentId: UUID, _ change: (inout MedicalDocument) -> Void) async {
+        do {
+            guard var document = try await databaseManager.fetchMedicalDocument(id: documentId) else { return }
+            change(&document)
+            document.lastEditedAt = Date()
+            try await databaseManager.updateMedicalDocument(document)
+            if let index = documents.firstIndex(where: { $0.id == documentId }) {
+                documents[index] = document
+            }
+        } catch {
+            lastError = error
+        }
+    }
+
     @discardableResult
     func deleteDocument(_ document: MedicalDocument) async -> Bool {
         do {

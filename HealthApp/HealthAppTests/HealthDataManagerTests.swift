@@ -95,4 +95,104 @@ final class HealthDataManagerTests: XCTestCase {
         XCTAssertEqual(decoded.name, "Jane Doe")
         XCTAssertEqual(decoded.gender, .female)
     }
+
+    // MARK: - HealthKit merge
+
+    /// A reading typed in on the entry screen can carry the "Apple Health" source. The old
+    /// merge kept only `.manual` readings, so the next sync deleted it.
+    func testHealthKitMergeKeepsStoredNonManualReadings() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let typedAsAppleHealth = VitalReading(value: 72, unit: "bpm", timestamp: base, source: .appleHealth)
+        let fresh = VitalReading(value: 70, unit: "bpm", timestamp: base.addingTimeInterval(3600), source: .appleHealth)
+
+        let merged = HealthDataManager.mergeVitalReadings(
+            stored: [typedAsAppleHealth], healthKit: [fresh], limit: 7, conflictInterval: 300
+        )
+
+        XCTAssertEqual(merged.map(\.id), [fresh.id, typedAsAppleHealth.id])
+    }
+
+    func testHealthKitMergeDoesNotDuplicateAReadingItAlreadyHas() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let stored = VitalReading(value: 120, unit: "lbs", timestamp: base, source: .manual)
+        let sameMoment = VitalReading(value: 121, unit: "lbs", timestamp: base.addingTimeInterval(60), source: .appleHealth)
+
+        let merged = HealthDataManager.mergeVitalReadings(
+            stored: [stored], healthKit: [sameMoment], limit: 7, conflictInterval: 300
+        )
+
+        XCTAssertEqual(merged.map(\.id), [stored.id], "The stored reading wins inside the conflict window")
+    }
+
+    /// HealthKit recomputes a night's totals from its current samples each sync; stages can
+    /// arrive after the first one. A night it imported earlier must be refreshed, while a
+    /// night the user entered by hand is kept.
+    func testHealthKitSleepMergeRefreshesImportedNightsButKeepsManualOnes() {
+        let calendar = Calendar(identifier: .gregorian)
+        let monday = Date(timeIntervalSince1970: 1_800_000_000)
+        let tuesday = monday.addingTimeInterval(86_400)
+        func night(_ date: Date, _ minutes: Int, _ source: VitalSource) -> SleepData {
+            SleepData(date: date, startTime: date, endTime: date.addingTimeInterval(Double(minutes) * 60),
+                      totalSleepMinutes: minutes, source: source)
+        }
+        let importedMonday = night(monday, 300, .appleHealth)
+        let manualTuesday = night(tuesday, 480, .manual)
+        let refreshedMonday = night(monday, 420, .appleHealth)
+        let healthKitTuesday = night(tuesday, 200, .appleHealth)
+
+        let merged = HealthDataManager.mergeSleepData(
+            stored: [importedMonday, manualTuesday],
+            healthKit: [refreshedMonday, healthKitTuesday],
+            limit: 7,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(merged.map(\.id), [manualTuesday.id, refreshedMonday.id])
+    }
+
+    func testHealthKitMergeRefreshesAnImportedReading() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let imported = VitalReading(value: 98, unit: "%", timestamp: base, source: .appleHealth)
+        let refreshed = VitalReading(value: 97, unit: "%", timestamp: base, source: .appleHealth)
+
+        let merged = HealthDataManager.mergeVitalReadings(
+            stored: [imported], healthKit: [refreshed], limit: 7, conflictInterval: 300
+        )
+
+        XCTAssertEqual(merged.map(\.id), [refreshed.id])
+    }
+
+    /// HealthKit returns samples newest first. Readings minutes apart in one batch must leave
+    /// the newest, not let each older sample replace the one before it.
+    func testHealthKitMergeKeepsTheNewestReadingOfABatchCluster() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let at1002 = VitalReading(value: 80, unit: "bpm", timestamp: base.addingTimeInterval(120), source: .appleHealth)
+        let at1001 = VitalReading(value: 79, unit: "bpm", timestamp: base.addingTimeInterval(60), source: .appleHealth)
+        let at1000 = VitalReading(value: 78, unit: "bpm", timestamp: base, source: .appleHealth)
+        let storedAt1001 = VitalReading(value: 70, unit: "bpm", timestamp: base.addingTimeInterval(60), source: .appleHealth)
+
+        let fromEmpty = HealthDataManager.mergeVitalReadings(
+            stored: [], healthKit: [at1002, at1001, at1000], limit: 7, conflictInterval: 300
+        )
+        XCTAssertEqual(fromEmpty.map(\.id), [at1002.id])
+
+        let overStored = HealthDataManager.mergeVitalReadings(
+            stored: [storedAt1001], healthKit: [at1002, at1001, at1000], limit: 7, conflictInterval: 300
+        )
+        XCTAssertEqual(overStored.map(\.id), [at1002.id])
+
+        // Order is the merge's job, not the caller's: oldest-first input keeps the newest too.
+        let oldestFirst = HealthDataManager.mergeVitalReadings(
+            stored: [], healthKit: [at1000, at1001, at1002], limit: 7, conflictInterval: 300
+        )
+        XCTAssertEqual(oldestFirst.map(\.id), [at1002.id])
+    }
+
+    func testWeightReadingIsConvertedFromItsOwnUnit() {
+        let kilograms = VitalReading(value: 70, unit: "kg", timestamp: Date(), source: .manual)
+        let pounds = VitalReading(value: 154.3, unit: "lbs", timestamp: Date(), source: .manual)
+
+        XCTAssertEqual(HealthDataManager.weightMeasurement(of: kilograms).converted(to: .kilograms).value, 70, accuracy: 0.001)
+        XCTAssertEqual(HealthDataManager.weightMeasurement(of: pounds).converted(to: .kilograms).value, 70, accuracy: 0.05)
+    }
 }

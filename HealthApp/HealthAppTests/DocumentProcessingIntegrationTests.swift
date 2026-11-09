@@ -1,5 +1,7 @@
 import XCTest
+import SQLite
 import UIKit
+import ImageIO
 @testable import HealthApp
 
 @MainActor
@@ -447,6 +449,99 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         let persistedDocument = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
         XCTAssertNil(persistedDocument)
         XCTAssertFalse(documentManager.documents.contains { $0.id == document.id })
+    }
+
+    // MARK: - Extraction helpers
+
+    /// The extraction prompt asks for `YYYY-MM-DD`, which a default ISO8601DateFormatter
+    /// rejects, so every AI-supplied document date was dropped.
+    func testDocumentDateAcceptsADateWithoutATime() throws {
+        let parsed = try XCTUnwrap(MedicalDocumentExtractor.parseDocumentDate("2026-01-15"))
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: parsed)
+        XCTAssertEqual(parts.year, 2026)
+        XCTAssertEqual(parts.month, 1)
+        XCTAssertEqual(parts.day, 15, "A bare date must not shift to the previous day")
+
+        // A full timestamp keeps its own time and zone; it is not cut back to a bare date.
+        XCTAssertEqual(
+            MedicalDocumentExtractor.parseDocumentDate("2026-01-15T01:30:00Z"),
+            Date(timeIntervalSince1970: 1_768_440_600)
+        )
+        XCTAssertNil(MedicalDocumentExtractor.parseDocumentDate("not a date"))
+        XCTAssertNil(MedicalDocumentExtractor.parseDocumentDate("2026-01-15 trailing"))
+    }
+
+    /// A portrait iPhone photo stores landscape pixels plus an EXIF "rotate" flag.
+    /// `UIImage(data:).cgImage` dropped the flag, so OCR read the page sideways.
+    func testImageDecodingAppliesEXIFOrientation() throws {
+        let landscape = try XCTUnwrap(
+            UIGraphicsImageRenderer(size: CGSize(width: 40, height: 20)).image { context in
+                UIColor.white.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 40, height: 20))
+            }.cgImage
+        )
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil))
+        // 6 = rotate 90° clockwise to display, what the camera writes for portrait shots.
+        CGImageDestinationAddImage(destination, landscape, [kCGImagePropertyOrientation: 6] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let upright = try XCTUnwrap(NativeDocumentExtractor.uprightCGImage(from: data as Data))
+        XCTAssertLessThan(upright.width, upright.height, "The decoded image should be portrait")
+    }
+
+    /// Removing the last tag and clearing the notes went through `saveDocument`, whose
+    /// merge keeps the old value whenever the new one is empty or nil, so both came back.
+    func testRemovingLastTagAndClearingNotesPersist() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        var document = makeDocument(
+            named: "lab.pdf",
+            category: .labReport,
+            filePath: harness.rootURL.appendingPathComponent("lab.pdf")
+        )
+        document.tags = ["fasting"]
+        document.notes = "Bring to cardiology"
+        try await harness.databaseManager.saveMedicalDocument(document)
+
+        let documentManager = makeDocumentManager(for: harness)
+        await documentManager.loadDocuments()
+
+        await documentManager.removeTagFromDocument(document.id, tag: "fasting")
+        await documentManager.updateDocumentNotes(document.id, notes: nil)
+
+        XCTAssertNil(documentManager.lastError)
+        let persisted = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        XCTAssertEqual(persisted?.tags, [], "The removed tag must stay removed")
+        XCTAssertNil(persisted?.notes, "Cleared notes must stay cleared")
+    }
+
+    /// The library loads through `fetchDocuments()`. Its row builder was a second copy that
+    /// never recorded undecryptable columns, so those documents were not protected from a
+    /// full-row write over the ciphertext.
+    func testLibraryFetchFlagsUndecryptableColumns() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+
+        var document = makeDocument(
+            named: "lab.pdf",
+            category: .labReport,
+            filePath: harness.rootURL.appendingPathComponent("lab.pdf")
+        )
+        document.notes = "Readable for now"
+        try await harness.databaseManager.saveMedicalDocument(document)
+
+        // Ciphertext no key can open: valid Base64, not a valid sealed box.
+        let databaseManager = harness.databaseManager
+        try databaseManager.db?.run(
+            databaseManager.documentsTable
+                .filter(databaseManager.documentId == document.id.uuidString)
+                .update(databaseManager.documentNotes <- Data(repeating: 7, count: 48).base64EncodedString())
+        )
+
+        let fetched = try await databaseManager.fetchDocuments().first { $0.id == document.id }
+        XCTAssertEqual(fetched?.unreadableFields.contains(.notes), true)
     }
 
     func testDeletingGeneticTestStillRemovesRecordWhenSourceFileIsAlreadyMissing() async throws {

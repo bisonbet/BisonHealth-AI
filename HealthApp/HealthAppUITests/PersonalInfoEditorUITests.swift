@@ -65,6 +65,19 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
         XCTAssertTrue(app.buttons["Blood Type, A+"].waitForExistence(timeout: 2), "The picker should show the choice")
     }
     
+    /// Applies a typed height or weight the way the user would. With the on-screen decimal
+    /// pad that is the keyboard bar's Done; when the simulator is in hardware-keyboard mode
+    /// (left that way by any test that sends key commands) there is no on-screen keyboard or
+    /// bar, and Return submits the field instead.
+    private func commitTypedMeasurement() {
+        let keyboardDone = app.buttons["personalInfo.keyboardDone"]
+        if keyboardDone.waitForExistence(timeout: 2) && keyboardDone.isHittable {
+            keyboardDone.tap()
+        } else {
+            app.typeText("\n")
+        }
+    }
+
     // MARK: - Measurement System Tests
 
     /// A wheel picker whose current value starts with `prefix` ("173 cm").
@@ -98,8 +111,16 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
         heightField.typeText("175")
         XCTAssertEqual(heightField.value as? String, "175")
 
+        // The decimal pad has no Return key; the keyboard's Done applies the typed value.
+        // Dismissing the keyboard also uncovers "Use Picker" on iPad's shorter sheet.
+        commitTypedMeasurement()
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "175 cm")).firstMatch.waitForExistence(timeout: 2),
+            "Done should apply the typed height"
+        )
+
         let usePicker = app.buttons["Use Picker"]
-        XCTAssertTrue(usePicker.exists)
+        XCTAssertTrue(scrollUntilHittable(usePicker))
         usePicker.tap()
         XCTAssertTrue(heightField.waitForNonExistence(timeout: 2), "Picker mode should hide the text field")
     }
@@ -115,7 +136,15 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
         weightField.typeText("70")
         XCTAssertEqual(weightField.value as? String, "70")
 
-        app.buttons["Use Picker"].tap()
+        commitTypedMeasurement()
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "70.0 kg")).firstMatch.waitForExistence(timeout: 2),
+            "Done should apply the typed weight"
+        )
+
+        let usePicker = app.buttons["Use Picker"]
+        XCTAssertTrue(scrollUntilHittable(usePicker))
+        usePicker.tap()
         XCTAssertTrue(weightField.waitForNonExistence(timeout: 2), "Picker mode should hide the text field")
     }
     
@@ -201,6 +230,38 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
         }
     }
     
+    /// Each row used to be bound with `$allergies[index]`, a pattern that can trap with
+    /// "Index out of range" when SwiftUI evaluates a removed row's binding once more. It did
+    /// not reproduce on iOS 26.5; this guards the safe binding that replaced it.
+    func testDeletingAnAllergyDoesNotCrash() throws {
+        let allergiesLink = button(labelStartingWith: "Allergies")
+        XCTAssertTrue(scrollUntilHittable(allergiesLink))
+        allergiesLink.tap()
+
+        let newAllergy = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Add new allergy")).firstMatch
+        XCTAssertTrue(newAllergy.waitForExistence(timeout: 5))
+        // The row's own Add button: other screens in the stack also have one.
+        let addButton = app.cells.containing(.textField, identifier: "Add new allergy").buttons["Add"]
+        for allergy in ["Penicillin", "Peanuts"] {
+            newAllergy.tap()
+            newAllergy.typeText(allergy)
+            addButton.tap()
+        }
+
+        let rows = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Allergy"))
+        XCTAssertEqual(rows.count, 2)
+        // The last row is the one whose index stops existing.
+        let lastRow = app.cells.containing(NSPredicate(format: "value == %@", "Peanuts")).firstMatch
+        lastRow.swipeLeft()
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        delete.tap()
+
+        XCTAssertTrue(app.state == .runningForeground, "The app should still be running")
+        XCTAssertTrue(rows.element(boundBy: 1).waitForNonExistence(timeout: 3))
+        XCTAssertEqual(rows.firstMatch.value as? String, "Penicillin")
+    }
+
     // MARK: - Complete Form Workflow Test
     
     func testCompleteFormWorkflow() throws {

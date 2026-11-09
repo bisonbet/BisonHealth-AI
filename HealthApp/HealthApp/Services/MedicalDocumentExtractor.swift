@@ -244,6 +244,29 @@ class MedicalDocumentExtractor {
     }
 
     // MARK: - Date Extraction
+    /// Parses the model's `document_date`. The prompt asks for `YYYY-MM-DD`, which a
+    /// default `ISO8601DateFormatter` rejects (it requires a time and zone), so every
+    /// AI-supplied date was dropped in favour of the file-name guess.
+    ///
+    /// A full timestamp is tried first and keeps its own time and zone: a date-only formatter
+    /// would also accept the date prefix of `2026-01-15T01:30:00Z` and silently move it to
+    /// local midnight. Only a string that is exactly a date is read as a bare date, at local
+    /// midnight like the file-name and text fallbacks (UTC midnight would show as the previous
+    /// day west of Greenwich).
+    static func parseDocumentDate(_ string: String) -> Date? {
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let timestamp = ISO8601DateFormatter().date(from: trimmed) {
+            return timestamp
+        }
+        guard trimmed.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        let dateOnly = ISO8601DateFormatter()
+        dateOnly.formatOptions = [.withFullDate]
+        dateOnly.timeZone = .current
+        return dateOnly.date(from: trimmed)
+    }
+
     private func extractDateFromFileName(_ fileName: String) -> Date? {
         // Common date formats in filenames: YYYY-MM-DD, MM-DD-YYYY, YYYYMMDD
         let patterns = [
@@ -637,7 +660,7 @@ class MedicalDocumentExtractor {
 
             let documentDate: Date?
             if let dateString = json?["document_date"] as? String,
-               let date = ISO8601DateFormatter().date(from: dateString) {
+               let date = Self.parseDocumentDate(dateString) {
                 documentDate = date
             } else {
                 documentDate = extractDateFromFileName(fileName) ?? extractDateFromText(fallbackText)
