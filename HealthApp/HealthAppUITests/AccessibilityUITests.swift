@@ -5,36 +5,12 @@ final class AccessibilityUITests: HealthAppUITestCase {
     // MARK: - VoiceOver Support Tests
     
     func testTabBarAccessibility() throws {
-        // Test that all tab bar items have proper accessibility labels
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.exists, "Tab bar should exist")
-        
-        // Test Health Data tab
-        let healthDataTab = app.tabBars.buttons["Health Data"]
-        if healthDataTab.exists {
-            XCTAssertTrue(healthDataTab.isAccessibilityElement, "Health Data tab should be accessible")
-            XCTAssertNotNil(healthDataTab.label, "Health Data tab should have a label")
-        }
-        
-        // Test Documents tab
-        let documentsTab = app.tabBars.buttons["Documents"]
-        if documentsTab.exists {
-            XCTAssertTrue(documentsTab.isAccessibilityElement, "Documents tab should be accessible")
-            XCTAssertNotNil(documentsTab.label, "Documents tab should have a label")
-        }
-        
-        // Test Chat tab
-        let chatTab = app.tabBars.buttons["AI Chat"]
-        if chatTab.exists {
-            XCTAssertTrue(chatTab.isAccessibilityElement, "Chat tab should be accessible")
-            XCTAssertNotNil(chatTab.label, "Chat tab should have a label")
-        }
-        
-        // Test Settings tab
-        let settingsTab = app.tabBars.buttons["Settings"]
-        if settingsTab.exists {
-            XCTAssertTrue(settingsTab.isAccessibilityElement, "Settings tab should be accessible")
-            XCTAssertNotNil(settingsTab.label, "Settings tab should have a label")
+        // Each top-level section has a control labelled with its visible name, on the tab bar
+        // (iPhone) or in the sidebar (iPad).
+        for section in ["Health", "Prep", "AI Chat", "Settings"] {
+            let control = sectionButton(section)
+            XCTAssertTrue(control.waitForExistence(timeout: 5), "\(section) should be reachable")
+            XCTAssertEqual(control.label, section, "\(section) should be labelled for VoiceOver")
         }
     }
     

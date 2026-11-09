@@ -278,6 +278,7 @@ struct BloodTestItemEditor: View {
                     .font(.caption)
                     .opacity(selectedTestType == nil ? 1.0 : 0.5)
                     .disabled(selectedTestType != nil)
+                    .accessibilityIdentifier("bloodTestItem.nameField")
                     .focused($isAnyFieldFocused)
                     .onTapGesture {
                         if selectedTestType != nil {

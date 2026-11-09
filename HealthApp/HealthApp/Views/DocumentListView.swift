@@ -52,8 +52,9 @@ struct DocumentRowView: View {
                         .font(.title3)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .accessibilityIdentifier("documents.selectionToggle")
             }
-            
+
             // Document thumbnail
             DocumentThumbnailView(document: document)
             

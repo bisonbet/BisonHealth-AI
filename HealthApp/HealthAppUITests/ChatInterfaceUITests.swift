@@ -25,14 +25,14 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
         let emptyStateTitle = app.staticTexts["Bison Health AI"]
         XCTAssertTrue(emptyStateTitle.exists, "Empty state title should be displayed")
         
-        let startButton = app.buttons["Start New Conversation"]
+        let startButton = app.buttons["Start New Conversation"].firstMatch
         XCTAssertTrue(startButton.exists, "Start new conversation button should exist")
     }
     
     func testStartNewConversation() throws {
         navigateToChat()
         
-        let startButton = app.buttons["Start New Conversation"]
+        let startButton = app.buttons["Start New Conversation"].firstMatch
         startButton.tap()
         
         // Should navigate to chat interface
@@ -44,39 +44,33 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
     
     func testMessageInputFunctionality() throws {
         startNewConversationAndWait()
-        
-        let messageInput = app.textFields["Type your message..."]
-        XCTAssertTrue(messageInput.exists, "Message input should exist")
-        
-        // Test typing
+
         messageInput.tap()
         messageInput.typeText("Hello, this is a test message")
-        
-        let sendButton = app.buttons.matching(identifier: "arrow.up.circle.fill").firstMatch
+        XCTAssertEqual(messageInput.value as? String, "Hello, this is a test message")
+
         XCTAssertTrue(sendButton.exists, "Send button should exist")
         XCTAssertTrue(sendButton.isEnabled, "Send button should be enabled with text")
     }
     
     func testSendButtonDisabledWhenEmpty() throws {
         startNewConversationAndWait()
-        
-        let sendButton = app.buttons.matching(identifier: "arrow.up.circle.fill").firstMatch
+
+        XCTAssertTrue(sendButton.exists)
         XCTAssertFalse(sendButton.isEnabled, "Send button should be disabled when message is empty")
+
+        // Whitespace alone is not a message.
+        messageInput.tap()
+        messageInput.typeText("   ")
+        XCTAssertFalse(sendButton.isEnabled, "Send button should stay disabled for whitespace")
     }
     
     func testMessageSending() throws {
         startNewConversationAndWait()
-        
-        let messageInput = app.textFields["Type your message..."]
-        messageInput.tap()
-        messageInput.typeText("Test message")
-        
-        let sendButton = app.buttons.matching(identifier: "arrow.up.circle.fill").firstMatch
-        sendButton.tap()
-        
-        // Message should appear in chat
-        let sentMessage = app.staticTexts["Test message"]
-        XCTAssertTrue(sentMessage.waitForExistence(timeout: 2), "Sent message should appear in chat")
+        send("Test message")
+
+        XCTAssertTrue(app.staticTexts["Test message"].waitForExistence(timeout: 5), "Sent message should appear in chat")
+        XCTAssertEqual(messageInput.value as? String ?? "", messageInput.placeholderValue ?? "", "The input should clear after sending")
     }
 
     func testScriptedDoctorReplyAppearsAfterSendingMessage() throws {
@@ -123,28 +117,33 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
         guard UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("This test is only for iPad")
         }
-        
-        navigateToChat()
-        
-        // Test Cmd+N for new conversation
+
+        // Key commands reach the app once something in it has focus; a started conversation
+        // focuses the message input.
+        startNewConversationAndWait()
+        let conversations = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'New Conversation,'"))
+        XCTAssertEqual(conversations.count, 1)
+
+        waitForMessageInputFocus()
+        // Cmd+N is New Chat's shortcut.
         app.typeKey("n", modifierFlags: .command)
-        
-        let messageInput = app.textFields["Type your message..."]
-        XCTAssertTrue(messageInput.waitForExistence(timeout: 2), "New conversation should start with Cmd+N")
+        XCTAssertTrue(
+            conversations.element(boundBy: 1).waitForExistence(timeout: 8),
+            "Cmd+N should start a second conversation"
+        )
     }
     
     func testIPadContextSelector() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("This test is only for iPad")
         }
-        
+
         startNewConversationAndWait()
-        
-        // Test Cmd+K for context selector
-        app.typeKey("k", modifierFlags: .command)
-        
-        let contextTitle = app.staticTexts["Health Data Context"]
-        XCTAssertTrue(contextTitle.waitForExistence(timeout: 2), "Context selector should open with Cmd+K")
+
+        waitForMessageInputFocus()
+        // Cmd+Shift+H opens the conversation's health data context.
+        app.typeKey("h", modifierFlags: [.command, .shift])
+        XCTAssertTrue(screenTitle("AI Context").waitForExistence(timeout: 3), "Context selector should open with Cmd+Shift+H")
     }
     
     // MARK: - Conversation Management Tests
@@ -254,24 +253,14 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
     
     func testMessageTextSelection() throws {
         startNewConversationAndWait()
-        
-        // Send a message first
-        let messageInput = app.textFields["Type your message..."]
-        messageInput.tap()
-        messageInput.typeText("This is a test message for selection")
-        
-        let sendButton = app.buttons.matching(identifier: "arrow.up.circle.fill").firstMatch
-        sendButton.tap()
-        
-        // Wait for message to appear
+        send("This is a test message for selection")
+
         let sentMessage = app.staticTexts["This is a test message for selection"]
-        XCTAssertTrue(sentMessage.waitForExistence(timeout: 2), "Message should appear")
-        
-        // Long press to show context menu (text selection)
+        XCTAssertTrue(sentMessage.waitForExistence(timeout: 5), "Message should appear")
+
+        // A long press opens the message's context menu.
         sentMessage.press(forDuration: 1.0)
-        
-        let copyButton = app.buttons["Copy Message"]
-        XCTAssertTrue(copyButton.waitForExistence(timeout: 1), "Copy button should appear in context menu")
+        XCTAssertTrue(app.buttons["Copy Message"].waitForExistence(timeout: 3), "Copy should be in the context menu")
     }
     
     // MARK: - Orientation Tests (iPad)
@@ -301,12 +290,34 @@ final class ChatInterfaceUITests: HealthAppUITestCase {
     
     // MARK: - Helper Methods
 
+    private var messageInput: XCUIElement { app.textFields["chat.messageInput"] }
+    private var sendButton: XCUIElement { app.buttons["chat.sendButton"] }
+
+    /// Hardware-keyboard shortcuts reach the app only once something in its window has
+    /// keyboard focus. A new conversation focuses the input shortly after it appears; a key
+    /// pressed before then goes nowhere, which is why these passed alone and failed when the
+    /// suite ran faster.
+    private func waitForMessageInputFocus() {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        let expectation = XCTNSPredicateExpectation(predicate: focused, object: messageInput)
+        if XCTWaiter.wait(for: [expectation], timeout: 5) != .completed {
+            messageInput.tap()
+        }
+    }
+
+    private func send(_ text: String) {
+        messageInput.tap()
+        messageInput.typeText(text)
+        XCTAssertTrue(sendButton.isEnabled)
+        sendButton.tap()
+    }
+
     private func startNewConversationAndWait() {
         navigateToChat()
         
         // The chat column's New Chat toolbar item exists at every width; the empty
         // state's button is the more natural tap when it is showing.
-        let startButton = app.buttons["Start New Conversation"]
+        let startButton = app.buttons["Start New Conversation"].firstMatch
         if startButton.exists {
             startButton.tap()
         } else {
@@ -333,26 +344,19 @@ extension ChatInterfaceUITests {
     
     func testChatScrollingPerformance() throws {
         startNewConversationAndWait()
-        
-        // Send multiple messages to test scrolling
-        let messageInput = app.textFields["Type your message..."]
-        let sendButton = app.buttons.matching(identifier: "arrow.up.circle.fill").firstMatch
-        
-        for i in 1...10 {
-            messageInput.tap()
-            messageInput.clearAndEnterText("Test message \(i)")
-            sendButton.tap()
-            
-            // Wait a bit between messages
-            Thread.sleep(forTimeInterval: 0.5)
+
+        // Enough scripted exchanges to make the transcript scroll.
+        for index in 1...5 {
+            send("Test message \(index)")
+            XCTAssertTrue(app.staticTexts["Test message \(index)"].waitForExistence(timeout: 10))
+            XCTAssertTrue(sendButton.waitForExistence(timeout: 10))
         }
-        
-        // Test scrolling performance
+
         let messagesArea = app.scrollViews.firstMatch
-        
+        XCTAssertTrue(messagesArea.exists)
         measure {
-            messagesArea.swipeUp()
             messagesArea.swipeDown()
+            messagesArea.swipeUp()
         }
     }
     

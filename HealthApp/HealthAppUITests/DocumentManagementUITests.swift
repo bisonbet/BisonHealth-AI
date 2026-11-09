@@ -103,13 +103,12 @@ final class DocumentManagementUITests: HealthAppUITestCase {
     // MARK: - Document List Tests
     
     func testDocumentListView() throws {
-        // Skip if no documents exist
-        guard !app.staticTexts["No Documents"].exists else {
-            throw XCTSkip("No documents available for testing")
-        }
-        
-        // Should show document list
-        XCTAssertTrue(app.scrollViews.element.exists || app.tables.element.exists)
+        // The seeded report is listed, with its status in the row's value.
+        let seededDocument = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "ui-test-lab-report.pdf"))
+            .firstMatch
+        XCTAssertTrue(seededDocument.waitForExistence(timeout: 10), "The documents list should show the seeded report")
+        XCTAssertFalse(app.staticTexts["No Documents"].exists)
     }
     
     func testDocumentRowTap() throws {
@@ -128,22 +127,17 @@ final class DocumentManagementUITests: HealthAppUITestCase {
     }
     
     func testEditModeToggle() throws {
-        guard !app.staticTexts["No Documents"].exists else {
-            throw XCTSkip("No documents available for testing")
-        }
-        
-        // Test edit button
-        let editButton = app.navigationBars.buttons["Edit"]
-        if editButton.exists {
-            editButton.tap()
-            
-            // Should enter edit mode
-            XCTAssertTrue(app.navigationBars.buttons["Done"].exists)
-            
-            // Exit edit mode
-            app.navigationBars.buttons["Done"].tap()
-            XCTAssertTrue(app.navigationBars.buttons["Edit"].exists)
-        }
+        let editButton = app.buttons["Edit"]
+        XCTAssertTrue(editButton.waitForExistence(timeout: 10), "Edit should be offered once there are documents")
+        editButton.tap()
+
+        // In edit mode the system's EditButton becomes a checkmark.
+        XCTAssertTrue(app.buttons["documents.selectionToggle"].waitForExistence(timeout: 3), "Edit mode should show selection controls")
+        let doneButton = app.buttons["checkmark"]
+        XCTAssertTrue(doneButton.exists, "Edit mode should offer a way out")
+        doneButton.tap()
+        XCTAssertTrue(app.buttons["Edit"].waitForExistence(timeout: 3), "Done should leave edit mode")
+        XCTAssertFalse(app.buttons["documents.selectionToggle"].exists)
     }
     
     // MARK: - Search and Filter Tests
@@ -212,34 +206,23 @@ final class DocumentManagementUITests: HealthAppUITestCase {
     // MARK: - Batch Operations Tests
     
     func testBatchSelection() throws {
-        guard !app.staticTexts["No Documents"].exists else {
-            throw XCTSkip("No documents available for testing")
-        }
-        
-        // Enter edit mode
-        let editButton = app.navigationBars.buttons["Edit"]
-        if editButton.exists {
-            editButton.tap()
-            
-            // Select documents
-            let firstCell = app.cells.firstMatch
-            if firstCell.exists {
-                firstCell.tap()
-                
-                // Should show batch button
-                XCTAssertTrue(app.buttons["Batch"].waitForExistence(timeout: 1))
-                
-                // Test batch processing
-                app.buttons["Batch"].tap()
-                XCTAssertTrue(app.navigationBars["Batch Processing"].waitForExistence(timeout: 2))
-                
-                // Close batch processing
-                app.buttons["Cancel"].tap()
-            }
-            
-            // Exit edit mode
-            app.navigationBars.buttons["Done"].tap()
-        }
+        let editButton = app.buttons["Edit"]
+        XCTAssertTrue(editButton.waitForExistence(timeout: 10))
+        editButton.tap()
+
+        // Selecting a document offers batch processing.
+        let selectionToggle = app.buttons["documents.selectionToggle"]
+        XCTAssertTrue(selectionToggle.waitForExistence(timeout: 3), "Edit mode should show a selection control per document")
+        selectionToggle.tap()
+
+        let batchButton = app.buttons["Batch Process"]
+        XCTAssertTrue(batchButton.waitForExistence(timeout: 3), "Batch should appear once a document is selected")
+        batchButton.tap()
+        XCTAssertTrue(screenTitle("Batch Processing").waitForExistence(timeout: 5))
+
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(screenTitle("Batch Processing").waitForNonExistence(timeout: 5))
+        app.buttons["checkmark"].tap()
     }
     
     // MARK: - Processing Tests
@@ -330,33 +313,25 @@ final class DocumentManagementUITests: HealthAppUITestCase {
     // MARK: - Accessibility Tests
     
     func testAccessibilityLabels() throws {
-        // Test that key elements have accessibility labels
-        XCTAssertTrue(app.tabBars.buttons["Documents"].isAccessibilityElement)
-        
-        if app.buttons["Scan Document"].exists {
-            XCTAssertTrue(app.buttons["Scan Document"].isAccessibilityElement)
-            XCTAssertNotNil(app.buttons["Scan Document"].label)
-        }
-        
-        if app.buttons["Import File"].exists {
-            XCTAssertTrue(app.buttons["Import File"].isAccessibilityElement)
-            XCTAssertNotNil(app.buttons["Import File"].label)
-        }
+        // The Documents segment and the icon-only toolbar menu both carry spoken names.
+        let segment = app.buttons.matching(identifier: "health.segment")["Documents"]
+        XCTAssertTrue(segment.exists)
+        XCTAssertTrue(segment.isSelected)
+        XCTAssertTrue(app.buttons["Add Document"].exists)
+
+        app.buttons["Add Document"].tap()
+        XCTAssertEqual(app.buttons["Import File"].label, "Import File")
+        XCTAssertEqual(app.buttons["Import Photos"].label, "Import Photos")
     }
     
     func testVoiceOverSupport() throws {
-        // Test VoiceOver navigation
-        let documentsTab = app.tabBars.buttons["Documents"]
-        XCTAssertTrue(documentsTab.isAccessibilityElement)
-        XCTAssertNotNil(documentsTab.label)
-        
-        // Test document cells if they exist
-        if !app.staticTexts["No Documents"].exists {
-            let firstCell = app.cells.firstMatch
-            if firstCell.exists {
-                XCTAssertTrue(firstCell.isAccessibilityElement)
-            }
-        }
+        // The document row reads its name and, as the value, its processing status.
+        let seededDocument = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "ui-test-lab-report.pdf"))
+            .firstMatch
+        XCTAssertTrue(seededDocument.waitForExistence(timeout: 10))
+        XCTAssertFalse((seededDocument.value as? String ?? "").isEmpty, "The row should announce a status")
+        XCTAssertTrue(app.buttons["Edit"].exists, "Edit should be offered with a spoken label")
     }
     
     // MARK: - iPad Specific Tests

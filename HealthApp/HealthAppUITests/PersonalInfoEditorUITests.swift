@@ -35,94 +35,88 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
     func testDateOfBirthPicker() throws {
         let datePicker = app.datePickers["personalInfo.dateOfBirthPicker"]
         XCTAssertTrue(datePicker.exists)
-        
-        // Test that date picker is interactive
-        datePicker.tap()
         XCTAssertTrue(datePicker.isHittable)
+        XCTAssertTrue(app.staticTexts["Date of Birth"].exists)
     }
     
     func testGenderPicker() throws {
-        let genderPicker = app.buttons["Sex"]
+        let genderPicker = button(labelStartingWith: "Sex")
         XCTAssertTrue(genderPicker.exists)
-        
+        XCTAssertEqual(genderPicker.label, "Sex, Prefer not to say")
+
         genderPicker.tap()
-        XCTAssertTrue(app.buttons["Male"].exists)
+        XCTAssertTrue(app.buttons["Male"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["Female"].exists)
         XCTAssertTrue(app.buttons["Other"].exists)
-        
         app.buttons["Male"].tap()
+
+        XCTAssertTrue(app.buttons["Sex, Male"].waitForExistence(timeout: 2), "The picker should show the choice")
     }
     
     func testBloodTypePicker() throws {
-        let bloodTypePicker = app.buttons["Blood Type"]
+        let bloodTypePicker = button(labelStartingWith: "Blood Type")
         XCTAssertTrue(bloodTypePicker.exists)
-        
+
         bloodTypePicker.tap()
-        XCTAssertTrue(app.buttons["A+"].exists)
+        XCTAssertTrue(app.buttons["A+"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["O-"].exists)
-        
         app.buttons["A+"].tap()
+
+        XCTAssertTrue(app.buttons["Blood Type, A+"].waitForExistence(timeout: 2), "The picker should show the choice")
     }
     
     // MARK: - Measurement System Tests
+
+    /// A wheel picker whose current value starts with `prefix` ("173 cm").
+    private func wheel(valueStartingWith prefix: String) -> XCUIElement {
+        app.pickerWheels.matching(NSPredicate(format: "value BEGINSWITH %@", prefix)).firstMatch
+    }
     
     func testUnitSystemToggle() throws {
-        let unitPicker = app.segmentedControls.element
-        XCTAssertTrue(unitPicker.exists)
-        
-        // Test switching to Imperial
-        unitPicker.buttons["Imperial (ft/in, lbs)"].tap()
-        
-        // Verify height pickers show feet/inches
-        XCTAssertTrue(app.buttons["5 ft"].exists)
-        XCTAssertTrue(app.buttons["8 in"].exists)
-        
-        // Test switching back to Metric
-        unitPicker.buttons["Metric (cm, kg)"].tap()
-        
-        // Verify height picker shows centimeters
-        XCTAssertTrue(app.buttons["173 cm"].exists)
+        let metric = app.buttons["Metric (cm, kg)"]
+        let imperial = app.buttons["Imperial (ft/in, lbs)"]
+        XCTAssertTrue(metric.exists)
+        XCTAssertTrue(metric.isSelected, "Metric is the default")
+        XCTAssertTrue(wheel(valueStartingWith: "173 cm").exists)
+
+        imperial.tap()
+        XCTAssertTrue(wheel(valueStartingWith: "5 ft").waitForExistence(timeout: 2), "Height should switch to feet")
+        XCTAssertTrue(wheel(valueStartingWith: "8 in").exists, "and inches")
+
+        metric.tap()
+        XCTAssertTrue(wheel(valueStartingWith: "173 cm").waitForExistence(timeout: 2), "Height should switch back to centimetres")
     }
     
     func testHeightInputModes() throws {
-        // Test picker to text input toggle
-        let heightToggleButton = app.buttons["Type Value"]
-        if heightToggleButton.exists {
-            heightToggleButton.tap()
-            
-            // Should now show text field
-            let heightTextField = app.textFields.element
-            XCTAssertTrue(heightTextField.exists)
-            
-            // Test typing height
-            heightTextField.tap()
-            heightTextField.typeText("175")
-            
-            // Toggle back to picker
-            app.buttons["Use Picker"].tap()
-        }
+        let typeValue = app.buttons.matching(NSPredicate(format: "label == %@", "Type Value")).element(boundBy: 0)
+        XCTAssertTrue(typeValue.exists)
+        typeValue.tap()
+
+        let heightField = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Height (cm)")).firstMatch
+        XCTAssertTrue(heightField.waitForExistence(timeout: 2), "Typing mode should show a text field")
+        heightField.tap()
+        heightField.typeText("175")
+        XCTAssertEqual(heightField.value as? String, "175")
+
+        let usePicker = app.buttons["Use Picker"]
+        XCTAssertTrue(usePicker.exists)
+        usePicker.tap()
+        XCTAssertTrue(heightField.waitForNonExistence(timeout: 2), "Picker mode should hide the text field")
     }
     
     func testWeightInputModes() throws {
-        // Scroll to weight section
-        app.swipeUp()
-        
-        // Test weight input toggle
-        let weightToggleButton = app.buttons["Type Value"]
-        if weightToggleButton.exists {
-            weightToggleButton.tap()
-            
-            // Should now show text field
-            let weightTextField = app.textFields.element
-            XCTAssertTrue(weightTextField.exists)
-            
-            // Test typing weight
-            weightTextField.tap()
-            weightTextField.typeText("70")
-            
-            // Toggle back to picker
-            app.buttons["Use Picker"].tap()
-        }
+        let typeValue = app.buttons.matching(NSPredicate(format: "label == %@", "Type Value")).element(boundBy: 1)
+        XCTAssertTrue(scrollUntilHittable(typeValue))
+        typeValue.tap()
+
+        let weightField = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Weight (kg)")).firstMatch
+        XCTAssertTrue(weightField.waitForExistence(timeout: 2), "Typing mode should show a text field")
+        weightField.tap()
+        weightField.typeText("70")
+        XCTAssertEqual(weightField.value as? String, "70")
+
+        app.buttons["Use Picker"].tap()
+        XCTAssertTrue(weightField.waitForNonExistence(timeout: 2), "Picker mode should hide the text field")
     }
     
     // MARK: - Validation Tests
@@ -210,32 +204,23 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
     // MARK: - Complete Form Workflow Test
     
     func testCompleteFormWorkflow() throws {
-        // Fill out complete form
         let nameField = app.textFields["personalInfo.nameField"]
         nameField.tap()
         nameField.typeText("John Doe")
-        
-        // Set date of birth (simplified - just tap to interact)
-        app.datePickers["personalInfo.dateOfBirthPicker"].tap()
-        
-        // Set gender
-        app.buttons["Sex"].tap()
+
+        button(labelStartingWith: "Sex").tap()
         app.buttons["Male"].tap()
-        
-        // Set blood type
-        app.buttons["Blood Type"].tap()
+        button(labelStartingWith: "Blood Type").tap()
         app.buttons["A+"].tap()
-        
-        // Verify save button is enabled
+
         let saveButton = app.buttons["personalInfo.saveButton"]
         XCTAssertTrue(saveButton.isEnabled)
-        
-        // Save the form
         saveButton.tap()
-        
-        // Should return to health data view
-        XCTAssertFalse(app.navigationBars["Personal Information"].exists)
-        XCTAssertTrue(app.navigationBars["Health Data"].exists)
+
+        // Back on Health, the card shows the saved name instead of the empty state.
+        XCTAssertTrue(screenTitle("Health Data").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No personal information added"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["John Doe"].waitForExistence(timeout: 5))
     }
     
     // MARK: - Accessibility Tests
@@ -248,11 +233,11 @@ final class PersonalInfoEditorUITests: HealthAppUITestCase {
     }
     
     func testVoiceOverSupport() throws {
-        // Enable VoiceOver for testing
-        // Note: This requires additional setup in real testing scenarios
-        let nameField = app.textFields["personalInfo.nameField"]
-        XCTAssertNotNil(nameField.label)
-        XCTAssertTrue(nameField.isAccessibilityElement)
+        // The name field announces its purpose; the pickers announce title and value.
+        XCTAssertEqual(app.textFields["personalInfo.nameField"].placeholderValue, "Full Name")
+        XCTAssertTrue(button(labelStartingWith: "Sex, ").exists)
+        XCTAssertTrue(button(labelStartingWith: "Blood Type, ").exists)
+        XCTAssertEqual(app.buttons["personalInfo.saveButton"].label, "Save")
     }
     
     // MARK: - iPad Specific Tests
