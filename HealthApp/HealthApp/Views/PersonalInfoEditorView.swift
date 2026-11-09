@@ -390,6 +390,7 @@ struct PersonalInfoEditorView: View {
                         commitWeightText()
                         focusedField = nil
                     }
+                    .accessibilityIdentifier("personalInfo.keyboardDone")
                 }
             }
         }
