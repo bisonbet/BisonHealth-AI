@@ -782,7 +782,10 @@ class HealthDataManager: ObservableObject {
         limit: Int,
         conflictInterval: TimeInterval
     ) -> [VitalReading] {
-        let merged = mergeKeepingManual(stored: stored, healthKit: healthKit, source: \.source) { existing, fresh in
+        // Newest first, which `mergeKeepingManual` relies on to keep a cluster's newest reading.
+        // HealthKitManager already queries that way; sorting here makes it a guarantee.
+        let newestFirst = healthKit.sorted { $0.timestamp > $1.timestamp }
+        let merged = mergeKeepingManual(stored: stored, healthKit: newestFirst, source: \.source) { existing, fresh in
             abs(existing.timestamp.timeIntervalSince(fresh.timestamp)) < conflictInterval
         }
         return Array(merged.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
@@ -791,9 +794,9 @@ class HealthDataManager: ObservableObject {
     /// The rule both merges share: a stored `.manual` entry beats the fresh one, any other
     /// matching stored entry is replaced by it, and an unmatched fresh entry is added.
     ///
-    /// Only entries that were stored before this sync can be replaced. HealthKit returns
-    /// samples newest first, so within a cluster of fresh readings the first one accepted is
-    /// the newest; letting a later (older) sample from the same batch replace it left only
+    /// Only entries that were stored before this sync can be replaced. `healthKit` must be
+    /// newest first (both callers sort it), so within a cluster of fresh readings the first
+    /// one accepted is the newest; letting a later (older) sample from the same batch replace it left only
     /// the oldest reading of every cluster.
     nonisolated private static func mergeKeepingManual<Entry>(
         stored: [Entry],
@@ -846,7 +849,8 @@ class HealthDataManager: ObservableObject {
         limit: Int,
         calendar: Calendar = .current
     ) -> [SleepData] {
-        let merged = mergeKeepingManual(stored: stored, healthKit: healthKit, source: \.source) { existing, fresh in
+        let newestFirst = healthKit.sorted { $0.date > $1.date }
+        let merged = mergeKeepingManual(stored: stored, healthKit: newestFirst, source: \.source) { existing, fresh in
             calendar.isDate(existing.date, inSameDayAs: fresh.date)
         }
         return Array(merged.sorted { $0.date > $1.date }.prefix(limit))

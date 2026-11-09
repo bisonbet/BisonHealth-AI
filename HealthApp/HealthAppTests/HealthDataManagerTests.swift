@@ -180,6 +180,12 @@ final class HealthDataManagerTests: XCTestCase {
             stored: [storedAt1001], healthKit: [at1002, at1001, at1000], limit: 7, conflictInterval: 300
         )
         XCTAssertEqual(overStored.map(\.id), [at1002.id])
+
+        // Order is the merge's job, not the caller's: oldest-first input keeps the newest too.
+        let oldestFirst = HealthDataManager.mergeVitalReadings(
+            stored: [], healthKit: [at1000, at1001, at1002], limit: 7, conflictInterval: 300
+        )
+        XCTAssertEqual(oldestFirst.map(\.id), [at1002.id])
     }
 
     func testWeightReadingIsConvertedFromItsOwnUnit() {

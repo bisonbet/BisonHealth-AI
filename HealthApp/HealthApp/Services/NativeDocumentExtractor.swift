@@ -417,13 +417,22 @@ class NativeDocumentExtractor {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let width = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
-        let options: [CFString: Any] = [
+        var options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            // Full size: a "thumbnail" no smaller than the image is the image, upright.
-            kCGImageSourceThumbnailMaxPixelSize: max(width, height, 1)
+            kCGImageSourceCreateThumbnailWithTransform: true
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        // Full size: a "thumbnail" no smaller than the image is the image, upright. Only when
+        // the size is known: a missing size must not become a 1×1 limit, and without the key
+        // ImageIO does not limit the thumbnail at all.
+        let longestEdge = max(width, height)
+        if longestEdge > 0 {
+            options[kCGImageSourceThumbnailMaxPixelSize] = longestEdge
+        }
+        if let upright = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+            return upright
+        }
+        // Unrotated beats nothing: OCR can still read a sideways page, if less well.
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     private func extractFromImage(at url: URL) async throws -> ExtractionResult {

@@ -179,6 +179,13 @@ struct PersonalInfoEditorView: View {
                                 .font(.headline)
                             Spacer()
                             Button(showHeightTextInput ? "Use Picker" : "Type Value") {
+                                if showHeightTextInput {
+                                    // Leaving typing mode: apply what was typed so the wheel
+                                    // shows it, and drop the text so a later Save cannot
+                                    // overwrite a value chosen on the wheel with it.
+                                    commitHeightText()
+                                    heightTextInput = ""
+                                }
                                 // Dismiss keyboard before switching input modes
                                 focusedField = nil
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -265,6 +272,13 @@ struct PersonalInfoEditorView: View {
                                 .font(.headline)
                             Spacer()
                             Button(showWeightTextInput ? "Use Picker" : "Type Value") {
+                                if showWeightTextInput {
+                                    // Leaving typing mode: apply what was typed so the wheel
+                                    // shows it, and drop the text so a later Save cannot
+                                    // overwrite a value chosen on the wheel with it.
+                                    commitWeightText()
+                                    weightTextInput = ""
+                                }
                                 // Dismiss keyboard before switching input modes
                                 focusedField = nil
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -404,8 +418,10 @@ struct PersonalInfoEditorView: View {
     /// trigger, and a wheel change only after a 0.15 s debounce, so tapping Save could drop
     /// either one.
     private func commitPendingMeasurements() {
-        commitHeightText()
-        commitWeightText()
+        // Only a field that is showing can hold the user's latest entry; in picker mode the
+        // wheel is the value.
+        if showHeightTextInput { commitHeightText() }
+        if showWeightTextInput { commitWeightText() }
         if let pending = heightUpdateWorkItem, !pending.isCancelled {
             pending.cancel()
             updateHeight()

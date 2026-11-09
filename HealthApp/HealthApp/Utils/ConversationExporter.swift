@@ -522,12 +522,14 @@ class ConversationExporter: ObservableObject {
         var startLocation = 0
         var isFirstPage = true
 
+        // The content does not change between pages, so one framesetter serves them all.
+        let framesetter = CTFramesetterCreateWithAttributedString(attributedContent)
+
         while startLocation < attributedContent.length {
             let availableHeight = isFirstPage ? firstPageContentHeight : subsequentPageContentHeight
             let maxSize = CGSize(width: contentWidth, height: availableHeight)
 
             // Calculate how much text fits in the available space
-            let framesetter = CTFramesetterCreateWithAttributedString(attributedContent)
             let path = CGPath(rect: CGRect(origin: .zero, size: maxSize), transform: nil)
             let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(startLocation, 0), path, nil)
             var pageLength = CTFrameGetVisibleStringRange(frame).length
