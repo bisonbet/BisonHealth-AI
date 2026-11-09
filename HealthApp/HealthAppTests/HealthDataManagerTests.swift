@@ -162,6 +162,26 @@ final class HealthDataManagerTests: XCTestCase {
         XCTAssertEqual(merged.map(\.id), [refreshed.id])
     }
 
+    /// HealthKit returns samples newest first. Readings minutes apart in one batch must leave
+    /// the newest, not let each older sample replace the one before it.
+    func testHealthKitMergeKeepsTheNewestReadingOfABatchCluster() {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let at1002 = VitalReading(value: 80, unit: "bpm", timestamp: base.addingTimeInterval(120), source: .appleHealth)
+        let at1001 = VitalReading(value: 79, unit: "bpm", timestamp: base.addingTimeInterval(60), source: .appleHealth)
+        let at1000 = VitalReading(value: 78, unit: "bpm", timestamp: base, source: .appleHealth)
+        let storedAt1001 = VitalReading(value: 70, unit: "bpm", timestamp: base.addingTimeInterval(60), source: .appleHealth)
+
+        let fromEmpty = HealthDataManager.mergeVitalReadings(
+            stored: [], healthKit: [at1002, at1001, at1000], limit: 7, conflictInterval: 300
+        )
+        XCTAssertEqual(fromEmpty.map(\.id), [at1002.id])
+
+        let overStored = HealthDataManager.mergeVitalReadings(
+            stored: [storedAt1001], healthKit: [at1002, at1001, at1000], limit: 7, conflictInterval: 300
+        )
+        XCTAssertEqual(overStored.map(\.id), [at1002.id])
+    }
+
     func testWeightReadingIsConvertedFromItsOwnUnit() {
         let kilograms = VitalReading(value: 70, unit: "kg", timestamp: Date(), source: .manual)
         let pounds = VitalReading(value: 154.3, unit: "lbs", timestamp: Date(), source: .manual)

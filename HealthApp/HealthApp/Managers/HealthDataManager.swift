@@ -790,6 +790,11 @@ class HealthDataManager: ObservableObject {
 
     /// The rule both merges share: a stored `.manual` entry beats the fresh one, any other
     /// matching stored entry is replaced by it, and an unmatched fresh entry is added.
+    ///
+    /// Only entries that were stored before this sync can be replaced. HealthKit returns
+    /// samples newest first, so within a cluster of fresh readings the first one accepted is
+    /// the newest; letting a later (older) sample from the same batch replace it left only
+    /// the oldest reading of every cluster.
     nonisolated private static func mergeKeepingManual<Entry>(
         stored: [Entry],
         healthKit: [Entry],
@@ -797,16 +802,25 @@ class HealthDataManager: ObservableObject {
         matches: (Entry, Entry) -> Bool
     ) -> [Entry] {
         var merged = stored
+        var fromThisBatch = Array(repeating: false, count: stored.count)
         for fresh in healthKit {
             let matching = merged.indices.filter { matches(merged[$0], fresh) }
-            if matching.contains(where: { merged[$0][keyPath: source] == .manual }) {
+            let keepExisting = matching.contains {
+                fromThisBatch[$0] || merged[$0][keyPath: source] == .manual
+            }
+            if keepExisting {
                 continue
             }
             if let first = matching.first {
                 merged[first] = fresh
-                for index in matching.dropFirst().reversed() { merged.remove(at: index) }
+                fromThisBatch[first] = true
+                for index in matching.dropFirst().reversed() {
+                    merged.remove(at: index)
+                    fromThisBatch.remove(at: index)
+                }
             } else {
                 merged.append(fresh)
+                fromThisBatch.append(true)
             }
         }
         return merged
