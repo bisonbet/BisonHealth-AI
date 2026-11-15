@@ -65,9 +65,17 @@ struct ContentView: View {
                         }
                     },
                     onCancel: {
-                        // Cancel = discard this review; promote the next queued one.
+                        // Review Later: free the slot for the next queued review. The stored
+                        // copy stays, so this one is offered again next launch.
                         documentProcessor.discardPendingImportReview(for: review.documentId)
                         showingImportReview = false
+                    },
+                    onDiscard: {
+                        // Closed first, for the same reason as `onComplete`.
+                        showingImportReview = false
+                        Task {
+                            await documentProcessor.deletePendingImportReview(for: review.documentId)
+                        }
                     }
                 )
             }

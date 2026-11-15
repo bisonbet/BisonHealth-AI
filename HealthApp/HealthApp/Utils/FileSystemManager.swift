@@ -455,6 +455,31 @@ class FileSystemManager: ObservableObject {
         return destination
     }
 
+    // MARK: - Relocated Files
+
+    /// Where a document file is now, when the path its row records no longer exists.
+    ///
+    /// Rows record absolute URLs, and the app container's path changes on a device restore
+    /// and on a reinstall. The files come back with the container, under the same names, so
+    /// the row only needs pointing at the managed directory again. Returns nil when the
+    /// recorded path is still good, or when the file is not in the managed directory either.
+    func relocatedDocumentFile(storedAt storedURL: URL) -> URL? {
+        relocatedFile(storedAt: storedURL, in: documentsDirectory)
+    }
+
+    /// The same for a thumbnail.
+    func relocatedThumbnail(storedAt storedURL: URL) -> URL? {
+        relocatedFile(storedAt: storedURL, in: thumbnailsDirectory)
+    }
+
+    private func relocatedFile(storedAt storedURL: URL, in directory: URL) -> URL? {
+        guard initializationError == nil, storedURL.isFileURL else { return nil }
+        let fileManager = FileManager.default
+        guard !fileManager.fileExists(atPath: storedURL.path) else { return nil }
+        let candidate = directory.appendingPathComponent(storedURL.lastPathComponent)
+        return fileManager.fileExists(atPath: candidate.path) ? candidate : nil
+    }
+
     func getFileSize(at url: URL) throws -> Int64 {
         try ensureAvailable()
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)

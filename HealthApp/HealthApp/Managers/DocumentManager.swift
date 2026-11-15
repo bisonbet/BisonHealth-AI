@@ -393,6 +393,9 @@ class DocumentManager: ObservableObject {
         do {
             // Remove from processing queue if queued
             await documentProcessor.removeFromQueue(document.id)
+            // Its un-reviewed lab values go with it; otherwise they are offered again on
+            // every launch for a document that no longer exists.
+            await documentProcessor.deletePendingImportReview(for: document.id)
             
             // Delete from the database first. Treat an already-removed row as
             // clean-up success so a stale UI snapshot cannot strand the file.
@@ -407,10 +410,12 @@ class DocumentManager: ObservableObject {
             // row loaded before the launch-time rename still names the legacy file, which has
             // since moved, so look under its renamed name too.
             let storedFileExists = FileManager.default.fileExists(atPath: document.filePath.path)
+            // The same goes for a copy loaded before a restore's stale path was relinked.
             let fileToDelete = storedFileExists
                 ? document.filePath
-                : FileSystemManager.renamedLegacyDocumentName(for: document.filePath.lastPathComponent)
-                    .flatMap { fileSystemManager.findDocumentByFileName($0) }
+                : fileSystemManager.relocatedDocumentFile(storedAt: document.filePath)
+                    ?? FileSystemManager.renamedLegacyDocumentName(for: document.filePath.lastPathComponent)
+                        .flatMap { fileSystemManager.findDocumentByFileName($0) }
             if let fileToDelete {
                 do {
                     // Also removes the thumbnail named after this file.
@@ -420,9 +425,11 @@ class DocumentManager: ObservableObject {
                 }
             }
             
-            if let thumbnailPath = document.thumbnailPath,
-               FileManager.default.fileExists(atPath: thumbnailPath.path) {
-                try? fileSystemManager.deleteFile(at: thumbnailPath)
+            if let recordedThumbnail = document.thumbnailPath {
+                let thumbnailPath = fileSystemManager.relocatedThumbnail(storedAt: recordedThumbnail) ?? recordedThumbnail
+                if FileManager.default.fileExists(atPath: thumbnailPath.path) {
+                    try? fileSystemManager.deleteFile(at: thumbnailPath)
+                }
             }
             
             // Remove from local array

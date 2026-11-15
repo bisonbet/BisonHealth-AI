@@ -146,10 +146,24 @@ class DocumentProcessor: ObservableObject {
     /// `finishPendingImportReview`, which removes it.
     func discardPendingImportReview(for documentId: UUID) {
         guard pendingImportReview?.documentId == documentId else { return }
-        if !pendingReviewQueue.isEmpty {
-            pendingImportReview = pendingReviewQueue.removeFirst()
-        } else {
-            pendingImportReview = nil
+        advancePendingImportReview()
+    }
+
+    /// Throw a review away for good: out of the slot or the queue, and out of the database,
+    /// so it is not offered again next launch.
+    ///
+    /// For the two cases where "offer it again" is wrong: the user said to discard the
+    /// results, or deleted the document they came from. Without it a cancelled review came
+    /// back on every launch with no way to refuse it, including for a deleted document.
+    func deletePendingImportReview(for documentId: UUID) async {
+        pendingReviewQueue.removeAll { $0.documentId == documentId }
+        if pendingImportReview?.documentId == documentId {
+            advancePendingImportReview()
+        }
+        do {
+            try await databaseManager.deletePendingImportReview(documentId: documentId)
+        } catch {
+            AppLog.shared.error("Could not delete a stored import review", error: error, category: .documents)
         }
     }
 
@@ -411,6 +425,7 @@ class DocumentProcessor: ObservableObject {
         updatedBloodTest.metadata = metadata
 
         // Save the updated blood test
+        var keepsStoredReview = false
         do {
             // The processor's injected manager, not the singleton. The view that used to own
             // this method had nothing to inject, which is also why it could not be tested.
@@ -420,13 +435,30 @@ class DocumentProcessor: ObservableObject {
             // Same-document/similar-date duplicates are idempotent re-imports
             // (the automatic path skips them too) — not a review failure.
             AppLog.shared.documents("Blood test after review skipped: \(reason)", level: .warning)
+        } catch HealthDataError.duplicateOfExistingReport(let reason) {
+            // The user just chose these values and none of them was saved, so say so. The
+            // review is still finished: offering it again would be refused the same way.
+            AppLog.shared.documents("Blood test after review rejected as a duplicate: \(reason)", level: .error)
+            ErrorHandler.shared.handle(
+                HealthDataError.duplicateOfExistingReport(reason),
+                context: "Lab import",
+                severity: .error
+            )
         } catch {
+            // Nothing was saved and it may work next time (a database fault, say), so the
+            // stored review stays and is offered again next launch.
             AppLog.shared.documents("Failed to save blood test after review: \(error)", level: .error)
+            ErrorHandler.shared.handle(error, context: "Lab import", severity: .error)
+            keepsStoredReview = true
         }
 
         // ALWAYS advance the review queue — a stuck slot jams every later
         // document's review for the rest of the session.
-        await finishPendingImportReviewAwaitingDelete()
+        if keepsStoredReview {
+            discardPendingImportReview(for: review.documentId)
+        } else {
+            await finishPendingImportReviewAwaitingDelete()
+        }
     }
 
     func completeGeneticTestReview(
@@ -2023,22 +2055,30 @@ class DocumentProcessor: ObservableObject {
         var renamed = 0
         for entry in stored {
             do {
-                if let newURL = try fileSystemManager.renameLegacyDocumentFile(storedAt: entry.filePath) {
+                // A legacy name is renamed; any other file whose recorded path is gone is looked
+                // for in the managed directory. Rows record absolute URLs and the container path
+                // changes on a device restore, after which every recorded path is stale: without
+                // this, thumbnails, sharing, export and file deletion all miss the file.
+                if let newURL = try fileSystemManager.renameLegacyDocumentFile(storedAt: entry.filePath)
+                    ?? fileSystemManager.relocatedDocumentFile(storedAt: entry.filePath),
+                   newURL != entry.filePath {
                     try await databaseManager.updateDocumentFilePath(entry.id, filePath: newURL)
                     renamed += 1
                 }
                 // The thumbnail is named after the document's file, so it carries the same words.
                 if let thumbnail = entry.thumbnailPath,
-                   let newURL = try fileSystemManager.renameLegacyThumbnail(storedAt: thumbnail) {
+                   let newURL = try fileSystemManager.renameLegacyThumbnail(storedAt: thumbnail)
+                    ?? fileSystemManager.relocatedThumbnail(storedAt: thumbnail),
+                   newURL != thumbnail {
                     try await databaseManager.updateDocumentThumbnailPath(entry.id, thumbnailPath: newURL)
                     renamed += 1
                 }
             } catch {
-                AppLog.shared.error("Could not rename a legacy document file", error: error, category: .documents)
+                AppLog.shared.error("Could not rename or relink a document file", error: error, category: .documents)
             }
         }
         if renamed > 0 {
-            AppLog.shared.documents("Renamed \(renamed) document or thumbnail file(s) stored under the old name scheme")
+            AppLog.shared.documents("Renamed or relinked \(renamed) document or thumbnail path(s)")
             // Anything loaded before this ran holds the old paths, and an edit to a cached copy
             // writes the whole row back — path included. No object: every listener reloads.
             NotificationCenter.default.post(name: .medicalDocumentDidChange, object: nil)
