@@ -1295,4 +1295,30 @@ final class PendingReviewOwnershipTests: XCTestCase {
             "A completed review must not be restored again on the next launch"
         )
     }
+
+    func testReviewLaterKeepsTheStoredCopyAndDiscardRemovesIt() async throws {
+        let database = try DatabaseManager(databaseURL: databaseURL)
+        let later = review(documentName: "later.pdf")
+        let discarded = review(documentName: "discarded.pdf")
+        try await database.savePendingImportReview(later)
+        try await database.savePendingImportReview(discarded)
+
+        let processor = try makeProcessor(database: database)
+        await processor.restorePendingImportReviews()
+
+        // Cancel > Review Later: the slot moves on, the row stays for the next launch.
+        let current = try XCTUnwrap(processor.pendingImportReview)
+        processor.discardPendingImportReview(for: current.documentId)
+        let afterLater = try await database.fetchPendingImportReviews()
+        XCTAssertEqual(afterLater.count, 2, "Review Later must not delete anything")
+
+        // Cancel > Discard, and deleting the document: gone from the slot, the queue and
+        // the database, so it is not offered again on every launch.
+        for documentId in [later.documentId, discarded.documentId] {
+            await processor.deletePendingImportReview(for: documentId)
+        }
+        XCTAssertNil(processor.pendingImportReview, "A discarded review must leave the slot")
+        let afterDiscard = try await database.fetchPendingImportReviews()
+        XCTAssertTrue(afterDiscard.isEmpty, "A discarded review must not be restored next launch")
+    }
 }

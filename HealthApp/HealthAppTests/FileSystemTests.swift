@@ -123,6 +123,22 @@ final class FileSystemTests: XCTestCase {
         XCTAssertEqual(try fileSystemManager.renameLegacyDocumentFile(storedAt: legacy), renamed)
     }
 
+    func testAFileWhoseRecordedContainerPathIsGoneIsFoundInTheManagedDirectory() throws {
+        let stored = try fileSystemManager.storeDocument(data: testDocumentData, fileName: "panel.pdf", fileType: .pdf)
+        XCTAssertNil(fileSystemManager.relocatedDocumentFile(storedAt: stored), "A path that still exists needs no relink")
+
+        // What a row holds after a device restore: the same file name under a container
+        // path that no longer exists.
+        let stale = URL(fileURLWithPath: "/var/mobile/Containers/Data/Application/\(UUID().uuidString)/Documents/HealthApp/Documents/Imported")
+            .appendingPathComponent(stored.lastPathComponent)
+        let relocated = try XCTUnwrap(fileSystemManager.relocatedDocumentFile(storedAt: stale))
+        XCTAssertEqual(relocated.standardizedFileURL.path, stored.standardizedFileURL.path)
+        XCTAssertEqual(try fileSystemManager.retrieveDocument(from: relocated), testDocumentData)
+
+        let missing = stale.deletingLastPathComponent().appendingPathComponent("\(UUID().uuidString).pdf")
+        XCTAssertNil(fileSystemManager.relocatedDocumentFile(storedAt: missing), "A file that is nowhere stays unresolved")
+    }
+
     // MARK: - Conversation Export
 
     func testAnExportedConversationCarriesTheAIDisclaimer() async throws {

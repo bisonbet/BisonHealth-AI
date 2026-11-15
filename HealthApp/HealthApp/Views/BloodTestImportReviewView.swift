@@ -7,8 +7,12 @@ struct BloodTestImportReviewView: View {
     @Binding var importGroups: [BloodTestImportGroup]
     let onComplete: ([BloodTestImportGroup]) -> Void
     var onCancel: (() -> Void)? = nil
+    /// When set, Cancel asks whether to keep the results for later or discard them. Without
+    /// it Cancel just closes, as before.
+    var onDiscard: (() -> Void)? = nil
 
     @State private var showingAcceptAllConfirmation = false
+    @State private var showingCancelChoice = false
     /// Every choice the user makes on this sheet. A value type so the transitions the view
     /// performs are the ones the tests exercise (WS-15-12).
     @State private var selection: Selection
@@ -18,12 +22,14 @@ struct BloodTestImportReviewView: View {
         importGroups: Binding<[BloodTestImportGroup]>,
         autoAcceptedGroups: [BloodTestImportGroup] = [],
         onComplete: @escaping ([BloodTestImportGroup]) -> Void,
-        onCancel: (() -> Void)? = nil
+        onCancel: (() -> Void)? = nil,
+        onDiscard: (() -> Void)? = nil
     ) {
         self._importGroups = importGroups
         self._selection = State(initialValue: Selection(autoAcceptedGroups: autoAcceptedGroups))
         self.onComplete = onComplete
         self.onCancel = onCancel
+        self.onDiscard = onDiscard
     }
 
     // Convenience initializer for non-binding usage
@@ -67,11 +73,18 @@ struct BloodTestImportReviewView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", systemImage: "xmark") {
-                        // Discard the pending review so the queue can advance;
-                        // the sheet is not swipe-dismissable (see below).
-                        onCancel?()
-                        dismiss()
+                        // The sheet is not swipe-dismissable (see below), so this is the only
+                        // way out without importing. Where the caller can discard, ask which
+                        // the user means: closing alone keeps the results for next launch.
+                        if onDiscard != nil {
+                            showingCancelChoice = true
+                        } else {
+                            onCancel?()
+                            dismiss()
+                        }
                     }
+                    .accessibilityLabel("Cancel review")
+                    .accessibilityHint("Closes the review without importing")
                     .accessibilityIdentifier("importReviewCancelButton")
                 }
 
@@ -96,6 +109,25 @@ struct BloodTestImportReviewView: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This will accept all recommended values (highlighted in green).")
+            }
+            .confirmationDialog(
+                "Close Without Importing?",
+                isPresented: $showingCancelChoice,
+                titleVisibility: .visible
+            ) {
+                Button("Review Later") {
+                    onCancel?()
+                    dismiss()
+                }
+                .accessibilityIdentifier("importReviewLaterButton")
+                Button("Discard These Results", role: .destructive) {
+                    onDiscard?()
+                    dismiss()
+                }
+                .accessibilityIdentifier("importReviewDiscardButton")
+                Button("Keep Reviewing", role: .cancel) { }
+            } message: {
+                Text("Review Later brings these results back the next time you open the app. Discard removes them; the document stays, and processing it again reads them again.")
             }
             // The review is a data-entry form: prevent accidental swipe-dismiss
             // (which would strand the pending review at the queue head).
