@@ -924,6 +924,59 @@ final class MLXMemoryBudgetTests: XCTestCase {
             XCTAssertLessThanOrEqual(cacheBytes, claimed, "The offered window must fit the budget it came from")
         }
     }
+
+    // MARK: Prompt admission
+    //
+    // The guard exists because of one measured kill: MediPhi on an iPhone19,4, a 15,419-char
+    // first turn, 4,015 MB of headroom reported at the start, jetsam past ~6 GB in prefill.
+
+    private let mb: UInt64 = 1_024 * 1_024
+
+    func testTheTurnThatWasKilledIsRefused() {
+        let tokens = MLXMemoryBudget.estimatedTokens(forCharacters: 15_297 + 122)
+        XCTAssertFalse(
+            MLXMemoryBudget.promptFits(promptTokens: tokens, replyTokens: 1_200, availableBytes: 4_015 * mb),
+            "The exact turn that was killed for memory must be refused before prefill"
+        )
+    }
+
+    func testAnOrdinaryQuestionStillRuns() {
+        // A question with a little context must not be blocked by the same headroom.
+        let tokens = MLXMemoryBudget.estimatedTokens(forCharacters: 4_000)
+        XCTAssertTrue(
+            MLXMemoryBudget.promptFits(promptTokens: tokens, replyTokens: 1_200, availableBytes: 4_015 * mb)
+        )
+    }
+
+    func testAffordableTokensIsTheBoundaryOfPromptFits() {
+        for available in [UInt64(512), 1_024, 2_048, 4_015, 8_192].map({ $0 * mb }) {
+            let affordable = MLXMemoryBudget.affordablePromptTokens(availableBytes: available, replyTokens: 1_200)
+            if affordable > 0 {
+                XCTAssertTrue(
+                    MLXMemoryBudget.promptFits(promptTokens: affordable, replyTokens: 1_200, availableBytes: available),
+                    "The reported maximum must itself be admitted"
+                )
+            }
+            XCTAssertFalse(
+                MLXMemoryBudget.promptFits(promptTokens: affordable + 1, replyTokens: 1_200, availableBytes: available),
+                "One token over the reported maximum must be refused"
+            )
+        }
+    }
+
+    func testNoHeadroomAffordsNothing() {
+        XCTAssertEqual(MLXMemoryBudget.affordablePromptTokens(availableBytes: 0, replyTokens: 1_200), 0)
+        XCTAssertFalse(MLXMemoryBudget.promptFits(promptTokens: 1, replyTokens: 0, availableBytes: 0))
+    }
+
+    func testTokenEstimateRoundsUpAndNeverGoesNegative() {
+        XCTAssertEqual(MLXMemoryBudget.estimatedTokens(forCharacters: 0), 0)
+        XCTAssertEqual(MLXMemoryBudget.estimatedTokens(forCharacters: -5), 0)
+        XCTAssertEqual(MLXMemoryBudget.estimatedTokens(forCharacters: 1), 1)
+        XCTAssertEqual(
+            MLXMemoryBudget.estimatedTokens(forCharacters: MLXMemoryBudget.charactersPerTokenEstimate + 1), 2
+        )
+    }
 }
 
 // MARK: - Document Failure Reason
@@ -1455,5 +1508,103 @@ final class MLXModelDownloadManagerWiringTests: XCTestCase {
         XCTAssertEqual(script.attempts, 0)
         XCTAssertFalse(manager.isDownloading)
         XCTAssertNotNil(manager.downloadError)
+    }
+}
+
+// MARK: - Long-context chat candidates
+//
+// MedPsy-4B and MedGemma 1.5 4B were added because MediPhi cannot hold a 16K window on an
+// 11 GB phone. These pin the properties that decision rests on: each model's cache cost is
+// its own, the memory guard uses it, and a thinking model's reasoning never reaches the user.
+final class LongContextModelTests: XCTestCase {
+
+    private let mb: UInt64 = 1_024 * 1_024
+
+    func testBothCandidatesAreTextChatModels() {
+        for model in [MLXModelInfo.medPsy4B, MLXModelInfo.medGemma15_4B] {
+            XCTAssertTrue(MLXModelInfo.allModels.contains(model), "\(model.displayName) must be selectable")
+            XCTAssertEqual(model.modelType, .llm, "\(model.displayName) is for chat, not document extraction")
+            XCTAssertFalse(MLXModelInfo.visionModels.contains(model))
+        }
+    }
+
+    func testCacheCostMatchesEachModelsConfig() {
+        XCTAssertEqual(MLXModelInfo.mediPhi4B.kvBytesPerToken, 384 * 1_024)
+        XCTAssertEqual(MLXModelInfo.medPsy4B.kvBytesPerToken, 144 * 1_024)
+        XCTAssertEqual(MLXModelInfo.medGemma15_4B.kvBytesPerToken, 20 * 1_024)
+        XCTAssertEqual(
+            MLXModelInfo.medGemma27BTextIT4Bit.kvBytesPerToken,
+            MLXMemoryBudget.assumedKVBytesPerToken,
+            "An unmeasured model falls back to the worst case"
+        )
+    }
+
+    func testTheKilledTurnFitsTheGroupedQueryModelsButNotMediPhi() {
+        // The same 15,419-character turn and 4,015 MB of headroom that killed MediPhi.
+        let tokens = MLXMemoryBudget.estimatedTokens(forCharacters: 15_297 + 122)
+        let available = 4_015 * mb
+
+        func fits(_ model: MLXModelInfo) -> Bool {
+            MLXMemoryBudget.promptFits(
+                promptTokens: tokens,
+                replyTokens: model.defaultSettings.maxTokens,
+                availableBytes: available,
+                kvBytesPerToken: model.kvBytesPerToken
+            )
+        }
+
+        XCTAssertFalse(fits(.mediPhi4B))
+        XCTAssertTrue(fits(.medPsy4B))
+        XCTAssertTrue(fits(.medGemma15_4B))
+    }
+
+    func testAFullSixteenKWindowFitsMedGemmaInTheSameHeadroom() {
+        XCTAssertTrue(MLXMemoryBudget.promptFits(
+            promptTokens: MLXModelInfo.defaultContextSize,
+            replyTokens: MLXModelInfo.medGemma15_4B.defaultSettings.maxTokens,
+            availableBytes: 4_015 * mb,
+            kvBytesPerToken: MLXModelInfo.medGemma15_4B.kvBytesPerToken
+        ))
+    }
+
+    func testOnlyMedPsySeparatesReasoning() {
+        XCTAssertTrue(MLXModelInfo.medPsy4B.emitsReasoning)
+        XCTAssertFalse(MLXModelInfo.medGemma15_4B.emitsReasoning)
+        XCTAssertFalse(MLXModelInfo.mediPhi4B.emitsReasoning)
+    }
+
+    // MARK: Reasoning split
+
+    func testNothingYetIsNeitherAnswerNorReasoning() {
+        XCTAssertEqual(MLXReasoningOutput.split(""), .init(answer: "", isReasoning: false))
+    }
+
+    func testAPartialOpeningTagCountsAsReasoning() {
+        XCTAssertEqual(MLXReasoningOutput.split("<th"), .init(answer: "", isReasoning: true))
+        XCTAssertEqual(MLXReasoningOutput.split("\n<think"), .init(answer: "", isReasoning: true))
+    }
+
+    func testAnOpenBlockHidesTheReasoning() {
+        let split = MLXReasoningOutput.split("<think>\nThe MRI shows a partial tear, so")
+        XCTAssertEqual(split, .init(answer: "", isReasoning: true))
+    }
+
+    func testOnlyTextAfterTheClosingTagIsTheAnswer() {
+        let split = MLXReasoningOutput.split("<think>\nweighing options\n</think>\n\nYour MRI report describes a partial tear.")
+        XCTAssertEqual(split, .init(answer: "Your MRI report describes a partial tear.", isReasoning: false))
+    }
+
+    func testAnEmptyBlockLeavesTheAnswer() {
+        XCTAssertEqual(
+            MLXReasoningOutput.split("<think>\n\n</think>\n\nOK"),
+            .init(answer: "OK", isReasoning: false)
+        )
+    }
+
+    func testAnswerWithoutAnyTagIsKept() {
+        XCTAssertEqual(
+            MLXReasoningOutput.split("The report is normal."),
+            .init(answer: "The report is normal.", isReasoning: false)
+        )
     }
 }

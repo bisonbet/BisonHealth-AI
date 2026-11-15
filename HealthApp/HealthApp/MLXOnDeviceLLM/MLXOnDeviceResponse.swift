@@ -52,6 +52,8 @@ enum MLXOnDeviceError: LocalizedError {
     /// Carries why, because the two reasons need different words: telling a user who
     /// cancelled that "the app went to the background" is simply false.
     case generationInterrupted(MLXTurnInterruption.Reason)
+    /// Refused before prefill: the turn would push the process past what iOS allows it.
+    case promptTooLargeForMemory(estimatedTokens: Int, affordableTokens: Int)
 
     /// A stopped run rather than a failed one. Catch sites that fall back to a partial or
     /// heuristic result on failure rethrow these, so a stop is never saved as an answer.
@@ -82,6 +84,8 @@ enum MLXOnDeviceError: LocalizedError {
             return "The response stopped because the app went to the background."
         case .generationInterrupted(.cancelled):
             return "The response was stopped before it finished."
+        case .promptTooLargeForMemory(let estimated, let affordable):
+            return "This message and the health data selected for it are too large for on-device AI to process with the memory this device has free (about \(estimated) tokens; about \(affordable) fit right now)."
         }
     }
 
@@ -103,6 +107,8 @@ enum MLXOnDeviceError: LocalizedError {
             return "Try again now that the app is in the foreground."
         case .generationInterrupted(.cancelled):
             return "Try again to get a complete response."
+        case .promptTooLargeForMemory:
+            return "Select fewer documents or data types for this conversation, or start a new conversation, then try again."
         }
     }
 }

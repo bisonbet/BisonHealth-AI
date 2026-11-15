@@ -94,10 +94,11 @@ enum MLXResponseBudget {
 /// **The per-token figure is an estimate and has never been measured on a device**, which is
 /// why this type is shaped the way it is:
 ///
-/// - It only ever lowers the *maximum selectable* window. The 16,384 default is left alone
-///   because it demonstrably works on real hardware today; an unvalidated estimate is not
-///   grounds for shrinking something known to work. `maximumContextSize` therefore never
-///   returns less than the default.
+/// - It only ever lowers the *maximum selectable* window. The 16,384 default is left alone,
+///   and `maximumContextSize` never returns less than it. That does not make the default
+///   safe: a ~5,000-token first turn has been killed for memory on an 11.3 GB iPhone well
+///   inside it. The window only caps what the cache *may* grow to; what a given turn will
+///   actually cost is checked per turn by `promptFits(promptTokens:replyTokens:availableBytes:)`.
 /// - The arithmetic is pure and tested, so correcting `assumedKVBytesPerToken` after one
 ///   device measurement is a one-line change with the consequences already covered.
 enum MLXMemoryBudget {
@@ -134,6 +135,114 @@ enum MLXMemoryBudget {
         // Round down to a whole 4K step so the slider lands on familiar values.
         let stepped = (affordableTokens / 4096) * 4096
         return min(ceiling, max(floor, stepped))
+    }
+
+    // MARK: Prompt Admission
+
+    /// What processing one prompt is expected to cost, per token, *during prefill*.
+    ///
+    /// Measured, not derived: on an iPhone19,4 (11.3 GB, increased-memory-limit entitlement)
+    /// MediPhi with ~2 GB of weights was killed by jetsam once the process passed ~6 GB while
+    /// prefilling a ~15,400-character first turn, roughly 5,000 tokens. That is over 4 GB on
+    /// top of the weights, about twice the KV cache `assumedKVBytesPerToken` accounts for.
+    /// `RotatingKVCache` concatenates a fresh copy of every layer's cache for each prefill
+    /// chunk, and the freed buffers are too small to reuse, so the cache's own size is not
+    /// the whole cost. Correct this factor from the heartbeat lines in an exported log.
+    static let prefillOverheadFactor = 2.0
+
+    /// Kept free for everything that is not the KV cache: activations, logits, the app.
+    static let admissionReserveBytes: UInt64 = 512 * 1024 * 1024
+
+    /// Conservative characters-per-token for sizing a prompt before it is tokenized.
+    /// Patient data is dense with numbers and units, which tokenize poorly; a low ratio
+    /// over-counts tokens, and over-counting is the safe direction.
+    static let charactersPerTokenEstimate = 3
+
+    static func estimatedTokens(forCharacters characters: Int) -> Int {
+        (max(0, characters) + charactersPerTokenEstimate - 1) / charactersPerTokenEstimate
+    }
+
+    /// Bytes this turn is expected to add before it finishes: the prompt at prefill cost,
+    /// plus the reply, whose tokens are decoded one at a time and pay only the cache.
+    ///
+    /// `kvBytesPerToken` is the model's own figure (`MLXModelInfo.kvBytesPerToken`); it
+    /// varies by more than 10× across the catalog, so one constant would either refuse
+    /// everything a grouped-query model can do or admit what MediPhi cannot.
+    static func bytesRequired(
+        promptTokens: Int,
+        replyTokens: Int,
+        kvBytesPerToken: Int = assumedKVBytesPerToken
+    ) -> UInt64 {
+        let perToken = Double(max(0, kvBytesPerToken))
+        let prompt = Double(max(0, promptTokens)) * perToken * prefillOverheadFactor
+        let reply = Double(max(0, replyTokens)) * perToken
+        return UInt64(prompt + reply) + admissionReserveBytes
+    }
+
+    /// The largest prompt, in tokens, that `availableBytes` can take with this reply budget.
+    static func affordablePromptTokens(
+        availableBytes: UInt64,
+        replyTokens: Int,
+        kvBytesPerToken: Int = assumedKVBytesPerToken
+    ) -> Int {
+        let perToken = Double(max(1, kvBytesPerToken))
+        let replyBytes = Double(max(0, replyTokens)) * perToken
+        let room = Double(availableBytes) - Double(admissionReserveBytes) - replyBytes
+        guard room > 0 else { return 0 }
+        return Int(room / (perToken * prefillOverheadFactor))
+    }
+
+    /// Whether a turn may start. iOS terminates the process outright when it runs out, with
+    /// nothing logged and the user's message lost, so refusing up front is the better failure.
+    static func promptFits(
+        promptTokens: Int,
+        replyTokens: Int,
+        availableBytes: UInt64,
+        kvBytesPerToken: Int = assumedKVBytesPerToken
+    ) -> Bool {
+        bytesRequired(
+            promptTokens: promptTokens,
+            replyTokens: replyTokens,
+            kvBytesPerToken: kvBytesPerToken
+        ) <= availableBytes
+    }
+}
+
+// MARK: - Reasoning Output
+
+/// Separates a thinking model's reasoning from its answer, for streaming and for the result.
+///
+/// MedPsy's template does not prefill the tag: the model writes `<think>`, reasons, writes
+/// `</think>`, then answers. Partial output is therefore one of three shapes — nothing yet
+/// (or the first characters of `<think>`), an open block still reasoning, or a closed block
+/// followed by the answer so far. Plain value logic, testable without MLX.
+enum MLXReasoningOutput {
+    static let openingTag = "<think>"
+    static let closingTag = "</think>"
+
+    struct Split: Equatable {
+        /// The answer so far, with any reasoning removed.
+        let answer: String
+        /// True while the model is still inside its reasoning block.
+        let isReasoning: Bool
+    }
+
+    static func split(_ raw: String) -> Split {
+        if let close = raw.range(of: closingTag, options: .backwards) {
+            let answer = raw[close.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            return Split(answer: answer, isReasoning: false)
+        }
+
+        let leading = raw.drop { $0.isWhitespace }
+        if let open = raw.range(of: openingTag) {
+            let before = raw[..<open.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            return Split(answer: before, isReasoning: true)
+        }
+        // "<th" arriving in the first chunk is the start of the tag, not of an answer.
+        if !leading.isEmpty, openingTag.hasPrefix(leading) {
+            return Split(answer: "", isReasoning: true)
+        }
+        return Split(answer: raw.trimmingCharacters(in: .whitespacesAndNewlines), isReasoning: false)
     }
 }
 
@@ -307,11 +416,38 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
             // `<|endoftext|>` as EOS. Without this extra stop token, generation
             // can continue into fabricated user/assistant turns until maxTokens.
             return ["<|end|>"]
-        case Self.medGemma27BTextIT4Bit.id:
+        case Self.medGemma27BTextIT4Bit.id, Self.medGemma15_4B.id:
             return ["<end_of_turn>"]
         default:
             return []
         }
+    }
+
+    /// KV-cache bytes each token of context costs, from the model's published config
+    /// (2 × layers holding a full-length cache × KV heads × head dim × 2 bytes for fp16).
+    /// Models not listed fall back to MediPhi's figure, the worst in the catalog, so an
+    /// unmeasured model is over-estimated rather than allowed to run out of memory.
+    public var kvBytesPerToken: Int {
+        switch id {
+        case Self.mediPhi4B.id:
+            return 2 * 32 * 32 * 96 * 2        // 384 KiB: 32 layers, no GQA
+        case Self.medPsy4B.id:
+            return 2 * 36 * 8 * 128 * 2        // 144 KiB: 36 layers, 8 KV heads
+        case Self.medGemma15_4B.id:
+            // 5 global layers grow with the context; the 29 sliding-window layers are
+            // capped at 1,024 tokens, which the admission reserve covers.
+            return 2 * 5 * 4 * 256 * 2         // 20 KiB
+        case Self.qwen35_4B_VLM.id:
+            return 2 * 8 * 4 * 256 * 2         // 32 KiB: 8 of 32 layers are full attention
+        default:
+            return MLXMemoryBudget.assumedKVBytesPerToken
+        }
+    }
+
+    /// The model writes a `<think>…</think>` block before every answer. Only the text after
+    /// `</think>` is shown or saved; see `MLXReasoningOutput`.
+    public var emitsReasoning: Bool {
+        id == Self.medPsy4B.id
     }
 
     /// Whether this model should be exposed on the current device.
@@ -389,10 +525,65 @@ extension MLXModelInfo {
         )
     )
 
+    /// MedPsy 4B - medical fine-tune of Qwen3-4B-Thinking-2507 (Apache-2.0).
+    ///
+    /// Chosen as a long-context chat candidate: grouped-query attention (8 KV heads) puts its
+    /// cache at 144 KiB per token against MediPhi's 384 KiB, so a 16K window costs ~2.25 GB
+    /// rather than ~6 GB. It is a thinking-only model: every answer is preceded by a
+    /// reasoning block, which the reply budget below has to leave room for.
+    ///
+    /// The MLX build is a third-party conversion; move it to a repository we control (as
+    /// MediPhi was) before shipping it as a default.
+    public static let medPsy4B = MLXModelInfo(
+        id: "medpsy-4b-mlx-4bit",
+        displayName: "MedPsy 4B",
+        description: "Medical reasoning model for clinical Q&A. Thinks before it answers, so replies take longer to start. Not a diagnostic tool.",
+        huggingFaceId: "Irfanuruchi/MedPsy-4B-MLX-4bit",
+        modelType: .llm,
+        // Hub tree total on 2026-11-15.
+        estimatedSizeBytes: 2_274_640_246,
+        contextWindow: 32768,
+        defaultSettings: MLXModelDefaultSettings(
+            // Qwen3 thinking models degrade into loops under greedy-ish sampling and under a
+            // repetition penalty; these are the upstream recommendations.
+            temperature: 0.6,
+            topP: 0.95,
+            // Reasoning and answer share this budget.
+            maxTokens: 3072,
+            repetitionPenalty: nil
+        )
+    )
+
+    /// MedGemma 1.5 4B - Google's January 2026 medical Gemma 3, used here for text chat only.
+    ///
+    /// Gemma 3 keeps a full-length cache on only 5 of its 34 layers; the other 29 hold a
+    /// 1,024-token sliding window. A 16K window therefore costs well under 0.5 GB of cache.
+    /// The checkpoint is multimodal, but `Gemma3TextModel.sanitize` keeps only the
+    /// `language_model` weights, so the vision tower is downloaded but never loaded. Its
+    /// licence is Google's Health AI Developer Foundations terms, not Apache.
+    public static let medGemma15_4B = MLXModelInfo(
+        id: "medgemma-1.5-4b-it-4bit",
+        displayName: "MedGemma 1.5 4B",
+        description: "Google's medical Gemma model for clinical Q&A. Answers directly, with low memory use for long context. Not a diagnostic tool.",
+        huggingFaceId: "mlx-community/medgemma-1.5-4b-it-4bit",
+        modelType: .llm,
+        // Hub tree total on 2026-11-15, including the unused vision weights.
+        estimatedSizeBytes: 3_439_897_648,
+        contextWindow: 32768,
+        defaultSettings: MLXModelDefaultSettings(
+            temperature: 0.4,
+            topP: 0.95,
+            maxTokens: 1200,
+            repetitionPenalty: nil
+        )
+    )
+
     // MARK: - All Available Models
 
     private static let catalogModels: [MLXModelInfo] = [
         mediPhi4B,
+        medPsy4B,
+        medGemma15_4B,
         medGemma27BTextIT4Bit,
         qwen35_4B_VLM
     ]
