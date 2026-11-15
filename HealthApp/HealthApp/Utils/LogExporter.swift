@@ -86,6 +86,7 @@ struct LogExporter {
         sections.append("Exported: \(ISO8601DateFormatter().string(from: Date()))")
         sections.append("Device: \(UIDevice.current.name)")
         sections.append("iOS: \(UIDevice.current.systemVersion)")
+        sections.append("Hardware: \(ProcessMemory.hardwareModel), \(ProcessMemory.megabytes(ProcessInfo.processInfo.physicalMemory))MB installed")
         if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
             sections.append("App: \(version) (\(build))")

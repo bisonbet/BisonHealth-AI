@@ -323,8 +323,10 @@ final class AppLog: NSObject, @unchecked Sendable {
         log(message, level: level, category: .settings, file: file, function: function, line: line)
     }
 
-    func mlx(_ message: String, level: LogLevel = .info, file: String = #file, function: String = #function, line: Int = #line) {
-        log(message, level: level, category: .mlx, file: file, function: function, line: line)
+    /// `synchronize` writes the line to disk before returning. Use it for the last line
+    /// before work that can end the process without logging anything else.
+    func mlx(_ message: String, level: LogLevel = .info, synchronize: Bool = false, file: String = #file, function: String = #function, line: Int = #line) {
+        log(message, level: level, category: .mlx, synchronize: synchronize, file: file, function: function, line: line)
     }
 
     func ui(_ message: String, level: LogLevel = .info, file: String = #file, function: String = #function, line: Int = #line) {
@@ -402,7 +404,7 @@ final class AppLog: NSObject, @unchecked Sendable {
         .healthData, .ai, .documents, .database
     ]
 
-    func log(_ message: String, level: LogLevel = .info, category: LogCategory = .general, file: String = #file, function: String = #function, line: Int = #line) {
+    func log(_ message: String, level: LogLevel = .info, category: LogCategory = .general, synchronize: Bool = false, file: String = #file, function: String = #function, line: Int = #line) {
         guard level >= minimumLogLevel else { return }
 
         let fileName = (file as NSString).lastPathComponent
@@ -441,14 +443,15 @@ final class AppLog: NSObject, @unchecked Sendable {
             durableBufferLine = nil
         }
 
+        let mustReachDisk = isDurableEvent || synchronize
         let writeBlock = { [weak self] in
-            self?.writeToFile(redactedFormattedMessage, synchronize: isDurableEvent)
+            self?.writeToFile(redactedFormattedMessage, synchronize: mustReachDisk)
             if let durableBufferLine {
                 self?.persistToErrorBuffer(durableBufferLine)
             }
         }
 
-        if isDurableEvent {
+        if mustReachDisk {
             if DispatchQueue.getSpecific(key: logQueueKey) != nil {
                 writeBlock()
             } else {
