@@ -360,6 +360,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         // the scan over a character budget instead.
         var charactersSinceRepetitionCheck = 0
 
+        // Prefill is where a large first turn spends its memory, and a kill there logs
+        // nothing else. Synchronous so this line is on disk before the GPU work starts.
+        AppLog.shared.mlx(
+            "[MLXClient] Generation starting: instructions=\(instructions?.count ?? 0) chars, message=\(message.count) chars, history=\(conversationHistory.count), window=\(MLXModelInfo.configuredContextSize), \(Self.memorySummary())",
+            synchronize: true
+        )
+        var loggedFirstToken = false
+
         do {
             responseStream: for try await generation in chatSession.streamDetails(
                 to: promptForTurn(message, hasInstructions: instructions != nil),
@@ -370,6 +378,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                 case .chunk(let chunk):
                     accumulatedContent += chunk
                     charactersSinceRepetitionCheck += chunk.count
+
+                    if !loggedFirstToken {
+                        loggedFirstToken = true
+                        AppLog.shared.mlx(
+                            "[MLXClient] First token after \(String(format: "%.1f", Date().timeIntervalSince(startTime)))s (\(Self.memorySummary()))",
+                            synchronize: true
+                        )
+                    }
 
                     // `suspendForBackground()` unloads the model, and to do that safely it
                     // has to take the gate this reply holds until it returns. Stopping here
@@ -418,6 +434,9 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                     }
                 case .info(let info):
                     completionInfo = info
+                    AppLog.shared.mlx(
+                        "[MLXClient] Generation finished: promptTokens=\(info.promptTokenCount), generatedTokens=\(info.generationTokenCount), \(String(format: "%.1f", info.tokensPerSecond)) tok/s (\(Self.memorySummary()))"
+                    )
                 case .toolCall:
                     continue
                 }
@@ -427,6 +446,11 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             // drop it so the next request rebuilds from persisted history.
             self.chatSession = nil
             chatSessionSignature = nil
+
+            AppLog.shared.mlx(
+                "[MLXClient] Generation threw after \(accumulatedContent.count) chars: \(AppLog.sanitizedErrorDescription(error)) (\(Self.memorySummary()))",
+                level: .warning
+            )
 
             // If streaming fails partway, still return what we have
             if accumulatedContent.isEmpty {
@@ -678,7 +702,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         connectionStatus = .connected
         isConnected = true
 
-        AppLog.shared.mlx("[MLXClient] Model loaded successfully: \(selectedModel.displayName)")
+        AppLog.shared.mlx("[MLXClient] Model loaded successfully: \(selectedModel.displayName) (\(Self.memorySummary()))")
         #endif
     }
 
@@ -812,6 +836,15 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     }
 
     #if !targetEnvironment(simulator)
+    /// MLX's own allocator counters plus the headroom iOS reports. MLX holds nearly all of
+    /// this process's memory during generation, so these are the numbers that explain a kill.
+    private static func memorySummary() -> String {
+        let active = ProcessMemory.megabytes(UInt64(MLX.Memory.activeMemory))
+        let cache = ProcessMemory.megabytes(UInt64(MLX.Memory.cacheMemory))
+        let peak = ProcessMemory.megabytes(UInt64(MLX.Memory.peakMemory))
+        return "mlxActive=\(active)MB mlxCache=\(cache)MB mlxPeak=\(peak)MB \(ProcessMemory.summary())"
+    }
+
     private func currentGenerateParameters(
         maxTokensOverride: Int? = nil,
         maxKVSizeOverride: Int? = nil

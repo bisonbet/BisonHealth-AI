@@ -111,6 +111,7 @@
 		A1000074294A0000000000001 /* HealthDataManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000075294A0000000000001 /* HealthDataManagerTests.swift */; };
 		A10000PPBD0000000000000001 /* PrivatePasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000PPBD0000000000000002 /* PrivatePasteboard.swift */; };
 		A10000LOGE0000000000000001 /* LogExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000LOGE0000000000000002 /* LogExporter.swift */; };
+		A10000PMEM0000000000000001 /* ProcessMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000PMEM0000000000000002 /* ProcessMemory.swift */; };
 		A10000X6PP0AIOVJSYPSP3LJFU /* BloodTestImportReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */; };
 		A1A70FBBEDC4A486B86AF5CC1 /* DocumentProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC40C20EB59DC4A99B351C991 /* DocumentProcessor.swift */; };
 		A2MLX0012F26000100MLX001 /* MLXOnDeviceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0052F26000100MLX001 /* MLXOnDeviceModels.swift */; };
@@ -288,6 +289,7 @@
 		A10000G6I56H4YKX4HX3MKK5UE /* BloodTestValueValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestValueValidator.swift; sourceTree = "<group>"; };
 		A10000PPBD0000000000000002 /* PrivatePasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivatePasteboard.swift; sourceTree = "<group>"; };
 		A10000LOGE0000000000000002 /* LogExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogExporter.swift; sourceTree = "<group>"; };
+		A10000PMEM0000000000000002 /* ProcessMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessMemory.swift; sourceTree = "<group>"; };
 		A10000R5WCN5TCBELL9IW4K5PU /* BloodTestImportReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BloodTestImportReviewView.swift; sourceTree = "<group>"; };
 		A2MLX0052F26000100MLX001 /* MLXOnDeviceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceModels.swift; sourceTree = "<group>"; };
 		A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceResponse.swift; sourceTree = "<group>"; };
@@ -578,6 +580,7 @@
 				142348192EA07B3300059087 /* Networking */,
 				A1000055294A0000000000001 /* FileSystemManager.swift */,
 				A10000LOGE0000000000000002 /* LogExporter.swift */,
+				A10000PMEM0000000000000002 /* ProcessMemory.swift */,
 				A10000PPBD0000000000000002 /* PrivatePasteboard.swift */,
 				A1000057294A0000000000001 /* DocumentImporter.swift */,
 				A1000059294A0000000000001 /* DocumentExporter.swift */,
@@ -866,6 +869,7 @@
 				14FFBD392E77882B00FD9B75 /* Views/DropdownComponents.swift in Sources */,
 				A1000054294A0000000000001 /* FileSystemManager.swift in Sources */,
 				A10000LOGE0000000000000001 /* LogExporter.swift in Sources */,
+				A10000PMEM0000000000000001 /* ProcessMemory.swift in Sources */,
 				A10000PPBD0000000000000001 /* PrivatePasteboard.swift in Sources */,
 				A1000056294A0000000000001 /* DocumentImporter.swift in Sources */,
 				A1000058294A0000000000001 /* DocumentExporter.swift in Sources */,
