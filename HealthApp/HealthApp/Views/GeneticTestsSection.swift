@@ -637,9 +637,12 @@ struct GeneticTestEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: GeneticTestResult
     @State private var testedGenesText: String
+    /// Compared on save: only a changed list is pinned against later reprocessing.
+    private let originalTestedGenes: [String]
 
     init(result: GeneticTestResult, onSave: @escaping (GeneticTestResult) -> Void) {
         self.onSave = onSave
+        self.originalTestedGenes = result.testedGenes
         self._draft = State(initialValue: result)
         self._testedGenesText = State(initialValue: result.testedGenes.joined(separator: ", "))
     }
@@ -712,6 +715,12 @@ struct GeneticTestEditorView: View {
                 guard !values.contains(where: { $0.caseInsensitiveCompare(gene) == .orderedSame }) else { return }
                 values.append(gene)
             }
+        draft.markUserModified()
+        if draft.testedGenes != originalTestedGenes {
+            var metadata = draft.metadata ?? [:]
+            metadata[GeneticTestResult.testedGenesEditedKey] = "true"
+            draft.metadata = metadata
+        }
         draft.updatedAt = Date()
         onSave(draft)
         dismiss()

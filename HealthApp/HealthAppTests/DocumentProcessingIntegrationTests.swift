@@ -99,6 +99,43 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertEqual(slco1b1.category, .drugTransport)
     }
 
+    /// From a real pharmacogenomic report whose tested genes came back as
+    /// "…, NORMAL, …, HLA-A, HLA-B, HLA, …, NMNM".
+    func testGeneticTestParserDoesNotTurnResultWordsOrAlleleSuffixesIntoGenes() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let report = """
+        Pharmacogenomic Report
+        CYP2D6*1/*4
+        Phenotype: Intermediate Metabolizer
+        Normal: no change expected
+        NORMAL\tFunction
+        NMNM\tsummary code
+        HLA-B*58:01\tNegative
+        HLA-A*31:01 - Not detected
+        BRCA1\tNegative
+        """
+
+        let result = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let genes = Set(result.testedGenes)
+
+        XCTAssertEqual(genes, ["CYP2D6", "HLA-B", "HLA-A", "BRCA1"])
+        XCTAssertFalse(result.results.contains { ["NORMAL", "NMNM", "HLA"].contains($0.gene.uppercased()) })
+
+        let hlaB = try XCTUnwrap(result.results.first { $0.gene == "HLA-B" })
+        XCTAssertTrue(hlaB.isKnownPharmacogene)
+        let cyp2d6 = try XCTUnwrap(result.results.first { $0.gene == "CYP2D6" })
+        XCTAssertEqual(cyp2d6.diplotype, "*1/*4")
+    }
+
+    func testPlausibleGeneSymbolRejectsResultWordsAndPhenotypeCodes() {
+        for word in ["NORMAL", "NMNM", "IMPM", "NM", "HLA", "HLA-", "POSITIVE"] {
+            XCTAssertFalse(GeneticTestParser.isPlausibleGeneSymbol(word), word)
+        }
+        for symbol in ["BRCA1", "MTHFR", "APOE", "F5", "HFE"] {
+            XCTAssertTrue(GeneticTestParser.isPlausibleGeneSymbol(symbol), symbol)
+        }
+    }
+
     func testGeneticTestParserPreservesReportedMedicationImplicationsWithoutInferringThem() throws {
         let document = makeDocument(named: "genetic-test.pdf", category: .geneticTest)
         let report = """
@@ -714,6 +751,107 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         processor.dropGeneticTestReviews(for: first.id)
 
         XCTAssertEqual(processor.pendingGeneticTestReview?.documentId, second.id)
+    }
+
+    /// Reprocessing used to replace the reviewed result, so skipped findings came back and
+    /// the record returned to "Needs Review". Decisions must survive; only genes the user has
+    /// never seen may raise new issues, and an old parser's junk symbols must not persist.
+    func testReprocessKeepsGeneticReviewDecisionsAndOnlyFlagsNewGenes() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let fresh = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6, BRCA1, CYP2C19
+        CYP2D6
+        Phenotype: Indeterminate Metabolizer
+        BRCA1\tUncertain
+        CYP2C19
+        Phenotype: Indeterminate Metabolizer
+        """, document: document))
+        XCTAssertTrue(fresh.needsReview)
+
+        // What the user had: CYP2D6 kept and corrected by hand, BRCA1 skipped in review,
+        // and "NORMAL" left over from the older parser in the tested-gene list.
+        var userCYP2D6 = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        userCYP2D6.phenotype = "Intermediate Metabolizer"
+        var prior = GeneticTestResult(
+            id: document.id,
+            testDate: Date(timeIntervalSince1970: 1_700_000_000),
+            laboratoryName: "Edited Lab",
+            testedGenes: ["CYP2D6", "BRCA1", "NORMAL"],
+            results: [userCYP2D6, GeneticTestItem(gene: "NORMAL")],
+            includeInAIContext: true,
+            metadata: ["import_review_completed": "true"]
+        )
+        prior.markUserModified()
+
+        let merged = fresh.carryingForwardDecisions(from: prior)
+
+        XCTAssertEqual(merged.results.map(\.gene), ["CYP2D6", "CYP2C19"])
+        XCTAssertEqual(merged.results.first?.id, userCYP2D6.id, "The user's CYP2D6 must win")
+        XCTAssertEqual(merged.results.first?.phenotype, "Intermediate Metabolizer")
+        XCTAssertFalse(merged.testedGenes.contains("NORMAL"))
+        XCTAssertFalse(merged.results.contains { $0.gene == "BRCA1" }, "A skipped finding stayed skipped")
+        XCTAssertEqual(Set(merged.reviewIssues.compactMap(\.gene)), ["CYP2C19"])
+        XCTAssertTrue(merged.needsReview)
+        XCTAssertEqual(merged.laboratoryName, "Edited Lab")
+        XCTAssertEqual(merged.testDate, prior.testDate)
+        XCTAssertTrue(merged.includeInAIContext)
+        XCTAssertTrue(merged.hasUserDecisions)
+    }
+
+    func testReprocessOfAFullyReviewedReportNeedsNoFurtherReview() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let fresh = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """, document: document))
+        let reviewed = fresh.applyingReview(
+            acceptedIssueIDs: [],
+            skippedIssueIDs: Set(fresh.reviewIssues.map(\.id))
+        )
+
+        let reparsed = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """, document: document))
+        let merged = reparsed.carryingForwardDecisions(from: reviewed)
+
+        XCTAssertFalse(merged.needsReview)
+
+        var stored = document
+        stored.extractedHealthData = [try AnyHealthData(reviewed)]
+        let carried = try DocumentProcessor.carryingForwardGeneticDecisions(
+            from: stored,
+            into: [try AnyHealthData(reparsed)]
+        )
+        let carriedResult = try XCTUnwrap(carried.first?.decode(as: GeneticTestResult.self))
+        XCTAssertFalse(carriedResult.needsReview)
+    }
+
+    /// The Documents tab offered "Process Now" on a stale "Pending" card for a document that
+    /// had finished; that run discarded the review saved in between.
+    func testAStaleQueueRequestForACompletedDocumentIsIgnored() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        let staleCopy = makeDocument(named: "genetic-panel.pdf", category: .other)
+        var stored = staleCopy
+        stored.processingStatus = .completed
+        stored.documentCategory = .geneticTest
+        try await harness.databaseManager.saveMedicalDocument(stored)
+
+        await processor.addToQueue(staleCopy, priority: .urgent)
+
+        XCTAssertTrue(processor.processingQueue.isEmpty)
+        XCTAssertFalse(processor.isProcessing)
+        let after = try await harness.databaseManager.fetchMedicalDocument(id: stored.id)
+        XCTAssertEqual(after?.processingStatus, .completed)
     }
 
     func testGeneticProfileIsEncodedIntoSelectedMedicalDocumentContext() throws {

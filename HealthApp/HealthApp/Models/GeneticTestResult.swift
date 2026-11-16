@@ -121,11 +121,139 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
         var updatedMetadata = resolved.metadata ?? [:]
         updatedMetadata.removeValue(forKey: "pending_review")
         updatedMetadata["import_review_completed"] = "true"
+        updatedMetadata[Self.userModifiedKey] = "true"
         updatedMetadata["reviewed_issue_count"] = String(acceptedIssueIDs.union(skippedIssueIDs).count)
         updatedMetadata["skipped_issue_count"] = String(skippedIssueIDs.count)
         updatedMetadata["review_decision"] = skippedIssueIDs.isEmpty ? "accepted" : "accepted_with_skips"
         resolved.metadata = updatedMetadata
         return resolved
+    }
+
+    // MARK: - User Decisions Across Reprocessing
+
+    /// Set by every path where the user changes the structured result: a saved review,
+    /// adding/editing/deleting a finding, or editing the test information.
+    static let userModifiedKey = "user_modified"
+    /// Set when the user edited the tested-gene list by hand; a reprocess then keeps it.
+    static let testedGenesEditedKey = "tested_genes_edited"
+
+    /// Review bookkeeping a reprocess carries over from the user's version.
+    private static let carriedReviewMetadataKeys = [
+        "import_review_completed", "review_decision", "reviewed_issue_count",
+        "skipped_issue_count", "manual_edit_completed", userModifiedKey, testedGenesEditedKey
+    ]
+
+    var hasUserDecisions: Bool {
+        guard let metadata else { return false }
+        return metadata[Self.userModifiedKey] == "true"
+            || metadata["import_review_completed"] == "true"
+            || metadata["manual_edit_completed"] == "true"
+    }
+
+    mutating func markUserModified() {
+        var updatedMetadata = metadata ?? [:]
+        updatedMetadata[Self.userModifiedKey] = "true"
+        metadata = updatedMetadata
+    }
+
+    /// Reconciles a fresh parse of the same report (`self`) with the version the user
+    /// already reviewed or edited (`prior`).
+    ///
+    /// Reprocessing used to replace the stored result outright, so every skipped finding and
+    /// manual edit came back and the record returned to "Needs Review". The rules:
+    /// - Test-level fields (date, lab, specimen, …) and the AI-context choice come from `prior`.
+    /// - A finding whose gene the user still has keeps the user's version.
+    /// - A finding whose gene the user saw and then skipped or deleted stays gone.
+    /// - A finding for a gene the user never saw is added, with its review issues, so a parser
+    ///   improvement can still surface new data.
+    /// - A finding only `prior` has is kept if it is a real gene symbol (the user may have
+    ///   added it); junk from an older parser ("NORMAL") is dropped.
+    func carryingForwardDecisions(from prior: GeneticTestResult) -> GeneticTestResult {
+        func key(_ gene: String) -> String { gene.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+        let priorTestedGeneKeys = Set(prior.testedGenes.map(key))
+        let priorResultGeneKeys = Set(prior.results.map { key($0.gene) })
+        let seenByUser = priorTestedGeneKeys.union(priorResultGeneKeys)
+
+        var priorItemsByGene: [String: [GeneticTestItem]] = [:]
+        for item in prior.results {
+            priorItemsByGene[key(item.gene), default: []].append(item)
+        }
+
+        var mergedResults: [GeneticTestItem] = []
+        var newFreshItemIDs: Set<UUID> = []
+        for item in results {
+            let gene = key(item.gene)
+            if var candidates = priorItemsByGene[gene], !candidates.isEmpty {
+                mergedResults.append(candidates.removeFirst())
+                priorItemsByGene[gene] = candidates
+            } else if seenByUser.contains(gene) {
+                continue
+            } else {
+                mergedResults.append(item)
+                newFreshItemIDs.insert(item.id)
+            }
+        }
+        for item in prior.results where !mergedResults.contains(where: { $0.id == item.id }) {
+            let isRealGene = PharmacogenomicGene.match(in: item.gene) != nil
+                || GeneticTestParser.isPlausibleGeneSymbol(item.gene)
+            if isRealGene {
+                mergedResults.append(item)
+            }
+        }
+
+        var mergedTestedGenes: [String]
+        if prior.metadata?[Self.testedGenesEditedKey] == "true" {
+            mergedTestedGenes = prior.testedGenes
+        } else {
+            mergedTestedGenes = testedGenes
+        }
+        for item in mergedResults
+        where !mergedTestedGenes.contains(where: { key($0) == key(item.gene) }) {
+            mergedTestedGenes.append(item.gene)
+        }
+        let mergedTestedGeneKeys = Set(mergedTestedGenes.map(key))
+
+        let mergedIssues = reviewIssues.filter { issue in
+            if let resultID = issue.resultID {
+                return newFreshItemIDs.contains(resultID)
+            }
+            if let gene = issue.gene {
+                return !seenByUser.contains(key(gene)) && mergedTestedGeneKeys.contains(key(gene))
+            }
+            return mergedResults.isEmpty && mergedTestedGenes.isEmpty
+        }
+
+        var merged = self
+        merged.testDate = prior.testDate
+        merged.laboratoryName = prior.laboratoryName
+        merged.orderingPhysician = prior.orderingPhysician
+        merged.testName = prior.testName
+        merged.panelName = prior.panelName
+        merged.specimen = prior.specimen
+        merged.limitations = prior.limitations
+        merged.includeInAIContext = prior.includeInAIContext
+        merged.testedGenes = mergedTestedGenes
+        merged.results = mergedResults
+        merged.reviewIssues = mergedIssues
+        merged.updatedAt = Date()
+
+        var mergedMetadata = metadata ?? [:]
+        for metadataKey in Self.carriedReviewMetadataKeys {
+            if let value = prior.metadata?[metadataKey] {
+                mergedMetadata[metadataKey] = value
+            }
+        }
+        mergedMetadata["reprocessed_with_user_decisions"] = "true"
+        if mergedIssues.isEmpty {
+            mergedMetadata.removeValue(forKey: "pending_review")
+            mergedMetadata.removeValue(forKey: "review_issue_count")
+        } else {
+            mergedMetadata["pending_review"] = "true"
+            mergedMetadata["review_issue_count"] = String(mergedIssues.count)
+        }
+        merged.metadata = mergedMetadata
+        return merged
     }
 
     /// Inserts or updates one structured finding and adds its gene to the
@@ -150,6 +278,7 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
         }
 
         reviewIssues.removeAll { $0.resultID == updatedItem.id }
+        markUserModified()
         if reviewIssues.isEmpty {
             var updatedMetadata = metadata ?? [:]
             updatedMetadata.removeValue(forKey: "pending_review")
@@ -178,6 +307,7 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
             }
         }
 
+        markUserModified()
         if reviewIssues.isEmpty {
             var updatedMetadata = metadata ?? [:]
             updatedMetadata.removeValue(forKey: "pending_review")
