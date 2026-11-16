@@ -368,7 +368,12 @@ struct OnDeviceLLMSettingsView: View {
                         }
                         Slider(value: $temperature, in: 0.0...1.0, step: 0.05)
                             .onChange(of: temperature) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.temperature)
+                                if let model = MLXModelInfo.model(withId: selectedModelId) {
+                                    MLXModelInfo.setSamplingOverride(
+                                        Float(newValue), MLXModelInfo.SettingsKeys.temperature,
+                                        default: model.defaultSettings.temperature, for: model
+                                    )
+                                }
                             }
                         Text("Medical models use low temperature (0.0-0.4) for accurate, consistent responses.")
                             .font(.caption)
@@ -385,7 +390,12 @@ struct OnDeviceLLMSettingsView: View {
                         }
                         Slider(value: $topP, in: 0.0...1.0, step: 0.05)
                             .onChange(of: topP) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.topP)
+                                if let model = MLXModelInfo.model(withId: selectedModelId) {
+                                    MLXModelInfo.setSamplingOverride(
+                                        Float(newValue), MLXModelInfo.SettingsKeys.topP,
+                                        default: model.defaultSettings.topP, for: model
+                                    )
+                                }
                             }
                         Text("Nucleus sampling threshold.")
                             .font(.caption)
@@ -405,7 +415,12 @@ struct OnDeviceLLMSettingsView: View {
                             set: { maxTokens = Int($0) }
                         ), in: 100...4096, step: 100)
                             .onChange(of: maxTokens) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.maxTokens)
+                                if let model = MLXModelInfo.model(withId: selectedModelId) {
+                                    MLXModelInfo.setSamplingOverride(
+                                        Float(newValue), MLXModelInfo.SettingsKeys.maxTokens,
+                                        default: Float(model.defaultSettings.maxTokens), for: model
+                                    )
+                                }
                             }
                         Text(
                             "Model default: \(selectedModelDefaultMaxTokens). "
@@ -522,6 +537,10 @@ struct OnDeviceLLMSettingsView: View {
         selectedModelId = model.id
         downloadManager.selectModel(model)
         SettingsManager.shared.invalidateClients()
+        // The context cap and the sampling values are per model now: without this the
+        // sliders keep the previous model's values, and the context slider can sit above
+        // its new upper bound.
+        refreshState()
     }
 }
 

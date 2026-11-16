@@ -672,6 +672,8 @@ final class ConversationHistoryBudgetTests: XCTestCase {
             conversationHistory: messages,
             systemPrompt: "persona",
             provider: .onDeviceLLM,
+            // Pinned: this test is about which messages survive, not about any model's ratio.
+            charactersPerToken: 4,
             reservedTokens: 4_096 + MLXContextBudget.defaultInstructionReserve
         )
 
@@ -1833,5 +1835,64 @@ final class PromptTokenBoundTests: XCTestCase {
         // Fewest characters per token means most tokens: the safe direction for a guess.
         let lowest = MLXModelInfo.allModels.map(\.charactersPerTokenEstimate).min()
         XCTAssertEqual(lowest, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+    }
+}
+
+// MARK: - PR #65 review fixes
+//
+// Sampling overrides are per model (a MediPhi setting must not reach MedPsy), and history
+// trimming counts the health context in the target model's tokens rather than a flat 4.
+final class PerModelSettingsTests: XCTestCase {
+
+    private let defaults = UserDefaults.standard
+    private let models = [MLXModelInfo.mediPhi4B, MLXModelInfo.medPsy4B]
+
+    override func tearDown() {
+        for model in models { MLXModelInfo.applyDefaultSettings(for: model) }
+        super.tearDown()
+    }
+
+    func testAnOverrideOnOneModelDoesNotReachAnother() {
+        MLXModelInfo.setSamplingOverride(
+            1_200, MLXModelInfo.SettingsKeys.maxTokens, default: 9_999, for: .mediPhi4B
+        )
+        MLXModelInfo.setSamplingOverride(
+            1.1, MLXModelInfo.SettingsKeys.repetitionPenalty, default: 0, for: .mediPhi4B
+        )
+
+        XCTAssertEqual(MLXModelInfo.configuredMaxTokens(for: .mediPhi4B), 1_200)
+        XCTAssertEqual(MLXModelInfo.configuredMaxTokens(for: .medPsy4B), 3_072, "MedPsy keeps its reasoning budget")
+        XCTAssertNil(MLXModelInfo.configuredRepetitionPenalty(for: .medPsy4B), "No penalty leaks onto MedPsy")
+    }
+
+    func testSettingTheDefaultValueLeavesNoOverride() {
+        let model = MLXModelInfo.medPsy4B
+        let key = MLXModelInfo.samplingKey(MLXModelInfo.SettingsKeys.temperature, for: model)
+        MLXModelInfo.setSamplingOverride(
+            model.defaultSettings.temperature, MLXModelInfo.SettingsKeys.temperature,
+            default: model.defaultSettings.temperature, for: model
+        )
+        XCTAssertNil(defaults.object(forKey: key), "Switching models must not turn defaults into overrides")
+    }
+
+    func testResetClearsOnlyThatModel() {
+        MLXModelInfo.setSamplingOverride(0.9, MLXModelInfo.SettingsKeys.temperature, default: 0.4, for: .mediPhi4B)
+        MLXModelInfo.setSamplingOverride(0.9, MLXModelInfo.SettingsKeys.temperature, default: 0.6, for: .medPsy4B)
+
+        MLXModelInfo.applyDefaultSettings(for: .mediPhi4B)
+
+        XCTAssertEqual(MLXModelInfo.configuredTemperature(for: .mediPhi4B), MLXModelInfo.mediPhi4B.defaultSettings.temperature)
+        XCTAssertEqual(MLXModelInfo.configuredTemperature(for: .medPsy4B), 0.9, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testHistoryBudgetCountsContextInTheModelsTokens() {
+        let context = String(repeating: "x", count: 15_500)
+        XCTAssertEqual(ConversationContextBuilder.estimateTokens(context), 3_875, "Default stays 4 characters a token")
+        XCTAssertEqual(
+            ConversationContextBuilder.estimateTokens(context, charactersPerToken: MLXModelInfo.mediPhi4B.charactersPerTokenEstimate),
+            10_000,
+            "MediPhi's own ratio, ~2.6× the old figure"
+        )
     }
 }

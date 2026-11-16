@@ -220,8 +220,11 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
         try await ensureModelLoadedLocked()
 
+        guard let modelContainer else {
+            throw MLXOnDeviceError.modelNotLoaded
+        }
+
         let instructions = buildInstructions(systemPrompt: nil, healthContext: context)
-        let session = try makeIsolatedSession(instructions: instructions)
 
         let startTime = Date()
 
@@ -240,6 +243,22 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             User: \(message)
             """
         }
+
+        // The same admission check as the streaming path. Retrying a turn the guard refused
+        // routes here, as does Appointment Prep, and an unchecked prefill is the jetsam kill.
+        let admission = try await admitPrompt(
+            [instructions].compactMap { $0 } + [prompt],
+            in: modelContainer,
+            freshSession: true
+        )
+        AppLog.shared.mlx(
+            "[MLXClient] Single-shot generation starting: promptTokens=\(admission.tokens) (\(admission.source)), \(Self.memorySummary())",
+            synchronize: true
+        )
+        let heartbeat = Self.startMemoryHeartbeat()
+        defer { heartbeat.cancel() }
+
+        let session = try makeIsolatedSession(instructions: instructions)
         let response = try await collectResponse(
             from: session,
             to: promptForTurn(prompt, hasInstructions: instructions != nil)
@@ -326,62 +345,19 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             chatSessionSignature = sessionSignature
         }
 
-        // Refuse a turn that would get the process killed. A fresh session prefills the
-        // instructions and any re-hydrated history as well as the message; a live one has
-        // that cache resident already, so the headroom iOS reports has paid for it.
+        // A fresh session prefills the instructions and any re-hydrated history as well as
+        // the message; a live one has that cache resident already, so the headroom iOS
+        // reports has paid for it.
         let promptTexts: [String] = chatSession == nil
             ? [instructions].compactMap { $0 } + conversationHistory.map(\.content) + [message]
             : [message]
-        let promptText = promptTexts.joined(separator: "\n")
-        let promptCharacters = promptText.count
+        let admission = try await admitPrompt(
+            promptTexts,
+            in: modelContainer,
+            freshSession: chatSession == nil
+        )
         let activeModel = modelProvider()
         let replyTokens = MLXModelInfo.configuredMaxTokens(for: activeModel)
-        let availableBytes = ProcessMemory.availableBytes()
-        func fitsInMemory(_ promptTokens: Int) -> Bool {
-            MLXMemoryBudget.promptFits(
-                promptTokens: promptTokens,
-                replyTokens: replyTokens,
-                availableBytes: availableBytes,
-                kvBytesPerToken: activeModel.kvBytesPerToken,
-                replyKVBytesPerToken: activeModel.storedKVBytesPerToken
-            )
-        }
-
-        // Tokenizing is not free: Gemma's 262K-entry tokenizer took ~11 s on a 15K-character
-        // prompt, and ChatSession tokenizes the same text again for prefill. So try the
-        // byte-count upper bound first and run the tokenizer only when that bound is too big.
-        let byteBound = MLXMemoryBudget.promptTokenUpperBound(
-            utf8Bytes: promptText.utf8.count,
-            messageCount: promptTexts.count
-        )
-        let estimatedPromptTokens: Int
-        let tokenCountSource: String
-        if fitsInMemory(byteBound) {
-            estimatedPromptTokens = byteBound
-            tokenCountSource = "byte bound"
-        } else {
-            estimatedPromptTokens = MLXMemoryBudget.promptTokens(
-                encodedTokens: await modelContainer.encode(promptText).count,
-                messageCount: promptTexts.count
-            )
-            tokenCountSource = "tokenizer"
-        }
-        guard fitsInMemory(estimatedPromptTokens) else {
-            let affordable = MLXMemoryBudget.affordablePromptTokens(
-                availableBytes: availableBytes,
-                replyTokens: replyTokens,
-                kvBytesPerToken: activeModel.kvBytesPerToken,
-                replyKVBytesPerToken: activeModel.storedKVBytesPerToken
-            )
-            AppLog.shared.mlx(
-                "[MLXClient] Refused a turn that would not fit in memory: promptChars=\(promptCharacters), estimatedPromptTokens=\(estimatedPromptTokens), affordablePromptTokens=\(affordable), replyTokens=\(replyTokens), freshSession=\(chatSession == nil), \(Self.memorySummary())",
-                level: .warning
-            )
-            throw MLXOnDeviceError.promptTooLargeForMemory(
-                estimatedTokens: estimatedPromptTokens,
-                affordableTokens: affordable
-            )
-        }
 
         // Create ChatSession if needed
         if chatSession == nil {
@@ -412,12 +388,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
         // Stream the response — just the raw user message; ChatSession handles the rest.
         // `accumulatedContent` is the answer only. For a thinking model `rawContent` also
-        // holds the reasoning block, which is never shown, saved, or repetition-scanned.
+        // holds the reasoning block, which is never shown or saved; it is scanned only for
+        // runaway repetition.
         let separatesReasoning = activeModel.emitsReasoning
         var rawContent = ""
         var accumulatedContent = ""
         var isReasoning = false
         var loggedReasoningEnd = false
+        var reasoningLooped = false
         var stoppedForRepetition = false
         var interruption: MLXTurnInterruption?
         var completionInfo: GenerateCompletionInfo?
@@ -432,25 +410,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         // Prefill is where a large first turn spends its memory, and a kill there logs
         // nothing else. Synchronous so this line is on disk before the GPU work starts.
         AppLog.shared.mlx(
-            "[MLXClient] Generation starting: instructions=\(instructions?.count ?? 0) chars, message=\(message.count) chars, history=\(conversationHistory.count), promptTokens=\(estimatedPromptTokens) (\(tokenCountSource)), window=\(MLXModelInfo.configuredContextSize), \(Self.memorySummary())",
+            "[MLXClient] Generation starting: instructions=\(instructions?.count ?? 0) chars, message=\(message.count) chars, history=\(conversationHistory.count), promptTokens=\(admission.tokens) (\(admission.source)), window=\(MLXModelInfo.configuredContextSize), \(Self.memorySummary())",
             synchronize: true
         )
         var loggedFirstToken = false
 
-        // A jetsam kill during prefill logs nothing, so sample memory on a timer for the
-        // whole turn: the last heartbeat on disk shows how far it climbed and how fast.
-        // Detached so a busy main actor cannot delay the samples.
-        let heartbeat = Task.detached(priority: .utility) {
-            let began = Date()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: MLXOnDeviceClient.heartbeatInterval)
-                guard !Task.isCancelled else { break }
-                AppLog.shared.mlx(
-                    "[MLXClient] Heartbeat \(String(format: "%.0f", Date().timeIntervalSince(began)))s: \(MLXOnDeviceClient.memorySummary())",
-                    synchronize: true
-                )
-            }
-        }
+        let heartbeat = Self.startMemoryHeartbeat()
         defer { heartbeat.cancel() }
 
         do {
@@ -476,9 +441,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                     } else {
                         accumulatedContent = rawContent
                     }
-                    if !isReasoning {
-                        charactersSinceRepetitionCheck += chunk.count
-                    }
+                    charactersSinceRepetitionCheck += chunk.count
 
                     if !loggedFirstToken {
                         loggedFirstToken = true
@@ -507,6 +470,23 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
 
                     if charactersSinceRepetitionCheck >= Self.repetitionCheckCharacterInterval {
                         charactersSinceRepetitionCheck = 0
+
+                        // A thinking model can loop inside its reasoning, where the answer is
+                        // still empty. Scanning only the answer let such a loop run the GPU
+                        // through the whole reply budget before failing with nothing to show.
+                        if isReasoning {
+                            if AIResponseCleaner.truncateRunawayRepetition(rawContent).wasTruncated {
+                                stoppedForRepetition = true
+                                reasoningLooped = true
+                                AppLog.shared.mlx(
+                                    "[MLXClient] Stopped a response that began repeating itself while reasoning (\(rawContent.count) chars)",
+                                    level: .warning
+                                )
+                                break responseStream
+                            }
+                            continue
+                        }
+
                         let repetitionCheck = AIResponseCleaner.truncateRunawayRepetition(accumulatedContent)
 
                         if repetitionCheck.wasTruncated {
@@ -593,6 +573,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             detectRunawayRepetition: false
         )
         guard !cleanedContent.isEmpty else {
+            if reasoningLooped {
+                // Same as an exhausted budget below: the cache holds an unfinished turn.
+                self.chatSession = nil
+                chatSessionSignature = nil
+                throw MLXOnDeviceError.generationFailed(
+                    "The model got stuck repeating itself while thinking and did not reach an answer. Try again, or rephrase the question."
+                )
+            }
             if isReasoning {
                 // The reasoning block never closed: the reply budget ran out mid-thought.
                 // The session's cache holds an unfinished turn, so drop it as well.
@@ -677,8 +665,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             replyReserve: maximumTokens
         )
         let windowPressure = completionInfo.map {
+            // `totalPromptTokenCount`, not `promptTokenCount`: the latter excludes the prefix a
+            // live session reuses from its cache, so successive short turns each look small
+            // while the cache keeps growing. With an unbounded quantized cache, nothing else
+            // would stop that growth before the memory guard starts refusing turns.
             budget.nextTurnWouldOverflow(
-                promptTokens: $0.promptTokenCount,
+                promptTokens: $0.totalPromptTokenCount,
                 generatedTokens: $0.generationTokenCount
             )
         } ?? false
@@ -965,6 +957,82 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     #if !targetEnvironment(simulator)
     /// MLX's own allocator counters plus the headroom iOS reports. MLX holds nearly all of
     /// this process's memory during generation, so these are the numbers that explain a kill.
+    /// Refuses a turn that would get the process killed, before any prefill.
+    ///
+    /// iOS terminates the process outright when it runs out, with nothing logged and the
+    /// user's message lost, so refusing up front is the better failure. Tokenizing is not
+    /// free — Gemma's 262K-entry tokenizer took ~11 s on a 15K-character prompt, and
+    /// ChatSession tokenizes the same text again — so the byte-count upper bound is tried
+    /// first and the tokenizer runs only when that bound does not fit.
+    ///
+    /// - Returns: the prompt tokens admitted and how they were counted, for the log.
+    private func admitPrompt(
+        _ promptTexts: [String],
+        in modelContainer: ModelContainer,
+        freshSession: Bool
+    ) async throws -> (tokens: Int, source: String) {
+        let promptText = promptTexts.joined(separator: "\n")
+        let activeModel = modelProvider()
+        let replyTokens = MLXModelInfo.configuredMaxTokens(for: activeModel)
+        let availableBytes = ProcessMemory.availableBytes()
+        func fitsInMemory(_ promptTokens: Int) -> Bool {
+            MLXMemoryBudget.promptFits(
+                promptTokens: promptTokens,
+                replyTokens: replyTokens,
+                availableBytes: availableBytes,
+                kvBytesPerToken: activeModel.kvBytesPerToken,
+                replyKVBytesPerToken: activeModel.storedKVBytesPerToken
+            )
+        }
+
+        let byteBound = MLXMemoryBudget.promptTokenUpperBound(
+            utf8Bytes: promptText.utf8.count,
+            messageCount: promptTexts.count
+        )
+        if fitsInMemory(byteBound) {
+            return (byteBound, "byte bound")
+        }
+
+        let promptTokens = MLXMemoryBudget.promptTokens(
+            encodedTokens: await modelContainer.encode(promptText).count,
+            messageCount: promptTexts.count
+        )
+        guard fitsInMemory(promptTokens) else {
+            let affordable = MLXMemoryBudget.affordablePromptTokens(
+                availableBytes: availableBytes,
+                replyTokens: replyTokens,
+                kvBytesPerToken: activeModel.kvBytesPerToken,
+                replyKVBytesPerToken: activeModel.storedKVBytesPerToken
+            )
+            AppLog.shared.mlx(
+                "[MLXClient] Refused a turn that would not fit in memory: promptChars=\(promptText.count), estimatedPromptTokens=\(promptTokens), affordablePromptTokens=\(affordable), replyTokens=\(replyTokens), freshSession=\(freshSession), \(Self.memorySummary())",
+                level: .warning
+            )
+            throw MLXOnDeviceError.promptTooLargeForMemory(
+                estimatedTokens: promptTokens,
+                affordableTokens: affordable
+            )
+        }
+        return (promptTokens, "tokenizer")
+    }
+
+    /// Samples memory to the log every `heartbeatInterval` until cancelled. A jetsam kill
+    /// during prefill logs nothing else, so the last heartbeat on disk shows how far memory
+    /// climbed and how fast. Detached so a busy main actor cannot delay the samples.
+    private static func startMemoryHeartbeat() -> Task<Void, Never> {
+        Task.detached(priority: .utility) {
+            let began = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: MLXOnDeviceClient.heartbeatInterval)
+                guard !Task.isCancelled else { break }
+                AppLog.shared.mlx(
+                    "[MLXClient] Heartbeat \(String(format: "%.0f", Date().timeIntervalSince(began)))s: \(MLXOnDeviceClient.memorySummary())",
+                    synchronize: true
+                )
+            }
+        }
+    }
+
     nonisolated private static func memorySummary() -> String {
         let active = ProcessMemory.megabytes(UInt64(MLX.Memory.activeMemory))
         let cache = ProcessMemory.megabytes(UInt64(MLX.Memory.cacheMemory))

@@ -786,12 +786,6 @@ extension ChatContext {
         }
     }
 
-    /// Estimated token count for JSON context (more efficient than plain text)
-    var estimatedTokenCountJSON: Int {
-        // JSON is more compact, approximately 1 token per 4 characters
-        return buildContextJSON().count / 4
-    }
-
     // MARK: - Helper Functions
     /// Cleans markdown text by removing base64 image data for AI context
     private func cleanMarkdownForContext(_ markdown: String) -> String {

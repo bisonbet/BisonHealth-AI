@@ -495,6 +495,13 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
     /// set between the on-device figures so the selector neither alarms nor flatters.
     public static let cloudCharactersPerTokenEstimate = 2.5
 
+    /// Characters per token for health-context JSON sent to `provider`: the selected
+    /// on-device model's measured figure, or the cloud stand-in. The one source for the
+    /// context selector, context compression and history trimming, so they agree.
+    static func contextCharactersPerToken(for provider: AIProvider) -> Double {
+        provider == .onDeviceLLM ? selectedModel.charactersPerTokenEstimate : cloudCharactersPerTokenEstimate
+    }
+
     /// mlx-swift-lm KV-cache compression for this model's chat sessions, or nil for fp16.
     ///
     /// `affine8` stores keys and values as 8-bit integers with an fp16 scale and bias per
@@ -752,8 +759,9 @@ extension MLXModelInfo {
     }
 
     public static func configuredTemperature(for model: MLXModelInfo) -> Float {
-        if UserDefaults.standard.object(forKey: SettingsKeys.temperature) != nil {
-            return UserDefaults.standard.float(forKey: SettingsKeys.temperature)
+        let key = samplingKey(SettingsKeys.temperature, for: model)
+        if UserDefaults.standard.object(forKey: key) != nil {
+            return UserDefaults.standard.float(forKey: key)
         }
         return model.defaultSettings.temperature
     }
@@ -763,7 +771,7 @@ extension MLXModelInfo {
     }
 
     public static func configuredTopP(for model: MLXModelInfo) -> Float {
-        let topP = UserDefaults.standard.float(forKey: SettingsKeys.topP)
+        let topP = UserDefaults.standard.float(forKey: samplingKey(SettingsKeys.topP, for: model))
         return topP > 0 ? topP : model.defaultSettings.topP
     }
 
@@ -772,7 +780,7 @@ extension MLXModelInfo {
     }
 
     public static func configuredMaxTokens(for model: MLXModelInfo) -> Int {
-        let tokens = UserDefaults.standard.integer(forKey: SettingsKeys.maxTokens)
+        let tokens = UserDefaults.standard.integer(forKey: samplingKey(SettingsKeys.maxTokens, for: model))
         return tokens > 0 ? tokens : model.defaultSettings.maxTokens
     }
 
@@ -811,23 +819,44 @@ extension MLXModelInfo {
     }
 
     public static func configuredRepetitionPenalty(for model: MLXModelInfo) -> Float? {
-        if UserDefaults.standard.object(forKey: SettingsKeys.repetitionPenalty) != nil {
-            let value = UserDefaults.standard.float(forKey: SettingsKeys.repetitionPenalty)
+        let key = samplingKey(SettingsKeys.repetitionPenalty, for: model)
+        if UserDefaults.standard.object(forKey: key) != nil {
+            let value = UserDefaults.standard.float(forKey: key)
             return value > 0 ? value : nil
         }
         return model.defaultSettings.repetitionPenalty
     }
 
-    /// Apply default settings for a model to UserDefaults
-    public static func applyDefaultSettings(for model: MLXModelInfo) {
-        let defaults = model.defaultSettings
-        UserDefaults.standard.set(defaults.temperature, forKey: SettingsKeys.temperature)
-        UserDefaults.standard.set(defaults.topP, forKey: SettingsKeys.topP)
-        UserDefaults.standard.set(defaults.maxTokens, forKey: SettingsKeys.maxTokens)
-        if let penalty = defaults.repetitionPenalty {
-            UserDefaults.standard.set(penalty, forKey: SettingsKeys.repetitionPenalty)
+    // MARK: - Per-Model Sampling Overrides
+
+    /// Sampling overrides are stored per model. They used to share one set of keys, so a
+    /// value set on MediPhi (temperature 0.4, 1,200 tokens, repetition penalty 1.1) carried
+    /// over to MedPsy, starving its reasoning budget and pushing a Qwen3 thinking model into
+    /// the loops a repetition penalty causes. The old shared keys are no longer read.
+    static func samplingKey(_ base: String, for model: MLXModelInfo) -> String {
+        "\(base).\(model.id)"
+    }
+
+    /// Records a user's sampling choice for `model`, or clears it when it equals the
+    /// model's default, so switching models never turns a default into a sticky override.
+    public static func setSamplingOverride(
+        _ value: Float,
+        _ base: String,
+        default defaultValue: Float,
+        for model: MLXModelInfo
+    ) {
+        let key = samplingKey(base, for: model)
+        if abs(value - defaultValue) < 0.0001 {
+            UserDefaults.standard.removeObject(forKey: key)
         } else {
-            UserDefaults.standard.removeObject(forKey: SettingsKeys.repetitionPenalty)
+            UserDefaults.standard.set(value, forKey: key)
+        }
+    }
+
+    /// Clears every sampling override for `model`, returning it to its own defaults.
+    public static func applyDefaultSettings(for model: MLXModelInfo) {
+        for base in [SettingsKeys.temperature, SettingsKeys.topP, SettingsKeys.maxTokens, SettingsKeys.repetitionPenalty] {
+            UserDefaults.standard.removeObject(forKey: samplingKey(base, for: model))
         }
     }
 }
