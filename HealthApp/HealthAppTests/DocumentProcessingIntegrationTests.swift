@@ -99,6 +99,43 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertEqual(slco1b1.category, .drugTransport)
     }
 
+    /// From a real pharmacogenomic report whose tested genes came back as
+    /// "…, NORMAL, …, HLA-A, HLA-B, HLA, …, NMNM".
+    func testGeneticTestParserDoesNotTurnResultWordsOrAlleleSuffixesIntoGenes() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let report = """
+        Pharmacogenomic Report
+        CYP2D6*1/*4
+        Phenotype: Intermediate Metabolizer
+        Normal: no change expected
+        NORMAL\tFunction
+        NMNM\tsummary code
+        HLA-B*58:01\tNegative
+        HLA-A*31:01 - Not detected
+        BRCA1\tNegative
+        """
+
+        let result = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let genes = Set(result.testedGenes)
+
+        XCTAssertEqual(genes, ["CYP2D6", "HLA-B", "HLA-A", "BRCA1"])
+        XCTAssertFalse(result.results.contains { ["NORMAL", "NMNM", "HLA"].contains($0.gene.uppercased()) })
+
+        let hlaB = try XCTUnwrap(result.results.first { $0.gene == "HLA-B" })
+        XCTAssertTrue(hlaB.isKnownPharmacogene)
+        let cyp2d6 = try XCTUnwrap(result.results.first { $0.gene == "CYP2D6" })
+        XCTAssertEqual(cyp2d6.diplotype, "*1/*4")
+    }
+
+    func testPlausibleGeneSymbolRejectsResultWordsAndPhenotypeCodes() {
+        for word in ["NORMAL", "NMNM", "IMPM", "NM", "HLA", "HLA-", "POSITIVE"] {
+            XCTAssertFalse(GeneticTestParser.isPlausibleGeneSymbol(word), word)
+        }
+        for symbol in ["BRCA1", "MTHFR", "APOE", "F5", "HFE"] {
+            XCTAssertTrue(GeneticTestParser.isPlausibleGeneSymbol(symbol), symbol)
+        }
+    }
+
     func testGeneticTestParserPreservesReportedMedicationImplicationsWithoutInferringThem() throws {
         let document = makeDocument(named: "genetic-test.pdf", category: .geneticTest)
         let report = """
@@ -614,6 +651,263 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertEqual(resolved.metadata?["review_decision"], "accepted_with_skips")
         XCTAssertNotNil(resolved.metadata?["import_review_completed"])
         XCTAssertTrue(resolved.contextSummary.contains("CYP2D6"))
+    }
+
+    /// SwiftUI decides whether a view's inputs changed with `==`. While `MedicalDocument`
+    /// compared by `id` alone, a saved review left the Records list and its destinations on
+    /// the stale "Needs Review" copy, because the refreshed array compared equal to it.
+    func testMedicalDocumentEqualityNoticesAResolvedGeneticReview() throws {
+        let item = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        let issue = GeneticTestReviewIssue(resultID: item.id, gene: item.gene, reason: "Uncertain status.")
+        let pending = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [issue],
+            metadata: ["pending_review": "true"]
+        )
+        var before = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        before.extractedHealthData = [try AnyHealthData(pending)]
+        var after = before
+        after.extractedHealthData = [try AnyHealthData(
+            pending.applyingReview(acceptedIssueIDs: [], skippedIssueIDs: [issue.id])
+        )]
+
+        XCTAssertEqual(before, before)
+        XCTAssertNotEqual(before, after)
+        XCTAssertNotEqual([before], [after])
+        XCTAssertEqual(before.hashValue, after.hashValue, "Hashing stays identity-based")
+    }
+
+    /// Import and a later reprocess each queue a review offer for the same document. Saving
+    /// the review must release both, not promote the second — that re-showed resolved issues.
+    func testSavingAGeneticReviewReleasesEveryOfferForThatDocument() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+
+        let item = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        let issue = GeneticTestReviewIssue(resultID: item.id, gene: item.gene, reason: "Uncertain status.")
+        let pending = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [issue],
+            metadata: ["pending_review": "true"]
+        )
+        var document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        document.extractedHealthData = [try AnyHealthData(pending)]
+        try await harness.databaseManager.saveMedicalDocument(document)
+
+        processor.beginGeneticTestReview(for: document)
+        processor.beginGeneticTestReview(for: document)
+        XCTAssertEqual(processor.pendingGeneticTestReview?.documentId, document.id)
+
+        let resolved = pending.applyingReview(acceptedIssueIDs: [], skippedIssueIDs: [issue.id])
+        let saved = await processor.saveGeneticTestResult(resolved, for: document.id)
+
+        XCTAssertNotNil(saved)
+        XCTAssertNil(processor.pendingGeneticTestReview, "A second offer for the reviewed document was promoted")
+
+        let fetched = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        let stored = try XCTUnwrap(fetched)
+        let storedResult = try XCTUnwrap(stored.extractedHealthData.first?.decode(as: GeneticTestResult.self))
+        XCTAssertFalse(storedResult.needsReview)
+
+        let listed = try XCTUnwrap(harness.healthDataManager.geneticTestDocuments.first { $0.id == document.id })
+        let listedResult = try XCTUnwrap(listed.extractedHealthData.first?.decode(as: GeneticTestResult.self))
+        XCTAssertFalse(listedResult.needsReview)
+        XCTAssertNotEqual(listed, document, "The refreshed record must not compare equal to the stale one")
+    }
+
+    /// A review sheet dismissed unsaved must free the slot so a later document's review shows.
+    func testDroppingAnUnsavedGeneticReviewPromotesTheNextDocument() throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        let item = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        let pending = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [GeneticTestReviewIssue(resultID: item.id, gene: item.gene, reason: "Uncertain status.")]
+        )
+        var first = makeDocument(named: "first.pdf", category: .geneticTest)
+        first.extractedHealthData = [try AnyHealthData(pending)]
+        var second = makeDocument(named: "second.pdf", category: .geneticTest)
+        second.extractedHealthData = [try AnyHealthData(pending)]
+
+        processor.beginGeneticTestReview(for: first)
+        processor.beginGeneticTestReview(for: second)
+        processor.dropGeneticTestReviews(for: first.id)
+
+        XCTAssertEqual(processor.pendingGeneticTestReview?.documentId, second.id)
+    }
+
+    /// Reprocessing used to replace the reviewed result, so skipped findings came back and
+    /// the record returned to "Needs Review". Decisions must survive; only genes the user has
+    /// never seen may raise new issues, and an old parser's junk symbols must not persist.
+    func testReprocessKeepsGeneticReviewDecisionsAndOnlyFlagsNewGenes() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let fresh = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6, BRCA1, CYP2C19
+        CYP2D6
+        Phenotype: Indeterminate Metabolizer
+        BRCA1\tUncertain
+        CYP2C19
+        Phenotype: Indeterminate Metabolizer
+        """, document: document))
+        XCTAssertTrue(fresh.needsReview)
+
+        // What the user had: CYP2D6 kept and corrected by hand, BRCA1 skipped in review,
+        // and "NORMAL" left over from the older parser in the tested-gene list.
+        var userCYP2D6 = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        userCYP2D6.phenotype = "Intermediate Metabolizer"
+        var prior = GeneticTestResult(
+            id: document.id,
+            testDate: Date(timeIntervalSince1970: 1_700_000_000),
+            laboratoryName: "Edited Lab",
+            testedGenes: ["CYP2D6", "BRCA1", "NORMAL"],
+            results: [userCYP2D6, GeneticTestItem(gene: "NORMAL")],
+            includeInAIContext: true,
+            metadata: ["import_review_completed": "true"]
+        )
+        prior.markUserModified()
+
+        let merged = fresh.carryingForwardDecisions(from: prior)
+
+        XCTAssertEqual(merged.results.map(\.gene), ["CYP2D6", "CYP2C19"])
+        XCTAssertEqual(merged.results.first?.id, userCYP2D6.id, "The user's CYP2D6 must win")
+        XCTAssertEqual(merged.results.first?.phenotype, "Intermediate Metabolizer")
+        XCTAssertFalse(merged.testedGenes.contains("NORMAL"))
+        XCTAssertFalse(merged.results.contains { $0.gene == "BRCA1" }, "A skipped finding stayed skipped")
+        XCTAssertEqual(Set(merged.reviewIssues.compactMap(\.gene)), ["CYP2C19"])
+        XCTAssertTrue(merged.needsReview)
+        XCTAssertEqual(merged.laboratoryName, "Edited Lab")
+        XCTAssertEqual(merged.testDate, prior.testDate)
+        XCTAssertTrue(merged.includeInAIContext)
+        XCTAssertTrue(merged.hasUserDecisions)
+    }
+
+    /// An incomplete reprocess (OCR missed BRCA1) must not erase the record that the user
+    /// skipped it, or the next complete reprocess offers BRCA1 again as new.
+    func testASkippedGeneStaysSkippedThroughAnIncompleteReprocess() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let complete = """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Phenotype: Intermediate Metabolizer
+        BRCA1\tUncertain
+        """
+        let first = try XCTUnwrap(GeneticTestParser().parse(plainText: complete, document: document))
+        let brca1IssueIDs = Set(first.reviewIssues.filter { $0.gene == "BRCA1" }.map(\.id))
+        let reviewed = first.applyingReview(
+            acceptedIssueIDs: Set(first.reviewIssues.map(\.id)).subtracting(brca1IssueIDs),
+            skippedIssueIDs: brca1IssueIDs
+        )
+
+        let incomplete = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6
+        CYP2D6
+        Phenotype: Intermediate Metabolizer
+        """, document: document))
+        let afterIncomplete = incomplete.carryingForwardDecisions(from: reviewed)
+        XCTAssertFalse(afterIncomplete.testedGenes.contains("BRCA1"))
+
+        let completeAgain = try XCTUnwrap(GeneticTestParser().parse(plainText: complete, document: document))
+        let afterComplete = completeAgain.carryingForwardDecisions(from: afterIncomplete)
+
+        XCTAssertFalse(afterComplete.results.contains { $0.gene == "BRCA1" })
+        XCTAssertFalse(afterComplete.needsReview)
+    }
+
+    /// Editing test information is not a review: findings still awaiting a decision must
+    /// keep their issues through a reprocess.
+    func testReprocessKeepsIssuesTheUserHasNotDecided() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let report = """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """
+        var edited = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let openIssueCount = edited.reviewIssues.count
+        XCTAssertGreaterThan(openIssueCount, 0)
+        edited.laboratoryName = "Edited Lab"
+        edited.markUserModified()
+
+        let reparsed = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let merged = reparsed.carryingForwardDecisions(from: edited)
+
+        XCTAssertTrue(merged.needsReview)
+        XCTAssertEqual(Set(merged.reviewIssues.map(\.id)), Set(edited.reviewIssues.map(\.id)))
+        XCTAssertEqual(merged.laboratoryName, "Edited Lab")
+    }
+
+    func testReprocessOfAFullyReviewedReportNeedsNoFurtherReview() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let fresh = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """, document: document))
+        let reviewed = fresh.applyingReview(
+            acceptedIssueIDs: [],
+            skippedIssueIDs: Set(fresh.reviewIssues.map(\.id))
+        )
+
+        let reparsed = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """, document: document))
+        let merged = reparsed.carryingForwardDecisions(from: reviewed)
+
+        XCTAssertFalse(merged.needsReview)
+
+        var stored = document
+        stored.extractedHealthData = [try AnyHealthData(reviewed)]
+        let carried = try DocumentProcessor.carryingForwardGeneticDecisions(
+            from: stored,
+            into: [try AnyHealthData(reparsed)]
+        )
+        let carriedResult = try XCTUnwrap(carried.first?.decode(as: GeneticTestResult.self))
+        XCTAssertFalse(carriedResult.needsReview)
+    }
+
+    /// The Documents tab offered "Process Now" on a stale "Pending" card for a document that
+    /// had finished; that run discarded the review saved in between.
+    func testAStaleQueueRequestForACompletedDocumentIsIgnored() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        let staleCopy = makeDocument(named: "genetic-panel.pdf", category: .other)
+        var stored = staleCopy
+        stored.processingStatus = .completed
+        stored.documentCategory = .geneticTest
+        try await harness.databaseManager.saveMedicalDocument(stored)
+
+        await processor.addToQueue(staleCopy, priority: .urgent)
+
+        XCTAssertTrue(processor.processingQueue.isEmpty)
+        XCTAssertFalse(processor.isProcessing)
+        let after = try await harness.databaseManager.fetchMedicalDocument(id: stored.id)
+        XCTAssertEqual(after?.processingStatus, .completed)
     }
 
     func testGeneticProfileIsEncodedIntoSelectedMedicalDocumentContext() throws {

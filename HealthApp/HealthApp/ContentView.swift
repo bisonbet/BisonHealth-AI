@@ -30,6 +30,7 @@ struct ContentView: View {
     @StateObject private var documentProcessor = DocumentProcessor.shared
     @State private var showingImportReview = false
     @State private var showingGeneticTestReview = false
+    @State private var presentedGeneticReviewID: UUID?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -80,8 +81,23 @@ struct ContentView: View {
                 )
             }
         }
-        .sheet(isPresented: $showingGeneticTestReview) {
+        .sheet(isPresented: $showingGeneticTestReview, onDismiss: {
+            // Cancelled or swiped away: release the slot, or this document's offer sits in
+            // it for the rest of the session and every later genetic import's review queues
+            // behind it unseen. The issues stay on the stored record, whose banner offers the
+            // review again. A saved review was already released by the save; matching on the
+            // presented id keeps this from dropping the next document's review.
+            if let presentedID = presentedGeneticReviewID,
+               let current = documentProcessor.pendingGeneticTestReview,
+               current.id == presentedID {
+                documentProcessor.dropGeneticTestReviews(for: current.documentId)
+            }
+            presentedGeneticReviewID = nil
+        }) {
             if let review = documentProcessor.pendingGeneticTestReview {
+                // The review view dismisses itself on save. Nothing here sets the flag back
+                // to false: by the time the save returns, the processor may have promoted
+                // the next document's review, and hiding the sheet then would skip it.
                 GeneticTestImportReviewView(review: review) { acceptedIssueIDs, skippedIssueIDs in
                     Task {
                         await documentProcessor.completeGeneticTestReview(
@@ -89,9 +105,10 @@ struct ContentView: View {
                             acceptedIssueIDs: acceptedIssueIDs,
                             skippedIssueIDs: skippedIssueIDs
                         )
-                        showingGeneticTestReview = false
                     }
                 }
+                .id(review.id)
+                .onAppear { presentedGeneticReviewID = review.id }
             }
         }
         .onChange(of: documentProcessor.pendingImportReview, initial: true) { _, newValue in

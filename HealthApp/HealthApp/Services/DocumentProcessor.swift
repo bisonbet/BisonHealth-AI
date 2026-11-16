@@ -184,6 +184,21 @@ class DocumentProcessor: ObservableObject {
             pendingGeneticTestReview = nil
         }
     }
+
+    /// Drops every in-memory review offer for one document — the active slot and anything
+    /// queued behind it — then promotes the next document's review.
+    ///
+    /// Called once that document's review has been saved, from whichever screen. A reprocess
+    /// queues a second offer for the same document; promoting it after the save re-showed
+    /// issues the user had just resolved. Also called when the sheet is dismissed unsaved:
+    /// the issues stay on the stored record (its banner offers the review again), and a slot
+    /// left occupied would park every later document's review behind it.
+    func dropGeneticTestReviews(for documentId: UUID) {
+        pendingGeneticReviewQueue.removeAll { $0.documentId == documentId }
+        if pendingGeneticTestReview?.documentId == documentId {
+            finishPendingGeneticTestReview()
+        }
+    }
     
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -233,6 +248,27 @@ class DocumentProcessor: ObservableObject {
             return
         }
         
+        // The caller's copy can be out of date: a Documents card that never re-rendered still
+        // said "Pending" for a document that had finished, offered "Process Now", and the run
+        // that followed re-extracted it from a snapshot whose category was still "Other" —
+        // discarding the genetic review saved in between. Queue the stored row instead, and
+        // refuse a pending/failed request for a document that has since completed. The
+        // explicit "Reprocess Document" action passes a completed copy and is unaffected.
+        var document = document
+        if let stored = try? await databaseManager.fetchMedicalDocument(id: document.id) {
+            if stored.processingStatus == .completed && document.processingStatus != .completed {
+                AppLog.shared.documents(
+                    "Ignoring queue request from an out-of-date copy -- document already completed",
+                    level: .warning
+                )
+                NotificationCenter.default.post(name: .medicalDocumentDidChange, object: stored)
+                return
+            }
+            if stored.unreadableFields.isEmpty {
+                document = stored
+            }
+        }
+
         var queueItem = ProcessingQueueItem(
             document: document,
             priority: priority,
@@ -287,6 +323,32 @@ class DocumentProcessor: ObservableObject {
         return try await processDocument(document)
     }
 
+    /// Merges the stored, user-reviewed genetic result into a fresh extraction. Returns the
+    /// extraction unchanged when there is nothing the user decided. When the fresh run found
+    /// no genetic result at all, the user's stored one is kept rather than lost.
+    static func carryingForwardGeneticDecisions(
+        from existingDocument: MedicalDocument,
+        into extractedHealthData: [AnyHealthData]
+    ) throws -> [AnyHealthData] {
+        guard let prior = existingDocument.extractedHealthData.compactMap({
+            try? $0.decode(as: GeneticTestResult.self)
+        }).first, prior.hasUserDecisions else {
+            return extractedHealthData
+        }
+
+        var updated = extractedHealthData
+        if let index = updated.firstIndex(where: { $0.type == .geneticProfile }),
+           let fresh = try? updated[index].decode(as: GeneticTestResult.self) {
+            let merged = fresh.carryingForwardDecisions(from: prior)
+            updated[index] = try AnyHealthData(merged)
+            AppLog.shared.documents("Reprocess kept the user's genetic review decisions -- \(merged.results.count) finding(s), \(merged.reviewIssues.count) new issue(s) to review")
+        } else {
+            updated.append(try AnyHealthData(prior))
+            AppLog.shared.documents("Reprocess found no genetic result -- kept the user's reviewed one", level: .warning)
+        }
+        return updated
+    }
+
     /// Starts a review for a genetic record that was already imported but has
     /// persisted report-grounded issues. This is used by Records after an app
     /// restart, when there is no in-memory import event to trigger the sheet.
@@ -326,9 +388,7 @@ class DocumentProcessor: ObservableObject {
             NotificationCenter.default.post(name: .medicalDocumentDidChange, object: document)
             await healthDataManager.refreshGeneticTestDocuments()
 
-            if pendingGeneticTestReview?.documentId == documentId {
-                finishPendingGeneticTestReview()
-            }
+            dropGeneticTestReviews(for: documentId)
             return document
         } catch {
             AppLog.shared.documents("Failed to save genetic test review: \(error.localizedDescription)", level: .error)
@@ -708,7 +768,7 @@ class DocumentProcessor: ObservableObject {
 
             // Extract and save health data
             AppLog.shared.documents("Extracting health data from processed result")
-            let extractedHealthData = try await extractHealthData(from: result, document: currentItem.document)
+            var extractedHealthData = try await extractHealthData(from: result, document: currentItem.document)
             AppLog.shared.documents("Health data extraction completed -- found \(extractedHealthData.count) items")
             // Cancellation checkpoint: the LLM/vision extraction passes are
             // best-effort and swallow errors (including cancellation)
@@ -735,6 +795,15 @@ class DocumentProcessor: ObservableObject {
             // AI-context toggle, edits): saveMedicalDocument is a full-column
             // INSERT OR REPLACE and would otherwise wipe them.
             let existingDocument = try await databaseManager.fetchMedicalDocument(id: currentItem.document.id)
+
+            // A reprocess must not undo the user's genetic review: replacing the stored result
+            // brought back every skipped finding and put the record back to "Needs Review".
+            if let existingDocument {
+                extractedHealthData = try Self.carryingForwardGeneticDecisions(
+                    from: existingDocument,
+                    into: extractedHealthData
+                )
+            }
 
             do {
                 let extractor = MedicalDocumentExtractor()

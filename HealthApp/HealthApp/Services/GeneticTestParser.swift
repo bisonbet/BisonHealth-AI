@@ -210,8 +210,13 @@ final class GeneticTestParser {
 
         // Capture explicitly tabular gene symbols such as "BRCA1\tPositive"
         // without treating all-caps section headings as genes.
-        let pattern = "^\\s*([A-Z][A-Z0-9-]{1,9})(?=\\s*(?::|\\t|\\||-|positive\\b|negative\\b|normal\\b|abnormal\\b|pathogenic\\b|carrier\\b))"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+        //
+        // The symbol itself is matched case-sensitively: gene symbols are printed in capitals,
+        // and a case-insensitive match read title-case table words ("Normal: ...") as genes.
+        // `(?![A-Z0-9*/-])` stops the match backtracking into part of a longer token —
+        // "HLA-B*58:01" used to yield the gene "HLA" because "HLA" is followed by "-".
+        let pattern = "^\\s*([A-Z][A-Z0-9-]{1,9})(?![A-Za-z0-9*/-])(?=\\s*(?::|\\t|\\||-|(?i:positive|negative|normal|abnormal|pathogenic|carrier)\\b))"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return nil
         }
 
@@ -221,7 +226,8 @@ final class GeneticTestParser {
             return nil
         }
 
-        let gene = String(line[geneRange]).uppercased()
+        let gene = String(line[geneRange])
+        guard Self.isPlausibleGeneSymbol(gene) else { return nil }
         let excludedHeadings: Set<String> = [
             "RESULT", "RESULTS", "REPORT", "SUMMARY", "TEST", "PANEL",
             "GENE", "GENES", "METHOD", "SPECIMEN", "COMMENTS", "NOTES",
@@ -235,12 +241,43 @@ final class GeneticTestParser {
         return (gene, nil)
     }
 
+    /// Result-table words and phenotype codes that the generic matcher would otherwise
+    /// accept as gene symbols. Seen in a real report: "NORMAL" and "NMNM" (a run of
+    /// metabolizer codes) listed among the tested genes.
+    private static let nonGeneWords: Set<String> = [
+        "NORMAL", "ABNORMAL", "POSITIVE", "NEGATIVE", "DETECTED", "NOT", "NONE", "NO", "YES",
+        "POOR", "INTERMEDIATE", "RAPID", "ULTRARAPID", "INCREASED", "DECREASED", "REDUCED",
+        "FUNCTION", "METABOLIZER", "METABOLISM", "ACTIVITY", "HIGH", "LOW", "LIKELY",
+        "POSSIBLE", "CARRIER", "PATHOGENIC", "BENIGN", "UNKNOWN", "TYPICAL", "ATYPICAL",
+        "RISK", "PRESENT", "ABSENT", "MEDICATIONS", "DRUGS", "ACTION", "IMPACT", "TABLE",
+        "PAGE", "KEY", "LEGEND", "PATIENT", "NAME", "DOB", "ID", "MRN", "USE", "AS", "DIRECTED",
+        // The HLA complex, not a gene: the tested genes are HLA-A, HLA-B, ...
+        "HLA"
+    ]
+
+    /// Phenotype abbreviations — NM, IM, PM, RM, UM (metabolizers) and NF, DF, PF, IF
+    /// (function) — alone or run together.
+    private static let phenotypeCodeRunPattern = "^(?:NM|IM|PM|RM|UM|NF|DF|PF|IF|LF)+$"
+
+    static func isPlausibleGeneSymbol(_ symbol: String) -> Bool {
+        let upper = symbol.uppercased()
+        guard upper.count >= 2, !nonGeneWords.contains(upper) else { return false }
+        if upper.range(of: phenotypeCodeRunPattern, options: .regularExpression) != nil {
+            return false
+        }
+        // A trailing or doubled hyphen is a broken token, not a symbol.
+        return !upper.hasSuffix("-") && !upper.contains("--")
+    }
+
     private func matchCatalogGeneStart(in line: String) -> PharmacogenomicGene? {
         for gene in PharmacogenomicGene.allCases {
             let names = [gene.rawValue] + gene.aliases
             for name in names {
                 let escapedName = NSRegularExpression.escapedPattern(for: name)
-                let pattern = "^\\s*\(escapedName)(?=\\s|$|:|\\t|\\|)"
+                // Any non-alphanumeric may follow the symbol: reports print star alleles and
+                // HLA alleles straight after it ("CYP2D6*1/*4", "HLA-B*58:01"). Requiring a
+                // space here sent those lines to the generic matcher, which mangled them.
+                let pattern = "^\\s*\(escapedName)(?![A-Za-z0-9])"
                 guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
                     continue
                 }
@@ -268,7 +305,12 @@ final class GeneticTestParser {
                     .replacingOccurrences(of: "(full gene)", with: "", options: .caseInsensitive)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !cleaned.isEmpty else { continue }
-                appendUnique(canonicalGeneName(cleaned), to: &genes)
+                let canonical = canonicalGeneName(cleaned)
+                // The explicit list is free text: keep catalog genes and anything shaped like
+                // a symbol, drop result words that a wrapped table cell carried into it.
+                guard PharmacogenomicGene.match(in: canonical) != nil
+                        || Self.isPlausibleGeneSymbol(canonical) else { continue }
+                appendUnique(canonical, to: &genes)
             }
         }
 

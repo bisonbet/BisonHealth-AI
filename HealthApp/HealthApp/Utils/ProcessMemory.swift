@@ -30,7 +30,7 @@ enum ProcessMemory {
         var buffer = [CChar](repeating: 0, count: size)
         guard sysctlbyname("hw.machine", &buffer, &size, nil, 0) == 0 else { return "unknown" }
         let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-        return String(decoding: bytes, as: UTF8.self)
+        return String(bytes: bytes, encoding: .utf8) ?? "unknown"
     }
 
     /// Headroom for log messages: "available=5120MB".

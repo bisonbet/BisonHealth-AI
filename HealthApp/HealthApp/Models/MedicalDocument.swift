@@ -157,13 +157,17 @@ struct MedicalDocument: Identifiable, Codable, Hashable {
         self.notes = notes
     }
 
-    // Hashable conformance
+    // MARK: - Hashable
+    // Hashed by identity only (cheap, and consistent: equal values share an id).
+    //
+    // Equality is deliberately the synthesized, every-field comparison — NOT `id` alone.
+    // SwiftUI uses `==` to decide whether a view's inputs changed. With identity equality a
+    // refreshed `[MedicalDocument]` compared equal to the stale one, so Records rows and the
+    // NavigationLink destinations built from them kept showing the pre-edit copy: a saved
+    // genetic-test review reappeared as "Needs Review" on every return to the list, though
+    // the database held the reviewed result. Compare by `id` explicitly where identity is meant.
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
-    }
-
-    static func == (lhs: MedicalDocument, rhs: MedicalDocument) -> Bool {
-        lhs.id == rhs.id
     }
 }
 
@@ -357,13 +361,10 @@ struct DocumentSection: Identifiable, Codable, Hashable {
         self.metadata = metadata
     }
 
-    // Hashable conformance
+    // Hashed by identity; equality is synthesized over every field so an edited section
+    // registers as a change (see `MedicalDocument`'s Hashable note).
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
-    }
-
-    static func == (lhs: DocumentSection, rhs: DocumentSection) -> Bool {
-        lhs.id == rhs.id
     }
 }
 
