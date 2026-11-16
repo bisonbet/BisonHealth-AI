@@ -105,11 +105,43 @@ private enum MLXDownloadTransferError: LocalizedError {
         switch self {
         case .invalidResponse(let file):
             return "Hugging Face returned an invalid response for \(file)."
+        case .httpStatus(let file, 401):
+            return "Hugging Face rejected the access token while downloading \(file). Check or remove the token in On-Device AI settings."
+        case .httpStatus(let file, 429):
+            return "Hugging Face is rate-limiting downloads of \(file). Wait a few minutes, or add a Hugging Face access token in On-Device AI settings."
         case .httpStatus(let file, let statusCode):
             return "Hugging Face returned HTTP \(statusCode) for \(file)."
         case .incompleteFile(let file, let expectedBytes, let actualBytes):
             return "The download for \(file) ended at \(actualBytes) of \(expectedBytes) bytes."
         }
+    }
+}
+
+// MARK: - Redirect Authorization Filter
+
+/// Keeps the Hugging Face token on huggingface.co when `/resolve/` redirects to the CDN.
+///
+/// The CDN URL carries its own signature. Forwarding the Hub's `Authorization` header to it
+/// would hand the user's token to a third-party host, and a signed object-store URL can
+/// refuse a request that also carries a second credential.
+final class HubRedirectAuthorizationFilter: NSObject, URLSessionTaskDelegate, Sendable {
+    static let shared = HubRedirectAuthorizationFilter()
+
+    /// The request to follow when `original` is redirected to `redirected`.
+    static func filteredRedirect(_ redirected: URLRequest, from original: URLRequest?) -> URLRequest {
+        guard redirected.url?.host != original?.url?.host else { return redirected }
+        var request = redirected
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        Self.filteredRedirect(request, from: task.originalRequest)
     }
 }
 
@@ -196,7 +228,10 @@ class MLXModelDownloadManager: ObservableObject {
     /// completes well inside `stallThreshold` on a slow connection (so the watchdog sees
     /// regular byte progress) and that the mapped slice never costs much memory, large
     /// enough that a multi-gigabyte shard does not need an excessive number of requests.
-    private nonisolated static let downloadSliceBytes: Int64 = 4 * 1024 * 1024
+    /// Each request pays a fixed time-to-first-byte from the CDN, so 4 MB slices spent a
+    /// large share of every transfer waiting; at 8 MB a slice still lands inside the 60 s
+    /// stall threshold on anything faster than about 140 KB/s.
+    private nonisolated static let downloadSliceBytes: Int64 = 8 * 1024 * 1024
 
     #if !targetEnvironment(simulator)
     /// The default URLSession can wait for connectivity and retain a dead connection longer
@@ -227,8 +262,14 @@ class MLXModelDownloadManager: ObservableObject {
 
     /// Repository metadata is a few kilobytes, so it is never worth refusing over cost;
     /// only the weights are gated.
+    ///
+    /// The token is read from the Keychain on each request, so one saved or removed in
+    /// settings applies to the next download without relaunching. With none saved, requests
+    /// go out anonymously, as they always have.
     private nonisolated static let realtimeHubClient = HuggingFace.HubClient(
         session: meteredTransferSession,
+        host: HuggingFace.HubClient.defaultHost,
+        tokenProvider: .custom { HuggingFaceTokenStore().token() },
         cache: nil
     )
     #endif
@@ -808,6 +849,14 @@ class MLXModelDownloadManager: ObservableObject {
 
         var completedBytes = resumeOffset
 
+        // `/resolve/` answers every request with a redirect to a signed CDN URL. Following
+        // it once per slice cost a round trip to huggingface.co and a resolve against the
+        // Hub's rate limit for every slice, so once a slice has landed the rest go straight
+        // to the URL it was served from. That URL expires; a refusal from it sends the
+        // next slice back through `/resolve/` for a fresh one.
+        var transferURL = fileURL
+        var isUsingRedirectedURL = false
+
         // Transfer in bounded byte ranges rather than iterating `URLSession.bytes`. A
         // per-byte `AsyncBytes` loop costs one async resumption per byte, which is
         // orders of magnitude slower than the network on a multi-gigabyte shard, and
@@ -816,11 +865,12 @@ class MLXModelDownloadManager: ObservableObject {
         while expectedBytes == 0 || completedBytes < expectedBytes {
             try Task.checkCancellation()
 
-            var request = URLRequest(url: fileURL)
+            var request = URLRequest(url: transferURL)
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-            if let bearerToken {
+            // The CDN URL is already signed; the Hub token is never sent to it.
+            if let bearerToken, !isUsingRedirectedURL {
                 request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             }
 
@@ -830,7 +880,10 @@ class MLXModelDownloadManager: ObservableObject {
             request.setValue("bytes=\(completedBytes)-\(sliceUpperBound)", forHTTPHeaderField: "Range")
 
             let session = Self.transferSession(allowingMeteredPaths: allowingMeteredPaths)
-            let (temporaryURL, response) = try await session.download(for: request)
+            let (temporaryURL, response) = try await session.download(
+                for: request,
+                delegate: HubRedirectAuthorizationFilter.shared
+            )
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: temporaryURL)
@@ -846,10 +899,23 @@ class MLXModelDownloadManager: ObservableObject {
 
             guard (200 ..< 300).contains(httpResponse.statusCode) else {
                 try? FileManager.default.removeItem(at: temporaryURL)
+                if isUsingRedirectedURL {
+                    AppLog.shared.mlx(
+                        "[MLXDownload] CDN URL for \(entry.path) returned HTTP \(httpResponse.statusCode); resolving it again"
+                    )
+                    transferURL = fileURL
+                    isUsingRedirectedURL = false
+                    continue
+                }
                 throw MLXDownloadTransferError.httpStatus(
                     file: entry.path,
                     statusCode: httpResponse.statusCode
                 )
+            }
+
+            if !isUsingRedirectedURL, let servedURL = httpResponse.url, servedURL.host != fileURL.host {
+                transferURL = servedURL
+                isUsingRedirectedURL = true
             }
 
             // Mapped rather than read into memory: if the server ignored the Range header

@@ -124,6 +124,7 @@
 		A2MLX0172F26000100MLX001 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX0152F26000100MLX001 /* HuggingFace */; };
 		A2MLX0182F26000100MLX001 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX0162F26000100MLX001 /* Tokenizers */; };
 		A2MLX01A2F26000100MLX001 /* MLXTokenizerLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0192F26000100MLX001 /* MLXTokenizerLoader.swift */; };
+		A2MLX01B2F26000100MLX001 /* HuggingFaceTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX01B1F26000100MLX001 /* HuggingFaceTokenStore.swift */; };
 		A2MLX0112F26000100MLX001 /* OnDeviceLLMSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */; };
 		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
 		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
@@ -299,6 +300,7 @@
 		A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelDownloadManager.swift; sourceTree = "<group>"; };
 		A2MLX0082F26000100MLX001 /* MLXOnDeviceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceClient.swift; sourceTree = "<group>"; };
 		A2MLX0192F26000100MLX001 /* MLXTokenizerLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXTokenizerLoader.swift; sourceTree = "<group>"; };
+		A2MLX01B1F26000100MLX001 /* HuggingFaceTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuggingFaceTokenStore.swift; sourceTree = "<group>"; };
 		A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMSettingsView.swift; sourceTree = "<group>"; };
 		A40CEF837977488692FFFE67 /* AppointmentPrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentPrep.swift; sourceTree = "<group>"; };
 		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
@@ -652,6 +654,7 @@
 				A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */,
 				A2MLX0082F26000100MLX001 /* MLXOnDeviceClient.swift */,
 				A2MLX0192F26000100MLX001 /* MLXTokenizerLoader.swift */,
+				A2MLX01B1F26000100MLX001 /* HuggingFaceTokenStore.swift */,
 			);
 			path = MLXOnDeviceLLM;
 			sourceTree = "<group>";
@@ -828,6 +831,7 @@
 				A2MLX0032F26000100MLX001 /* MLXModelDownloadManager.swift in Sources */,
 				A2MLX0042F26000100MLX001 /* MLXOnDeviceClient.swift in Sources */,
 				A2MLX01A2F26000100MLX001 /* MLXTokenizerLoader.swift in Sources */,
+				A2MLX01B2F26000100MLX001 /* HuggingFaceTokenStore.swift in Sources */,
 				SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */,
 				SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */,
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,

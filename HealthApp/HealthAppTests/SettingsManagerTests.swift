@@ -536,3 +536,70 @@ final class SettingsManagerTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Hugging Face Token
+
+final class HuggingFaceTokenStoreTests: XCTestCase {
+
+    private func makeStore() -> (HuggingFaceTokenStore, InMemoryKeychain) {
+        nonisolated(unsafe) let keychain = InMemoryKeychain()
+        return (HuggingFaceTokenStore(makeKeychain: { keychain }), keychain)
+    }
+
+    func testSave_TrimsPastedWhitespace() throws {
+        let (store, keychain) = makeStore()
+        try store.save("  hf_exampleTestToken\n")
+        XCTAssertEqual(store.token(), "hf_exampleTestToken")
+        XCTAssertEqual(keychain.storedValue(for: HuggingFaceTokenStore.keychainAccount), "hf_exampleTestToken")
+        XCTAssertTrue(store.hasToken)
+    }
+
+    func testSave_BlankRemovesStoredToken() throws {
+        let (store, _) = makeStore()
+        try store.save("hf_exampleTestToken")
+        try store.save("   ")
+        XCTAssertNil(store.token())
+        XCTAssertFalse(store.hasToken)
+    }
+
+    func testDelete_RemovesToken() throws {
+        let (store, _) = makeStore()
+        try store.save("hf_exampleTestToken")
+        try store.delete()
+        XCTAssertNil(store.token())
+    }
+
+    /// A Keychain that cannot be read must leave downloads anonymous, not fail them.
+    func testToken_ReadFailureFallsBackToNone() throws {
+        let (store, keychain) = makeStore()
+        try store.save("hf_exampleTestToken")
+        keychain.retrieveError = KeychainError.retrieveFailed(errSecInteractionNotAllowed)
+        XCTAssertNil(store.token())
+    }
+}
+
+final class HubRedirectAuthorizationFilterTests: XCTestCase {
+
+    private func request(_ url: String, token: String? = "hf_exampleTestToken") throws -> URLRequest {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: url)))
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
+    func testCrossHostRedirect_DropsAuthorization() throws {
+        let original = try request("https://huggingface.co/org/model/resolve/main/model.safetensors")
+        let redirected = try request("https://cdn.example.test/signed/model.safetensors")
+        let filtered = HubRedirectAuthorizationFilter.filteredRedirect(redirected, from: original)
+        XCTAssertNil(filtered.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(filtered.url, redirected.url)
+    }
+
+    func testSameHostRedirect_KeepsAuthorization() throws {
+        let original = try request("https://huggingface.co/old-org/model/resolve/main/config.json")
+        let redirected = try request("https://huggingface.co/new-org/model/resolve/main/config.json")
+        let filtered = HubRedirectAuthorizationFilter.filteredRedirect(redirected, from: original)
+        XCTAssertEqual(filtered.value(forHTTPHeaderField: "Authorization"), "Bearer hf_exampleTestToken")
+    }
+}

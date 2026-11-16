@@ -41,6 +41,7 @@ struct OnDeviceLLMSettingsView: View {
             modelSelectionSection
             extractionModelSelectionSection
             downloadSection
+            HuggingFaceTokenSection()
             advancedSettingsSection
             storageSection
         }
@@ -525,6 +526,109 @@ struct OnDeviceLLMSettingsView: View {
 }
 
 // MARK: - Model Row View
+
+// MARK: - Hugging Face Token Section
+
+/// Optional access token for model downloads. Models download without one; a token only
+/// lifts the Hub's anonymous rate limit.
+private struct HuggingFaceTokenSection: View {
+
+    // MARK: - Properties
+
+    private let store = HuggingFaceTokenStore()
+    @State private var tokenInput = ""
+    @State private var hasSavedToken = false
+    @State private var isVerifying = false
+    @State private var statusMessage: String?
+    @State private var statusIsError = false
+
+    // MARK: - Body
+
+    var body: some View {
+        Section {
+            if hasSavedToken {
+                Label("Token saved", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityIdentifier("huggingFaceTokenSavedLabel")
+
+                Button("Remove Token", role: .destructive) {
+                    removeToken()
+                }
+                .accessibilityHint("Deletes the Hugging Face token from this device. Downloads continue without it.")
+                .accessibilityIdentifier("removeHuggingFaceTokenButton")
+            } else {
+                SecureField("hf_…", text: $tokenInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(.password)
+                    .accessibilityLabel("Hugging Face access token")
+                    .accessibilityHint("Paste a read token from your Hugging Face account")
+                    .accessibilityIdentifier("huggingFaceTokenField")
+
+                Button {
+                    Task { await verifyAndSave() }
+                } label: {
+                    HStack {
+                        Text(isVerifying ? "Checking…" : "Save Token")
+                        if isVerifying {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isVerifying || HuggingFaceTokenStore.normalized(tokenInput) == nil)
+                .accessibilityHint("Checks the token with Hugging Face, then stores it in the Keychain")
+                .accessibilityIdentifier("saveHuggingFaceTokenButton")
+            }
+
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(statusIsError ? .red : .secondary)
+                    .accessibilityIdentifier("huggingFaceTokenStatus")
+            }
+        } header: {
+            Text("Hugging Face Token")
+        } footer: {
+            Text("Optional. Models download without a token, but anonymous downloads share a lower rate limit. A free read token from huggingface.co/settings/tokens lifts it. The token stays in this device's Keychain and is sent only to huggingface.co.")
+        }
+        .onAppear {
+            hasSavedToken = store.hasToken
+        }
+    }
+
+    // MARK: - Private Methods
+
+    private func verifyAndSave() async {
+        guard let token = HuggingFaceTokenStore.normalized(tokenInput) else { return }
+        isVerifying = true
+        defer { isVerifying = false }
+
+        do {
+            let account = try await HuggingFaceTokenStore.verify(token)
+            try store.save(token)
+            tokenInput = ""
+            hasSavedToken = true
+            statusIsError = false
+            statusMessage = "Token verified for \(account)."
+        } catch {
+            statusIsError = true
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    private func removeToken() {
+        do {
+            try store.delete()
+            hasSavedToken = false
+            statusIsError = false
+            statusMessage = "Token removed. Downloads continue anonymously."
+        } catch {
+            statusIsError = true
+            statusMessage = error.localizedDescription
+        }
+    }
+}
 
 private struct MLXModelRowView: View {
     let model: MLXModelInfo
