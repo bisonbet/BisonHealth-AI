@@ -616,6 +616,106 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertTrue(resolved.contextSummary.contains("CYP2D6"))
     }
 
+    /// SwiftUI decides whether a view's inputs changed with `==`. While `MedicalDocument`
+    /// compared by `id` alone, a saved review left the Records list and its destinations on
+    /// the stale "Needs Review" copy, because the refreshed array compared equal to it.
+    func testMedicalDocumentEqualityNoticesAResolvedGeneticReview() throws {
+        let item = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        let issue = GeneticTestReviewIssue(resultID: item.id, gene: item.gene, reason: "Uncertain status.")
+        let pending = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [issue],
+            metadata: ["pending_review": "true"]
+        )
+        var before = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        before.extractedHealthData = [try AnyHealthData(pending)]
+        var after = before
+        after.extractedHealthData = [try AnyHealthData(
+            pending.applyingReview(acceptedIssueIDs: [], skippedIssueIDs: [issue.id])
+        )]
+
+        XCTAssertEqual(before, before)
+        XCTAssertNotEqual(before, after)
+        XCTAssertNotEqual([before], [after])
+        XCTAssertEqual(before.hashValue, after.hashValue, "Hashing stays identity-based")
+    }
+
+    /// Import and a later reprocess each queue a review offer for the same document. Saving
+    /// the review must release both, not promote the second — that re-showed resolved issues.
+    func testSavingAGeneticReviewReleasesEveryOfferForThatDocument() async throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+
+        let item = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        let issue = GeneticTestReviewIssue(resultID: item.id, gene: item.gene, reason: "Uncertain status.")
+        let pending = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [issue],
+            metadata: ["pending_review": "true"]
+        )
+        var document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        document.extractedHealthData = [try AnyHealthData(pending)]
+        try await harness.databaseManager.saveMedicalDocument(document)
+
+        processor.beginGeneticTestReview(for: document)
+        processor.beginGeneticTestReview(for: document)
+        XCTAssertEqual(processor.pendingGeneticTestReview?.documentId, document.id)
+
+        let resolved = pending.applyingReview(acceptedIssueIDs: [], skippedIssueIDs: [issue.id])
+        let saved = await processor.saveGeneticTestResult(resolved, for: document.id)
+
+        XCTAssertNotNil(saved)
+        XCTAssertNil(processor.pendingGeneticTestReview, "A second offer for the reviewed document was promoted")
+
+        let stored = try XCTUnwrap(try await harness.databaseManager.fetchMedicalDocument(id: document.id))
+        let storedResult = try XCTUnwrap(stored.extractedHealthData.first?.decode(as: GeneticTestResult.self))
+        XCTAssertFalse(storedResult.needsReview)
+
+        let listed = try XCTUnwrap(harness.healthDataManager.geneticTestDocuments.first { $0.id == document.id })
+        let listedResult = try XCTUnwrap(listed.extractedHealthData.first?.decode(as: GeneticTestResult.self))
+        XCTAssertFalse(listedResult.needsReview)
+        XCTAssertNotEqual(listed, document, "The refreshed record must not compare equal to the stale one")
+    }
+
+    /// A review sheet dismissed unsaved must free the slot so a later document's review shows.
+    func testDroppingAnUnsavedGeneticReviewPromotesTheNextDocument() throws {
+        let harness = try makeRegressionHarness()
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let processor = DocumentProcessor(
+            databaseManager: harness.databaseManager,
+            fileSystemManager: harness.fileSystemManager,
+            healthDataManager: harness.healthDataManager,
+            settingsManager: harness.settingsManager
+        )
+        let item = GeneticTestItem(gene: "CYP2D6", category: .drugMetabolism, isKnownPharmacogene: true)
+        let pending = GeneticTestResult(
+            testDate: Date(timeIntervalSince1970: 1_750_000_000),
+            testedGenes: ["CYP2D6"],
+            results: [item],
+            reviewIssues: [GeneticTestReviewIssue(resultID: item.id, gene: item.gene, reason: "Uncertain status.")]
+        )
+        var first = makeDocument(named: "first.pdf", category: .geneticTest)
+        first.extractedHealthData = [try AnyHealthData(pending)]
+        var second = makeDocument(named: "second.pdf", category: .geneticTest)
+        second.extractedHealthData = [try AnyHealthData(pending)]
+
+        processor.beginGeneticTestReview(for: first)
+        processor.beginGeneticTestReview(for: second)
+        processor.dropGeneticTestReviews(for: first.id)
+
+        XCTAssertEqual(processor.pendingGeneticTestReview?.documentId, second.id)
+    }
+
     func testGeneticProfileIsEncodedIntoSelectedMedicalDocumentContext() throws {
         let geneticResult = GeneticTestResult(
             testDate: Date(timeIntervalSince1970: 1_750_000_000),

@@ -111,7 +111,9 @@ enum ProcessingStatus: String, CaseIterable, Codable {
 }
 
 // MARK: - Type-Erased Health Data
-struct AnyHealthData: Codable {
+/// Equatable by type, id and encoded payload, so a `MedicalDocument` whose structured
+/// result changed compares unequal to its stale copy.
+struct AnyHealthData: Codable, Equatable {
     let type: HealthDataType
     let id: UUID
     private let _data: Data

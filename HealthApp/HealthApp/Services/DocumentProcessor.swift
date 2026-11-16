@@ -184,6 +184,21 @@ class DocumentProcessor: ObservableObject {
             pendingGeneticTestReview = nil
         }
     }
+
+    /// Drops every in-memory review offer for one document — the active slot and anything
+    /// queued behind it — then promotes the next document's review.
+    ///
+    /// Called once that document's review has been saved, from whichever screen. A reprocess
+    /// queues a second offer for the same document; promoting it after the save re-showed
+    /// issues the user had just resolved. Also called when the sheet is dismissed unsaved:
+    /// the issues stay on the stored record (its banner offers the review again), and a slot
+    /// left occupied would park every later document's review behind it.
+    func dropGeneticTestReviews(for documentId: UUID) {
+        pendingGeneticReviewQueue.removeAll { $0.documentId == documentId }
+        if pendingGeneticTestReview?.documentId == documentId {
+            finishPendingGeneticTestReview()
+        }
+    }
     
     // MARK: - Dependencies
     private let settingsManager: SettingsManager
@@ -326,9 +341,7 @@ class DocumentProcessor: ObservableObject {
             NotificationCenter.default.post(name: .medicalDocumentDidChange, object: document)
             await healthDataManager.refreshGeneticTestDocuments()
 
-            if pendingGeneticTestReview?.documentId == documentId {
-                finishPendingGeneticTestReview()
-            }
+            dropGeneticTestReviews(for: documentId)
             return document
         } catch {
             AppLog.shared.documents("Failed to save genetic test review: \(error.localizedDescription)", level: .error)
