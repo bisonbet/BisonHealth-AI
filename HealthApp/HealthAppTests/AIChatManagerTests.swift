@@ -928,12 +928,13 @@ final class MLXMemoryBudgetTests: XCTestCase {
     // MARK: Prompt admission
     //
     // The guard exists because of one measured kill: MediPhi on an iPhone19,4, a 15,419-char
-    // first turn, 4,015 MB of headroom reported at the start, jetsam past ~6 GB in prefill.
+    // first turn (roughly 5,000 tokens), 4,015 MB of headroom reported at the start, jetsam
+    // past ~6 GB in prefill.
 
     private let mb: UInt64 = 1_024 * 1_024
 
     func testTheTurnThatWasKilledIsRefused() {
-        let tokens = MLXMemoryBudget.estimatedTokens(forCharacters: 15_297 + 122)
+        let tokens = 5_000
         XCTAssertFalse(
             MLXMemoryBudget.promptFits(promptTokens: tokens, replyTokens: 1_200, availableBytes: 4_015 * mb),
             "The exact turn that was killed for memory must be refused before prefill"
@@ -942,7 +943,7 @@ final class MLXMemoryBudgetTests: XCTestCase {
 
     func testAnOrdinaryQuestionStillRuns() {
         // A question with a little context must not be blocked by the same headroom.
-        let tokens = MLXMemoryBudget.estimatedTokens(forCharacters: 4_000)
+        let tokens = 1_200
         XCTAssertTrue(
             MLXMemoryBudget.promptFits(promptTokens: tokens, replyTokens: 1_200, availableBytes: 4_015 * mb)
         )
@@ -969,13 +970,11 @@ final class MLXMemoryBudgetTests: XCTestCase {
         XCTAssertFalse(MLXMemoryBudget.promptFits(promptTokens: 1, replyTokens: 0, availableBytes: 0))
     }
 
-    func testTokenEstimateRoundsUpAndNeverGoesNegative() {
-        XCTAssertEqual(MLXMemoryBudget.estimatedTokens(forCharacters: 0), 0)
-        XCTAssertEqual(MLXMemoryBudget.estimatedTokens(forCharacters: -5), 0)
-        XCTAssertEqual(MLXMemoryBudget.estimatedTokens(forCharacters: 1), 1)
-        XCTAssertEqual(
-            MLXMemoryBudget.estimatedTokens(forCharacters: MLXMemoryBudget.charactersPerTokenEstimate + 1), 2
-        )
+    func testPromptTokensAddTemplateFramingPerMessage() {
+        let perMessage = MLXMemoryBudget.chatTemplateTokensPerMessage
+        XCTAssertEqual(MLXMemoryBudget.promptTokens(encodedTokens: 4_000, messageCount: 2), 4_000 + 2 * perMessage)
+        XCTAssertEqual(MLXMemoryBudget.promptTokens(encodedTokens: 0, messageCount: 0), 0)
+        XCTAssertEqual(MLXMemoryBudget.promptTokens(encodedTokens: -5, messageCount: -1), 0, "Never negative")
     }
 }
 
@@ -1540,8 +1539,8 @@ final class LongContextModelTests: XCTestCase {
     }
 
     func testTheKilledTurnFitsTheGroupedQueryModelsButNotMediPhi() {
-        // The same 15,419-character turn and 4,015 MB of headroom that killed MediPhi.
-        let tokens = MLXMemoryBudget.estimatedTokens(forCharacters: 15_297 + 122)
+        // The same ~5,000-token turn and 4,015 MB of headroom that killed MediPhi.
+        let tokens = 5_000
         let available = 4_015 * mb
 
         func fits(_ model: MLXModelInfo) -> Bool {

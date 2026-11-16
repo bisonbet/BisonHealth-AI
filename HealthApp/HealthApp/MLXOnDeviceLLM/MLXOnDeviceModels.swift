@@ -156,13 +156,16 @@ enum MLXMemoryBudget {
     /// Kept free for everything that is not the KV cache: activations, logits, the app.
     static let admissionReserveBytes: UInt64 = 512 * 1024 * 1024
 
-    /// Conservative characters-per-token for sizing a prompt before it is tokenized.
-    /// Patient data is dense with numbers and units, which tokenize poorly; a low ratio
-    /// over-counts tokens, and over-counting is the safe direction.
-    static let charactersPerTokenEstimate = 3
+    /// Tokens a chat template adds around each message (role markers, turn delimiters).
+    /// Phi-3's is `<|user|>`/`<|end|>`, Qwen's `<|im_start|>user`/`<|im_end|>`, a handful
+    /// either way; 8 is a slight over-count, which is the safe direction.
+    static let chatTemplateTokensPerMessage = 8
 
-    static func estimatedTokens(forCharacters characters: Int) -> Int {
-        (max(0, characters) + charactersPerTokenEstimate - 1) / charactersPerTokenEstimate
+    /// A prompt's size in tokens: the model's own tokenizer count of the message texts, plus
+    /// the template's framing for each. It used to be characters ÷ 3, which over-counted by
+    /// about a quarter and refused turns that fit.
+    static func promptTokens(encodedTokens: Int, messageCount: Int) -> Int {
+        max(0, encodedTokens) + max(0, messageCount) * chatTemplateTokensPerMessage
     }
 
     /// Bytes this turn is expected to add before it finishes: the prompt at prefill cost,

@@ -329,15 +329,17 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         // Refuse a turn that would get the process killed. A fresh session prefills the
         // instructions and any re-hydrated history as well as the message; a live one has
         // that cache resident already, so the headroom iOS reports has paid for it.
-        let promptCharacters: Int
-        if chatSession == nil {
-            promptCharacters = (instructions?.count ?? 0)
-                + message.count
-                + conversationHistory.reduce(0) { $0 + $1.content.count }
-        } else {
-            promptCharacters = message.count
-        }
-        let estimatedPromptTokens = MLXMemoryBudget.estimatedTokens(forCharacters: promptCharacters)
+        // Counted with the model's own tokenizer: a few milliseconds, and exact where the
+        // old characters ÷ 3 estimate refused turns that would have fit.
+        let promptTexts: [String] = chatSession == nil
+            ? [instructions].compactMap { $0 } + conversationHistory.map(\.content) + [message]
+            : [message]
+        let promptCharacters = promptTexts.reduce(0) { $0 + $1.count }
+        let encodedTokens = await modelContainer.encode(promptTexts.joined(separator: "\n")).count
+        let estimatedPromptTokens = MLXMemoryBudget.promptTokens(
+            encodedTokens: encodedTokens,
+            messageCount: promptTexts.count
+        )
         let activeModel = modelProvider()
         let replyTokens = MLXModelInfo.configuredMaxTokens(for: activeModel)
         let availableBytes = ProcessMemory.availableBytes()
