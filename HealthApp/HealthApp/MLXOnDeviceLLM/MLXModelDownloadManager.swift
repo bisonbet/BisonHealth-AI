@@ -1321,8 +1321,9 @@ class MLXModelDownloadManager: ObservableObject {
         return directoryContainsRequiredArtifacts(at: cacheDir)
     }
 
-    /// Recursively check for config.json and all weight shards named by an index file.
-    /// Non-sharded models fall back to requiring at least one safetensors file.
+    /// Recursively check for config.json and complete weights: every shard an index names, or,
+    /// for a stale index, the conventional files the loader uses instead
+    /// (`weightsAreComplete`). Models without an index need at least one safetensors file.
     private func directoryContainsRequiredArtifacts(at directory: URL) -> Bool {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -1363,25 +1364,56 @@ class MLXModelDownloadManager: ObservableObject {
         guard hasConfig else { return false }
         guard !indexFiles.isEmpty else { return hasSafetensors }
 
-        let relativeBasenames = Set(relativeFiles.map { URL(fileURLWithPath: $0).lastPathComponent })
-        for indexFile in indexFiles {
+        let shardSets: [Set<String>] = indexFiles.compactMap { indexFile in
             guard let data = try? Data(contentsOf: indexFile),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let weightMap = object["weight_map"] as? [String: String],
                   !weightMap.isEmpty else {
-                continue
+                return nil
             }
-
-            let shards = Set(weightMap.values)
-            if shards.allSatisfy({
-                relativeFiles.contains($0)
-                    || relativeBasenames.contains(URL(fileURLWithPath: $0).lastPathComponent)
-            }) {
-                return true
-            }
+            return Set(weightMap.values)
         }
 
-        return false
+        return Self.weightsAreComplete(presentFiles: relativeFiles, indexedShardSets: shardSets)
+    }
+
+    /// Whether the weight files on disk make a whole model, given the shards each
+    /// `*.safetensors.index.json` names.
+    ///
+    /// An index whose shards are all present is complete. One with only *some* present is a
+    /// sharded download still in progress, which is what this check exists to catch (MedGemma
+    /// 27B is three shards). One with *none* present is stale: quantized uploads often carry
+    /// the index over from the unquantized source repo, as `mlx-community/medgemma-1.5-4b-it-4bit`
+    /// does, naming two bf16 shards while shipping a single `model.safetensors`. mlx-swift-lm's
+    /// loader ignores such an index and loads the conventional `model*.safetensors` files, so
+    /// the model is complete when one of those is present. A partial file is never mistaken for
+    /// one: transfers write to `.incomplete` and are renamed only once they finish.
+    nonisolated static func weightsAreComplete(
+        presentFiles: Set<String>,
+        indexedShardSets: [Set<String>]
+    ) -> Bool {
+        let presentBasenames = Set(presentFiles.map { URL(fileURLWithPath: $0).lastPathComponent })
+        func isPresent(_ shard: String) -> Bool {
+            presentFiles.contains(shard)
+                || presentBasenames.contains(URL(fileURLWithPath: shard).lastPathComponent)
+        }
+
+        // Index files exist but none could be read. mlx-swift-lm throws decoding a corrupt
+        // index rather than falling back, so this download would fail at load.
+        guard !indexedShardSets.isEmpty else { return false }
+
+        if indexedShardSets.contains(where: { $0.allSatisfy(isPresent) }) {
+            return true
+        }
+
+        let anyIndexedShardPresent = indexedShardSets.contains { $0.contains(where: isPresent) }
+        guard !anyIndexedShardPresent else { return false }
+
+        return presentFiles.contains { path in
+            !path.contains("/")
+                && path.hasPrefix("model")
+                && path.hasSuffix(".safetensors")
+        }
     }
 
     /// Delete a model cache that will not be completed.

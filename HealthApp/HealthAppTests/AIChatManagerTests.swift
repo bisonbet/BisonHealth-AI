@@ -1710,3 +1710,71 @@ final class KVCacheCompressionTests: XCTestCase {
         XCTAssertEqual(tiny, 8_192, "The ceiling wins over the floor")
     }
 }
+
+// MARK: - Download completeness with a stale safetensors index
+//
+// `mlx-community/medgemma-1.5-4b-it-4bit` ships one `model.safetensors` and an index carried
+// over from the bf16 source that names two shards it does not contain. The download finished
+// (3.44 of 3.44 GB) and was then rejected as incomplete on every resume.
+final class ModelWeightCompletenessTests: XCTestCase {
+
+    private let medGemmaFiles: Set<String> = [
+        "config.json", "model.safetensors", "model.safetensors.index.json",
+        "tokenizer.json", "tokenizer.model", "tokenizer_config.json"
+    ]
+    private let staleBF16Shards: Set<String> = [
+        "model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"
+    ]
+    private let medGemma27BShards: Set<String> = [
+        "model-00001-of-00003.safetensors",
+        "model-00002-of-00003.safetensors",
+        "model-00003-of-00003.safetensors"
+    ]
+
+    func testAStaleIndexOverASingleFileIsComplete() {
+        XCTAssertTrue(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: medGemmaFiles,
+            indexedShardSets: [staleBF16Shards]
+        ))
+    }
+
+    func testEveryIndexedShardPresentIsComplete() {
+        XCTAssertTrue(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: Set(["config.json", "model.safetensors.index.json"]).union(medGemma27BShards),
+            indexedShardSets: [medGemma27BShards]
+        ))
+    }
+
+    func testAShardedDownloadStillInProgressIsIncomplete() {
+        // Two of three shards finished; the third is still a `.incomplete` partial.
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: [
+                "config.json", "model.safetensors.index.json",
+                "model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors",
+                "model-00003-of-00003.safetensors.incomplete"
+            ],
+            indexedShardSets: [medGemma27BShards]
+        ))
+    }
+
+    func testAShardedDownloadWithNoShardFinishedIsIncomplete() {
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: ["config.json", "model.safetensors.index.json", "model-00001-of-00003.safetensors.incomplete"],
+            indexedShardSets: [medGemma27BShards]
+        ))
+    }
+
+    func testAPartialSingleFileIsNotMistakenForTheModel() {
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: ["config.json", "model.safetensors.index.json", "model.safetensors.incomplete"],
+            indexedShardSets: [staleBF16Shards]
+        ))
+    }
+
+    func testAnUnreadableIndexIsIncomplete() {
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: medGemmaFiles,
+            indexedShardSets: []
+        ))
+    }
+}
