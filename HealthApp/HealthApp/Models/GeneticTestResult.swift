@@ -136,6 +136,10 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
     static let userModifiedKey = "user_modified"
     /// Set when the user edited the tested-gene list by hand; a reprocess then keeps it.
     static let testedGenesEditedKey = "tested_genes_edited"
+    /// Every gene the user has been shown, comma-separated and lowercased. Kept apart from
+    /// `testedGenes` because a later, incomplete parse can drop a gene from that list; without
+    /// this, the next complete parse would offer a gene the user had skipped as new.
+    static let userSeenGenesKey = "user_seen_genes"
 
     /// Review bookkeeping a reprocess carries over from the user's version.
     private static let carriedReviewMetadataKeys = [
@@ -173,7 +177,13 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
 
         let priorTestedGeneKeys = Set(prior.testedGenes.map(key))
         let priorResultGeneKeys = Set(prior.results.map { key($0.gene) })
-        let seenByUser = priorTestedGeneKeys.union(priorResultGeneKeys)
+        let previouslyRecorded = Set(
+            (prior.metadata?[Self.userSeenGenesKey] ?? "")
+                .split(separator: ",")
+                .map { key(String($0)) }
+                .filter { !$0.isEmpty }
+        )
+        let seenByUser = priorTestedGeneKeys.union(priorResultGeneKeys).union(previouslyRecorded)
 
         var priorItemsByGene: [String: [GeneticTestItem]] = [:]
         for item in prior.results {
@@ -245,6 +255,7 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
             }
         }
         mergedMetadata["reprocessed_with_user_decisions"] = "true"
+        mergedMetadata[Self.userSeenGenesKey] = seenByUser.sorted().joined(separator: ",")
         if mergedIssues.isEmpty {
             mergedMetadata.removeValue(forKey: "pending_review")
             mergedMetadata.removeValue(forKey: "review_issue_count")

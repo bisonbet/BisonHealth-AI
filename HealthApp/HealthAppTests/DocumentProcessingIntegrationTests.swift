@@ -798,6 +798,38 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertTrue(merged.hasUserDecisions)
     }
 
+    /// An incomplete reprocess (OCR missed BRCA1) must not erase the record that the user
+    /// skipped it, or the next complete reprocess offers BRCA1 again as new.
+    func testASkippedGeneStaysSkippedThroughAnIncompleteReprocess() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let complete = """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Phenotype: Intermediate Metabolizer
+        BRCA1\tUncertain
+        """
+        let first = try XCTUnwrap(GeneticTestParser().parse(plainText: complete, document: document))
+        let brca1IssueIDs = Set(first.reviewIssues.filter { $0.gene == "BRCA1" }.map(\.id))
+        let reviewed = first.applyingReview(
+            acceptedIssueIDs: Set(first.reviewIssues.map(\.id)).subtracting(brca1IssueIDs),
+            skippedIssueIDs: brca1IssueIDs
+        )
+
+        let incomplete = try XCTUnwrap(GeneticTestParser().parse(plainText: """
+        Genes Tested: CYP2D6
+        CYP2D6
+        Phenotype: Intermediate Metabolizer
+        """, document: document))
+        let afterIncomplete = incomplete.carryingForwardDecisions(from: reviewed)
+        XCTAssertFalse(afterIncomplete.testedGenes.contains("BRCA1"))
+
+        let completeAgain = try XCTUnwrap(GeneticTestParser().parse(plainText: complete, document: document))
+        let afterComplete = completeAgain.carryingForwardDecisions(from: afterIncomplete)
+
+        XCTAssertFalse(afterComplete.results.contains { $0.gene == "BRCA1" })
+        XCTAssertFalse(afterComplete.needsReview)
+    }
+
     func testReprocessOfAFullyReviewedReportNeedsNoFurtherReview() throws {
         let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
         let fresh = try XCTUnwrap(GeneticTestParser().parse(plainText: """
