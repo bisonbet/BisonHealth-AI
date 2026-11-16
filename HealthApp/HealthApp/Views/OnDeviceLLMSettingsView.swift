@@ -732,9 +732,15 @@ private struct MLXModelRowView: View {
             }
 
             HStack {
-                Label("\(model.contextWindow / 1024)K context", systemImage: "text.alignleft")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                // What this device can hold for this model, not the model's trained maximum:
+                // those differ by up to 16× here, and the larger number is not usable.
+                Label(
+                    "Up to \(MLXModelInfo.deviceMaximumContextSize(for: model) / 1024)K context",
+                    systemImage: "text.alignleft"
+                )
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .accessibilityLabel("Up to \(MLXModelInfo.deviceMaximumContextSize(for: model) / 1024) thousand tokens of context on this device")
 
                 Spacer()
 

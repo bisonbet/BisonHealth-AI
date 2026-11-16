@@ -122,16 +122,19 @@ enum MLXMemoryBudget {
     ///   - modelSizeBytes: the weights, which are resident alongside the cache.
     ///   - ceiling: the app's own hard maximum.
     ///   - floor: never return less than this. Defaults to the shipping default window.
+    ///   - kvBytesPerToken: what a resident token costs for this model
+    ///     (`MLXModelInfo.storedKVBytesPerToken`). Defaults to the catalog's worst case.
     static func maximumContextSize(
         physicalMemory: UInt64,
         modelSizeBytes: Int64,
         ceiling: Int,
-        floor: Int = MLXModelInfo.defaultContextSize
+        floor: Int = MLXModelInfo.defaultContextSize,
+        kvBytesPerToken: Int = assumedKVBytesPerToken
     ) -> Int {
         let forKVCache = Double(physicalMemory) * kvShareOfPhysicalMemory - Double(modelSizeBytes)
-        guard forKVCache > 0 else { return floor }
+        guard forKVCache > 0 else { return min(ceiling, floor) }
 
-        let affordableTokens = Int(forKVCache / Double(assumedKVBytesPerToken))
+        let affordableTokens = Int(forKVCache / Double(max(1, kvBytesPerToken)))
         // Round down to a whole 4K step so the slider lands on familiar values.
         let stepped = (affordableTokens / 4096) * 4096
         return min(ceiling, max(floor, stepped))
@@ -165,17 +168,22 @@ enum MLXMemoryBudget {
     /// Bytes this turn is expected to add before it finishes: the prompt at prefill cost,
     /// plus the reply, whose tokens are decoded one at a time and pay only the cache.
     ///
-    /// `kvBytesPerToken` is the model's own figure (`MLXModelInfo.kvBytesPerToken`); it
+    /// `kvBytesPerToken` is the model's own fp16 figure (`MLXModelInfo.kvBytesPerToken`); it
     /// varies by more than 10× across the catalog, so one constant would either refuse
-    /// everything a grouped-query model can do or admit what MediPhi cannot.
+    /// everything a grouped-query model can do or admit what MediPhi cannot. The prompt is
+    /// always charged at that rate: a `kvScheme` compresses the cache only after prefill.
+    /// `replyKVBytesPerToken` is the resident rate (`storedKVBytesPerToken`), which the reply
+    /// pays once compression is on; it defaults to the fp16 rate.
     static func bytesRequired(
         promptTokens: Int,
         replyTokens: Int,
-        kvBytesPerToken: Int = assumedKVBytesPerToken
+        kvBytesPerToken: Int = assumedKVBytesPerToken,
+        replyKVBytesPerToken: Int? = nil
     ) -> UInt64 {
         let perToken = Double(max(0, kvBytesPerToken))
+        let replyPerToken = Double(max(0, replyKVBytesPerToken ?? kvBytesPerToken))
         let prompt = Double(max(0, promptTokens)) * perToken * prefillOverheadFactor
-        let reply = Double(max(0, replyTokens)) * perToken
+        let reply = Double(max(0, replyTokens)) * replyPerToken
         return UInt64(prompt + reply) + admissionReserveBytes
     }
 
@@ -183,10 +191,12 @@ enum MLXMemoryBudget {
     static func affordablePromptTokens(
         availableBytes: UInt64,
         replyTokens: Int,
-        kvBytesPerToken: Int = assumedKVBytesPerToken
+        kvBytesPerToken: Int = assumedKVBytesPerToken,
+        replyKVBytesPerToken: Int? = nil
     ) -> Int {
         let perToken = Double(max(1, kvBytesPerToken))
-        let replyBytes = Double(max(0, replyTokens)) * perToken
+        let replyPerToken = Double(max(0, replyKVBytesPerToken ?? kvBytesPerToken))
+        let replyBytes = Double(max(0, replyTokens)) * replyPerToken
         let room = Double(availableBytes) - Double(admissionReserveBytes) - replyBytes
         guard room > 0 else { return 0 }
         return Int(room / (perToken * prefillOverheadFactor))
@@ -198,12 +208,14 @@ enum MLXMemoryBudget {
         promptTokens: Int,
         replyTokens: Int,
         availableBytes: UInt64,
-        kvBytesPerToken: Int = assumedKVBytesPerToken
+        kvBytesPerToken: Int = assumedKVBytesPerToken,
+        replyKVBytesPerToken: Int? = nil
     ) -> Bool {
         bytesRequired(
             promptTokens: promptTokens,
             replyTokens: replyTokens,
-            kvBytesPerToken: kvBytesPerToken
+            kvBytesPerToken: kvBytesPerToken,
+            replyKVBytesPerToken: replyKVBytesPerToken
         ) <= availableBytes
     }
 }
@@ -402,6 +414,8 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
     public let huggingFaceId: String
     public let modelType: MLXModelType
     public let estimatedSizeBytes: Int64
+    /// The context length the model was trained for (`max_position_embeddings`). An upper
+    /// bound only: what this device can hold is `MLXModelInfo.deviceMaximumContextSize(for:)`.
     public let contextWindow: Int
     public let defaultSettings: MLXModelDefaultSettings
 
@@ -441,6 +455,41 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
             return 2 * 8 * 4 * 256 * 2         // 32 KiB: 8 of 32 layers are full attention
         default:
             return MLXMemoryBudget.assumedKVBytesPerToken
+        }
+    }
+
+    /// mlx-swift-lm KV-cache compression for this model's chat sessions, or nil for fp16.
+    ///
+    /// `affine8` stores keys and values as 8-bit integers with an fp16 scale and bias per
+    /// 64 values, about 53% of the fp16 size. The library's own measurements put its error
+    /// far below anything visible in text (mean KL divergence 0.0004 on Phi-4-mini, 0.0088
+    /// on Qwen3-1.7B); TurboQuant schemes compress further but hit Qwen3-family keys harder,
+    /// so they wait for a quality check of their own.
+    ///
+    /// Two constraints come with it. `RotatingKVCache` cannot be quantized, so a model with
+    /// a scheme runs without `maxKVSize` and its cache grows instead of evicting — the
+    /// per-turn memory guard and the session rebuild in `MLXContextBudget` bound it instead.
+    /// And compression starts only after prefill, so the first prompt still peaks at fp16.
+    ///
+    /// MedGemma is left alone: its sliding-window layers are rotating caches the library
+    /// keeps at fp16 anyway, and its five global layers are already ~20 KiB a token.
+    public var kvScheme: String? {
+        switch id {
+        case Self.mediPhi4B.id, Self.medPsy4B.id:
+            return "affine8"
+        default:
+            return nil
+        }
+    }
+
+    /// Bytes each token costs once it is resident in the cache, after any `kvScheme`.
+    public var storedKVBytesPerToken: Int {
+        switch kvScheme {
+        case "affine8":
+            // 1 byte per value plus a 2-byte scale and 2-byte bias per group of 64.
+            return kvBytesPerToken * 17 / 32
+        default:
+            return kvBytesPerToken
         }
     }
 
@@ -494,7 +543,7 @@ extension MLXModelInfo {
         huggingFaceId: "bisonnetworking/MediPhi-Instruct-mlx-4bit",
         modelType: .llm,
         estimatedSizeBytes: 2_150_000_000,
-        contextWindow: 32768,
+        contextWindow: 131_072,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.4,
             topP: 0.9,
@@ -514,7 +563,7 @@ extension MLXModelInfo {
         // Verified against the Hub revision on 2026-08-18; keep this as an estimate because
         // repository contents can change without an app release.
         estimatedSizeBytes: 16_022_116_230,
-        contextWindow: 32768,
+        contextWindow: 131_072,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.2,
             topP: 0.9,
@@ -531,7 +580,7 @@ extension MLXModelInfo {
         huggingFaceId: "mlx-community/Qwen3.5-4B-MLX-4bit",
         modelType: .vlm,
         estimatedSizeBytes: 3_030_000_000,
-        contextWindow: 32768,
+        contextWindow: 262_144,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.6,
             topP: 0.9,
@@ -557,7 +606,7 @@ extension MLXModelInfo {
         modelType: .llm,
         // Hub tree total on 2026-11-15.
         estimatedSizeBytes: 2_274_640_246,
-        contextWindow: 32768,
+        contextWindow: 262_144,
         defaultSettings: MLXModelDefaultSettings(
             // Qwen3 thinking models degrade into loops under greedy-ish sampling and under a
             // repetition penalty; these are the upstream recommendations.
@@ -584,7 +633,7 @@ extension MLXModelInfo {
         modelType: .llm,
         // Hub tree total on 2026-11-15, including the unused vision weights.
         estimatedSizeBytes: 3_439_897_648,
-        contextWindow: 32768,
+        contextWindow: 131_072,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.4,
             topP: 0.95,
@@ -705,10 +754,18 @@ extension MLXModelInfo {
     /// setting that gets the process killed. See `MLXMemoryBudget` for why this never falls
     /// below the shipping default.
     public static var deviceMaximumContextSize: Int {
+        deviceMaximumContextSize(for: selectedModel)
+    }
+
+    /// The largest window to offer for `model` on this device, from that model's own
+    /// resident cache cost. One figure for every model held MedGemma (~20 KiB a token) to
+    /// the same cap as MediPhi (384 KiB).
+    public static func deviceMaximumContextSize(for model: MLXModelInfo) -> Int {
         MLXMemoryBudget.maximumContextSize(
             physicalMemory: ProcessInfo.processInfo.physicalMemory,
-            modelSizeBytes: selectedModel.estimatedSizeBytes,
-            ceiling: maxContextSize
+            modelSizeBytes: model.estimatedSizeBytes,
+            ceiling: min(maxContextSize, model.contextWindow),
+            kvBytesPerToken: model.storedKVBytesPerToken
         )
     }
 

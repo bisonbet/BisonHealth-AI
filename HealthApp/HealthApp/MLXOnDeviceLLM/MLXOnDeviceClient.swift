@@ -345,12 +345,14 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             promptTokens: estimatedPromptTokens,
             replyTokens: replyTokens,
             availableBytes: availableBytes,
-            kvBytesPerToken: activeModel.kvBytesPerToken
+            kvBytesPerToken: activeModel.kvBytesPerToken,
+            replyKVBytesPerToken: activeModel.storedKVBytesPerToken
         ) else {
             let affordable = MLXMemoryBudget.affordablePromptTokens(
                 availableBytes: availableBytes,
                 replyTokens: replyTokens,
-                kvBytesPerToken: activeModel.kvBytesPerToken
+                kvBytesPerToken: activeModel.kvBytesPerToken,
+                replyKVBytesPerToken: activeModel.storedKVBytesPerToken
             )
             AppLog.shared.mlx(
                 "[MLXClient] Refused a turn that would not fit in memory: promptChars=\(promptCharacters), estimatedPromptTokens=\(estimatedPromptTokens), affordablePromptTokens=\(affordable), replyTokens=\(replyTokens), freshSession=\(chatSession == nil), \(Self.memorySummary())",
@@ -638,10 +640,12 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             )
         }
 
-        // Would the next turn spill out of the KV window? The cache rotates, so it does not
-        // fail — it evicts from the head, which is where the persona, the patient data and
-        // the rules are. Dropping the session means the next request re-prefills those
+        // Would the next turn spill out of the KV window? A rotating cache does not fail —
+        // it evicts from the head, which is where the persona, the patient data and the
+        // rules are. Dropping the session means the next request re-prefills those
         // instructions rather than answering from a window they have quietly fallen out of.
+        // A quantized cache (`MLXModelInfo.kvScheme`) has no window of its own and would
+        // simply keep growing; this rebuild is what holds it to the configured size.
         //
         // This only helps if the history coming back is small enough to leave room for
         // them, which is the caller's job: `AIChatManager` runs the conversation through
@@ -954,9 +958,16 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         maxKVSizeOverride: Int? = nil
     ) -> GenerateParameters {
         let model = modelProvider()
+        // A model with a `kvScheme` runs without `maxKVSize`: that setting is what selects
+        // `RotatingKVCache`, which mlx-swift-lm cannot quantize, so the scheme would be
+        // silently skipped. An explicit override (vision extraction) keeps its bounded cache.
+        let kvScheme = maxKVSizeOverride == nil ? model.kvScheme : nil
+        let maxKVSize = maxKVSizeOverride
+            ?? (kvScheme == nil ? MLXModelInfo.configuredContextSize : nil)
         return GenerateParameters(
             maxTokens: maxTokensOverride ?? MLXModelInfo.configuredMaxTokens(for: model),
-            maxKVSize: maxKVSizeOverride ?? MLXModelInfo.configuredContextSize,
+            maxKVSize: maxKVSize,
+            kvScheme: kvScheme,
             temperature: MLXModelInfo.configuredTemperature(for: model),
             topP: MLXModelInfo.configuredTopP(for: model),
             repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty(for: model),

@@ -1608,3 +1608,105 @@ final class LongContextModelTests: XCTestCase {
         )
     }
 }
+
+// MARK: - KV cache compression and per-model context caps
+//
+// `affine8` is enabled for the two models whose fp16 cache is large. These pin what the rest
+// of the app relies on: which models compress, what a resident token then costs, that the
+// guard charges the first prompt at fp16 regardless (compression starts after prefill), and
+// that the settings cap now follows each model rather than MediPhi's worst case.
+final class KVCacheCompressionTests: XCTestCase {
+
+    private let gb: UInt64 = 1_024 * 1_024 * 1_024
+    private let mb: UInt64 = 1_024 * 1_024
+
+    func testOnlyTheLargeCacheModelsCompress() {
+        XCTAssertEqual(MLXModelInfo.mediPhi4B.kvScheme, "affine8")
+        XCTAssertEqual(MLXModelInfo.medPsy4B.kvScheme, "affine8")
+        XCTAssertNil(MLXModelInfo.medGemma15_4B.kvScheme, "Sliding-window layers stay fp16 anyway")
+        XCTAssertNil(MLXModelInfo.qwen35_4B_VLM.kvScheme, "Extraction keeps its bounded rotating cache")
+    }
+
+    func testAffine8StoresAboutHalfOfFP16() {
+        for model in [MLXModelInfo.mediPhi4B, MLXModelInfo.medPsy4B] {
+            XCTAssertEqual(model.storedKVBytesPerToken, model.kvBytesPerToken * 17 / 32)
+        }
+        XCTAssertEqual(
+            MLXModelInfo.medGemma15_4B.storedKVBytesPerToken,
+            MLXModelInfo.medGemma15_4B.kvBytesPerToken
+        )
+    }
+
+    func testCompressionCheapensTheReplyButNotThePrompt() {
+        let model = MLXModelInfo.medPsy4B
+        let promptOnly = MLXMemoryBudget.bytesRequired(
+            promptTokens: 5_000, replyTokens: 0,
+            kvBytesPerToken: model.kvBytesPerToken,
+            replyKVBytesPerToken: model.storedKVBytesPerToken
+        )
+        XCTAssertEqual(
+            promptOnly,
+            MLXMemoryBudget.bytesRequired(promptTokens: 5_000, replyTokens: 0, kvBytesPerToken: model.kvBytesPerToken),
+            "Prefill runs at fp16 whatever the scheme"
+        )
+
+        let compressed = MLXMemoryBudget.bytesRequired(
+            promptTokens: 5_000, replyTokens: 3_072,
+            kvBytesPerToken: model.kvBytesPerToken,
+            replyKVBytesPerToken: model.storedKVBytesPerToken
+        )
+        let uncompressed = MLXMemoryBudget.bytesRequired(
+            promptTokens: 5_000, replyTokens: 3_072, kvBytesPerToken: model.kvBytesPerToken
+        )
+        XCTAssertLessThan(compressed, uncompressed)
+    }
+
+    func testAffordableTokensStaysTheBoundaryWithAReplyRate() {
+        let model = MLXModelInfo.medPsy4B
+        for available in [UInt64(1_024), 4_015, 8_192].map({ $0 * mb }) {
+            let affordable = MLXMemoryBudget.affordablePromptTokens(
+                availableBytes: available, replyTokens: 3_072,
+                kvBytesPerToken: model.kvBytesPerToken,
+                replyKVBytesPerToken: model.storedKVBytesPerToken
+            )
+            func fits(_ tokens: Int) -> Bool {
+                MLXMemoryBudget.promptFits(
+                    promptTokens: tokens, replyTokens: 3_072, availableBytes: available,
+                    kvBytesPerToken: model.kvBytesPerToken,
+                    replyKVBytesPerToken: model.storedKVBytesPerToken
+                )
+            }
+            if affordable > 0 { XCTAssertTrue(fits(affordable)) }
+            XCTAssertFalse(fits(affordable + 1))
+        }
+    }
+
+    func testTheCapFollowsEachModelsOwnCacheCost() {
+        // The iPhone the crash came from: 11.3 GB installed.
+        let phone: UInt64 = 11_569 * mb
+        func cap(_ model: MLXModelInfo) -> Int {
+            MLXMemoryBudget.maximumContextSize(
+                physicalMemory: phone,
+                modelSizeBytes: model.estimatedSizeBytes,
+                ceiling: min(MLXModelInfo.maxContextSize, model.contextWindow),
+                kvBytesPerToken: model.storedKVBytesPerToken
+            )
+        }
+
+        XCTAssertEqual(cap(.mediPhi4B), MLXModelInfo.defaultContextSize, "MediPhi stays on the floor")
+        XCTAssertGreaterThan(cap(.medPsy4B), MLXModelInfo.defaultContextSize)
+        XCTAssertGreaterThanOrEqual(cap(.medGemma15_4B), 32_768, "MedGemma can hold 32K here")
+        XCTAssertGreaterThanOrEqual(cap(.medGemma15_4B), cap(.medPsy4B))
+    }
+
+    func testTheCapNeverExceedsTheTrainedWindow() {
+        let tiny = MLXMemoryBudget.maximumContextSize(
+            physicalMemory: 128 * gb,
+            modelSizeBytes: 1,
+            ceiling: 8_192,
+            floor: MLXModelInfo.defaultContextSize,
+            kvBytesPerToken: 1
+        )
+        XCTAssertEqual(tiny, 8_192, "The ceiling wins over the floor")
+    }
+}
