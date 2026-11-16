@@ -714,7 +714,8 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertNotNil(saved)
         XCTAssertNil(processor.pendingGeneticTestReview, "A second offer for the reviewed document was promoted")
 
-        let stored = try XCTUnwrap(try await harness.databaseManager.fetchMedicalDocument(id: document.id))
+        let fetched = try await harness.databaseManager.fetchMedicalDocument(id: document.id)
+        let stored = try XCTUnwrap(fetched)
         let storedResult = try XCTUnwrap(stored.extractedHealthData.first?.decode(as: GeneticTestResult.self))
         XCTAssertFalse(storedResult.needsReview)
 
