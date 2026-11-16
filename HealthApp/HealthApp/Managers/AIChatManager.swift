@@ -1287,7 +1287,10 @@ class AIChatManager: ObservableObject {
 
         // Use JSON format for structured health data
         let contextString = currentContext.buildContextJSON()
-        let estimatedTokens = currentContext.estimatedTokenCountJSON
+        // In the model's own tokens. A flat 4 characters a token under-counted this JSON by
+        // ~2.6× on MediPhi, so compression never ran and the memory guard refused the turn.
+        let charactersPerToken = MLXModelInfo.contextCharactersPerToken(for: currentProvider)
+        let estimatedTokens = Int((Double(contextString.count) / charactersPerToken).rounded(.up))
 
         AppLog.shared.ai("[Context] Built context: \(contextString.count) chars, ~\(estimatedTokens) tokens, limit=\(contextSizeLimit), hasPersonalInfo=\(currentContext.personalInfo != nil), bloodTests=\(currentContext.bloodTests.count), documents=\(currentContext.medicalDocuments.count)")
 
@@ -1298,7 +1301,7 @@ class AIChatManager: ObservableObject {
         // If context is too large, compress it
         if estimatedTokens > contextCompressionThreshold {
             AppLog.shared.ai("[Context] Compressing context (~\(estimatedTokens) tokens > threshold \(contextCompressionThreshold))")
-            return compressHealthDataContext(contextString)
+            return compressHealthDataContext(contextString, charactersPerToken: charactersPerToken)
         }
 
         return contextString
@@ -1315,11 +1318,10 @@ class AIChatManager: ObservableObject {
     /// Order of sacrifice: document text, then older blood tests. `personal_info` is never
     /// dropped, and whatever goes is named in the context so the model knows the picture
     /// is incomplete.
-    private func compressHealthDataContext(_ context: String) -> String {
-        // ~4 characters per token is the same rough estimate used elsewhere here.
+    private func compressHealthDataContext(_ context: String, charactersPerToken: Double) -> String {
         Self.compressedContext(
             context,
-            targetChars: Int(Double(contextCompressionThreshold) * 4.0),
+            targetChars: Int(Double(contextCompressionThreshold) * charactersPerToken),
             limit: contextSizeLimit
         )
     }
@@ -1336,9 +1338,10 @@ class AIChatManager: ObservableObject {
         }
 
         func rendered(_ dict: [String: Any]) -> String? {
+            // Compact, matching `ChatContext.buildContextJSON()`.
             guard let data = try? JSONSerialization.data(
                 withJSONObject: dict,
-                options: [.prettyPrinted, .sortedKeys]
+                options: [.sortedKeys]
             ) else { return nil }
             return String(data: data, encoding: .utf8)
         }

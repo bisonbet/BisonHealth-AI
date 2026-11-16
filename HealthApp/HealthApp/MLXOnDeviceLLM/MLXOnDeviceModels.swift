@@ -94,10 +94,11 @@ enum MLXResponseBudget {
 /// **The per-token figure is an estimate and has never been measured on a device**, which is
 /// why this type is shaped the way it is:
 ///
-/// - It only ever lowers the *maximum selectable* window. The 16,384 default is left alone
-///   because it demonstrably works on real hardware today; an unvalidated estimate is not
-///   grounds for shrinking something known to work. `maximumContextSize` therefore never
-///   returns less than the default.
+/// - It only ever lowers the *maximum selectable* window. The 16,384 default is left alone,
+///   and `maximumContextSize` never returns less than it. That does not make the default
+///   safe: a ~5,000-token first turn has been killed for memory on an 11.3 GB iPhone well
+///   inside it. The window only caps what the cache *may* grow to; what a given turn will
+///   actually cost is checked per turn by `promptFits(promptTokens:replyTokens:availableBytes:)`.
 /// - The arithmetic is pure and tested, so correcting `assumedKVBytesPerToken` after one
 ///   device measurement is a one-line change with the consequences already covered.
 enum MLXMemoryBudget {
@@ -121,19 +122,150 @@ enum MLXMemoryBudget {
     ///   - modelSizeBytes: the weights, which are resident alongside the cache.
     ///   - ceiling: the app's own hard maximum.
     ///   - floor: never return less than this. Defaults to the shipping default window.
+    ///   - kvBytesPerToken: what a resident token costs for this model
+    ///     (`MLXModelInfo.storedKVBytesPerToken`). Defaults to the catalog's worst case.
     static func maximumContextSize(
         physicalMemory: UInt64,
         modelSizeBytes: Int64,
         ceiling: Int,
-        floor: Int = MLXModelInfo.defaultContextSize
+        floor: Int = MLXModelInfo.defaultContextSize,
+        kvBytesPerToken: Int = assumedKVBytesPerToken
     ) -> Int {
         let forKVCache = Double(physicalMemory) * kvShareOfPhysicalMemory - Double(modelSizeBytes)
-        guard forKVCache > 0 else { return floor }
+        guard forKVCache > 0 else { return min(ceiling, floor) }
 
-        let affordableTokens = Int(forKVCache / Double(assumedKVBytesPerToken))
+        let affordableTokens = Int(forKVCache / Double(max(1, kvBytesPerToken)))
         // Round down to a whole 4K step so the slider lands on familiar values.
         let stepped = (affordableTokens / 4096) * 4096
         return min(ceiling, max(floor, stepped))
+    }
+
+    // MARK: Prompt Admission
+
+    /// What processing one prompt is expected to cost, per token, *during prefill*.
+    ///
+    /// Measured, not derived: on an iPhone19,4 (11.3 GB, increased-memory-limit entitlement)
+    /// MediPhi with ~2 GB of weights was killed by jetsam once the process passed ~6 GB while
+    /// prefilling a ~15,400-character first turn, roughly 5,000 tokens. That is over 4 GB on
+    /// top of the weights, about twice the KV cache `assumedKVBytesPerToken` accounts for.
+    /// `RotatingKVCache` concatenates a fresh copy of every layer's cache for each prefill
+    /// chunk, and the freed buffers are too small to reuse, so the cache's own size is not
+    /// the whole cost. Correct this factor from the heartbeat lines in an exported log.
+    static let prefillOverheadFactor = 2.0
+
+    /// Kept free for everything that is not the KV cache: activations, logits, the app.
+    static let admissionReserveBytes: UInt64 = 512 * 1024 * 1024
+
+    /// Tokens a chat template adds around each message (role markers, turn delimiters).
+    /// Phi-3's is `<|user|>`/`<|end|>`, Qwen's `<|im_start|>user`/`<|im_end|>`, a handful
+    /// either way; 8 is a slight over-count, which is the safe direction.
+    static let chatTemplateTokensPerMessage = 8
+
+    /// A prompt's size in tokens: the model's own tokenizer count of the message texts, plus
+    /// the template's framing for each. It used to be characters ÷ 3, which over-counted by
+    /// about a quarter and refused turns that fit.
+    static func promptTokens(encodedTokens: Int, messageCount: Int) -> Int {
+        max(0, encodedTokens) + max(0, messageCount) * chatTemplateTokensPerMessage
+    }
+
+    /// A count no tokenizer in the catalog can exceed, without running one: every model here
+    /// uses byte-level BPE or SentencePiece with byte fallback, so a token never covers less
+    /// than one UTF-8 byte. One more for the beginning-of-sequence token, plus the framing.
+    /// When even this fits, the real count is not needed.
+    static func promptTokenUpperBound(utf8Bytes: Int, messageCount: Int) -> Int {
+        promptTokens(encodedTokens: max(0, utf8Bytes) + 1, messageCount: messageCount)
+    }
+
+    /// Bytes this turn is expected to add before it finishes: the prompt at prefill cost,
+    /// plus the reply, whose tokens are decoded one at a time and pay only the cache.
+    ///
+    /// `kvBytesPerToken` is the model's own fp16 figure (`MLXModelInfo.kvBytesPerToken`); it
+    /// varies by more than 10× across the catalog, so one constant would either refuse
+    /// everything a grouped-query model can do or admit what MediPhi cannot. The prompt is
+    /// always charged at that rate: a `kvScheme` compresses the cache only after prefill.
+    /// `replyKVBytesPerToken` is the resident rate (`storedKVBytesPerToken`), which the reply
+    /// pays once compression is on; it defaults to the fp16 rate.
+    static func bytesRequired(
+        promptTokens: Int,
+        replyTokens: Int,
+        kvBytesPerToken: Int = assumedKVBytesPerToken,
+        replyKVBytesPerToken: Int? = nil
+    ) -> UInt64 {
+        let perToken = Double(max(0, kvBytesPerToken))
+        let replyPerToken = Double(max(0, replyKVBytesPerToken ?? kvBytesPerToken))
+        let prompt = Double(max(0, promptTokens)) * perToken * prefillOverheadFactor
+        let reply = Double(max(0, replyTokens)) * replyPerToken
+        return UInt64(prompt + reply) + admissionReserveBytes
+    }
+
+    /// The largest prompt, in tokens, that `availableBytes` can take with this reply budget.
+    static func affordablePromptTokens(
+        availableBytes: UInt64,
+        replyTokens: Int,
+        kvBytesPerToken: Int = assumedKVBytesPerToken,
+        replyKVBytesPerToken: Int? = nil
+    ) -> Int {
+        let perToken = Double(max(1, kvBytesPerToken))
+        let replyPerToken = Double(max(0, replyKVBytesPerToken ?? kvBytesPerToken))
+        let replyBytes = Double(max(0, replyTokens)) * replyPerToken
+        let room = Double(availableBytes) - Double(admissionReserveBytes) - replyBytes
+        guard room > 0 else { return 0 }
+        return Int(room / (perToken * prefillOverheadFactor))
+    }
+
+    /// Whether a turn may start. iOS terminates the process outright when it runs out, with
+    /// nothing logged and the user's message lost, so refusing up front is the better failure.
+    static func promptFits(
+        promptTokens: Int,
+        replyTokens: Int,
+        availableBytes: UInt64,
+        kvBytesPerToken: Int = assumedKVBytesPerToken,
+        replyKVBytesPerToken: Int? = nil
+    ) -> Bool {
+        bytesRequired(
+            promptTokens: promptTokens,
+            replyTokens: replyTokens,
+            kvBytesPerToken: kvBytesPerToken,
+            replyKVBytesPerToken: replyKVBytesPerToken
+        ) <= availableBytes
+    }
+}
+
+// MARK: - Reasoning Output
+
+/// Separates a thinking model's reasoning from its answer, for streaming and for the result.
+///
+/// MedPsy's template does not prefill the tag: the model writes `<think>`, reasons, writes
+/// `</think>`, then answers. Partial output is therefore one of three shapes — nothing yet
+/// (or the first characters of `<think>`), an open block still reasoning, or a closed block
+/// followed by the answer so far. Plain value logic, testable without MLX.
+enum MLXReasoningOutput {
+    static let openingTag = "<think>"
+    static let closingTag = "</think>"
+
+    struct Split: Equatable {
+        /// The answer so far, with any reasoning removed.
+        let answer: String
+        /// True while the model is still inside its reasoning block.
+        let isReasoning: Bool
+    }
+
+    static func split(_ raw: String) -> Split {
+        if let close = raw.range(of: closingTag, options: .backwards) {
+            let answer = raw[close.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            return Split(answer: answer, isReasoning: false)
+        }
+
+        let leading = raw.drop { $0.isWhitespace }
+        if let open = raw.range(of: openingTag) {
+            let before = raw[..<open.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            return Split(answer: before, isReasoning: true)
+        }
+        // "<th" arriving in the first chunk is the start of the tag, not of an answer.
+        if !leading.isEmpty, openingTag.hasPrefix(leading) {
+            return Split(answer: "", isReasoning: true)
+        }
+        return Split(answer: raw.trimmingCharacters(in: .whitespacesAndNewlines), isReasoning: false)
     }
 }
 
@@ -293,6 +425,8 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
     public let huggingFaceId: String
     public let modelType: MLXModelType
     public let estimatedSizeBytes: Int64
+    /// The context length the model was trained for (`max_position_embeddings`). An upper
+    /// bound only: what this device can hold is `MLXModelInfo.deviceMaximumContextSize(for:)`.
     public let contextWindow: Int
     public let defaultSettings: MLXModelDefaultSettings
 
@@ -307,11 +441,121 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
             // `<|endoftext|>` as EOS. Without this extra stop token, generation
             // can continue into fabricated user/assistant turns until maxTokens.
             return ["<|end|>"]
-        case Self.medGemma27BTextIT4Bit.id:
+        case Self.medGemma27BTextIT4Bit.id, Self.medGemma15_4B.id:
             return ["<end_of_turn>"]
         default:
             return []
         }
+    }
+
+    /// KV-cache bytes each token of context costs, from the model's published config
+    /// (2 × layers holding a full-length cache × KV heads × head dim × 2 bytes for fp16).
+    /// Models not listed fall back to MediPhi's figure, the worst in the catalog, so an
+    /// unmeasured model is over-estimated rather than allowed to run out of memory.
+    public var kvBytesPerToken: Int {
+        switch id {
+        case Self.mediPhi4B.id:
+            return 2 * 32 * 32 * 96 * 2        // 384 KiB: 32 layers, no GQA
+        case Self.medPsy4B.id:
+            return 2 * 36 * 8 * 128 * 2        // 144 KiB: 36 layers, 8 KV heads
+        case Self.medGemma15_4B.id:
+            // 5 global layers grow with the context; the 29 sliding-window layers are
+            // capped at 1,024 tokens, which the admission reserve covers.
+            return 2 * 5 * 4 * 256 * 2         // 20 KiB
+        case Self.qwen35_4B_VLM.id:
+            return 2 * 8 * 4 * 256 * 2         // 32 KiB: 8 of 32 layers are full attention
+        default:
+            return MLXMemoryBudget.assumedKVBytesPerToken
+        }
+    }
+
+    /// Characters per token this model's tokenizer produces on the app's health context,
+    /// for estimates shown before a real count exists (the context selector).
+    ///
+    /// The context is JSON dense with dates, units and readings, which every tokenizer splits
+    /// finely (about 1.5 characters a token on vitals-style lines), so these sit far below the
+    /// ~4 usually quoted for English prose. Anchored on two device runs with the old
+    /// pretty-printed JSON — MediPhi 15,481 characters → 8,658 tokens (1.79), MedGemma ~15,400
+    /// → 5,582 (2.76) — then scaled by each tokenizer's measured change on the compact JSON
+    /// sent now (fewer characters, each costing a little more). MedPsy and Qwen 3.5 are
+    /// inferred from their tokenizers. Unknown models get MediPhi's, the lowest, so an
+    /// estimate errs high.
+    public var charactersPerTokenEstimate: Double {
+        switch id {
+        case Self.medGemma15_4B.id, Self.medGemma27BTextIT4Bit.id:
+            return 2.55
+        case Self.medPsy4B.id, Self.qwen35_4B_VLM.id:
+            return 2.3
+        default:
+            return 1.55
+        }
+    }
+
+    /// Stand-in for cloud providers, whose tokenizers the app cannot run. Not measured;
+    /// set between the on-device figures so the selector neither alarms nor flatters.
+    public static let cloudCharactersPerTokenEstimate = 2.5
+
+    /// Characters per token for health-context JSON sent to `provider`: the selected
+    /// on-device model's measured figure, or the cloud stand-in. The one source for the
+    /// context selector, context compression and history trimming, so they agree.
+    static func contextCharactersPerToken(for provider: AIProvider) -> Double {
+        provider == .onDeviceLLM ? selectedModel.charactersPerTokenEstimate : cloudCharactersPerTokenEstimate
+    }
+
+    /// mlx-swift-lm KV-cache compression for this model's chat sessions, or nil for fp16.
+    ///
+    /// `affine8` stores keys and values as 8-bit integers with an fp16 scale and bias per
+    /// 64 values, about 53% of the fp16 size. The library's own measurements put its error
+    /// far below anything visible in text (mean KL divergence 0.0004 on Phi-4-mini, 0.0088
+    /// on Qwen3-1.7B); TurboQuant schemes compress further but hit Qwen3-family keys harder,
+    /// so they wait for a quality check of their own.
+    ///
+    /// Two constraints come with it. `RotatingKVCache` cannot be quantized, so a model with
+    /// a scheme runs without `maxKVSize` and its cache grows instead of evicting — the
+    /// per-turn memory guard and the session rebuild in `MLXContextBudget` bound it instead.
+    /// And compression starts only after prefill, so the first prompt still peaks at fp16.
+    ///
+    /// MedGemma is left alone: its sliding-window layers are rotating caches the library
+    /// keeps at fp16 anyway, and its five global layers are already ~20 KiB a token.
+    public var kvScheme: String? {
+        switch id {
+        case Self.mediPhi4B.id, Self.medPsy4B.id:
+            return "affine8"
+        default:
+            return nil
+        }
+    }
+
+    /// Bytes each token costs once it is resident in the cache, after any `kvScheme`.
+    public var storedKVBytesPerToken: Int {
+        switch kvScheme {
+        case "affine8":
+            // 1 byte per value plus a 2-byte scale and 2-byte bias per group of 64.
+            return kvBytesPerToken * 17 / 32
+        default:
+            return kvBytesPerToken
+        }
+    }
+
+    /// Tokens per prompt-prefill chunk, or nil to let mlx-swift-lm choose.
+    ///
+    /// The library default is 512. Every chunk allocates attention scores and activations
+    /// sized by it, and `RotatingKVCache` copies each layer's cache per chunk, so smaller
+    /// chunks lower the prefill peak for a little speed. Gemma 3 is left to the library: its
+    /// own path chunks at 128 and skips the 262K-entry output layer for prompt tokens.
+    public var prefillStepSize: Int? {
+        switch id {
+        case Self.medGemma15_4B.id, Self.medGemma27BTextIT4Bit.id:
+            return nil
+        default:
+            return 256
+        }
+    }
+
+    /// The model writes a `<think>…</think>` block before every answer. Only the text after
+    /// `</think>` is shown or saved; see `MLXReasoningOutput`.
+    public var emitsReasoning: Bool {
+        id == Self.medPsy4B.id
     }
 
     /// Whether this model should be exposed on the current device.
@@ -343,7 +587,7 @@ extension MLXModelInfo {
         huggingFaceId: "bisonnetworking/MediPhi-Instruct-mlx-4bit",
         modelType: .llm,
         estimatedSizeBytes: 2_150_000_000,
-        contextWindow: 32768,
+        contextWindow: 131_072,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.4,
             topP: 0.9,
@@ -363,7 +607,7 @@ extension MLXModelInfo {
         // Verified against the Hub revision on 2026-08-18; keep this as an estimate because
         // repository contents can change without an app release.
         estimatedSizeBytes: 16_022_116_230,
-        contextWindow: 32768,
+        contextWindow: 131_072,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.2,
             topP: 0.9,
@@ -380,7 +624,7 @@ extension MLXModelInfo {
         huggingFaceId: "mlx-community/Qwen3.5-4B-MLX-4bit",
         modelType: .vlm,
         estimatedSizeBytes: 3_030_000_000,
-        contextWindow: 32768,
+        contextWindow: 262_144,
         defaultSettings: MLXModelDefaultSettings(
             temperature: 0.6,
             topP: 0.9,
@@ -389,10 +633,65 @@ extension MLXModelInfo {
         )
     )
 
+    /// MedPsy 4B - medical fine-tune of Qwen3-4B-Thinking-2507 (Apache-2.0).
+    ///
+    /// Chosen as a long-context chat candidate: grouped-query attention (8 KV heads) puts its
+    /// cache at 144 KiB per token against MediPhi's 384 KiB, so a 16K window costs ~2.25 GB
+    /// rather than ~6 GB. It is a thinking-only model: every answer is preceded by a
+    /// reasoning block, which the reply budget below has to leave room for.
+    ///
+    /// Hosted under bisonnetworking, as MediPhi is, so the download cannot change or vanish
+    /// with a third party's repository.
+    public static let medPsy4B = MLXModelInfo(
+        id: "medpsy-4b-mlx-4bit",
+        displayName: "MedPsy 4B",
+        description: "Medical reasoning model for clinical Q&A. Thinks before it answers, so replies take longer to start. Not a diagnostic tool.",
+        huggingFaceId: "bisonnetworking/MedPsy-4B-MLX-4bit",
+        modelType: .llm,
+        // Hub tree total on 2026-11-15.
+        estimatedSizeBytes: 2_274_640_246,
+        contextWindow: 262_144,
+        defaultSettings: MLXModelDefaultSettings(
+            // Qwen3 thinking models degrade into loops under greedy-ish sampling and under a
+            // repetition penalty; these are the upstream recommendations.
+            temperature: 0.6,
+            topP: 0.95,
+            // Reasoning and answer share this budget.
+            maxTokens: 3072,
+            repetitionPenalty: nil
+        )
+    )
+
+    /// MedGemma 1.5 4B - Google's January 2026 medical Gemma 3, used here for text chat only.
+    ///
+    /// Gemma 3 keeps a full-length cache on only 5 of its 34 layers; the other 29 hold a
+    /// 1,024-token sliding window. A 16K window therefore costs well under 0.5 GB of cache.
+    /// The checkpoint is multimodal, but `Gemma3TextModel.sanitize` keeps only the
+    /// `language_model` weights, so the vision tower is downloaded but never loaded. Its
+    /// licence is Google's Health AI Developer Foundations terms, not Apache.
+    public static let medGemma15_4B = MLXModelInfo(
+        id: "medgemma-1.5-4b-it-4bit",
+        displayName: "MedGemma 1.5 4B",
+        description: "Google's medical Gemma model for clinical Q&A. Answers directly, with low memory use for long context. Not a diagnostic tool.",
+        huggingFaceId: "mlx-community/medgemma-1.5-4b-it-4bit",
+        modelType: .llm,
+        // Hub tree total on 2026-11-15, including the unused vision weights.
+        estimatedSizeBytes: 3_439_897_648,
+        contextWindow: 131_072,
+        defaultSettings: MLXModelDefaultSettings(
+            temperature: 0.4,
+            topP: 0.95,
+            maxTokens: 1200,
+            repetitionPenalty: nil
+        )
+    )
+
     // MARK: - All Available Models
 
     private static let catalogModels: [MLXModelInfo] = [
         mediPhi4B,
+        medPsy4B,
+        medGemma15_4B,
         medGemma27BTextIT4Bit,
         qwen35_4B_VLM
     ]
@@ -460,8 +759,9 @@ extension MLXModelInfo {
     }
 
     public static func configuredTemperature(for model: MLXModelInfo) -> Float {
-        if UserDefaults.standard.object(forKey: SettingsKeys.temperature) != nil {
-            return UserDefaults.standard.float(forKey: SettingsKeys.temperature)
+        let key = samplingKey(SettingsKeys.temperature, for: model)
+        if UserDefaults.standard.object(forKey: key) != nil {
+            return UserDefaults.standard.float(forKey: key)
         }
         return model.defaultSettings.temperature
     }
@@ -471,7 +771,7 @@ extension MLXModelInfo {
     }
 
     public static func configuredTopP(for model: MLXModelInfo) -> Float {
-        let topP = UserDefaults.standard.float(forKey: SettingsKeys.topP)
+        let topP = UserDefaults.standard.float(forKey: samplingKey(SettingsKeys.topP, for: model))
         return topP > 0 ? topP : model.defaultSettings.topP
     }
 
@@ -480,7 +780,7 @@ extension MLXModelInfo {
     }
 
     public static func configuredMaxTokens(for model: MLXModelInfo) -> Int {
-        let tokens = UserDefaults.standard.integer(forKey: SettingsKeys.maxTokens)
+        let tokens = UserDefaults.standard.integer(forKey: samplingKey(SettingsKeys.maxTokens, for: model))
         return tokens > 0 ? tokens : model.defaultSettings.maxTokens
     }
 
@@ -499,10 +799,18 @@ extension MLXModelInfo {
     /// setting that gets the process killed. See `MLXMemoryBudget` for why this never falls
     /// below the shipping default.
     public static var deviceMaximumContextSize: Int {
+        deviceMaximumContextSize(for: selectedModel)
+    }
+
+    /// The largest window to offer for `model` on this device, from that model's own
+    /// resident cache cost. One figure for every model held MedGemma (~20 KiB a token) to
+    /// the same cap as MediPhi (384 KiB).
+    public static func deviceMaximumContextSize(for model: MLXModelInfo) -> Int {
         MLXMemoryBudget.maximumContextSize(
             physicalMemory: ProcessInfo.processInfo.physicalMemory,
-            modelSizeBytes: selectedModel.estimatedSizeBytes,
-            ceiling: maxContextSize
+            modelSizeBytes: model.estimatedSizeBytes,
+            ceiling: min(maxContextSize, model.contextWindow),
+            kvBytesPerToken: model.storedKVBytesPerToken
         )
     }
 
@@ -511,23 +819,44 @@ extension MLXModelInfo {
     }
 
     public static func configuredRepetitionPenalty(for model: MLXModelInfo) -> Float? {
-        if UserDefaults.standard.object(forKey: SettingsKeys.repetitionPenalty) != nil {
-            let value = UserDefaults.standard.float(forKey: SettingsKeys.repetitionPenalty)
+        let key = samplingKey(SettingsKeys.repetitionPenalty, for: model)
+        if UserDefaults.standard.object(forKey: key) != nil {
+            let value = UserDefaults.standard.float(forKey: key)
             return value > 0 ? value : nil
         }
         return model.defaultSettings.repetitionPenalty
     }
 
-    /// Apply default settings for a model to UserDefaults
-    public static func applyDefaultSettings(for model: MLXModelInfo) {
-        let defaults = model.defaultSettings
-        UserDefaults.standard.set(defaults.temperature, forKey: SettingsKeys.temperature)
-        UserDefaults.standard.set(defaults.topP, forKey: SettingsKeys.topP)
-        UserDefaults.standard.set(defaults.maxTokens, forKey: SettingsKeys.maxTokens)
-        if let penalty = defaults.repetitionPenalty {
-            UserDefaults.standard.set(penalty, forKey: SettingsKeys.repetitionPenalty)
+    // MARK: - Per-Model Sampling Overrides
+
+    /// Sampling overrides are stored per model. They used to share one set of keys, so a
+    /// value set on MediPhi (temperature 0.4, 1,200 tokens, repetition penalty 1.1) carried
+    /// over to MedPsy, starving its reasoning budget and pushing a Qwen3 thinking model into
+    /// the loops a repetition penalty causes. The old shared keys are no longer read.
+    static func samplingKey(_ base: String, for model: MLXModelInfo) -> String {
+        "\(base).\(model.id)"
+    }
+
+    /// Records a user's sampling choice for `model`, or clears it when it equals the
+    /// model's default, so switching models never turns a default into a sticky override.
+    public static func setSamplingOverride(
+        _ value: Float,
+        _ base: String,
+        default defaultValue: Float,
+        for model: MLXModelInfo
+    ) {
+        let key = samplingKey(base, for: model)
+        if abs(value - defaultValue) < 0.0001 {
+            UserDefaults.standard.removeObject(forKey: key)
         } else {
-            UserDefaults.standard.removeObject(forKey: SettingsKeys.repetitionPenalty)
+            UserDefaults.standard.set(value, forKey: key)
+        }
+    }
+
+    /// Clears every sampling override for `model`, returning it to its own defaults.
+    public static func applyDefaultSettings(for model: MLXModelInfo) {
+        for base in [SettingsKeys.temperature, SettingsKeys.topP, SettingsKeys.maxTokens, SettingsKeys.repetitionPenalty] {
+            UserDefaults.standard.removeObject(forKey: samplingKey(base, for: model))
         }
     }
 }

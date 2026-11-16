@@ -41,6 +41,7 @@ struct OnDeviceLLMSettingsView: View {
             modelSelectionSection
             extractionModelSelectionSection
             downloadSection
+            HuggingFaceTokenSection()
             advancedSettingsSection
             storageSection
         }
@@ -367,7 +368,12 @@ struct OnDeviceLLMSettingsView: View {
                         }
                         Slider(value: $temperature, in: 0.0...1.0, step: 0.05)
                             .onChange(of: temperature) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.temperature)
+                                if let model = MLXModelInfo.model(withId: selectedModelId) {
+                                    MLXModelInfo.setSamplingOverride(
+                                        Float(newValue), MLXModelInfo.SettingsKeys.temperature,
+                                        default: model.defaultSettings.temperature, for: model
+                                    )
+                                }
                             }
                         Text("Medical models use low temperature (0.0-0.4) for accurate, consistent responses.")
                             .font(.caption)
@@ -384,7 +390,12 @@ struct OnDeviceLLMSettingsView: View {
                         }
                         Slider(value: $topP, in: 0.0...1.0, step: 0.05)
                             .onChange(of: topP) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.topP)
+                                if let model = MLXModelInfo.model(withId: selectedModelId) {
+                                    MLXModelInfo.setSamplingOverride(
+                                        Float(newValue), MLXModelInfo.SettingsKeys.topP,
+                                        default: model.defaultSettings.topP, for: model
+                                    )
+                                }
                             }
                         Text("Nucleus sampling threshold.")
                             .font(.caption)
@@ -404,7 +415,12 @@ struct OnDeviceLLMSettingsView: View {
                             set: { maxTokens = Int($0) }
                         ), in: 100...4096, step: 100)
                             .onChange(of: maxTokens) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: MLXModelInfo.SettingsKeys.maxTokens)
+                                if let model = MLXModelInfo.model(withId: selectedModelId) {
+                                    MLXModelInfo.setSamplingOverride(
+                                        Float(newValue), MLXModelInfo.SettingsKeys.maxTokens,
+                                        default: Float(model.defaultSettings.maxTokens), for: model
+                                    )
+                                }
                             }
                         Text(
                             "Model default: \(selectedModelDefaultMaxTokens). "
@@ -521,10 +537,117 @@ struct OnDeviceLLMSettingsView: View {
         selectedModelId = model.id
         downloadManager.selectModel(model)
         SettingsManager.shared.invalidateClients()
+        // The context cap and the sampling values are per model now: without this the
+        // sliders keep the previous model's values, and the context slider can sit above
+        // its new upper bound.
+        refreshState()
     }
 }
 
 // MARK: - Model Row View
+
+// MARK: - Hugging Face Token Section
+
+/// Optional access token for model downloads. Models download without one; a token only
+/// lifts the Hub's anonymous rate limit.
+private struct HuggingFaceTokenSection: View {
+
+    // MARK: - Properties
+
+    private let store = HuggingFaceTokenStore()
+    @State private var tokenInput = ""
+    @State private var hasSavedToken = false
+    @State private var isVerifying = false
+    @State private var statusMessage: String?
+    @State private var statusIsError = false
+
+    // MARK: - Body
+
+    var body: some View {
+        Section {
+            if hasSavedToken {
+                Label("Token saved", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityIdentifier("huggingFaceTokenSavedLabel")
+
+                Button("Remove Token", role: .destructive) {
+                    removeToken()
+                }
+                .accessibilityHint("Deletes the Hugging Face token from this device. Downloads continue without it.")
+                .accessibilityIdentifier("removeHuggingFaceTokenButton")
+            } else {
+                SecureField("hf_…", text: $tokenInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(.password)
+                    .accessibilityLabel("Hugging Face access token")
+                    .accessibilityHint("Paste a read token from your Hugging Face account")
+                    .accessibilityIdentifier("huggingFaceTokenField")
+
+                Button {
+                    Task { await verifyAndSave() }
+                } label: {
+                    HStack {
+                        Text(isVerifying ? "Checking…" : "Save Token")
+                        if isVerifying {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isVerifying || HuggingFaceTokenStore.normalized(tokenInput) == nil)
+                .accessibilityHint("Checks the token with Hugging Face, then stores it in the Keychain")
+                .accessibilityIdentifier("saveHuggingFaceTokenButton")
+            }
+
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(statusIsError ? .red : .secondary)
+                    .accessibilityIdentifier("huggingFaceTokenStatus")
+            }
+        } header: {
+            Text("Hugging Face Token")
+        } footer: {
+            Text("Optional. Models download without a token, but anonymous downloads share a lower rate limit. A free read token from huggingface.co/settings/tokens lifts it. The token stays in this device's Keychain and is sent only to huggingface.co.")
+        }
+        .onAppear {
+            hasSavedToken = store.hasToken
+        }
+    }
+
+    // MARK: - Private Methods
+
+    private func verifyAndSave() async {
+        guard let token = HuggingFaceTokenStore.normalized(tokenInput) else { return }
+        isVerifying = true
+        defer { isVerifying = false }
+
+        do {
+            let account = try await HuggingFaceTokenStore.verify(token)
+            try store.save(token)
+            tokenInput = ""
+            hasSavedToken = true
+            statusIsError = false
+            statusMessage = "Token verified for \(account)."
+        } catch {
+            statusIsError = true
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    private func removeToken() {
+        do {
+            try store.delete()
+            hasSavedToken = false
+            statusIsError = false
+            statusMessage = "Token removed. Downloads continue anonymously."
+        } catch {
+            statusIsError = true
+            statusMessage = error.localizedDescription
+        }
+    }
+}
 
 private struct MLXModelRowView: View {
     let model: MLXModelInfo
@@ -628,9 +751,15 @@ private struct MLXModelRowView: View {
             }
 
             HStack {
-                Label("\(model.contextWindow / 1024)K context", systemImage: "text.alignleft")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                // What this device can hold for this model, not the model's trained maximum:
+                // those differ by up to 16× here, and the larger number is not usable.
+                Label(
+                    "Up to \(MLXModelInfo.deviceMaximumContextSize(for: model) / 1024)K context",
+                    systemImage: "text.alignleft"
+                )
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .accessibilityLabel("Up to \(MLXModelInfo.deviceMaximumContextSize(for: model) / 1024) thousand tokens of context on this device")
 
                 Spacer()
 

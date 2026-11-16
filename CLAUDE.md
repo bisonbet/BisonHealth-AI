@@ -463,10 +463,12 @@ build this project's iOS 26.0 deployment target, and `mlx-swift-lm` then fails S
 concurrency checks under it, so both build jobs died inside dependencies without compiling a
 single `HealthApp/` file.
 
-The fix (PR #52) is one workflow-level
-`DEVELOPER_DIR: /Applications/Xcode_26.2.0.app/Contents/Developer`. **Do not remove it** —
-without it the runner falls back to 16.4 and nothing here compiles. 26.2.0 is the newest
-Xcode on the image whose matching simulator runtime is actually installed. That run reported
+The fix (PR #52) is one workflow-level `DEVELOPER_DIR`. **Do not remove it** — without it
+the runner falls back to its default Xcode and nothing here compiles. It is now
+`/Applications/Xcode_26.6.0.app/Contents/Developer` on the `macos-26` image (PR #65):
+mlx-swift 0.32.x, required by mlx-swift-lm 3.32.3, declares Swift tools 6.3, which needs
+Xcode 26.4 or later, and `macos-15` stops at 26.3. 26.6 pairs with the image's installed iOS
+26.5 runtime. The PR #52 run (then on `macos-15` with 26.2.0) reported
 **368 tests / 0 failures** from the `Fast` plan and a successful device build, which is the
 first time anything in `MLXOnDeviceLLM/` has compiled in CI — the Metal toolchain that mlx's
 `Cmlx` target needs is present on the runner and was used, so that open question is answered.
@@ -476,9 +478,9 @@ Three things to know before trusting a green tick:
 - **A full run takes 15–25 minutes**, plus ~4½ minutes queueing for a hosted macOS runner.
   Nearly all of it is compiling ~30 SwiftPM packages: the cache step keeps the *checkouts*,
   not the build products, and the device-build job has no cache at all.
-- The runner's iOS runtimes are 18.5, 18.6, 26.0, 26.1 and 26.2 — **no 26.5** — so the
-  `OS=26.5` pin in the commands above is local-only and would fail there. `ci.yml`'s
-  destination deliberately names a device and no OS.
+- The `macos-26` runner's iOS runtimes are 26.2, 26.4 and 26.5. `ci.yml`'s destination
+  deliberately names a device and no OS, so an image update does not break it; the `OS=26.5`
+  pins in the commands above are for local use.
 - **`PreRelease` runs only on a push to `main`**, so the two UI tests reach CI far less often
   than the unit tests, and a first failure there is likelier to be the runner than the code.
 
@@ -610,7 +612,12 @@ Emoji prefixes for filtering:
 - SQLite.swift - Type-safe SQLite
 - aws-sdk-swift - AWS Bedrock
 - textual - Text extraction
-- mlx-swift-lm - On-device LLM support
+- mlx-swift-lm 3.x - On-device LLM support (3.32.3, with mlx-swift 0.32.3)
+- swift-huggingface, swift-transformers - model downloads and tokenizers. mlx-swift-lm 2.x
+  pulled these in itself; 3.x does not, so they are direct dependencies now.
+  `MLXOnDeviceLLM/MLXTokenizerLoader.swift` adapts the tokenizer to mlx-swift-lm's protocol
+  in place of its `MLXHuggingFace` macros, which would need macro trust in every
+  `xcodebuild` run. Model loads pass `MLXLocalOnlyDownloader`, which refuses the network.
 
 **Built-in Frameworks**:
 - CryptoKit, VisionKit, PhotosUI, HealthKit, Combine, PDFKit

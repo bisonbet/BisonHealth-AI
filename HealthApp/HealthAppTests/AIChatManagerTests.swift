@@ -672,6 +672,8 @@ final class ConversationHistoryBudgetTests: XCTestCase {
             conversationHistory: messages,
             systemPrompt: "persona",
             provider: .onDeviceLLM,
+            // Pinned: this test is about which messages survive, not about any model's ratio.
+            charactersPerToken: 4,
             reservedTokens: 4_096 + MLXContextBudget.defaultInstructionReserve
         )
 
@@ -923,6 +925,58 @@ final class MLXMemoryBudgetTests: XCTestCase {
             let claimed = Double(memory) * MLXMemoryBudget.kvShareOfPhysicalMemory - Double(mediPhiBytes)
             XCTAssertLessThanOrEqual(cacheBytes, claimed, "The offered window must fit the budget it came from")
         }
+    }
+
+    // MARK: Prompt admission
+    //
+    // The guard exists because of one measured kill: MediPhi on an iPhone19,4, a 15,419-char
+    // first turn (roughly 5,000 tokens), 4,015 MB of headroom reported at the start, jetsam
+    // past ~6 GB in prefill.
+
+    private let mb: UInt64 = 1_024 * 1_024
+
+    func testTheTurnThatWasKilledIsRefused() {
+        let tokens = 5_000
+        XCTAssertFalse(
+            MLXMemoryBudget.promptFits(promptTokens: tokens, replyTokens: 1_200, availableBytes: 4_015 * mb),
+            "The exact turn that was killed for memory must be refused before prefill"
+        )
+    }
+
+    func testAnOrdinaryQuestionStillRuns() {
+        // A question with a little context must not be blocked by the same headroom.
+        let tokens = 1_200
+        XCTAssertTrue(
+            MLXMemoryBudget.promptFits(promptTokens: tokens, replyTokens: 1_200, availableBytes: 4_015 * mb)
+        )
+    }
+
+    func testAffordableTokensIsTheBoundaryOfPromptFits() {
+        for available in [UInt64(512), 1_024, 2_048, 4_015, 8_192].map({ $0 * mb }) {
+            let affordable = MLXMemoryBudget.affordablePromptTokens(availableBytes: available, replyTokens: 1_200)
+            if affordable > 0 {
+                XCTAssertTrue(
+                    MLXMemoryBudget.promptFits(promptTokens: affordable, replyTokens: 1_200, availableBytes: available),
+                    "The reported maximum must itself be admitted"
+                )
+            }
+            XCTAssertFalse(
+                MLXMemoryBudget.promptFits(promptTokens: affordable + 1, replyTokens: 1_200, availableBytes: available),
+                "One token over the reported maximum must be refused"
+            )
+        }
+    }
+
+    func testNoHeadroomAffordsNothing() {
+        XCTAssertEqual(MLXMemoryBudget.affordablePromptTokens(availableBytes: 0, replyTokens: 1_200), 0)
+        XCTAssertFalse(MLXMemoryBudget.promptFits(promptTokens: 1, replyTokens: 0, availableBytes: 0))
+    }
+
+    func testPromptTokensAddTemplateFramingPerMessage() {
+        let perMessage = MLXMemoryBudget.chatTemplateTokensPerMessage
+        XCTAssertEqual(MLXMemoryBudget.promptTokens(encodedTokens: 4_000, messageCount: 2), 4_000 + 2 * perMessage)
+        XCTAssertEqual(MLXMemoryBudget.promptTokens(encodedTokens: 0, messageCount: 0), 0)
+        XCTAssertEqual(MLXMemoryBudget.promptTokens(encodedTokens: -5, messageCount: -1), 0, "Never negative")
     }
 }
 
@@ -1455,5 +1509,390 @@ final class MLXModelDownloadManagerWiringTests: XCTestCase {
         XCTAssertEqual(script.attempts, 0)
         XCTAssertFalse(manager.isDownloading)
         XCTAssertNotNil(manager.downloadError)
+    }
+}
+
+// MARK: - Long-context chat candidates
+//
+// MedPsy-4B and MedGemma 1.5 4B were added because MediPhi cannot hold a 16K window on an
+// 11 GB phone. These pin the properties that decision rests on: each model's cache cost is
+// its own, the memory guard uses it, and a thinking model's reasoning never reaches the user.
+final class LongContextModelTests: XCTestCase {
+
+    private let mb: UInt64 = 1_024 * 1_024
+
+    func testBothCandidatesAreTextChatModels() {
+        for model in [MLXModelInfo.medPsy4B, MLXModelInfo.medGemma15_4B] {
+            XCTAssertTrue(MLXModelInfo.allModels.contains(model), "\(model.displayName) must be selectable")
+            XCTAssertEqual(model.modelType, .llm, "\(model.displayName) is for chat, not document extraction")
+            XCTAssertFalse(MLXModelInfo.visionModels.contains(model))
+        }
+    }
+
+    func testCacheCostMatchesEachModelsConfig() {
+        XCTAssertEqual(MLXModelInfo.mediPhi4B.kvBytesPerToken, 384 * 1_024)
+        XCTAssertEqual(MLXModelInfo.medPsy4B.kvBytesPerToken, 144 * 1_024)
+        XCTAssertEqual(MLXModelInfo.medGemma15_4B.kvBytesPerToken, 20 * 1_024)
+        XCTAssertEqual(
+            MLXModelInfo.medGemma27BTextIT4Bit.kvBytesPerToken,
+            MLXMemoryBudget.assumedKVBytesPerToken,
+            "An unmeasured model falls back to the worst case"
+        )
+    }
+
+    func testTheKilledTurnFitsTheGroupedQueryModelsButNotMediPhi() {
+        // The same ~5,000-token turn and 4,015 MB of headroom that killed MediPhi.
+        let tokens = 5_000
+        let available = 4_015 * mb
+
+        func fits(_ model: MLXModelInfo) -> Bool {
+            MLXMemoryBudget.promptFits(
+                promptTokens: tokens,
+                replyTokens: model.defaultSettings.maxTokens,
+                availableBytes: available,
+                kvBytesPerToken: model.kvBytesPerToken
+            )
+        }
+
+        XCTAssertFalse(fits(.mediPhi4B))
+        XCTAssertTrue(fits(.medPsy4B))
+        XCTAssertTrue(fits(.medGemma15_4B))
+    }
+
+    func testAFullSixteenKWindowFitsMedGemmaInTheSameHeadroom() {
+        XCTAssertTrue(MLXMemoryBudget.promptFits(
+            promptTokens: MLXModelInfo.defaultContextSize,
+            replyTokens: MLXModelInfo.medGemma15_4B.defaultSettings.maxTokens,
+            availableBytes: 4_015 * mb,
+            kvBytesPerToken: MLXModelInfo.medGemma15_4B.kvBytesPerToken
+        ))
+    }
+
+    func testOnlyMedPsySeparatesReasoning() {
+        XCTAssertTrue(MLXModelInfo.medPsy4B.emitsReasoning)
+        XCTAssertFalse(MLXModelInfo.medGemma15_4B.emitsReasoning)
+        XCTAssertFalse(MLXModelInfo.mediPhi4B.emitsReasoning)
+    }
+
+    // MARK: Reasoning split
+
+    func testNothingYetIsNeitherAnswerNorReasoning() {
+        XCTAssertEqual(MLXReasoningOutput.split(""), .init(answer: "", isReasoning: false))
+    }
+
+    func testAPartialOpeningTagCountsAsReasoning() {
+        XCTAssertEqual(MLXReasoningOutput.split("<th"), .init(answer: "", isReasoning: true))
+        XCTAssertEqual(MLXReasoningOutput.split("\n<think"), .init(answer: "", isReasoning: true))
+    }
+
+    func testAnOpenBlockHidesTheReasoning() {
+        let split = MLXReasoningOutput.split("<think>\nThe MRI shows a partial tear, so")
+        XCTAssertEqual(split, .init(answer: "", isReasoning: true))
+    }
+
+    func testOnlyTextAfterTheClosingTagIsTheAnswer() {
+        let split = MLXReasoningOutput.split("<think>\nweighing options\n</think>\n\nYour MRI report describes a partial tear.")
+        XCTAssertEqual(split, .init(answer: "Your MRI report describes a partial tear.", isReasoning: false))
+    }
+
+    func testAnEmptyBlockLeavesTheAnswer() {
+        XCTAssertEqual(
+            MLXReasoningOutput.split("<think>\n\n</think>\n\nOK"),
+            .init(answer: "OK", isReasoning: false)
+        )
+    }
+
+    func testAnswerWithoutAnyTagIsKept() {
+        XCTAssertEqual(
+            MLXReasoningOutput.split("The report is normal."),
+            .init(answer: "The report is normal.", isReasoning: false)
+        )
+    }
+}
+
+// MARK: - KV cache compression and per-model context caps
+//
+// `affine8` is enabled for the two models whose fp16 cache is large. These pin what the rest
+// of the app relies on: which models compress, what a resident token then costs, that the
+// guard charges the first prompt at fp16 regardless (compression starts after prefill), and
+// that the settings cap now follows each model rather than MediPhi's worst case.
+final class KVCacheCompressionTests: XCTestCase {
+
+    private let gb: UInt64 = 1_024 * 1_024 * 1_024
+    private let mb: UInt64 = 1_024 * 1_024
+
+    func testOnlyTheLargeCacheModelsCompress() {
+        XCTAssertEqual(MLXModelInfo.mediPhi4B.kvScheme, "affine8")
+        XCTAssertEqual(MLXModelInfo.medPsy4B.kvScheme, "affine8")
+        XCTAssertNil(MLXModelInfo.medGemma15_4B.kvScheme, "Sliding-window layers stay fp16 anyway")
+        XCTAssertNil(MLXModelInfo.qwen35_4B_VLM.kvScheme, "Extraction keeps its bounded rotating cache")
+    }
+
+    func testAffine8StoresAboutHalfOfFP16() {
+        for model in [MLXModelInfo.mediPhi4B, MLXModelInfo.medPsy4B] {
+            XCTAssertEqual(model.storedKVBytesPerToken, model.kvBytesPerToken * 17 / 32)
+        }
+        XCTAssertEqual(
+            MLXModelInfo.medGemma15_4B.storedKVBytesPerToken,
+            MLXModelInfo.medGemma15_4B.kvBytesPerToken
+        )
+    }
+
+    func testCompressionCheapensTheReplyButNotThePrompt() {
+        let model = MLXModelInfo.medPsy4B
+        let promptOnly = MLXMemoryBudget.bytesRequired(
+            promptTokens: 5_000, replyTokens: 0,
+            kvBytesPerToken: model.kvBytesPerToken,
+            replyKVBytesPerToken: model.storedKVBytesPerToken
+        )
+        XCTAssertEqual(
+            promptOnly,
+            MLXMemoryBudget.bytesRequired(promptTokens: 5_000, replyTokens: 0, kvBytesPerToken: model.kvBytesPerToken),
+            "Prefill runs at fp16 whatever the scheme"
+        )
+
+        let compressed = MLXMemoryBudget.bytesRequired(
+            promptTokens: 5_000, replyTokens: 3_072,
+            kvBytesPerToken: model.kvBytesPerToken,
+            replyKVBytesPerToken: model.storedKVBytesPerToken
+        )
+        let uncompressed = MLXMemoryBudget.bytesRequired(
+            promptTokens: 5_000, replyTokens: 3_072, kvBytesPerToken: model.kvBytesPerToken
+        )
+        XCTAssertLessThan(compressed, uncompressed)
+    }
+
+    func testAffordableTokensStaysTheBoundaryWithAReplyRate() {
+        let model = MLXModelInfo.medPsy4B
+        for available in [UInt64(1_024), 4_015, 8_192].map({ $0 * mb }) {
+            let affordable = MLXMemoryBudget.affordablePromptTokens(
+                availableBytes: available, replyTokens: 3_072,
+                kvBytesPerToken: model.kvBytesPerToken,
+                replyKVBytesPerToken: model.storedKVBytesPerToken
+            )
+            func fits(_ tokens: Int) -> Bool {
+                MLXMemoryBudget.promptFits(
+                    promptTokens: tokens, replyTokens: 3_072, availableBytes: available,
+                    kvBytesPerToken: model.kvBytesPerToken,
+                    replyKVBytesPerToken: model.storedKVBytesPerToken
+                )
+            }
+            if affordable > 0 { XCTAssertTrue(fits(affordable)) }
+            XCTAssertFalse(fits(affordable + 1))
+        }
+    }
+
+    func testTheCapFollowsEachModelsOwnCacheCost() {
+        // The iPhone the crash came from: 11.3 GB installed.
+        let phone: UInt64 = 11_569 * mb
+        func cap(_ model: MLXModelInfo) -> Int {
+            MLXMemoryBudget.maximumContextSize(
+                physicalMemory: phone,
+                modelSizeBytes: model.estimatedSizeBytes,
+                ceiling: min(MLXModelInfo.maxContextSize, model.contextWindow),
+                kvBytesPerToken: model.storedKVBytesPerToken
+            )
+        }
+
+        XCTAssertEqual(cap(.mediPhi4B), MLXModelInfo.defaultContextSize, "MediPhi stays on the floor")
+        XCTAssertGreaterThan(cap(.medPsy4B), MLXModelInfo.defaultContextSize)
+        XCTAssertGreaterThanOrEqual(cap(.medGemma15_4B), 32_768, "MedGemma can hold 32K here")
+        XCTAssertGreaterThanOrEqual(cap(.medGemma15_4B), cap(.medPsy4B))
+    }
+
+    func testTheCapNeverExceedsTheTrainedWindow() {
+        let tiny = MLXMemoryBudget.maximumContextSize(
+            physicalMemory: 128 * gb,
+            modelSizeBytes: 1,
+            ceiling: 8_192,
+            floor: MLXModelInfo.defaultContextSize,
+            kvBytesPerToken: 1
+        )
+        XCTAssertEqual(tiny, 8_192, "The ceiling wins over the floor")
+    }
+}
+
+// MARK: - Download completeness with a stale safetensors index
+//
+// `mlx-community/medgemma-1.5-4b-it-4bit` ships one `model.safetensors` and an index carried
+// over from the bf16 source that names two shards it does not contain. The download finished
+// (3.44 of 3.44 GB) and was then rejected as incomplete on every resume.
+final class ModelWeightCompletenessTests: XCTestCase {
+
+    private let medGemmaFiles: Set<String> = [
+        "config.json", "model.safetensors", "model.safetensors.index.json",
+        "tokenizer.json", "tokenizer.model", "tokenizer_config.json"
+    ]
+    private let staleBF16Shards: Set<String> = [
+        "model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"
+    ]
+    private let medGemma27BShards: Set<String> = [
+        "model-00001-of-00003.safetensors",
+        "model-00002-of-00003.safetensors",
+        "model-00003-of-00003.safetensors"
+    ]
+
+    func testAStaleIndexOverASingleFileIsComplete() {
+        XCTAssertTrue(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: medGemmaFiles,
+            indexedShardSets: [staleBF16Shards]
+        ))
+    }
+
+    func testEveryIndexedShardPresentIsComplete() {
+        XCTAssertTrue(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: Set(["config.json", "model.safetensors.index.json"]).union(medGemma27BShards),
+            indexedShardSets: [medGemma27BShards]
+        ))
+    }
+
+    func testAShardedDownloadStillInProgressIsIncomplete() {
+        // Two of three shards finished; the third is still a `.incomplete` partial.
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: [
+                "config.json", "model.safetensors.index.json",
+                "model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors",
+                "model-00003-of-00003.safetensors.incomplete"
+            ],
+            indexedShardSets: [medGemma27BShards]
+        ))
+    }
+
+    func testAShardedDownloadWithNoShardFinishedIsIncomplete() {
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: ["config.json", "model.safetensors.index.json", "model-00001-of-00003.safetensors.incomplete"],
+            indexedShardSets: [medGemma27BShards]
+        ))
+    }
+
+    func testAPartialSingleFileIsNotMistakenForTheModel() {
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: ["config.json", "model.safetensors.index.json", "model.safetensors.incomplete"],
+            indexedShardSets: [staleBF16Shards]
+        ))
+    }
+
+    func testAnUnreadableIndexIsIncomplete() {
+        XCTAssertFalse(MLXModelDownloadManager.weightsAreComplete(
+            presentFiles: medGemmaFiles,
+            indexedShardSets: []
+        ))
+    }
+}
+
+// MARK: - Token-count shortcuts and per-model estimates
+//
+// The guard skips the tokenizer when a byte-count bound already fits (MedGemma's took ~11 s on a
+// 15K-character prompt), and the context selector estimates in the selected model's tokens.
+final class PromptTokenBoundTests: XCTestCase {
+
+    func testTheByteBoundCoversEveryTokenizerCount() {
+        // A byte-fallback tokenizer emits at most one token per UTF-8 byte, plus BOS.
+        for bytes in [0, 1, 15_481, 100_000] {
+            XCTAssertGreaterThanOrEqual(
+                MLXMemoryBudget.promptTokenUpperBound(utf8Bytes: bytes, messageCount: 2),
+                MLXMemoryBudget.promptTokens(encodedTokens: bytes + 1, messageCount: 2)
+            )
+        }
+    }
+
+    func testTheByteBoundCountsBytesNotCharacters() {
+        let text = "Température 37,2 °C – fréquence"
+        let bound = MLXMemoryBudget.promptTokenUpperBound(utf8Bytes: text.utf8.count, messageCount: 1)
+        XCTAssertGreaterThan(text.utf8.count, text.count, "Accented text has more bytes than characters")
+        XCTAssertEqual(bound, text.utf8.count + 1 + MLXMemoryBudget.chatTemplateTokensPerMessage)
+    }
+
+    func testTheKilledPromptSkipsTheTokenizerOnMedGemmaButNotMediPhi() {
+        // The 15,481-character turn from the device log, with ~4 GB free.
+        let bound = MLXMemoryBudget.promptTokenUpperBound(utf8Bytes: 15_600, messageCount: 2)
+        let available: UInt64 = 3_970 * 1_024 * 1_024
+        func fits(_ model: MLXModelInfo) -> Bool {
+            MLXMemoryBudget.promptFits(
+                promptTokens: bound,
+                replyTokens: model.defaultSettings.maxTokens,
+                availableBytes: available,
+                kvBytesPerToken: model.kvBytesPerToken,
+                replyKVBytesPerToken: model.storedKVBytesPerToken
+            )
+        }
+        XCTAssertTrue(fits(.medGemma15_4B), "MedGemma's bound fits, so its slow tokenizer is skipped")
+        XCTAssertFalse(fits(.mediPhi4B), "MediPhi's bound does not, so the real count decides")
+    }
+
+    func testEstimatesFollowTheMeasuredTokenizers() {
+        XCTAssertEqual(MLXModelInfo.mediPhi4B.charactersPerTokenEstimate, 1.55)
+        XCTAssertGreaterThan(MLXModelInfo.medGemma15_4B.charactersPerTokenEstimate, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+        XCTAssertGreaterThan(MLXModelInfo.medPsy4B.charactersPerTokenEstimate, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+        XCTAssertEqual(
+            MLXModelInfo.medGemma27BTextIT4Bit.charactersPerTokenEstimate,
+            MLXModelInfo.medGemma15_4B.charactersPerTokenEstimate,
+            "Same tokenizer family"
+        )
+    }
+
+    func testAnUnknownModelEstimatesHigh() {
+        // Fewest characters per token means most tokens: the safe direction for a guess.
+        let lowest = MLXModelInfo.allModels.map(\.charactersPerTokenEstimate).min()
+        XCTAssertEqual(lowest, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+    }
+}
+
+// MARK: - PR #65 review fixes
+//
+// Sampling overrides are per model (a MediPhi setting must not reach MedPsy), and history
+// trimming counts the health context in the target model's tokens rather than a flat 4.
+final class PerModelSettingsTests: XCTestCase {
+
+    private let defaults = UserDefaults.standard
+    private let models = [MLXModelInfo.mediPhi4B, MLXModelInfo.medPsy4B]
+
+    override func tearDown() {
+        for model in models { MLXModelInfo.applyDefaultSettings(for: model) }
+        super.tearDown()
+    }
+
+    func testAnOverrideOnOneModelDoesNotReachAnother() {
+        MLXModelInfo.setSamplingOverride(
+            1_200, MLXModelInfo.SettingsKeys.maxTokens, default: 9_999, for: .mediPhi4B
+        )
+        MLXModelInfo.setSamplingOverride(
+            1.1, MLXModelInfo.SettingsKeys.repetitionPenalty, default: 0, for: .mediPhi4B
+        )
+
+        XCTAssertEqual(MLXModelInfo.configuredMaxTokens(for: .mediPhi4B), 1_200)
+        XCTAssertEqual(MLXModelInfo.configuredMaxTokens(for: .medPsy4B), 3_072, "MedPsy keeps its reasoning budget")
+        XCTAssertNil(MLXModelInfo.configuredRepetitionPenalty(for: .medPsy4B), "No penalty leaks onto MedPsy")
+    }
+
+    func testSettingTheDefaultValueLeavesNoOverride() {
+        let model = MLXModelInfo.medPsy4B
+        let key = MLXModelInfo.samplingKey(MLXModelInfo.SettingsKeys.temperature, for: model)
+        MLXModelInfo.setSamplingOverride(
+            model.defaultSettings.temperature, MLXModelInfo.SettingsKeys.temperature,
+            default: model.defaultSettings.temperature, for: model
+        )
+        XCTAssertNil(defaults.object(forKey: key), "Switching models must not turn defaults into overrides")
+    }
+
+    func testResetClearsOnlyThatModel() {
+        MLXModelInfo.setSamplingOverride(0.9, MLXModelInfo.SettingsKeys.temperature, default: 0.4, for: .mediPhi4B)
+        MLXModelInfo.setSamplingOverride(0.9, MLXModelInfo.SettingsKeys.temperature, default: 0.6, for: .medPsy4B)
+
+        MLXModelInfo.applyDefaultSettings(for: .mediPhi4B)
+
+        XCTAssertEqual(MLXModelInfo.configuredTemperature(for: .mediPhi4B), MLXModelInfo.mediPhi4B.defaultSettings.temperature)
+        XCTAssertEqual(MLXModelInfo.configuredTemperature(for: .medPsy4B), 0.9, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testHistoryBudgetCountsContextInTheModelsTokens() {
+        let context = String(repeating: "x", count: 15_500)
+        XCTAssertEqual(ConversationContextBuilder.estimateTokens(context), 3_875, "Default stays 4 characters a token")
+        XCTAssertEqual(
+            ConversationContextBuilder.estimateTokens(context, charactersPerToken: MLXModelInfo.mediPhi4B.charactersPerTokenEstimate),
+            10_000,
+            "MediPhi's own ratio, ~2.6× the old figure"
+        )
     }
 }

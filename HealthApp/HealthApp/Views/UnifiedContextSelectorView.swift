@@ -597,28 +597,14 @@ struct StatBox: View {
 class UnifiedContextSelectorViewModel: ObservableObject {
     // MARK: - Constants
     private enum Constants {
-        static let defaultTokenEstimate = 500
-        static let tokensPerCharacter = 4
-        static let tokensPerBloodTestResult = 50  // ~50 tokens per result line
-        static let bloodTestHeaderTokens = 50     // Header info (date, lab name)
         static let smallContextDisplayThreshold = 1000
         static let largeContextDisplayThreshold = 10000
-        // System prompt overhead (Doctor persona + template tags)
-        static let systemPromptTokenEstimate = 600
-        // Base personal info tokens (name, DOB, height, weight, blood type)
-        static let personalInfoBaseTokens = 50
-        // Tokens per medication entry
-        static let tokensPerMedication = 40
-        // Tokens per condition entry
-        static let tokensPerCondition = 30
-        // Tokens per supplement entry
-        static let tokensPerSupplement = 35
-        // Tokens per vital reading
-        static let tokensPerVitalReading = 25
-        // Tokens per sleep entry
-        static let tokensPerSleepEntry = 30
+        /// Characters of persona, operational rules and framing the app adds around the
+        /// health data on every on-device turn: 15,328 instructions − 14,117 context = 1,211 on
+        /// a real device, rounded up.
+        static let instructionCharacters = 1_250
     }
-    
+
     // Published properties
     @Published var personalInfoEnabled: Bool = false
     @Published var selectedPersonalInfoCategories: Set<PersonalInfoCategory> = Set(PersonalInfoCategory.allCases)
@@ -642,7 +628,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
     private var allDocuments: [MedicalDocument] = []
     
     // Cached computed properties
-    private var _cachedEstimatedTokens: Int?
+    private var _cachedTokenBreakdown: TokenBreakdown?
     private var _lastTokensCalculationHash: Int?
 
     private let databaseManager = DatabaseManager.shared
@@ -674,138 +660,142 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         bloodTestsEnabled ? selectedBloodTests.count : 0
     }
 
-    var personalInfoTokens: Int {
-        guard personalInfoEnabled else { return 0 }
-        return calculatePersonalInfoTokens()
+    // MARK: - Token Estimates
+    //
+    // Every figure here is the selected model's tokens for the *actual* text the chat would
+    // send: the same JSON `ChatContext.buildContextJSON()` produces, divided by that model's
+    // measured characters per token. The old figures added fixed per-item guesses at about 4
+    // characters a token; pretty-printed JSON full of dates and readings runs nearer 1.8 on
+    // MediPhi, so the selector showed 2.5K for a prompt the memory guard counted as 8.7K.
+
+    /// Every figure the selector shows, computed together once per change of selection,
+    /// data or model. They used to be recomputed on each SwiftUI render — up to seven JSON
+    /// serializations, each re-cleaning document OCR text, on the main actor.
+    struct TokenBreakdown {
+        var total = 0
+        var personalInfo = 0
+        var bloodTests = 0
+        var documents = 0
+        var categories: [PersonalInfoCategory: Int] = [:]
     }
 
-    var estimatedBloodTestTokens: Int {
-        guard bloodTestsEnabled else { return 0 }
-        var tokens = 0
-        for testId in selectedBloodTests {
-            if let test = allBloodTests.first(where: { $0.id == testId }) {
-                tokens += test.results.count * Constants.tokensPerBloodTestResult + Constants.bloodTestHeaderTokens
-            }
+    var personalInfoTokens: Int { tokenBreakdown.personalInfo }
+
+    var estimatedBloodTestTokens: Int { tokenBreakdown.bloodTests }
+
+    var estimatedDocumentTokens: Int { tokenBreakdown.documents }
+
+    var estimatedTokens: Int { tokenBreakdown.total }
+
+    /// Tokens one personal info category adds on its own.
+    func calculateTokensForCategory(_ category: PersonalInfoCategory) -> Int {
+        guard healthDataManager.personalInfo != nil else {
+            return category.estimatedBaseTokens
         }
-        return tokens
+        return tokenBreakdown.categories[category] ?? 0
     }
 
-    var estimatedDocumentTokens: Int {
-        var tokens = 0
-        for docId in selectedDocuments {
-            if let doc = allDocuments.first(where: { $0.id == docId }), isCategoryEnabled(for: doc) {
-                if let text = doc.extractedText {
-                    tokens += text.count / Constants.tokensPerCharacter
-                } else {
-                    tokens += Constants.defaultTokenEstimate
-                }
-            }
-        }
-        return tokens
-    }
-
-    var estimatedTokens: Int {
-        // Calculate hash of dependencies for cache invalidation
+    private var tokenBreakdown: TokenBreakdown {
         let currentHash = hashForTokensCalculation()
-
-        // Return cached value if dependencies haven't changed
-        if let cached = _cachedEstimatedTokens,
+        if let cached = _cachedTokenBreakdown,
            let lastHash = _lastTokensCalculationHash,
            lastHash == currentHash {
             return cached
         }
 
-        // Calculate tokens - always include system prompt overhead
-        var tokens = Constants.systemPromptTokenEstimate
+        var breakdown = TokenBreakdown()
+        let total = contextCharacters(
+            personalInfoCategories: personalInfoEnabled ? selectedPersonalInfoCategories : [],
+            includeBloodTests: bloodTestsEnabled,
+            includeDocuments: true
+        )
+        breakdown.total = tokens(forCharacters: total + Constants.instructionCharacters)
 
-        // Personal info tokens - calculate based on actual data
+        // Parts and rows are reported without the JSON wrapper every context carries
+        // (`timestamp`, `selected_types`), which would otherwise be charged to each of them —
+        // an empty category showed 35–60 tokens.
+        func part(_ characters: Int, types: Set<HealthDataType>) -> Int {
+            guard characters > 0 else { return 0 }
+            return tokens(forCharacters: max(0, characters - wrapperCharacters(types: types)))
+        }
         if personalInfoEnabled {
-            tokens += calculatePersonalInfoTokens()
+            breakdown.personalInfo = part(
+                contextCharacters(personalInfoCategories: selectedPersonalInfoCategories),
+                types: [.personalInfo]
+            )
         }
-
-        // Blood tests: estimate based on selected tests, only if enabled
         if bloodTestsEnabled {
-            for testId in selectedBloodTests {
-                if let test = allBloodTests.first(where: { $0.id == testId }) {
-                    // Estimate: ~50 tokens per result line + 50 for headers
-                    tokens += test.results.count * Constants.tokensPerBloodTestResult + Constants.bloodTestHeaderTokens
-                }
-            }
+            breakdown.bloodTests = part(contextCharacters(includeBloodTests: true), types: [.bloodTest])
+        }
+        breakdown.documents = part(contextCharacters(includeDocuments: true), types: [])
+        for category in PersonalInfoCategory.allCases {
+            breakdown.categories[category] = part(
+                contextCharacters(personalInfoCategories: [category]),
+                types: [.personalInfo]
+            )
         }
 
-        // Documents: estimate based on selected documents, only if category enabled
-        for docId in selectedDocuments {
-            if let doc = allDocuments.first(where: { $0.id == docId }), isCategoryEnabled(for: doc) {
-                // Rough estimate: 1 token per 4 characters
-                if let text = doc.extractedText {
-                    tokens += text.count / Constants.tokensPerCharacter
-                } else {
-                    tokens += Constants.defaultTokenEstimate
-                }
-            }
-        }
-
-        // Cache the result
-        _cachedEstimatedTokens = tokens
+        _cachedTokenBreakdown = breakdown
         _lastTokensCalculationHash = currentHash
-
-        return tokens
+        return breakdown
     }
 
-    /// Calculate personal info tokens based on actual data, not a fixed constant
-    /// Calculate total personal info tokens based on selected categories
-    private func calculatePersonalInfoTokens() -> Int {
-        var tokens = 0
-        for category in selectedPersonalInfoCategories {
-            tokens += calculateTokensForCategory(category)
-        }
-        return tokens
+    /// Length of the JSON a context with these types but no data renders to.
+    private func wrapperCharacters(types: Set<HealthDataType>) -> Int {
+        ChatContext(selectedDataTypes: types).buildContextJSON().count
     }
 
-    /// Calculate tokens for a specific personal info category
-    func calculateTokensForCategory(_ category: PersonalInfoCategory) -> Int {
-        guard let personalInfo = healthDataManager.personalInfo else {
-            return category.estimatedBaseTokens
+    /// Characters per token for whichever model the chat will use. On-device models have
+    /// measured figures; cloud providers get a conservative stand-in.
+    private var charactersPerToken: Double {
+        MLXModelInfo.contextCharactersPerToken(for: SettingsManager.shared.modelPreferences.aiProvider)
+    }
+
+    private func tokens(forCharacters characters: Int) -> Int {
+        guard characters > 0 else { return 0 }
+        return Int((Double(characters) / max(0.5, charactersPerToken)).rounded(.up))
+    }
+
+    /// Length of the JSON the chat would send for the given parts of the current selection,
+    /// or 0 when that part is empty.
+    private func contextCharacters(
+        personalInfoCategories: Set<PersonalInfoCategory> = [],
+        includeBloodTests: Bool = false,
+        includeDocuments: Bool = false
+    ) -> Int {
+        var types: Set<HealthDataType> = []
+        let personalInfo = personalInfoCategories.isEmpty ? nil : healthDataManager.personalInfo
+        if personalInfo != nil { types.insert(.personalInfo) }
+
+        var bloodTests: [BloodTestResult] = []
+        if includeBloodTests {
+            types.insert(.bloodTest)
+            bloodTests = allBloodTests
+                .filter { selectedBloodTests.contains($0.id) }
+                .map { test in
+                    // The JSON builder keeps only flagged tests; the flag is saved later.
+                    var included = test
+                    included.includeInAIContext = true
+                    return included
+                }
         }
 
-        switch category {
-        case .basicInfo:
-            var tokens = Constants.personalInfoBaseTokens
-            tokens += personalInfo.medications.count * Constants.tokensPerMedication
-            tokens += personalInfo.supplements.count * Constants.tokensPerSupplement
-            tokens += personalInfo.allergies.count * 5
-            return tokens
+        let documents: [MedicalDocumentSummary] = includeDocuments
+            ? allDocuments
+                .filter { selectedDocuments.contains($0.id) && isCategoryEnabled(for: $0) }
+                .map { MedicalDocumentSummary(from: $0) }
+            : []
 
-        case .medicalHistory:
-            var tokens = 30 // Base structure
-            tokens += personalInfo.personalMedicalHistory.count * Constants.tokensPerCondition
-            // Add family history estimate (approx 10 tokens per non-empty field)
-            let familyHistory = personalInfo.familyHistory
-            if familyHistory.mother?.isEmpty == false { tokens += 10 }
-            if familyHistory.father?.isEmpty == false { tokens += 10 }
-            if familyHistory.siblings?.isEmpty == false { tokens += 10 }
-            if familyHistory.maternalGrandmother?.isEmpty == false { tokens += 10 }
-            if familyHistory.maternalGrandfather?.isEmpty == false { tokens += 10 }
-            if familyHistory.paternalGrandmother?.isEmpty == false { tokens += 10 }
-            if familyHistory.paternalGrandfather?.isEmpty == false { tokens += 10 }
-            if familyHistory.other?.isEmpty == false { tokens += 10 }
-            return tokens
+        guard personalInfo != nil || !bloodTests.isEmpty || !documents.isEmpty else { return 0 }
 
-        case .coreVitals:
-            var tokens = 0
-            tokens += min(personalInfo.bloodPressureReadings.count, 3) * Constants.tokensPerVitalReading
-            tokens += min(personalInfo.heartRateReadings.count, 3) * Constants.tokensPerVitalReading
-            return max(tokens, 20) // Minimum structure tokens
-
-        case .extendedVitals:
-            var tokens = 0
-            tokens += min(personalInfo.bodyTemperatureReadings.count, 3) * Constants.tokensPerVitalReading
-            tokens += min(personalInfo.oxygenSaturationReadings.count, 3) * Constants.tokensPerVitalReading
-            tokens += min(personalInfo.respiratoryRateReadings.count, 3) * Constants.tokensPerVitalReading
-            tokens += min(personalInfo.weightReadings.count, 5) * Constants.tokensPerVitalReading
-            tokens += min(personalInfo.sleepData.count, 7) * Constants.tokensPerSleepEntry
-            return max(tokens, 20) // Minimum structure tokens
-        }
+        let context = ChatContext(
+            personalInfo: personalInfo,
+            bloodTests: bloodTests,
+            medicalDocuments: documents,
+            selectedDataTypes: types,
+            selectedPersonalInfoCategories: personalInfoCategories
+        )
+        return context.buildContextJSON().count
     }
 
     /// Toggle a personal info category selection
@@ -816,7 +806,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             selectedPersonalInfoCategories.insert(category)
         }
         // Invalidate cache when selection changes
-        _cachedEstimatedTokens = nil
+        _cachedTokenBreakdown = nil
         _lastTokensCalculationHash = nil
     }
 
@@ -854,6 +844,9 @@ class UnifiedContextSelectorViewModel: ObservableObject {
         hasher.combine(healthCheckupsEnabled)
         hasher.combine(selectedDocuments)
         hasher.combine(selectedBloodTests)
+        // The estimate is in the selected model's tokens, so a model change invalidates it.
+        hasher.combine(SettingsManager.shared.modelPreferences.aiProvider == .onDeviceLLM)
+        hasher.combine(MLXModelInfo.selectedModel.id)
         // Include document text lengths in hash for documents in enabled categories
         for docId in selectedDocuments {
             if let doc = allDocuments.first(where: { $0.id == docId }),
@@ -871,6 +864,10 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             hasher.combine(personalInfo.heartRateReadings.count)
             hasher.combine(personalInfo.sleepData.count)
             hasher.combine(personalInfo.allergies.count)
+            hasher.combine(personalInfo.bodyTemperatureReadings.count)
+            hasher.combine(personalInfo.oxygenSaturationReadings.count)
+            hasher.combine(personalInfo.respiratoryRateReadings.count)
+            hasher.combine(personalInfo.weightReadings.count)
         }
         return hasher.finalize()
     }
@@ -934,7 +931,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             selectedBloodTests = Set(allBloodTests.filter { $0.includeInAIContext }.map { $0.id })
             
             // Invalidate cache after loading
-            _cachedEstimatedTokens = nil
+            _cachedTokenBreakdown = nil
             _lastTokensCalculationHash = nil
 
         } catch {
@@ -959,7 +956,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             enableCategoryForDocument(document)
         }
         // Invalidate cache when selection changes
-        _cachedEstimatedTokens = nil
+        _cachedTokenBreakdown = nil
         _lastTokensCalculationHash = nil
         // Note: @Published properties automatically trigger objectWillChange
     }
@@ -993,7 +990,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             bloodTestsEnabled = true
         }
         // Invalidate cache when selection changes
-        _cachedEstimatedTokens = nil
+        _cachedTokenBreakdown = nil
         _lastTokensCalculationHash = nil
         // Note: @Published properties automatically trigger objectWillChange
     }
@@ -1026,7 +1023,7 @@ class UnifiedContextSelectorViewModel: ObservableObject {
             }
         }
         // Invalidate cache when selection changes
-        _cachedEstimatedTokens = nil
+        _cachedTokenBreakdown = nil
         _lastTokensCalculationHash = nil
         // Note: @Published properties automatically trigger objectWillChange
     }

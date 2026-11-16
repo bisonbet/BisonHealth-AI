@@ -86,6 +86,10 @@ struct ConversationContextBuilder {
     ///   - conversationHistory: Previous messages in the conversation
     ///   - systemPrompt: System prompt (Doctor persona)
     ///   - provider: The AI provider being used
+    ///   - charactersPerToken: How many characters the target model fits in a token. Defaults
+    ///     to the provider's figure (`MLXModelInfo.contextCharactersPerToken(for:)`): the
+    ///     health context is JSON of dates and readings, about 1.55 characters a token on
+    ///     MediPhi, so the old flat 4 under-counted it by ~2.6×.
     ///   - reservedTokens: Tokens to hold back for everything this builder cannot see —
     ///     the reply itself and any rules block the provider appends. `responseReserve` is
     ///     512, which is fine for a cloud window and far too small on-device, where the
@@ -97,15 +101,18 @@ struct ConversationContextBuilder {
         conversationHistory: [ChatMessage],
         systemPrompt: String?,
         provider: AIProvider,
+        charactersPerToken: Double? = nil,
         reservedTokens: Int? = nil
     ) -> ContextResult {
         let contextLimit = AIProviderContextLimits.limit(for: provider)
         let responseReserve = reservedTokens ?? TokenEstimates.responseReserve
+        let ratio = charactersPerToken ?? MLXModelInfo.contextCharactersPerToken(for: provider)
 
         // Calculate fixed token costs (these cannot be trimmed)
-        let systemPromptTokens = estimateTokens(systemPrompt ?? "")
-        let healthContextTokens = estimateTokens(healthContext)
-        let currentMessageTokens = estimateTokens(currentMessage) + TokenEstimates.messageOverhead
+        let systemPromptTokens = estimateTokens(systemPrompt ?? "", charactersPerToken: ratio)
+        let healthContextTokens = estimateTokens(healthContext, charactersPerToken: ratio)
+        let currentMessageTokens = estimateTokens(currentMessage, charactersPerToken: ratio)
+            + TokenEstimates.messageOverhead
 
         let fixedTokens = systemPromptTokens + healthContextTokens + currentMessageTokens + responseReserve
 
@@ -118,7 +125,8 @@ struct ConversationContextBuilder {
         // Build trimmed history that fits within budget
         let (trimmedHistory, historyTokens, trimmedCount) = trimConversationHistory(
             messages: relevantHistory,
-            tokenBudget: availableForHistory
+            tokenBudget: availableForHistory,
+            charactersPerToken: ratio
         )
 
         let totalTokens = fixedTokens + historyTokens
@@ -145,7 +153,8 @@ struct ConversationContextBuilder {
     /// Keeps most recent messages, trims oldest first
     private static func trimConversationHistory(
         messages: [ChatMessage],
-        tokenBudget: Int
+        tokenBudget: Int,
+        charactersPerToken: Double
     ) -> (messages: [ChatMessage], tokens: Int, trimmedCount: Int) {
         guard !messages.isEmpty else {
             return ([], 0, 0)
@@ -163,7 +172,7 @@ struct ConversationContextBuilder {
 
         // Process messages from newest to oldest
         for message in messages.reversed() {
-            let messageTokens = estimateMessageTokens(message)
+            let messageTokens = estimateMessageTokens(message, charactersPerToken: charactersPerToken)
 
             if totalTokens + messageTokens <= tokenBudget {
                 includedMessages.insert(message, at: 0) // Maintain chronological order
@@ -182,15 +191,23 @@ struct ConversationContextBuilder {
 
     // MARK: - Token Estimation
 
-    /// Estimate tokens for a string
-    static func estimateTokens(_ text: String) -> Int {
+    /// Estimate tokens for a string. The default is the long-standing 4 characters a token,
+    /// right for English prose; pass the model's own figure for health-context JSON.
+    static func estimateTokens(
+        _ text: String,
+        charactersPerToken: Double = Double(TokenEstimates.charsPerToken)
+    ) -> Int {
         guard !text.isEmpty else { return 0 }
-        return max(1, text.count / TokenEstimates.charsPerToken)
+        return max(1, Int((Double(text.count) / max(0.5, charactersPerToken)).rounded(.up)))
     }
 
     /// Estimate tokens for a chat message (includes overhead)
-    static func estimateMessageTokens(_ message: ChatMessage) -> Int {
-        return estimateTokens(message.content) + TokenEstimates.messageOverhead
+    static func estimateMessageTokens(
+        _ message: ChatMessage,
+        charactersPerToken: Double = Double(TokenEstimates.charsPerToken)
+    ) -> Int {
+        return estimateTokens(message.content, charactersPerToken: charactersPerToken)
+            + TokenEstimates.messageOverhead
     }
 
     // MARK: - Format Helpers

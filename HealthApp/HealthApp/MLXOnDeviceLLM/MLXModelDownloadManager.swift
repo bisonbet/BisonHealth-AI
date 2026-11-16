@@ -105,11 +105,43 @@ private enum MLXDownloadTransferError: LocalizedError {
         switch self {
         case .invalidResponse(let file):
             return "Hugging Face returned an invalid response for \(file)."
+        case .httpStatus(let file, 401):
+            return "Hugging Face rejected the access token while downloading \(file). Check or remove the token in On-Device AI settings."
+        case .httpStatus(let file, 429):
+            return "Hugging Face is rate-limiting downloads of \(file). Wait a few minutes, or add a Hugging Face access token in On-Device AI settings."
         case .httpStatus(let file, let statusCode):
             return "Hugging Face returned HTTP \(statusCode) for \(file)."
         case .incompleteFile(let file, let expectedBytes, let actualBytes):
             return "The download for \(file) ended at \(actualBytes) of \(expectedBytes) bytes."
         }
+    }
+}
+
+// MARK: - Redirect Authorization Filter
+
+/// Keeps the Hugging Face token on huggingface.co when `/resolve/` redirects to the CDN.
+///
+/// The CDN URL carries its own signature. Forwarding the Hub's `Authorization` header to it
+/// would hand the user's token to a third-party host, and a signed object-store URL can
+/// refuse a request that also carries a second credential.
+final class HubRedirectAuthorizationFilter: NSObject, URLSessionTaskDelegate, Sendable {
+    static let shared = HubRedirectAuthorizationFilter()
+
+    /// The request to follow when `original` is redirected to `redirected`.
+    static func filteredRedirect(_ redirected: URLRequest, from original: URLRequest?) -> URLRequest {
+        guard redirected.url?.host != original?.url?.host else { return redirected }
+        var request = redirected
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        Self.filteredRedirect(request, from: task.originalRequest)
     }
 }
 
@@ -196,7 +228,10 @@ class MLXModelDownloadManager: ObservableObject {
     /// completes well inside `stallThreshold` on a slow connection (so the watchdog sees
     /// regular byte progress) and that the mapped slice never costs much memory, large
     /// enough that a multi-gigabyte shard does not need an excessive number of requests.
-    private nonisolated static let downloadSliceBytes: Int64 = 4 * 1024 * 1024
+    /// Each request pays a fixed time-to-first-byte from the CDN, so 4 MB slices spent a
+    /// large share of every transfer waiting; at 8 MB a slice still lands inside the 60 s
+    /// stall threshold on anything faster than about 140 KB/s.
+    private nonisolated static let downloadSliceBytes: Int64 = 8 * 1024 * 1024
 
     #if !targetEnvironment(simulator)
     /// The default URLSession can wait for connectivity and retain a dead connection longer
@@ -227,8 +262,14 @@ class MLXModelDownloadManager: ObservableObject {
 
     /// Repository metadata is a few kilobytes, so it is never worth refusing over cost;
     /// only the weights are gated.
+    ///
+    /// The token is read from the Keychain on each request, so one saved or removed in
+    /// settings applies to the next download without relaunching. With none saved, requests
+    /// go out anonymously, as they always have.
     private nonisolated static let realtimeHubClient = HuggingFace.HubClient(
         session: meteredTransferSession,
+        host: HuggingFace.HubClient.defaultHost,
+        tokenProvider: .custom { HuggingFaceTokenStore().token() },
         cache: nil
     )
     #endif
@@ -340,17 +381,12 @@ class MLXModelDownloadManager: ObservableObject {
         #else
         AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId)), expecting \(formatSize(model.estimatedSizeBytes)) across up to \(Self.maxConcurrentFileDownloads) files")
 
-        let configuration = ModelConfiguration(
-            id: model.huggingFaceId,
-            extraEOSTokens: model.extraEOSTokens
-        )
         // Download the weights only. Instantiating the model is the chat client's job,
         // and doing it here would pull the whole model into memory for no benefit.
         // HubClient reports byte-weighted parent progress, unlike the older MLX helper's
         // file-weighted progress (which can sit at 33% for an entire multi-GB shard).
         return try await downloadModelWithRealtimeProgress(
             model: model,
-            configuration: configuration,
             progressBox: progressBox,
             allowingMeteredPaths: allowsMeteredTransfer
         )
@@ -649,7 +685,6 @@ class MLXModelDownloadManager: ObservableObject {
     /// final artifacts.
     private func downloadModelWithRealtimeProgress(
         model: MLXModelInfo,
-        configuration: ModelConfiguration,
         progressBox: DownloadProgressBox,
         allowingMeteredPaths: Bool
     ) async throws -> URL {
@@ -686,7 +721,9 @@ class MLXModelDownloadManager: ObservableObject {
             "[MLXDownload] Found \(entries.count) model files (\(shardCount) weight shards); direct streaming enabled"
         )
 
-        let modelDirectory = configuration.modelDirectory(hub: defaultHubApi)
+        // The same `Caches/models/<repo>` folder mlx-swift-lm 2.x's `defaultHubApi` resolved,
+        // so models downloaded before the 3.x upgrade are still found.
+        let modelDirectory = huggingFaceCacheDirectory(for: model)
         try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
 
         let fileSizes = Dictionary(uniqueKeysWithValues: entries.map { entry in
@@ -812,6 +849,14 @@ class MLXModelDownloadManager: ObservableObject {
 
         var completedBytes = resumeOffset
 
+        // `/resolve/` answers every request with a redirect to a signed CDN URL. Following
+        // it once per slice cost a round trip to huggingface.co and a resolve against the
+        // Hub's rate limit for every slice, so once a slice has landed the rest go straight
+        // to the URL it was served from. That URL expires; a refusal from it sends the
+        // next slice back through `/resolve/` for a fresh one.
+        var transferURL = fileURL
+        var isUsingRedirectedURL = false
+
         // Transfer in bounded byte ranges rather than iterating `URLSession.bytes`. A
         // per-byte `AsyncBytes` loop costs one async resumption per byte, which is
         // orders of magnitude slower than the network on a multi-gigabyte shard, and
@@ -820,11 +865,12 @@ class MLXModelDownloadManager: ObservableObject {
         while expectedBytes == 0 || completedBytes < expectedBytes {
             try Task.checkCancellation()
 
-            var request = URLRequest(url: fileURL)
+            var request = URLRequest(url: transferURL)
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-            if let bearerToken {
+            // The CDN URL is already signed; the Hub token is never sent to it.
+            if let bearerToken, !isUsingRedirectedURL {
                 request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             }
 
@@ -834,7 +880,10 @@ class MLXModelDownloadManager: ObservableObject {
             request.setValue("bytes=\(completedBytes)-\(sliceUpperBound)", forHTTPHeaderField: "Range")
 
             let session = Self.transferSession(allowingMeteredPaths: allowingMeteredPaths)
-            let (temporaryURL, response) = try await session.download(for: request)
+            let (temporaryURL, response) = try await session.download(
+                for: request,
+                delegate: HubRedirectAuthorizationFilter.shared
+            )
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: temporaryURL)
@@ -850,10 +899,23 @@ class MLXModelDownloadManager: ObservableObject {
 
             guard (200 ..< 300).contains(httpResponse.statusCode) else {
                 try? FileManager.default.removeItem(at: temporaryURL)
+                if isUsingRedirectedURL {
+                    AppLog.shared.mlx(
+                        "[MLXDownload] CDN URL for \(entry.path) returned HTTP \(httpResponse.statusCode); resolving it again"
+                    )
+                    transferURL = fileURL
+                    isUsingRedirectedURL = false
+                    continue
+                }
                 throw MLXDownloadTransferError.httpStatus(
                     file: entry.path,
                     statusCode: httpResponse.statusCode
                 )
+            }
+
+            if !isUsingRedirectedURL, let servedURL = httpResponse.url, servedURL.host != fileURL.host {
+                transferURL = servedURL
+                isUsingRedirectedURL = true
             }
 
             // Mapped rather than read into memory: if the server ignored the Range header
@@ -1150,10 +1212,10 @@ class MLXModelDownloadManager: ObservableObject {
 
     // MARK: - Private Helpers
 
-    /// Get the HuggingFace Hub materialized snapshot directory for a model.
-    /// MLX Swift's `defaultHubApi` uses cachesDirectory as downloadBase (not documentDirectory).
-    /// HubApi.localRepoLocation then appends: models/<repoId>
-    /// Uses .appending(component:) to match HubApi's URL construction.
+    /// The folder a model's files are downloaded into and loaded from: `Caches/models/<repoId>`.
+    /// This is where mlx-swift-lm 2.x's `defaultHubApi` put snapshots (cachesDirectory as its
+    /// download base, then `models/<repoId>`), and it must not move: devices upgraded from a
+    /// 2.x build already hold multi-gigabyte models here.
     private nonisolated func huggingFaceCacheDirectory(for model: MLXModelInfo) -> URL {
         Self.cachesDirectory
             .appending(component: "models")
@@ -1259,8 +1321,9 @@ class MLXModelDownloadManager: ObservableObject {
         return directoryContainsRequiredArtifacts(at: cacheDir)
     }
 
-    /// Recursively check for config.json and all weight shards named by an index file.
-    /// Non-sharded models fall back to requiring at least one safetensors file.
+    /// Recursively check for config.json and complete weights: every shard an index names, or,
+    /// for a stale index, the conventional files the loader uses instead
+    /// (`weightsAreComplete`). Models without an index need at least one safetensors file.
     private func directoryContainsRequiredArtifacts(at directory: URL) -> Bool {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -1301,25 +1364,56 @@ class MLXModelDownloadManager: ObservableObject {
         guard hasConfig else { return false }
         guard !indexFiles.isEmpty else { return hasSafetensors }
 
-        let relativeBasenames = Set(relativeFiles.map { URL(fileURLWithPath: $0).lastPathComponent })
-        for indexFile in indexFiles {
+        let shardSets: [Set<String>] = indexFiles.compactMap { indexFile in
             guard let data = try? Data(contentsOf: indexFile),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let weightMap = object["weight_map"] as? [String: String],
                   !weightMap.isEmpty else {
-                continue
+                return nil
             }
-
-            let shards = Set(weightMap.values)
-            if shards.allSatisfy({
-                relativeFiles.contains($0)
-                    || relativeBasenames.contains(URL(fileURLWithPath: $0).lastPathComponent)
-            }) {
-                return true
-            }
+            return Set(weightMap.values)
         }
 
-        return false
+        return Self.weightsAreComplete(presentFiles: relativeFiles, indexedShardSets: shardSets)
+    }
+
+    /// Whether the weight files on disk make a whole model, given the shards each
+    /// `*.safetensors.index.json` names.
+    ///
+    /// An index whose shards are all present is complete. One with only *some* present is a
+    /// sharded download still in progress, which is what this check exists to catch (MedGemma
+    /// 27B is three shards). One with *none* present is stale: quantized uploads often carry
+    /// the index over from the unquantized source repo, as `mlx-community/medgemma-1.5-4b-it-4bit`
+    /// does, naming two bf16 shards while shipping a single `model.safetensors`. mlx-swift-lm's
+    /// loader ignores such an index and loads the conventional `model*.safetensors` files, so
+    /// the model is complete when one of those is present. A partial file is never mistaken for
+    /// one: transfers write to `.incomplete` and are renamed only once they finish.
+    nonisolated static func weightsAreComplete(
+        presentFiles: Set<String>,
+        indexedShardSets: [Set<String>]
+    ) -> Bool {
+        let presentBasenames = Set(presentFiles.map { URL(fileURLWithPath: $0).lastPathComponent })
+        func isPresent(_ shard: String) -> Bool {
+            presentFiles.contains(shard)
+                || presentBasenames.contains(URL(fileURLWithPath: shard).lastPathComponent)
+        }
+
+        // Index files exist but none could be read. mlx-swift-lm throws decoding a corrupt
+        // index rather than falling back, so this download would fail at load.
+        guard !indexedShardSets.isEmpty else { return false }
+
+        if indexedShardSets.contains(where: { $0.allSatisfy(isPresent) }) {
+            return true
+        }
+
+        let anyIndexedShardPresent = indexedShardSets.contains { $0.contains(where: isPresent) }
+        guard !anyIndexedShardPresent else { return false }
+
+        return presentFiles.contains { path in
+            !path.contains("/")
+                && path.hasPrefix("model")
+                && path.hasSuffix(".safetensors")
+        }
     }
 
     /// Delete a model cache that will not be completed.

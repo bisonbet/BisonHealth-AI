@@ -12,11 +12,13 @@
 # there is no `sudo xcode-select` repeated per job. **Do not remove it**: without it the
 # runner falls back to 16.4 and nothing in this repository compiles.
 #
-# Why 26.2.0, of the four 26.x the image carries (26.0.1, 26.1.1, 26.2.0, 26.3.0): it is the
-# newest one whose matching simulator runtime is actually installed. The image has iOS 26.0,
-# 26.1 and 26.2 runtimes and no 26.3, and a newer compiler is what the dependency's Sendable
-# diagnostic needs — that code compiles clean under the Xcode 27.x used locally.
-#
+# Why `macos-26` and Xcode 26.6 (changed 2026-11-16, PR #65): mlx-swift 0.32.x, which
+# mlx-swift-lm 3.32.3 requires, declares `swift-tools-version: 6.3`. Every Xcode on `macos-15`
+# (newest 26.3) ships Swift 6.2, so package resolution failed before any file compiled. Swift
+# 6.3 arrives with Xcode 26.4; `macos-26` carries 26.4.1, 26.5 and 26.6. 26.6 is its default
+# and pairs with the installed iOS 26.5 simulator runtime, which has an iPhone 17 Pro.
+# Earlier the pin was 26.2.0 on `macos-15`, the newest Xcode there with a matching runtime.
+
 # What each job is for, and why it is not just "run the tests":
 #
 #   lint      — SwiftLint has a known baseline of 5 pre-existing violations and must run from
@@ -51,17 +53,17 @@ concurrency:
 env:
   PROJECT: HealthApp/HealthApp.xcodeproj
   SCHEME: HealthApp
-  # Deliberately pins no OS. The runner has iOS 26.0, 26.1 and 26.2 and *no* 26.5, so the
-  # `OS=26.5` that CLAUDE.md uses locally would fail here.
+  # Deliberately pins no OS, so the newest installed runtime that has this device is used
+  # (26.5 on `macos-26` today) and an image update does not break the destination.
   SIMULATOR: platform=iOS Simulator,name=iPhone 17 Pro
   # The single place this workflow's toolchain is chosen — see the header for why it must
   # stay. Every job and step inherits it, so no job runs `xcode-select`.
-  DEVELOPER_DIR: /Applications/Xcode_26.2.0.app/Contents/Developer
+  DEVELOPER_DIR: /Applications/Xcode_26.6.0.app/Contents/Developer
 
 jobs:
   environment:
     name: Report the runner's toolchain
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Xcode versions available
         run: ls /Applications | grep -i '^Xcode' || echo "no Xcode found"
@@ -76,7 +78,7 @@ jobs:
 
   lint:
     name: SwiftLint (baseline 5)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Install SwiftLint
@@ -96,7 +98,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -152,7 +154,7 @@ jobs:
 
   typecheck:
     name: Device build (the only one that compiles MLX)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Resolve dependencies
