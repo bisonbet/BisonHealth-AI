@@ -103,9 +103,6 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
     /// Shown in place of the reply while a thinking model is still reasoning.
     private static let reasoningPlaceholder = "_Thinking…_"
 
-    /// Tokens per prefill chunk; see `currentGenerateParameters`.
-    private static let prefillStepSize = 256
-
     /// How often a turn in progress writes a memory sample to the log.
     nonisolated private static let heartbeatInterval: Duration = .seconds(2)
 
@@ -524,7 +521,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
                     AppLog.shared.mlx(
                         "[MLXClient] Generation finished: promptTokens=\(info.promptTokenCount), generatedTokens=\(info.generationTokenCount), \(String(format: "%.1f", info.tokensPerSecond)) tok/s (\(Self.memorySummary()))"
                     )
-                case .toolCall:
+                case .toolCall, .rejectedToolCall:
                     continue
                 }
             }
@@ -787,14 +784,19 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             extraEOSTokens: selectedModel.extraEOSTokens
         )
 
-        // Load via the appropriate factory
+        // Load via the appropriate factory. The configuration is a local directory, so the
+        // downloader is never consulted; see `MLXLocalOnlyDownloader`.
         switch selectedModel.modelType {
         case .llm:
             modelContainer = try await LLMModelFactory.shared.loadContainer(
+                from: MLXLocalOnlyDownloader(),
+                using: MLXTokenizerLoader(),
                 configuration: configuration
             )
         case .vlm:
             modelContainer = try await VLMModelFactory.shared.loadContainer(
+                from: MLXLocalOnlyDownloader(),
+                using: MLXTokenizerLoader(),
                 configuration: configuration
             )
         }
@@ -958,10 +960,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
             temperature: MLXModelInfo.configuredTemperature(for: model),
             topP: MLXModelInfo.configuredTopP(for: model),
             repetitionPenalty: MLXModelInfo.configuredRepetitionPenalty(for: model),
-            // mlx-swift-lm's default is 512. Every chunk allocates attention scores and
-            // activations sized by it, and `RotatingKVCache` copies each layer's cache per
-            // chunk; smaller chunks lower the prefill peak for a little speed.
-            prefillStepSize: Self.prefillStepSize
+            prefill: .init(stepSize: model.prefillStepSize)
         )
     }
 

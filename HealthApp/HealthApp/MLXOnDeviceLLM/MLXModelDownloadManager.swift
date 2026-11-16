@@ -340,17 +340,12 @@ class MLXModelDownloadManager: ObservableObject {
         #else
         AppLog.shared.mlx("[MLXDownload] Starting download for \(model.displayName) (\(model.huggingFaceId)), expecting \(formatSize(model.estimatedSizeBytes)) across up to \(Self.maxConcurrentFileDownloads) files")
 
-        let configuration = ModelConfiguration(
-            id: model.huggingFaceId,
-            extraEOSTokens: model.extraEOSTokens
-        )
         // Download the weights only. Instantiating the model is the chat client's job,
         // and doing it here would pull the whole model into memory for no benefit.
         // HubClient reports byte-weighted parent progress, unlike the older MLX helper's
         // file-weighted progress (which can sit at 33% for an entire multi-GB shard).
         return try await downloadModelWithRealtimeProgress(
             model: model,
-            configuration: configuration,
             progressBox: progressBox,
             allowingMeteredPaths: allowsMeteredTransfer
         )
@@ -649,7 +644,6 @@ class MLXModelDownloadManager: ObservableObject {
     /// final artifacts.
     private func downloadModelWithRealtimeProgress(
         model: MLXModelInfo,
-        configuration: ModelConfiguration,
         progressBox: DownloadProgressBox,
         allowingMeteredPaths: Bool
     ) async throws -> URL {
@@ -686,7 +680,9 @@ class MLXModelDownloadManager: ObservableObject {
             "[MLXDownload] Found \(entries.count) model files (\(shardCount) weight shards); direct streaming enabled"
         )
 
-        let modelDirectory = configuration.modelDirectory(hub: defaultHubApi)
+        // The same `Caches/models/<repo>` folder mlx-swift-lm 2.x's `defaultHubApi` resolved,
+        // so models downloaded before the 3.x upgrade are still found.
+        let modelDirectory = huggingFaceCacheDirectory(for: model)
         try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
 
         let fileSizes = Dictionary(uniqueKeysWithValues: entries.map { entry in
@@ -1150,10 +1146,10 @@ class MLXModelDownloadManager: ObservableObject {
 
     // MARK: - Private Helpers
 
-    /// Get the HuggingFace Hub materialized snapshot directory for a model.
-    /// MLX Swift's `defaultHubApi` uses cachesDirectory as downloadBase (not documentDirectory).
-    /// HubApi.localRepoLocation then appends: models/<repoId>
-    /// Uses .appending(component:) to match HubApi's URL construction.
+    /// The folder a model's files are downloaded into and loaded from: `Caches/models/<repoId>`.
+    /// This is where mlx-swift-lm 2.x's `defaultHubApi` put snapshots (cachesDirectory as its
+    /// download base, then `models/<repoId>`), and it must not move: devices upgraded from a
+    /// 2.x build already hold multi-gigabyte models here.
     private nonisolated func huggingFaceCacheDirectory(for model: MLXModelInfo) -> URL {
         Self.cachesDirectory
             .appending(component: "models")

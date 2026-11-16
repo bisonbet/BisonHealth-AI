@@ -121,6 +121,9 @@
 		A2MLX00A2F26000100MLX001 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX00D2F26000100MLX001 /* MLXLMCommon */; };
 		A2MLX00B2F26000100MLX001 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX00E2F26000100MLX001 /* MLXLLM */; };
 		A2MLX00C2F26000100MLX001 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX00F2F26000100MLX001 /* MLXVLM */; };
+		A2MLX0172F26000100MLX001 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX0152F26000100MLX001 /* HuggingFace */; };
+		A2MLX0182F26000100MLX001 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = A2MLX0162F26000100MLX001 /* Tokenizers */; };
+		A2MLX01A2F26000100MLX001 /* MLXTokenizerLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0192F26000100MLX001 /* MLXTokenizerLoader.swift */; };
 		A2MLX0112F26000100MLX001 /* OnDeviceLLMSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */; };
 		A44114E5B1EEE479D907F01F1 /* DocumentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */; };
 		A8787ADDA02C141129A43C311 /* AIChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33702D7631403A9F76CF91 /* AIChatManager.swift */; };
@@ -295,6 +298,7 @@
 		A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceResponse.swift; sourceTree = "<group>"; };
 		A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXModelDownloadManager.swift; sourceTree = "<group>"; };
 		A2MLX0082F26000100MLX001 /* MLXOnDeviceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXOnDeviceClient.swift; sourceTree = "<group>"; };
+		A2MLX0192F26000100MLX001 /* MLXTokenizerLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXTokenizerLoader.swift; sourceTree = "<group>"; };
 		A2MLX0122F26000100MLX001 /* OnDeviceLLMSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceLLMSettingsView.swift; sourceTree = "<group>"; };
 		A40CEF837977488692FFFE67 /* AppointmentPrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppointmentPrep.swift; sourceTree = "<group>"; };
 		AA2EE0B4386A2495D857A88A1 /* DocumentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentManager.swift; sourceTree = "<group>"; };
@@ -365,6 +369,8 @@
 				A2MLX00A2F26000100MLX001 /* MLXLMCommon in Frameworks */,
 				A2MLX00B2F26000100MLX001 /* MLXLLM in Frameworks */,
 				A2MLX00C2F26000100MLX001 /* MLXVLM in Frameworks */,
+				A2MLX0172F26000100MLX001 /* HuggingFace in Frameworks */,
+				A2MLX0182F26000100MLX001 /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -645,6 +651,7 @@
 				A2MLX0062F26000100MLX001 /* MLXOnDeviceResponse.swift */,
 				A2MLX0072F26000100MLX001 /* MLXModelDownloadManager.swift */,
 				A2MLX0082F26000100MLX001 /* MLXOnDeviceClient.swift */,
+				A2MLX0192F26000100MLX001 /* MLXTokenizerLoader.swift */,
 			);
 			path = MLXOnDeviceLLM;
 			sourceTree = "<group>";
@@ -689,6 +696,8 @@
 				A2MLX00D2F26000100MLX001 /* MLXLMCommon */,
 				A2MLX00E2F26000100MLX001 /* MLXLLM */,
 				A2MLX00F2F26000100MLX001 /* MLXVLM */,
+				A2MLX0152F26000100MLX001 /* HuggingFace */,
+				A2MLX0162F26000100MLX001 /* Tokenizers */,
 			);
 			productName = HealthApp;
 			productReference = A1000001294A0000000000000 /* HealthApp.app */;
@@ -763,6 +772,8 @@
 				1434469C2E78E36D00961754 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 				146E72AB2EC2BD8D00D20C53 /* XCRemoteSwiftPackageReference "textual" */,
 				A2MLX0102F26000100MLX001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				A2MLX0132F26000100MLX001 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
+				A2MLX0142F26000100MLX001 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			productRefGroup = A1000001294A0000000000002 /* Products */;
 			projectDirPath = "";
@@ -816,6 +827,7 @@
 				A2MLX0022F26000100MLX001 /* MLXOnDeviceResponse.swift in Sources */,
 				A2MLX0032F26000100MLX001 /* MLXModelDownloadManager.swift in Sources */,
 				A2MLX0042F26000100MLX001 /* MLXOnDeviceClient.swift in Sources */,
+				A2MLX01A2F26000100MLX001 /* MLXTokenizerLoader.swift in Sources */,
 				SUP003002EA12E9900999002 /* SupplementEditorView.swift in Sources */,
 				SUP005002EA12E9900999003 /* SupplementSelectorView.swift in Sources */,
 				143446962E78B62F00961754 /* MedicationEditorView.swift in Sources */,
@@ -1354,7 +1366,23 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm/";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 2.31.3;
+				minimumVersion = 3.32.3;
+			};
+		};
+		A2MLX0132F26000100MLX001 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
+		A2MLX0142F26000100MLX001 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 1.2.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1399,6 +1427,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A2MLX0102F26000100MLX001 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXVLM;
+		};
+		A2MLX0152F26000100MLX001 /* HuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A2MLX0132F26000100MLX001 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
+		};
+		A2MLX0162F26000100MLX001 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A2MLX0142F26000100MLX001 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -444,6 +444,21 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
         }
     }
 
+    /// Tokens per prompt-prefill chunk, or nil to let mlx-swift-lm choose.
+    ///
+    /// The library default is 512. Every chunk allocates attention scores and activations
+    /// sized by it, and `RotatingKVCache` copies each layer's cache per chunk, so smaller
+    /// chunks lower the prefill peak for a little speed. Gemma 3 is left to the library: its
+    /// own path chunks at 128 and skips the 262K-entry output layer for prompt tokens.
+    public var prefillStepSize: Int? {
+        switch id {
+        case Self.medGemma15_4B.id, Self.medGemma27BTextIT4Bit.id:
+            return nil
+        default:
+            return 256
+        }
+    }
+
     /// The model writes a `<think>…</think>` block before every answer. Only the text after
     /// `</think>` is shown or saved; see `MLXReasoningOutput`.
     public var emitsReasoning: Bool {
@@ -532,13 +547,13 @@ extension MLXModelInfo {
     /// rather than ~6 GB. It is a thinking-only model: every answer is preceded by a
     /// reasoning block, which the reply budget below has to leave room for.
     ///
-    /// The MLX build is a third-party conversion; move it to a repository we control (as
-    /// MediPhi was) before shipping it as a default.
+    /// Hosted under bisonnetworking, as MediPhi is, so the download cannot change or vanish
+    /// with a third party's repository.
     public static let medPsy4B = MLXModelInfo(
         id: "medpsy-4b-mlx-4bit",
         displayName: "MedPsy 4B",
         description: "Medical reasoning model for clinical Q&A. Thinks before it answers, so replies take longer to start. Not a diagnostic tool.",
-        huggingFaceId: "Irfanuruchi/MedPsy-4B-MLX-4bit",
+        huggingFaceId: "bisonnetworking/MedPsy-4B-MLX-4bit",
         modelType: .llm,
         // Hub tree total on 2026-11-15.
         estimatedSizeBytes: 2_274_640_246,

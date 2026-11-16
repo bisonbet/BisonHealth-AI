@@ -610,7 +610,12 @@ Emoji prefixes for filtering:
 - SQLite.swift - Type-safe SQLite
 - aws-sdk-swift - AWS Bedrock
 - textual - Text extraction
-- mlx-swift-lm - On-device LLM support
+- mlx-swift-lm 3.x - On-device LLM support (3.32.3, with mlx-swift 0.32.3)
+- swift-huggingface, swift-transformers - model downloads and tokenizers. mlx-swift-lm 2.x
+  pulled these in itself; 3.x does not, so they are direct dependencies now.
+  `MLXOnDeviceLLM/MLXTokenizerLoader.swift` adapts the tokenizer to mlx-swift-lm's protocol
+  in place of its `MLXHuggingFace` macros, which would need macro trust in every
+  `xcodebuild` run. Model loads pass `MLXLocalOnlyDownloader`, which refuses the network.
 
 **Built-in Frameworks**:
 - CryptoKit, VisionKit, PhotosUI, HealthKit, Combine, PDFKit
