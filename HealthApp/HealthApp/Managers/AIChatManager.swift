@@ -1336,9 +1336,10 @@ class AIChatManager: ObservableObject {
         }
 
         func rendered(_ dict: [String: Any]) -> String? {
+            // Compact, matching `ChatContext.buildContextJSON()`.
             guard let data = try? JSONSerialization.data(
                 withJSONObject: dict,
-                options: [.prettyPrinted, .sortedKeys]
+                options: [.sortedKeys]
             ) else { return nil }
             return String(data: data, encoding: .utf8)
         }

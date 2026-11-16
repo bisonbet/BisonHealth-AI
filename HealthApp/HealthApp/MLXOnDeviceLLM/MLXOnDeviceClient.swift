@@ -329,27 +329,44 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         // Refuse a turn that would get the process killed. A fresh session prefills the
         // instructions and any re-hydrated history as well as the message; a live one has
         // that cache resident already, so the headroom iOS reports has paid for it.
-        // Counted with the model's own tokenizer: a few milliseconds, and exact where the
-        // old characters ÷ 3 estimate refused turns that would have fit.
         let promptTexts: [String] = chatSession == nil
             ? [instructions].compactMap { $0 } + conversationHistory.map(\.content) + [message]
             : [message]
-        let promptCharacters = promptTexts.reduce(0) { $0 + $1.count }
-        let encodedTokens = await modelContainer.encode(promptTexts.joined(separator: "\n")).count
-        let estimatedPromptTokens = MLXMemoryBudget.promptTokens(
-            encodedTokens: encodedTokens,
-            messageCount: promptTexts.count
-        )
+        let promptText = promptTexts.joined(separator: "\n")
+        let promptCharacters = promptText.count
         let activeModel = modelProvider()
         let replyTokens = MLXModelInfo.configuredMaxTokens(for: activeModel)
         let availableBytes = ProcessMemory.availableBytes()
-        guard MLXMemoryBudget.promptFits(
-            promptTokens: estimatedPromptTokens,
-            replyTokens: replyTokens,
-            availableBytes: availableBytes,
-            kvBytesPerToken: activeModel.kvBytesPerToken,
-            replyKVBytesPerToken: activeModel.storedKVBytesPerToken
-        ) else {
+        func fitsInMemory(_ promptTokens: Int) -> Bool {
+            MLXMemoryBudget.promptFits(
+                promptTokens: promptTokens,
+                replyTokens: replyTokens,
+                availableBytes: availableBytes,
+                kvBytesPerToken: activeModel.kvBytesPerToken,
+                replyKVBytesPerToken: activeModel.storedKVBytesPerToken
+            )
+        }
+
+        // Tokenizing is not free: Gemma's 262K-entry tokenizer took ~11 s on a 15K-character
+        // prompt, and ChatSession tokenizes the same text again for prefill. So try the
+        // byte-count upper bound first and run the tokenizer only when that bound is too big.
+        let byteBound = MLXMemoryBudget.promptTokenUpperBound(
+            utf8Bytes: promptText.utf8.count,
+            messageCount: promptTexts.count
+        )
+        let estimatedPromptTokens: Int
+        let tokenCountSource: String
+        if fitsInMemory(byteBound) {
+            estimatedPromptTokens = byteBound
+            tokenCountSource = "byte bound"
+        } else {
+            estimatedPromptTokens = MLXMemoryBudget.promptTokens(
+                encodedTokens: await modelContainer.encode(promptText).count,
+                messageCount: promptTexts.count
+            )
+            tokenCountSource = "tokenizer"
+        }
+        guard fitsInMemory(estimatedPromptTokens) else {
             let affordable = MLXMemoryBudget.affordablePromptTokens(
                 availableBytes: availableBytes,
                 replyTokens: replyTokens,
@@ -415,7 +432,7 @@ class MLXOnDeviceClient: ObservableObject, AIProviderInterface {
         // Prefill is where a large first turn spends its memory, and a kill there logs
         // nothing else. Synchronous so this line is on disk before the GPU work starts.
         AppLog.shared.mlx(
-            "[MLXClient] Generation starting: instructions=\(instructions?.count ?? 0) chars, message=\(message.count) chars, history=\(conversationHistory.count), estimatedPromptTokens=\(estimatedPromptTokens), window=\(MLXModelInfo.configuredContextSize), \(Self.memorySummary())",
+            "[MLXClient] Generation starting: instructions=\(instructions?.count ?? 0) chars, message=\(message.count) chars, history=\(conversationHistory.count), promptTokens=\(estimatedPromptTokens) (\(tokenCountSource)), window=\(MLXModelInfo.configuredContextSize), \(Self.memorySummary())",
             synchronize: true
         )
         var loggedFirstToken = false

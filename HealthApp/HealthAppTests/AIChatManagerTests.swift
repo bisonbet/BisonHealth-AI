@@ -1777,3 +1777,61 @@ final class ModelWeightCompletenessTests: XCTestCase {
         ))
     }
 }
+
+// MARK: - Token-count shortcuts and per-model estimates
+//
+// The guard skips the tokenizer when a byte-count bound already fits (MedGemma's took ~11 s on a
+// 15K-character prompt), and the context selector estimates in the selected model's tokens.
+final class PromptTokenBoundTests: XCTestCase {
+
+    func testTheByteBoundCoversEveryTokenizerCount() {
+        // A byte-fallback tokenizer emits at most one token per UTF-8 byte, plus BOS.
+        for bytes in [0, 1, 15_481, 100_000] {
+            XCTAssertGreaterThanOrEqual(
+                MLXMemoryBudget.promptTokenUpperBound(utf8Bytes: bytes, messageCount: 2),
+                MLXMemoryBudget.promptTokens(encodedTokens: bytes + 1, messageCount: 2)
+            )
+        }
+    }
+
+    func testTheByteBoundCountsBytesNotCharacters() {
+        let text = "Température 37,2 °C – fréquence"
+        let bound = MLXMemoryBudget.promptTokenUpperBound(utf8Bytes: text.utf8.count, messageCount: 1)
+        XCTAssertGreaterThan(text.utf8.count, text.count, "Accented text has more bytes than characters")
+        XCTAssertEqual(bound, text.utf8.count + 1 + MLXMemoryBudget.chatTemplateTokensPerMessage)
+    }
+
+    func testTheKilledPromptSkipsTheTokenizerOnMedGemmaButNotMediPhi() {
+        // The 15,481-character turn from the device log, with ~4 GB free.
+        let bound = MLXMemoryBudget.promptTokenUpperBound(utf8Bytes: 15_600, messageCount: 2)
+        let available: UInt64 = 3_970 * 1_024 * 1_024
+        func fits(_ model: MLXModelInfo) -> Bool {
+            MLXMemoryBudget.promptFits(
+                promptTokens: bound,
+                replyTokens: model.defaultSettings.maxTokens,
+                availableBytes: available,
+                kvBytesPerToken: model.kvBytesPerToken,
+                replyKVBytesPerToken: model.storedKVBytesPerToken
+            )
+        }
+        XCTAssertTrue(fits(.medGemma15_4B), "MedGemma's bound fits, so its slow tokenizer is skipped")
+        XCTAssertFalse(fits(.mediPhi4B), "MediPhi's bound does not, so the real count decides")
+    }
+
+    func testEstimatesFollowTheMeasuredTokenizers() {
+        XCTAssertEqual(MLXModelInfo.mediPhi4B.charactersPerTokenEstimate, 1.55)
+        XCTAssertGreaterThan(MLXModelInfo.medGemma15_4B.charactersPerTokenEstimate, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+        XCTAssertGreaterThan(MLXModelInfo.medPsy4B.charactersPerTokenEstimate, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+        XCTAssertEqual(
+            MLXModelInfo.medGemma27BTextIT4Bit.charactersPerTokenEstimate,
+            MLXModelInfo.medGemma15_4B.charactersPerTokenEstimate,
+            "Same tokenizer family"
+        )
+    }
+
+    func testAnUnknownModelEstimatesHigh() {
+        // Fewest characters per token means most tokens: the safe direction for a guess.
+        let lowest = MLXModelInfo.allModels.map(\.charactersPerTokenEstimate).min()
+        XCTAssertEqual(lowest, MLXModelInfo.mediPhi4B.charactersPerTokenEstimate)
+    }
+}

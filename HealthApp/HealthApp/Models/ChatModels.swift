@@ -768,9 +768,12 @@ extension ChatContext {
     func buildContextJSON() -> String {
         do {
             let jsonDict = HealthContextJSON.buildContextJSON(from: self)
+            // Compact, not pretty-printed: only a model reads this, and indentation and
+            // line breaks cost 26–33% more tokens across the on-device tokenizers for the
+            // same data. Keys stay sorted so identical data renders identically.
             let data = try JSONSerialization.data(
                 withJSONObject: jsonDict,
-                options: [.prettyPrinted, .sortedKeys]
+                options: [.sortedKeys]
             )
             guard let jsonString = String(data: data, encoding: .utf8) else {
                 AppLog.shared.ai("Failed to convert JSON data to string, falling back to plain text", level: .warning)

@@ -168,6 +168,14 @@ enum MLXMemoryBudget {
         max(0, encodedTokens) + max(0, messageCount) * chatTemplateTokensPerMessage
     }
 
+    /// A count no tokenizer in the catalog can exceed, without running one: every model here
+    /// uses byte-level BPE or SentencePiece with byte fallback, so a token never covers less
+    /// than one UTF-8 byte. One more for the beginning-of-sequence token, plus the framing.
+    /// When even this fits, the real count is not needed.
+    static func promptTokenUpperBound(utf8Bytes: Int, messageCount: Int) -> Int {
+        promptTokens(encodedTokens: max(0, utf8Bytes) + 1, messageCount: messageCount)
+    }
+
     /// Bytes this turn is expected to add before it finishes: the prompt at prefill cost,
     /// plus the reply, whose tokens are decoded one at a time and pay only the cache.
     ///
@@ -460,6 +468,32 @@ public struct MLXModelInfo: Identifiable, Equatable, Codable, Sendable {
             return MLXMemoryBudget.assumedKVBytesPerToken
         }
     }
+
+    /// Characters per token this model's tokenizer produces on the app's health context,
+    /// for estimates shown before a real count exists (the context selector).
+    ///
+    /// The context is JSON dense with dates, units and readings, which every tokenizer splits
+    /// finely (about 1.5 characters a token on vitals-style lines), so these sit far below the
+    /// ~4 usually quoted for English prose. Anchored on two device runs with the old
+    /// pretty-printed JSON — MediPhi 15,481 characters → 8,658 tokens (1.79), MedGemma ~15,400
+    /// → 5,582 (2.76) — then scaled by each tokenizer's measured change on the compact JSON
+    /// sent now (fewer characters, each costing a little more). MedPsy and Qwen 3.5 are
+    /// inferred from their tokenizers. Unknown models get MediPhi's, the lowest, so an
+    /// estimate errs high.
+    public var charactersPerTokenEstimate: Double {
+        switch id {
+        case Self.medGemma15_4B.id, Self.medGemma27BTextIT4Bit.id:
+            return 2.55
+        case Self.medPsy4B.id, Self.qwen35_4B_VLM.id:
+            return 2.3
+        default:
+            return 1.55
+        }
+    }
+
+    /// Stand-in for cloud providers, whose tokenizers the app cannot run. Not measured;
+    /// set between the on-device figures so the selector neither alarms nor flatters.
+    public static let cloudCharactersPerTokenEstimate = 2.5
 
     /// mlx-swift-lm KV-cache compression for this model's chat sessions, or nil for fp16.
     ///
