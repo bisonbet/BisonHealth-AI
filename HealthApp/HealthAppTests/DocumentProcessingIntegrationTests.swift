@@ -830,6 +830,29 @@ final class DocumentProcessingIntegrationTests: XCTestCase {
         XCTAssertFalse(afterComplete.needsReview)
     }
 
+    /// Editing test information is not a review: findings still awaiting a decision must
+    /// keep their issues through a reprocess.
+    func testReprocessKeepsIssuesTheUserHasNotDecided() throws {
+        let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
+        let report = """
+        Genes Tested: CYP2D6, BRCA1
+        CYP2D6
+        Result: Indeterminate
+        """
+        var edited = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let openIssueCount = edited.reviewIssues.count
+        XCTAssertGreaterThan(openIssueCount, 0)
+        edited.laboratoryName = "Edited Lab"
+        edited.markUserModified()
+
+        let reparsed = try XCTUnwrap(GeneticTestParser().parse(plainText: report, document: document))
+        let merged = reparsed.carryingForwardDecisions(from: edited)
+
+        XCTAssertTrue(merged.needsReview)
+        XCTAssertEqual(Set(merged.reviewIssues.map(\.id)), Set(edited.reviewIssues.map(\.id)))
+        XCTAssertEqual(merged.laboratoryName, "Edited Lab")
+    }
+
     func testReprocessOfAFullyReviewedReportNeedsNoFurtherReview() throws {
         let document = makeDocument(named: "genetic-panel.pdf", category: .geneticTest)
         let fresh = try XCTUnwrap(GeneticTestParser().parse(plainText: """

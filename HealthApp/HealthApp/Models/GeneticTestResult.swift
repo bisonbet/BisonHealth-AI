@@ -224,7 +224,23 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
         }
         let mergedTestedGeneKeys = Set(mergedTestedGenes.map(key))
 
-        let mergedIssues = reviewIssues.filter { issue in
+        let mergedResultIDs = Set(mergedResults.map(\.id))
+
+        // Issues the user never decided stay open. `prior.reviewIssues` holds only those: a
+        // saved review clears the list, and edits remove just the issues they resolve. An edit
+        // elsewhere (test information, another finding) is not a decision about these.
+        let carriedIssues = prior.reviewIssues.filter { issue in
+            if let resultID = issue.resultID {
+                return mergedResultIDs.contains(resultID)
+            }
+            if let gene = issue.gene {
+                return mergedTestedGeneKeys.contains(key(gene))
+            }
+            return mergedResults.isEmpty && mergedTestedGenes.isEmpty
+        }
+
+        // From the fresh parse, only issues about genes the user has never been shown.
+        let freshIssues = reviewIssues.filter { issue in
             if let resultID = issue.resultID {
                 return newFreshItemIDs.contains(resultID)
             }
@@ -232,7 +248,9 @@ struct GeneticTestResult: HealthDataProtocol, Hashable {
                 return !seenByUser.contains(key(gene)) && mergedTestedGeneKeys.contains(key(gene))
             }
             return mergedResults.isEmpty && mergedTestedGenes.isEmpty
+                && !carriedIssues.contains { $0.resultID == nil && $0.gene == nil }
         }
+        let mergedIssues = carriedIssues + freshIssues
 
         var merged = self
         merged.testDate = prior.testDate
